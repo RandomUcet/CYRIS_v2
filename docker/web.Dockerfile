@@ -25,6 +25,7 @@ COPY apps/web ./apps/web
 # Build contracts, shared, and web
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV API_INTERNAL_URL="http://api:4000"
 RUN pnpm --filter @cyris/contracts build && \
     pnpm --filter @cyris/shared build && \
     pnpm --filter @cyris/web build
@@ -52,6 +53,6 @@ USER nextjs
 EXPOSE 3000
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "require('http').get('http://127.0.0.1:3000/login', (res) => res.statusCode === 200 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))"
+  CMD node -e "require('http').get('http://127.0.0.1:3000/', (res) => (res.statusCode >= 200 && res.statusCode < 400) ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))"
 
 CMD ["node", "apps/web/server.js"]

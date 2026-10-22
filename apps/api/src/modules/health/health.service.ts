@@ -22,7 +22,7 @@ export class HealthService {
     return {
       status: 'ok',
       service: 'cyris-api',
-      version: '2.0.0',
+      version: '0.1.1',
       timestamp: new Date().toISOString(),
       uptime: Math.floor((Date.now() - this.startTime) / 1000),
     };

@@ -144,7 +144,7 @@ export default function RootPage() {
             <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '18px', letterSpacing: '0.12em', color: '#fff' }}>
               CYRIS
             </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>v2</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>v0.1.1</span>
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
             Cybertron Registry & Intelligence System

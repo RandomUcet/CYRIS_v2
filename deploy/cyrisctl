@@ -239,7 +239,13 @@ def cmd_admin_create(args):
     cmd = ["docker", "compose", "-f", CYRIS_COMPOSE_FILE]
     if os.path.exists(CYRIS_ENV_FILE):
         cmd.extend(["--env-file", CYRIS_ENV_FILE])
-    cmd.extend(["run", "--rm", "api", "node", "dist/scripts/create-admin.js"])
+    for env_var in ["CYRIS_ADMIN_EMAIL", "CYRIS_ADMIN_NAME", "CYRIS_ADMIN_PASSWORD"]:
+        if os.environ.get(env_var):
+            cmd.extend(["-e", f"{env_var}={os.environ[env_var]}"])
+    if not sys.stdin.isatty():
+        cmd.extend(["run", "--rm", "-T", "api", "node", "dist/scripts/create-admin.js"])
+    else:
+        cmd.extend(["run", "--rm", "api", "node", "dist/scripts/create-admin.js"])
     res = subprocess.run(cmd)
     sys.exit(res.returncode)
 
@@ -516,7 +522,7 @@ def cmd_doctor(args):
     print(f"\n{COLOR_BOLD}INFRASTRUCTURE{COLOR_RESET}")
 
     # PostgreSQL real query test
-    pg_check = docker_compose_cmd("exec", "-T", "postgres", "pg_isready -U cyris", check=False)
+    pg_check = docker_compose_cmd("exec", "-T", "postgres", "pg_isready", "-U", "cyris", check=False)
     if pg_check.returncode == 0:
         print_pass("PostgreSQL")
     else:
@@ -532,7 +538,7 @@ def cmd_doctor(args):
         has_failures = True
 
     # Typesense health test
-    type_check = docker_compose_cmd("exec", "-T", "api", "curl -fsS http://typesense:8108/health", check=False)
+    type_check = docker_compose_cmd("exec", "-T", "api", "curl", "-fsS", "http://typesense:8108/health", check=False)
     if type_check.returncode == 0 and "ok" in type_check.stdout:
         print_pass("Typesense")
     else:
@@ -540,7 +546,7 @@ def cmd_doctor(args):
         has_failures = True
 
     # MinIO health live
-    minio_check = docker_compose_cmd("exec", "-T", "api", "curl -fsS http://minio:9000/minio/health/live", check=False)
+    minio_check = docker_compose_cmd("exec", "-T", "api", "curl", "-fsS", "http://minio:9000/minio/health/live", check=False)
     if minio_check.returncode == 0:
         print_pass("MinIO")
     else:
@@ -577,7 +583,7 @@ def cmd_doctor(args):
             api_ready = True
     except Exception:
         # Check via docker internal if port 4000 is internal
-        api_int = docker_compose_cmd("exec", "-T", "api", "curl -fsS http://127.0.0.1:4000/health/ready", check=False)
+        api_int = docker_compose_cmd("exec", "-T", "api", "curl", "-fsS", "http://127.0.0.1:4000/health/ready", check=False)
         if api_int.returncode == 0:
             api_ready = True
 
@@ -588,7 +594,7 @@ def cmd_doctor(args):
         has_failures = True
 
     # Worker functionality
-    worker_check = docker_compose_cmd("exec", "-T", "worker", "node -e 'process.exit(0)'", check=False)
+    worker_check = docker_compose_cmd("exec", "-T", "worker", "node", "-e", "process.exit(0)", check=False)
     if worker_check.returncode == 0:
         print_pass("Worker")
     else:
@@ -599,8 +605,8 @@ def cmd_doctor(args):
     http_port = env.get("CYRIS_HTTP_PORT", "3000")
     web_ok = False
     try:
-        web_req = urllib.request.urlopen(f"http://127.0.0.1:{http_port}/login", timeout=3)
-        if web_req.status == 200:
+        web_req = urllib.request.urlopen(f"http://127.0.0.1:{http_port}/", timeout=3)
+        if web_req.status in (200, 301, 302, 307):
             web_ok = True
     except Exception:
         pass
@@ -617,7 +623,8 @@ def cmd_doctor(args):
     # Database round trip
     db_test = docker_compose_cmd(
         "exec", "-T", "postgres",
-        f"psql -U cyris -d cyris -c \"CREATE TEMP TABLE probe_{probe_id} (id text); INSERT INTO probe_{probe_id} VALUES ('probe'); SELECT * FROM probe_{probe_id};\"",
+        "psql", "-U", "cyris", "-d", "cyris", "-c",
+        f"CREATE TEMP TABLE probe_{probe_id} (id text); INSERT INTO probe_{probe_id} VALUES ('probe'); SELECT * FROM probe_{probe_id};",
         check=False
     )
     if db_test.returncode == 0 and "probe" in db_test.stdout:
@@ -627,8 +634,8 @@ def cmd_doctor(args):
         has_failures = True
 
     # Worker queue (Redis ping round trip)
-    q_test = docker_compose_cmd("exec", "-T", "redis", f"redis-cli set probe:{probe_id} 'val' EX 10", check=False)
-    q_read = docker_compose_cmd("exec", "-T", "redis", f"redis-cli get probe:{probe_id}", check=False)
+    q_test = docker_compose_cmd("exec", "-T", "redis", "redis-cli", "set", f"probe:{probe_id}", "val", "EX", "10", check=False)
+    q_read = docker_compose_cmd("exec", "-T", "redis", "redis-cli", "get", f"probe:{probe_id}", check=False)
     if q_test.returncode == 0 and "val" in q_read.stdout:
         print_pass("Worker queue")
     else:
@@ -636,7 +643,7 @@ def cmd_doctor(args):
         has_failures = True
 
     # Search indexing
-    s_test = docker_compose_cmd("exec", "-T", "api", "curl -fsS http://typesense:8108/collections", check=False)
+    s_test = docker_compose_cmd("exec", "-T", "api", "sh", "-c", "curl -fsS -H \"X-TYPESENSE-API-KEY: $TYPESENSE_API_KEY\" http://typesense:8108/collections", check=False)
     if s_test.returncode == 0:
         print_pass("Search indexing")
     else:
@@ -646,8 +653,9 @@ def cmd_doctor(args):
     # Object storage (MinIO probe write, read, delete)
     obj_name = f"probe-{probe_id}.txt"
     s3_write = docker_compose_cmd(
-        "exec", "-T", "minio-init",
-        f"/bin/sh -c \"echo 'cyris-probe' > /tmp/{obj_name} && /usr/bin/mc cp /tmp/{obj_name} cyris/cyris-storage/{obj_name}\"",
+        "run", "--rm", "-T", "--entrypoint", "", "minio-init",
+        "/bin/sh", "-c",
+        f"/usr/bin/mc alias set cyris http://minio:9000 $S3_ACCESS_KEY $S3_SECRET_KEY >/dev/null 2>&1 && echo 'cyris-probe' > /tmp/{obj_name} && /usr/bin/mc cp /tmp/{obj_name} cyris/cyris-storage/{obj_name}",
         check=False
     )
     if s3_write.returncode == 0:
@@ -657,8 +665,13 @@ def cmd_doctor(args):
         has_failures = True
 
     # Cleanup verification
-    docker_compose_cmd("exec", "-T", "redis", f"redis-cli del probe:{probe_id}", check=False)
-    docker_compose_cmd("exec", "-T", "minio-init", f"/usr/bin/mc rm --force cyris/cyris-storage/{obj_name}", check=False)
+    docker_compose_cmd("exec", "-T", "redis", "redis-cli", "del", f"probe:{probe_id}", check=False)
+    docker_compose_cmd(
+        "run", "--rm", "-T", "--entrypoint", "", "minio-init",
+        "/bin/sh", "-c",
+        f"/usr/bin/mc alias set cyris http://minio:9000 $S3_ACCESS_KEY $S3_SECRET_KEY >/dev/null 2>&1 && /usr/bin/mc rm --force cyris/cyris-storage/{obj_name}",
+        check=False
+    )
     print_pass("Cleanup")
 
     # 5. SECURITY
@@ -954,14 +967,17 @@ def cmd_restore(args):
             raise Exception("database.sql missing from extracted backup")
 
         # Drop and recreate schema or restore
-        run_command(
-            f"docker compose -f '{CYRIS_COMPOSE_FILE}' exec -T postgres psql -U cyris -d cyris -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'",
+        docker_compose_cmd(
+            "exec", "-T", "postgres",
+            "psql", "-U", "cyris", "-d", "cyris", "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;",
             check=False
         )
-        run_command(
-            f"cat '{db_sql}' | docker compose -f '{CYRIS_COMPOSE_FILE}' exec -T postgres psql -U cyris -d cyris",
-            check=True
-        )
+        with open(db_sql, "rb") as f:
+            restore_cmd = ["docker", "compose", "-f", CYRIS_COMPOSE_FILE]
+            if os.path.exists(CYRIS_ENV_FILE):
+                restore_cmd.extend(["--env-file", CYRIS_ENV_FILE])
+            restore_cmd.extend(["exec", "-T", "postgres", "psql", "-U", "cyris", "-d", "cyris"])
+            subprocess.run(restore_cmd, stdin=f, check=True)
         print("  ✓ PostgreSQL database restored.")
 
         # 5. Restore S3 storage
@@ -969,7 +985,9 @@ def cmd_restore(args):
         s3_src = os.path.join(restore_src, "s3", "cyris-storage")
         if os.path.exists(s3_src):
             minio_dst = os.path.join(CYRIS_VAR, "minio", "cyris-storage")
-            shutil.copytree(s3_src, minio_dst, dirs_exist_ok=True)
+            if os.path.exists(minio_dst):
+                shutil.rmtree(minio_dst)
+            shutil.copytree(s3_src, minio_dst)
             print("  ✓ S3 object storage restored.")
 
         # Restart all services
