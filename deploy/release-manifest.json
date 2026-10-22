@@ -1,0 +1,20 @@
+{
+  "version": "2.0.0",
+  "minCyrisctlVersion": "2.0.0",
+  "supportedOs": ["ubuntu-24.04"],
+  "releaseDate": "2026-10-22T16:00:00Z",
+  "migrationsRequired": true,
+  "searchReindexRequired": false,
+  "breaking": false,
+  "requiredConfigKeys": [
+    "CYRIS_MASTER_KEY",
+    "POSTGRES_PASSWORD",
+    "TYPESENSE_API_KEY",
+    "S3_SECRET_KEY"
+  ],
+  "images": {
+    "api": "ghcr.io/randomucet/cyris-api:2.0.0",
+    "worker": "ghcr.io/randomucet/cyris-worker:2.0.0",
+    "web": "ghcr.io/randomucet/cyris-web:2.0.0"
+  }
+}
