@@ -107,7 +107,13 @@ export class CyrisApiClient {
   private readonly baseUrl: string;
 
   constructor(baseUrl?: string) {
-    this.baseUrl = (baseUrl ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000').replace(/\/+$/, '');
+    if (baseUrl) {
+      this.baseUrl = baseUrl.replace(/\/+$/, '');
+    } else if (typeof window !== 'undefined') {
+      this.baseUrl = '/api';
+    } else {
+      this.baseUrl = (process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/+$/, '');
+    }
   }
 
   async getHealth(): Promise<{ ok: boolean; data?: HealthResponse; error?: string }> {

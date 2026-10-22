@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvent } from '@/contexts/EventContext';
@@ -111,12 +112,10 @@ export default function RootPage() {
               </div>
             ) : (
               events.map((ev) => (
-                <div
+                <Link
                   key={ev.id}
-                  onClick={() => {
-                    selectEvent(ev.id);
-                    router.push(`/events/${ev.id}/overview`);
-                  }}
+                  href={`/events/${ev.id}/overview`}
+                  onClick={() => selectEvent(ev.id)}
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -126,6 +125,7 @@ export default function RootPage() {
                     border: '1px solid var(--border-default)',
                     borderRadius: 'var(--radius-sm)',
                     cursor: 'pointer',
+                    textDecoration: 'none',
                     transition: 'border-color 0.15s ease, background-color 0.15s ease',
                   }}
                   onMouseEnter={(e) => {
@@ -145,7 +145,7 @@ export default function RootPage() {
                     <StatusBadge status={ev.status} />
                     <ArrowRight size={14} style={{ color: 'var(--text-muted)' }} />
                   </div>
-                </div>
+                </Link>
               ))
             )}
           </div>
@@ -295,10 +295,12 @@ export default function RootPage() {
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+            <label htmlFor="login-identifier" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
               Operator Username / Email
             </label>
             <input
+              id="login-identifier"
+              name="identifier"
               type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -310,10 +312,12 @@ export default function RootPage() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+            <label htmlFor="login-password" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
               Password
             </label>
             <input
+              id="login-password"
+              name="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

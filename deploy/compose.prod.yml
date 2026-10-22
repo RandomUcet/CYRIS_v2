@@ -122,6 +122,8 @@ services:
     image: ${CYRIS_API_IMAGE:-ghcr.io/randomucet/cyris-api:${CYRIS_VERSION:-0.1.0}}
     container_name: cyris-api
     restart: unless-stopped
+    ports:
+      - "${CYRIS_API_PORT:-4000}:4000"
     depends_on:
       postgres:
         condition: service_healthy
