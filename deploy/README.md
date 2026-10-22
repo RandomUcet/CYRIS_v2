@@ -91,7 +91,7 @@ sudo cyrisctl diagnostics             # Collect non-sensitive logs and system in
 ```bash
 sudo cyrisctl versions                # Display installed version and available GitHub releases
 sudo cyrisctl update                  # Upgrade to latest release with mandatory pre-update backup
-sudo cyrisctl update --version 2.4.0  # Upgrade or pin to a specific release version
+sudo cyrisctl update --version v0.1.1  # Upgrade or pin to a specific release version
 sudo cyrisctl self-update             # Update cyrisctl operations CLI utility
 ```
 
