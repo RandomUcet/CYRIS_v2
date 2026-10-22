@@ -1118,10 +1118,38 @@ def cmd_update(args):
 
     # 2. Pull new container images
     print("\n[3/7] Pulling target release container images...")
+    update_env_version(target_ver)
     os.environ["CYRIS_VERSION"] = target_ver
     os.environ["CYRIS_API_IMAGE"] = f"ghcr.io/randomucet/cyris-api:{target_ver}"
     os.environ["CYRIS_WORKER_IMAGE"] = f"ghcr.io/randomucet/cyris-worker:{target_ver}"
     os.environ["CYRIS_WEB_IMAGE"] = f"ghcr.io/randomucet/cyris-web:{target_ver}"
+
+    # Download latest compose definition and manifest from GitHub release
+    tag_name = f"v{target_ver}"
+    url_base = f"https://api.github.com/repos/RandomUcet/CYRIS_v2/releases/tags/{tag_name}"
+    try:
+        req = urllib.request.Request(url_base, headers=get_github_headers())
+        with urllib.request.urlopen(req, timeout=5) as res:
+            rel_info = json.loads(res.read().decode())
+            for asset in rel_info.get("assets", []):
+                name = asset.get("name")
+                download_url = asset.get("browser_download_url")
+                if name == "compose.prod.yml" and download_url:
+                    headers = get_github_headers()
+                    headers["Accept"] = "application/octet-stream"
+                    areq = urllib.request.Request(asset.get("url", download_url), headers=headers)
+                    with urllib.request.urlopen(areq, timeout=10) as ares:
+                        with open(CYRIS_COMPOSE_FILE, "wb") as f:
+                            f.write(ares.read())
+                elif name == "release-manifest.json" and download_url:
+                    headers = get_github_headers()
+                    headers["Accept"] = "application/octet-stream"
+                    areq = urllib.request.Request(asset.get("url", download_url), headers=headers)
+                    with urllib.request.urlopen(areq, timeout=10) as ares:
+                        with open(CYRIS_MANIFEST_FILE, "wb") as f:
+                            f.write(ares.read())
+    except Exception:
+        pass
 
     res = docker_compose_cmd("pull", check=False)
     if res.returncode != 0:
