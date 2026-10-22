@@ -46,6 +46,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -69,6 +72,7 @@ jobs:
         with:
           context: .
           file: docker/api.Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-api:${{ steps.meta.outputs.version }}
@@ -79,6 +83,7 @@ jobs:
         with:
           context: .
           file: docker/worker.Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-worker:${{ steps.meta.outputs.version }}
@@ -89,6 +94,7 @@ jobs:
         with:
           context: .
           file: docker/web.Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-web:${{ steps.meta.outputs.version }}
