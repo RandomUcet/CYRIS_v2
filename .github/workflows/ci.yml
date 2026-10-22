@@ -33,3 +33,10 @@ jobs:
 
       - name: Check diff
         run: git diff --check
+
+      - name: Validate deployment scripts
+        run: |
+          bash -n deploy/install.sh
+          ./deploy/install.sh --help
+          python3 ./deploy/cyrisctl --help
+          docker compose -f deploy/compose.prod.yml config > /dev/null
