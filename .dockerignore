@@ -1,0 +1,30 @@
+# Version control & local environment
+.git
+.github
+.agents
+.gemini
+.DS_Store
+
+# Node.js dependencies & builds
+**/node_modules
+**/.next
+**/dist
+**/*.tsbuildinfo
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Backups & runtime logs
+backups/
+/var/
+/tmp/
+*.log
+.cyris-dev-pids*
+
+# Documentation & tests
+docs/
+scratch/

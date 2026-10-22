@@ -7,6 +7,8 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
+    "db:status": "nest build && node dist/scripts/db-status.js",
+    "db:migrate": "nest build && node dist/scripts/db-migrate.js",
     "admin:create": "nest build && node dist/scripts/create-admin.js",
     "admin:password": "nest build && node dist/scripts/admin-password.js",
     "search:setup": "nest build && node dist/scripts/search-setup.js",

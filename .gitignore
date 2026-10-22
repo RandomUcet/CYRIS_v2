@@ -9,6 +9,7 @@ node_modules/
 dist/
 build/
 coverage/
+*.tsbuildinfo
 
 # Runtime data, logs, temporary QA files, and local process state
 *.log
