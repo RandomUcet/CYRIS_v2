@@ -1,0 +1,41 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+.next/
+dist/
+build/
+coverage/
+
+# Runtime data, logs, temporary QA files, and local process state
+*.log
+.cyris-dev-pids*
+backups/
+*.dump
+*.backup
+*.bak
+tmp/
+temp/
+qa-*.json
+qa-*.sql
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE local state
+.idea/
+.vscode/
+*.swp
+*.swo

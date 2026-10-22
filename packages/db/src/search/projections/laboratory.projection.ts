@@ -1,0 +1,70 @@
+import { eq } from 'drizzle-orm';
+import type { SearchDocument } from '@cyris/contracts';
+import { normalizeSearchText, Permissions } from '@cyris/shared';
+import { labAnalyses, resources } from '../../schema/index.js';
+import type { CyrisDb, SearchProjectionProvider } from '../projection.interface.js';
+
+export class LabAnalysisSearchProjectionProvider implements SearchProjectionProvider {
+  getSupportedTypes(): string[] {
+    return ['lab_analysis'];
+  }
+
+  async buildDocument(db: CyrisDb, _type: string, id: string): Promise<SearchDocument | null> {
+    const [row] = await db
+      .select({ lab: labAnalyses, resource: resources })
+      .from(labAnalyses)
+      .innerJoin(resources, eq(labAnalyses.id, resources.id))
+      .where(eq(labAnalyses.id, id))
+      .limit(1);
+
+    if (!row) return null;
+    if (row.resource.visibility === 'RESTRICTED' || row.resource.visibility === 'SCENARIO') {
+      return null;
+    }
+
+    const assignedUserIds = row.lab.assignedToUserId ? [row.lab.assignedToUserId] : [];
+    const content = [row.lab.purpose, row.lab.findings, row.lab.conclusion].filter(Boolean).join(' ');
+    const searchable = `${row.lab.analysisNumber} ${row.lab.analysisType} ${row.lab.status} ${row.lab.method || ''} ${content}`;
+
+    return {
+      id: `lab_analysis:${row.lab.id}`,
+      canonicalId: row.lab.id,
+      resourceType: 'lab_analysis',
+      eventId: row.resource.eventId,
+      title: `${row.lab.analysisNumber}: ${row.lab.analysisType}`,
+      subtitle: `Lab Analysis · ${row.lab.status}`,
+      content,
+      normalizedContent: normalizeSearchText(searchable),
+      identifiers: [row.lab.id, row.lab.analysisNumber],
+      tags: ['lab', 'analysis', row.lab.status.toLowerCase()],
+      status: row.lab.status,
+      requiredPermission: Permissions.LAB_READ,
+      visibility: row.resource.visibility === 'UNIT' ? 'UNIT' : 'EVENT',
+      unitIds: row.lab.assignedUnitId ? [row.lab.assignedUnitId] : (row.lab.requestedFromUnitId ? [row.lab.requestedFromUnitId] : []),
+      ownerUserId: row.resource.ownerUserId || '',
+      assignedUserIds,
+      route: `/events/${row.resource.eventId}/lab/${row.lab.id}`,
+      createdAt: row.lab.createdAt ? row.lab.createdAt.getTime() : 0,
+      updatedAt: row.lab.updatedAt ? row.lab.updatedAt.getTime() : 0,
+    };
+  }
+
+  async listAllDocuments(db: CyrisDb, _type: string, eventId?: string): Promise<SearchDocument[]> {
+    const query = db
+      .select({ lab: labAnalyses, resource: resources })
+      .from(labAnalyses)
+      .innerJoin(resources, eq(labAnalyses.id, resources.id));
+
+    const rows = eventId
+      ? await query.where(eq(resources.eventId, eventId))
+      : await query;
+
+    const docs: SearchDocument[] = [];
+    for (const r of rows) {
+      if (r.resource.visibility === 'RESTRICTED' || r.resource.visibility === 'SCENARIO') continue;
+      const doc = await this.buildDocument(db, 'lab_analysis', r.lab.id);
+      if (doc) docs.push(doc);
+    }
+    return docs;
+  }
+}

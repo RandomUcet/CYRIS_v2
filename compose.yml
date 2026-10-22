@@ -1,0 +1,166 @@
+name: cyris
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL 16 with pgvector (Primary Source of Truth)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: cyris-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cyris}
+      POSTGRES_USER: ${POSTGRES_USER:-cyris}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cyris_dev_secret_change_in_prod}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/01-init-pgvector.sql:/docker-entrypoint-initdb.d/01-init-pgvector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cyris} -d ${POSTGRES_DB:-cyris}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - cyris-network
+
+  # ----------------------------------------------------------------------------
+  # 2. Redis (Job Queues, BullMQ, Background Processing, Cache)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: cyris-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    networks:
+      - cyris-network
+
+  # ----------------------------------------------------------------------------
+  # 3. Typesense (Global Search & Indexing Engine)
+  # ----------------------------------------------------------------------------
+  typesense:
+    image: typesense/typesense:27.1
+    container_name: cyris-typesense
+    restart: unless-stopped
+    ports:
+      - "8108:8108"
+    environment:
+      TYPESENSE_DATA_DIR: /data
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-cyris_typesense_dev_key_xyz123}
+      TYPESENSE_ENABLE_CORS: "true"
+    volumes:
+      - typesense_data:/data
+    healthcheck:
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - "exec 3<>/dev/tcp/127.0.0.1/8108 && echo -e 'GET /health HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q 'ok'"
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - cyris-network
+
+  # ----------------------------------------------------------------------------
+  # 4. S3 Object Storage / MinIO (Evidence, Documents, Attachments, Reports)
+  # Note: Uses Silo, the maintained community distribution of MinIO.
+  # Application code uses generic S3 concepts (AWS S3 SDK compatible).
+  # ----------------------------------------------------------------------------
+  minio:
+    image: pgsty/silo:latest@sha256:2636fc4155d9a7e41ff58cdb65ddd13ba9304e67184e13c25bc5cb34016269d7
+    container_name: cyris-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-cyris_minio_admin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-cyris_minio_super_secret_password}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - cyris-network
+
+  # MinIO Bucket Provisioner (One-shot initialization container)
+  minio-init:
+    image: pgsty/mc:latest@sha256:6ecdaec70bc5e8cf9d0e9a70c190f3beb1c83f11617ff4333f1fcd71ab1daf18
+    container_name: cyris-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set cyris http://minio:9000 $${S3_ACCESS_KEY} $${S3_SECRET_KEY} &&
+      /usr/bin/mc mb --ignore-existing cyris/$${S3_BUCKET} &&
+      /usr/bin/mc mb --ignore-existing cyris/$${S3_AUDIT_BUCKET:-cyris-audit} &&
+      echo 'Buckets $${S3_BUCKET} and $${S3_AUDIT_BUCKET:-cyris-audit} verified/created.' &&
+      exit 0;
+      "
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-cyris_minio_admin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-cyris_minio_super_secret_password}
+      S3_BUCKET: ${S3_BUCKET:-cyris-storage}
+      S3_AUDIT_BUCKET: ${S3_AUDIT_BUCKET:-cyris-audit}
+    networks:
+      - cyris-network
+    restart: "no"
+
+  # ----------------------------------------------------------------------------
+  # 5. Mailpit (Development SMTP Capture & Web UI)
+  # ----------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:latest@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    container_name: cyris-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    environment:
+      MP_MAX_MESSAGES: 5000
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 2s
+    networks:
+      - cyris-network
+
+# ------------------------------------------------------------------------------
+# Networks & Persistent Volumes
+# ------------------------------------------------------------------------------
+networks:
+  cyris-network:
+    name: cyris-network
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: cyris_postgres_data
+  redis_data:
+    name: cyris_redis_data
+  typesense_data:
+    name: cyris_typesense_data
+  minio_data:
+    name: cyris_minio_data

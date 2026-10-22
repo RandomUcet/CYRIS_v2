@@ -1,0 +1,578 @@
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { AppShell } from '@/components/layout/AppShell';
+import { RecordHeader } from '@/components/common/RecordHeader';
+import { RecordTabs } from '@/components/common/RecordTabs';
+import { RecordInspector } from '@/components/common/RecordInspector';
+import { RecordIdentifier, StatusBadge } from '@/components/common/Badges';
+import { TimelineView } from '@/components/common/TimelineView';
+import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
+import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePreferences } from '@/contexts/PreferencesContext';
+import {
+  FlaskConical,
+  CheckCircle2,
+  Clock,
+  Layers,
+  ArrowRight,
+  FolderOpen,
+  Briefcase,
+  Play,
+  Check,
+  Award,
+  AlertCircle,
+  FileCheck,
+} from 'lucide-react';
+
+const STAGES = ['REQUESTED', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'APPROVED'] as const;
+
+export default function LabAnalysisDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const eventId = params.eventId as string;
+  const analysisId = params.analysisId as string;
+  const { hasPermission, user } = useAuth();
+  const { formatTime } = usePreferences();
+
+  const [activeTab, setActiveTab] = useState<'workflow' | 'evidence' | 'timeline'>('workflow');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [analysisData, setAnalysisData] = useState<any>(null);
+  const [timelineItems, setTimelineItems] = useState<any[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+
+  // Workflow Editor State
+  const [method, setMethod] = useState('');
+  const [findings, setFindings] = useState('');
+  const [conclusion, setConclusion] = useState('');
+  const [updating, setUpdating] = useState(false);
+
+  const canApprove = hasPermission('lab.result.approve');
+
+  const fetchAnalysisDetails = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiClient.getLabAnalysis(eventId, analysisId);
+      if (res.ok && res.data) {
+        setAnalysisData(res.data);
+        setMethod(res.data.method || '');
+        setFindings(res.data.findings || '');
+        setConclusion(res.data.conclusion || '');
+      } else {
+        setError(res.error || 'Failed to load analysis record');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Network error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchTimeline = async () => {
+    setTimelineLoading(true);
+    try {
+      const res = await apiClient.getResourceTimeline(analysisId);
+      if (res.ok && res.data) {
+        setTimelineItems(Array.isArray(res.data) ? res.data : []);
+      }
+    } catch (err) {
+      console.error('Failed to load lab timeline', err);
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (eventId && analysisId) {
+      fetchAnalysisDetails();
+    }
+  }, [eventId, analysisId]);
+
+  useEffect(() => {
+    if (analysisId && activeTab === 'timeline') {
+      fetchTimeline();
+    }
+  }, [analysisId, activeTab]);
+
+  const handleStatusTransition = async (nextStatus: string) => {
+    setUpdating(true);
+    try {
+      const res = await apiClient.updateLabAnalysis(eventId, analysisId, {
+        status: nextStatus,
+        method: method || undefined,
+        findings: findings || undefined,
+        conclusion: conclusion || undefined,
+      });
+
+      if (res.ok) {
+        fetchAnalysisDetails();
+      } else {
+        alert(res.error || 'Transition failed');
+      }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    setUpdating(true);
+    try {
+      const res = await apiClient.updateLabAnalysis(eventId, analysisId, {
+        method,
+        findings,
+        conclusion,
+      });
+
+      if (res.ok) {
+        alert('Analysis draft saved.');
+        fetchAnalysisDetails();
+      } else {
+        alert(res.error || 'Failed to save analysis');
+      }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <AppShell
+        breadcrumbs={[
+          { label: 'Operations Support', href: `/events/${eventId}/lab` },
+          { label: 'Laboratory', href: `/events/${eventId}/lab` },
+          { label: 'Loading...' },
+        ]}
+      >
+        <div style={{ padding: '40px' }}>
+          <LoadingState message="Accessing laboratory protocol..." />
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (error || !analysisData) {
+    return (
+      <AppShell
+        breadcrumbs={[
+          { label: 'Operations Support', href: `/events/${eventId}/lab` },
+          { label: 'Laboratory', href: `/events/${eventId}/lab` },
+          { label: 'Error' },
+        ]}
+      >
+        <div style={{ padding: '40px' }}>
+          <ErrorState message={error || 'Analysis record not found'} onRetry={fetchAnalysisDetails} />
+        </div>
+      </AppShell>
+    );
+  }
+
+  const currentStageIndex = STAGES.indexOf(analysisData.status);
+  const linkedEvidence = analysisData.evidence;
+  const linkedCase = analysisData.case;
+
+  return (
+    <AppShell
+      breadcrumbs={[
+        { label: 'Operations Support', href: `/events/${eventId}/lab` },
+        { label: 'Laboratory', href: `/events/${eventId}/lab` },
+        { label: analysisData.analysisNumber || analysisData.id },
+      ]}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        {/* Record Header */}
+        <RecordHeader
+          identifier={analysisData.analysisNumber || analysisData.id}
+          title={analysisData.title}
+          status={<StatusBadge status={analysisData.status} />}
+          priority={<span className="badge badge-neutral">FORENSIC ANALYSIS</span>}
+          classification={<span className="badge badge-neutral">LAB REPORT</span>}
+          owningUnit={analysisData.labUnitId ? `Lab Unit: ${analysisData.labUnitId.slice(0, 8)}` : undefined}
+          lead={analysisData.analystUserId ? `Analyst: ${analysisData.analystUserId.slice(0, 8)}` : 'Unassigned'}
+          actions={
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setInspectorOpen(!inspectorOpen)}
+                className={`btn ${inspectorOpen ? 'btn-secondary' : 'btn-ghost'}`}
+                style={{ fontSize: '12px' }}
+              >
+                <Layers size={13} style={{ marginRight: '4px' }} />
+                {inspectorOpen ? 'Hide' : 'Inspect'}
+              </button>
+            </div>
+          }
+        />
+
+        {/* Lifecycle Stepper Bar */}
+        <div
+          style={{
+            background: 'var(--color-bg-panel)',
+            borderBottom: '1px solid var(--color-border-subtle)',
+            padding: '12px 24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            overflowX: 'auto',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {STAGES.map((stage, idx) => {
+              const isPast = idx < currentStageIndex;
+              const isCurrent = idx === currentStageIndex;
+              const isFuture = idx > currentStageIndex;
+
+              return (
+                <React.Fragment key={stage}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      opacity: isFuture ? 0.45 : 1,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        background: isCurrent
+                          ? 'var(--color-accent-ops)'
+                          : isPast
+                          ? 'rgba(34, 197, 94, 0.2)'
+                          : 'var(--color-bg-subtle)',
+                        color: isCurrent
+                          ? '#ffffff'
+                          : isPast
+                          ? 'var(--color-success)'
+                          : 'var(--color-text-dim)',
+                        border: isPast ? '1px solid var(--color-success)' : 'none',
+                      }}
+                    >
+                      {isPast ? <Check size={12} /> : idx + 1}
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: isCurrent ? 700 : 500,
+                        letterSpacing: '0.04em',
+                        color: isCurrent
+                          ? 'var(--color-text-main)'
+                          : isPast
+                          ? 'var(--color-text-muted)'
+                          : 'var(--color-text-dim)',
+                      }}
+                    >
+                      {stage.replace('_', ' ')}
+                    </span>
+                  </div>
+                  {idx < STAGES.length - 1 && (
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '2px',
+                        background: idx < currentStageIndex ? 'var(--color-success)' : 'var(--color-border-subtle)',
+                      }}
+                    />
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
+
+          {/* Quick Lifecycle Action Button */}
+          <div>
+            {analysisData.status === 'REQUESTED' && (
+              <button
+                onClick={() => handleStatusTransition('ACCEPTED')}
+                disabled={updating}
+                className="btn btn-primary"
+                style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              >
+                <CheckCircle2 size={13} />
+                Accept Commission
+              </button>
+            )}
+            {analysisData.status === 'ACCEPTED' && (
+              <button
+                onClick={() => handleStatusTransition('IN_PROGRESS')}
+                disabled={updating}
+                className="btn btn-primary"
+                style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              >
+                <Play size={13} />
+                Begin Analysis
+              </button>
+            )}
+            {analysisData.status === 'IN_PROGRESS' && (
+              <button
+                onClick={() => handleStatusTransition('COMPLETED')}
+                disabled={updating}
+                className="btn btn-primary"
+                style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              >
+                <FileCheck size={13} />
+                Mark Analysis Completed
+              </button>
+            )}
+            {analysisData.status === 'COMPLETED' && canApprove && (
+              <button
+                onClick={() => handleStatusTransition('APPROVED')}
+                disabled={updating}
+                className="btn btn-primary"
+                style={{
+                  fontSize: '11px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  background: 'var(--color-success)',
+                  borderColor: 'var(--color-success)',
+                }}
+              >
+                <Award size={13} />
+                Approve & Certify Report
+              </button>
+            )}
+            {analysisData.status === 'APPROVED' && (
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: 'var(--color-success)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <Award size={14} /> CERTIFIED FORENSIC REPORT
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Local Navigation Tabs */}
+        <RecordTabs
+          tabs={[
+            { id: 'workflow', label: 'Protocol & Findings', icon: <FlaskConical size={14} /> },
+            { id: 'evidence', label: 'Evidence Input', count: linkedEvidence ? 1 : 0, icon: <FolderOpen size={14} /> },
+            { id: 'timeline', label: 'Activity Timeline', count: timelineItems.length, icon: <Clock size={14} /> },
+          ]}
+          activeTab={activeTab}
+          onChange={(tab) => setActiveTab(tab as any)}
+        />
+
+        {/* Main Body */}
+        <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+            {/* WORKFLOW TAB */}
+            {activeTab === 'workflow' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {/* Objective Card */}
+                <div
+                  style={{
+                    background: 'var(--color-bg-surface)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '16px 20px',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      color: 'var(--color-text-dim)',
+                      letterSpacing: '0.06em',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    Analytical Objective & Questions
+                  </div>
+                  <div style={{ fontSize: '13px', color: 'var(--color-text-main)', lineHeight: '1.6' }}>
+                    {analysisData.purpose || 'No explicit purpose documented upon request.'}
+                  </div>
+                </div>
+
+                {/* Method & Findings Editor */}
+                <div
+                  style={{
+                    background: 'var(--color-bg-surface)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '18px 20px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '16px',
+                    }}
+                  >
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                      Forensic Methodology & Findings
+                    </span>
+                    {analysisData.status !== 'APPROVED' && (
+                      <button
+                        onClick={handleSaveDraft}
+                        disabled={updating}
+                        className="btn btn-secondary"
+                        style={{ fontSize: '11px' }}
+                      >
+                        Save Draft
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
+                      Methodology & Acquisition Tools
+                    </label>
+                    <textarea
+                      rows={3}
+                      placeholder="e.g. Volatility 3 memory triage, SHA-256 integrity hash verification, Ghidra disassembly..."
+                      value={method}
+                      onChange={(e) => setMethod(e.target.value)}
+                      disabled={analysisData.status === 'APPROVED'}
+                      className="input-field"
+                      style={{ width: '100%', resize: 'vertical' }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
+                      Key Findings & Technical Indicators
+                    </label>
+                    <textarea
+                      rows={5}
+                      placeholder="Document extracted IP addresses, persistence registry keys, compromised user tokens..."
+                      value={findings}
+                      onChange={(e) => setFindings(e.target.value)}
+                      disabled={analysisData.status === 'APPROVED'}
+                      className="input-field"
+                      style={{ width: '100%', resize: 'vertical' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
+                      Forensic Conclusion & Expert Opinion
+                    </label>
+                    <textarea
+                      rows={3}
+                      placeholder="Conclusive assessment for investigative leadership or courtroom presentation..."
+                      value={conclusion}
+                      onChange={(e) => setConclusion(e.target.value)}
+                      disabled={analysisData.status === 'APPROVED'}
+                      className="input-field"
+                      style={{ width: '100%', resize: 'vertical' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* EVIDENCE TAB */}
+            {activeTab === 'evidence' && (
+              <div>
+                <div style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--color-text-dim)' }}>
+                  Target physical or digital item submitted for this laboratory protocol.
+                </div>
+                {linkedEvidence ? (
+                  <div
+                    style={{
+                      background: 'var(--color-bg-surface)',
+                      border: '1px solid var(--color-border-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <FolderOpen size={15} color="var(--color-accent-ops)" />
+                        <RecordIdentifier id={linkedEvidence.evidenceNumber || linkedEvidence.id} prefix="" />
+                        <StatusBadge status={linkedEvidence.status} />
+                      </div>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>
+                        {linkedEvidence.title}
+                      </div>
+                      {linkedEvidence.description && (
+                        <div style={{ fontSize: '12px', color: 'var(--color-text-dim)', marginTop: '4px' }}>
+                          {linkedEvidence.description}
+                        </div>
+                      )}
+                    </div>
+                    <Link
+                      href={`/events/${eventId}/evidence/${linkedEvidence.id}`}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      View Evidence Record <ArrowRight size={12} />
+                    </Link>
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="No evidence attached"
+                    description="This laboratory task was commissioned without a direct link to an evidence item."
+                  />
+                )}
+              </div>
+            )}
+
+            {/* TIMELINE TAB */}
+            {activeTab === 'timeline' && (
+              <div>
+                <div style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--color-text-dim)' }}>
+                  Activity history and state transitions for analysis{' '}
+                  <strong style={{ color: 'var(--color-text-main)' }}>{analysisData.analysisNumber}</strong>.
+                </div>
+                {timelineLoading ? (
+                  <LoadingState message="Reconstructing laboratory timeline..." />
+                ) : (
+                  <TimelineView items={timelineItems} />
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Contextual Right Inspector */}
+          <RecordInspector
+            title="Analysis Protocol Controls"
+            isOpen={inspectorOpen}
+            onClose={() => setInspectorOpen(false)}
+            rows={[
+              { label: 'Analysis Number', value: analysisData.analysisNumber || analysisData.id, copyable: true },
+              { label: 'Resource UUID', value: analysisData.id, copyable: true },
+              { label: 'Lifecycle Stage', value: <StatusBadge status={analysisData.status} /> },
+              { label: 'Assigned Lab Unit', value: analysisData.labUnitId || 'Forensics Unit' },
+              { label: 'Analyst', value: analysisData.analystUserId || 'Unassigned' },
+              { label: 'Target Evidence', value: linkedEvidence?.evidenceNumber || 'None' },
+              { label: 'Associated Case', value: linkedCase?.caseNumber || 'None' },
+              { label: 'Requested At', value: formatTime(analysisData.createdAt) },
+              { label: 'Last Modified', value: formatTime(analysisData.updatedAt || analysisData.createdAt) },
+            ]}
+          />
+        </div>
+      </div>
+    </AppShell>
+  );
+}

@@ -1,0 +1,36 @@
+{
+  "name": "cyris-v2-monorepo",
+  "version": "2.0.0",
+  "private": true,
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "dev": "bash scripts/start-dev.sh",
+    "dev:all": "bash scripts/start-dev.sh",
+    "dev:status": "bash scripts/dev-status.sh",
+    "dev:web": "pnpm --filter @cyris/web dev",
+    "dev:api": "pnpm --filter @cyris/api dev",
+    "dev:worker": "pnpm --filter @cyris/worker dev",
+    "build": "pnpm -r --sort run build",
+    "typecheck": "pnpm -r run typecheck",
+    "db:generate": "pnpm --filter @cyris/db db:generate",
+    "db:migrate": "pnpm --filter @cyris/db db:migrate",
+    "admin:create": "pnpm --filter @cyris/api admin:create",
+    "admin:password": "pnpm --filter @cyris/api admin:password",
+    "search:setup": "pnpm --filter @cyris/api search:setup",
+    "search:reindex": "pnpm --filter @cyris/api search:reindex",
+    "secrets:keygen": "tsx packages/config/src/scripts/keygen.ts",
+    "backup:create": "tsx scripts/backup-create.ts",
+    "backup:verify": "tsx scripts/backup-verify.ts",
+    "seed:system": "tsx scripts/seed-system.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
+    "@types/node": "^26.6.5",
+    "argon2": "^0.45.1",
+    "concurrently": "^9.1.2",
+    "drizzle-orm": "^0.38.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

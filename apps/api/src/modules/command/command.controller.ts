@@ -1,0 +1,41 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  UseGuards,
+} from '@nestjs/common';
+import { AuthGuard } from '../auth/guards/auth.guard.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { AuthenticatedUser } from '../auth/session.service.js';
+import { CommandService } from './command.service.js';
+import {
+  CreateSitrepRequestSchema,
+  type OperationalPictureResponse,
+  type DocumentItem,
+} from '@cyris/contracts';
+
+@Controller('events/:eventId/command')
+@UseGuards(AuthGuard)
+export class CommandController {
+  constructor(private readonly commandService: CommandService) {}
+
+  @Get('operational-picture')
+  async getOperationalPicture(
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<OperationalPictureResponse> {
+    return this.commandService.getOperationalPicture(eventId, user);
+  }
+
+  @Post('sitrep')
+  async createSitrep(
+    @Param('eventId') eventId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<DocumentItem> {
+    const dto = CreateSitrepRequestSchema.parse(body);
+    return this.commandService.createSitrep(eventId, dto, user);
+  }
+}

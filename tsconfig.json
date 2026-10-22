@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@cyris/shared": ["./packages/shared/src/index.ts"],
+      "@cyris/contracts": ["./packages/contracts/src/index.ts"],
+      "@cyris/config": ["./packages/config/src/index.ts"],
+      "@cyris/db": ["./packages/db/src/index.ts"]
+    },
+    "moduleResolution": "NodeNext",
+    "module": "NodeNext",
+    "target": "ES2022",
+    "noEmit": true
+  },
+  "include": [
+    "scripts/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/dist",
+    "**/.next"
+  ]
+}
