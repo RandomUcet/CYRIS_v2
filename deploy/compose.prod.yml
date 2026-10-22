@@ -119,7 +119,7 @@ services:
   # 5. CYRIS API Server (NestJS / Fastify)
   # ----------------------------------------------------------------------------
   api:
-    image: ${CYRIS_API_IMAGE:-ghcr.io/randomucet/cyris-api:2.0.0}
+    image: ${CYRIS_API_IMAGE:-ghcr.io/randomucet/cyris-api:${CYRIS_VERSION:-0.1.0}}
     container_name: cyris-api
     restart: unless-stopped
     depends_on:
@@ -167,7 +167,7 @@ services:
   # 6. CYRIS Background Worker (NestJS / BullMQ)
   # ----------------------------------------------------------------------------
   worker:
-    image: ${CYRIS_WORKER_IMAGE:-ghcr.io/randomucet/cyris-worker:2.0.0}
+    image: ${CYRIS_WORKER_IMAGE:-ghcr.io/randomucet/cyris-worker:${CYRIS_VERSION:-0.1.0}}
     container_name: cyris-worker
     restart: unless-stopped
     depends_on:
@@ -214,7 +214,7 @@ services:
   # 7. CYRIS Web (Next.js 14)
   # ----------------------------------------------------------------------------
   web:
-    image: ${CYRIS_WEB_IMAGE:-ghcr.io/randomucet/cyris-web:2.0.0}
+    image: ${CYRIS_WEB_IMAGE:-ghcr.io/randomucet/cyris-web:${CYRIS_VERSION:-0.1.0}}
     container_name: cyris-web
     restart: unless-stopped
     depends_on:

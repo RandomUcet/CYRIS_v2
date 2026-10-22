@@ -19,7 +19,7 @@ import argparse
 import signal
 import re
 import getpass
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ------------------------------------------------------------------------------
 # System Defaults & Paths
@@ -123,7 +123,7 @@ def get_installed_version() -> str:
         except Exception:
             pass
     env = load_env()
-    return env.get("CYRIS_VERSION", "2.0.0")
+    return env.get("CYRIS_VERSION", "0.1.0")
 
 
 def docker_compose_cmd(*args, capture=True, check=True):
@@ -987,6 +987,57 @@ def cmd_restore(args):
 # ------------------------------------------------------------------------------
 # 8. Update & Versions
 # ------------------------------------------------------------------------------
+def get_github_headers() -> dict:
+    """Prepare HTTP headers with optional GitHub authentication."""
+    headers = {"User-Agent": "cyrisctl", "Accept": "application/vnd.github.v3+json"}
+    env = load_env()
+    token = os.environ.get("GITHUB_TOKEN") or env.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def update_env_version(version: str):
+    """Persist updated CYRIS_VERSION into /etc/cyris/cyris.env."""
+    if not os.path.exists(CYRIS_ENV_FILE):
+        return
+    try:
+        with open(CYRIS_ENV_FILE, "r", encoding="utf-8") as f:
+            content = f.read()
+        if re.search(r"^CYRIS_VERSION=.*$", content, flags=re.MULTILINE):
+            new_content = re.sub(r"^CYRIS_VERSION=.*$", f"CYRIS_VERSION={version}", content, flags=re.MULTILINE)
+        else:
+            new_content = content + f"\nCYRIS_VERSION={version}\n"
+        with open(CYRIS_ENV_FILE, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        os.chmod(CYRIS_ENV_FILE, 0o600)
+    except Exception as e:
+        print(f"Warning: Could not update {CYRIS_ENV_FILE}: {e}")
+
+
+def update_manifest_version(version: str):
+    """Persist updated version into /opt/cyris/release-manifest.json."""
+    manifest_data = {}
+    if os.path.exists(CYRIS_MANIFEST_FILE):
+        try:
+            with open(CYRIS_MANIFEST_FILE, "r", encoding="utf-8") as f:
+                manifest_data = json.load(f)
+        except Exception:
+            manifest_data = {}
+    manifest_data["version"] = version
+    manifest_data["releaseDate"] = datetime.now(timezone.utc).isoformat()
+    manifest_data["images"] = {
+        "api": f"ghcr.io/randomucet/cyris-api:{version}",
+        "worker": f"ghcr.io/randomucet/cyris-worker:{version}",
+        "web": f"ghcr.io/randomucet/cyris-web:{version}",
+    }
+    try:
+        with open(CYRIS_MANIFEST_FILE, "w", encoding="utf-8") as f:
+            json.dump(manifest_data, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Could not update {CYRIS_MANIFEST_FILE}: {e}")
+
+
 def cmd_versions(args):
     """Show installed and available versions."""
     installed = get_installed_version()
@@ -996,7 +1047,7 @@ def cmd_versions(args):
     print("Querying GitHub for available versions...")
     url = "https://api.github.com/repos/RandomUcet/CYRIS_v2/releases"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "cyrisctl"})
+        req = urllib.request.Request(url, headers=get_github_headers())
         with urllib.request.urlopen(req, timeout=5) as res:
             releases = json.loads(res.read().decode())
             tags = [r.get("tag_name", "").lstrip("v") for r in releases if not r.get("draft", False)]
@@ -1017,14 +1068,15 @@ def cmd_update(args):
     print("================================================================\n")
 
     current_ver = get_installed_version()
-    target_ver = getattr(args, "version", None)
+    raw_target = getattr(args, "version", None)
+    target_ver = raw_target.lstrip("v") if raw_target else None
 
     if not target_ver:
         # Determine latest release from GitHub or prompt
         print("[1/7] Discovering latest release...")
         url = "https://api.github.com/repos/RandomUcet/CYRIS_v2/releases/latest"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "cyrisctl"})
+            req = urllib.request.Request(url, headers=get_github_headers())
             with urllib.request.urlopen(req, timeout=5) as res:
                 rel = json.loads(res.read().decode())
                 target_ver = rel.get("tag_name", "").lstrip("v")
@@ -1048,6 +1100,7 @@ def cmd_update(args):
 
     # 2. Pull new container images
     print("\n[3/7] Pulling target release container images...")
+    os.environ["CYRIS_VERSION"] = target_ver
     os.environ["CYRIS_API_IMAGE"] = f"ghcr.io/randomucet/cyris-api:{target_ver}"
     os.environ["CYRIS_WORKER_IMAGE"] = f"ghcr.io/randomucet/cyris-worker:{target_ver}"
     os.environ["CYRIS_WEB_IMAGE"] = f"ghcr.io/randomucet/cyris-web:{target_ver}"
@@ -1075,6 +1128,10 @@ def cmd_update(args):
     # 5. Start updated services
     print("\n[6/7] Starting updated release services...")
     docker_compose_cmd("up", "-d", capture=False)
+
+    # Update persistent state
+    update_env_version(target_ver)
+    update_manifest_version(target_ver)
 
     # 6. Post-update verification
     print("\n[7/7] Running post-update smoke tests...")
