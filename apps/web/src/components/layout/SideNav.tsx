@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
@@ -229,7 +230,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
             const labelText = getNavLabel(item);
 
             return (
-              <a
+              <Link
                 key={item.id || item.href}
                 href={item.href}
                 title={collapsed ? labelText : undefined}
@@ -279,7 +280,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
                     {item.badge}
                   </span>
                 )}
-              </a>
+              </Link>
             );
           })}
         </div>

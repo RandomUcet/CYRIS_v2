@@ -23,7 +23,7 @@ interface UnitItem {
 
 export default function AdminUnitsPage() {
   const { hasPermission } = useAuth();
-  const { currentEvent, refreshWorkspace } = useEvent();
+  const { currentEvent, events, selectEvent, refreshWorkspace } = useEvent();
   const [units, setUnits] = useState<UnitItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +49,10 @@ export default function AdminUnitsPage() {
   const canManage = hasPermission('unit.manage');
 
   const fetchUnits = async () => {
-    if (!currentEvent?.id) return;
+    if (!currentEvent?.id) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -67,8 +70,12 @@ export default function AdminUnitsPage() {
   };
 
   useEffect(() => {
-    void fetchUnits();
-  }, [currentEvent?.id]);
+    if (!currentEvent?.id && events.length > 0) {
+      selectEvent(events[0].id);
+    } else {
+      void fetchUnits();
+    }
+  }, [currentEvent?.id, events]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -279,7 +286,28 @@ export default function AdminUnitsPage() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {events.length > 0 && (
+              <select
+                value={currentEvent?.id || ''}
+                onChange={(e) => selectEvent(e.target.value)}
+                style={{
+                  fontSize: '11px',
+                  padding: '4px 8px',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-xs)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                }}
+              >
+                {events.map((ev) => (
+                  <option key={ev.id} value={ev.id}>
+                    {ev.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               onClick={() => void fetchUnits()}
               className="btn btn-secondary"

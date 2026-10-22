@@ -19,13 +19,16 @@ interface RoleItem {
 }
 
 export default function AdminRolesPage() {
-  const { currentEvent } = useEvent();
+  const { currentEvent, events, selectEvent } = useEvent();
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchRoles = async () => {
-    if (!currentEvent?.id) return;
+    if (!currentEvent?.id) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -43,8 +46,12 @@ export default function AdminRolesPage() {
   };
 
   useEffect(() => {
-    fetchRoles();
-  }, [currentEvent?.id]);
+    if (!currentEvent?.id && events.length > 0) {
+      selectEvent(events[0].id);
+    } else {
+      void fetchRoles();
+    }
+  }, [currentEvent?.id, events]);
 
   const columns: Column<RoleItem>[] = [
     {
@@ -164,7 +171,28 @@ export default function AdminRolesPage() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {events.length > 0 && (
+              <select
+                value={currentEvent?.id || ''}
+                onChange={(e) => selectEvent(e.target.value)}
+                style={{
+                  fontSize: '11px',
+                  padding: '4px 8px',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-xs)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                }}
+              >
+                {events.map((ev) => (
+                  <option key={ev.id} value={ev.id}>
+                    {ev.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               onClick={fetchRoles}
               className="btn btn-secondary"

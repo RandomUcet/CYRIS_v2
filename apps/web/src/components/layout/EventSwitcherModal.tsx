@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { useEvent } from '@/contexts/EventContext';
 import { Calendar, Check, X } from 'lucide-react';
 import { StatusBadge } from '../common/Badges';
@@ -11,7 +12,23 @@ interface EventSwitcherModalProps {
 }
 
 export function EventSwitcherModal({ isOpen, onClose }: EventSwitcherModalProps) {
+  const router = useRouter();
+  const pathname = usePathname();
   const { events, selectedEventId, selectEvent } = useEvent();
+
+  const handleSelect = (evId: string) => {
+    selectEvent(evId);
+    onClose();
+    if (pathname.startsWith('/events/')) {
+      const parts = pathname.split('/');
+      if (parts.length >= 4) {
+        parts[2] = evId;
+        router.push(parts.join('/'));
+      } else {
+        router.push(`/events/${evId}/overview`);
+      }
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -60,10 +77,7 @@ export function EventSwitcherModal({ isOpen, onClose }: EventSwitcherModalProps)
             return (
               <div
                 key={ev.id}
-                onClick={() => {
-                  selectEvent(ev.id);
-                  onClose();
-                }}
+                onClick={() => handleSelect(ev.id)}
                 style={{
                   padding: '10px 14px',
                   borderRadius: 'var(--radius-sm)',

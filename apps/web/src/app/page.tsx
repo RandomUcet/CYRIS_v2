@@ -10,7 +10,7 @@ import { apiClient } from '@/lib/api-client';
 
 export default function RootPage() {
   const router = useRouter();
-  const { currentUser, loading, login } = useAuth();
+  const { currentUser, loading, login, isPlatformAdmin, logout } = useAuth();
   const { events, selectedEventId, selectEvent } = useEvent();
 
   // Login form state
@@ -61,48 +61,117 @@ export default function RootPage() {
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-canvas)' }}>
         <div
           style={{
-            width: '460px',
+            width: '480px',
+            maxWidth: '92vw',
             background: 'var(--bg-panel)',
             border: '1px solid var(--border-default)',
+            borderTop: '3px solid var(--accent-primary)',
             borderRadius: 'var(--radius-md)',
             padding: '24px',
+            boxShadow: '0 12px 36px rgba(0, 0, 0, 0.1)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-            <span style={{ width: '8px', height: '8px', background: 'var(--cylab-orange)', borderRadius: '2px' }} />
-            <h2 style={{ fontSize: '15px', fontWeight: 600 }}>Select Active Cybertron Event</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ width: '8px', height: '8px', background: 'var(--cylab-orange)', borderRadius: '2px' }} />
+              <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>Select Active Cybertron Event</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              style={{
+                fontSize: '11px',
+                color: 'var(--text-muted)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '4px 8px',
+              }}
+              title="Sign out of operator session"
+            >
+              Sign out
+            </button>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {events.map((ev) => (
-              <div
-                key={ev.id}
-                onClick={() => {
-                  selectEvent(ev.id);
-                  router.push(`/events/${ev.id}/overview`);
-                }}
+            {events.length === 0 ? (
+              <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                <Calendar size={28} style={{ margin: '0 auto 8px', color: 'var(--text-dim)', opacity: 0.6 }} />
+                <div>No active Cybertron events found.</div>
+                {isPlatformAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => router.push('/admin/events')}
+                    className="btn-primary"
+                    style={{ marginTop: '12px', fontSize: '12px' }}
+                  >
+                    Create Initial Event in Admin Console
+                  </button>
+                )}
+              </div>
+            ) : (
+              events.map((ev) => (
+                <div
+                  key={ev.id}
+                  onClick={() => {
+                    selectEvent(ev.id);
+                    router.push(`/events/${ev.id}/overview`);
+                  }}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '12px 14px',
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-default)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                    transition: 'border-color 0.15s ease, background-color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--accent-primary)';
+                    e.currentTarget.style.backgroundColor = 'var(--bg-active)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border-default)';
+                    e.currentTarget.style.backgroundColor = 'var(--bg-surface)';
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>{ev.name}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>/{ev.slug}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <StatusBadge status={ev.status} />
+                    <ArrowRight size={14} style={{ color: 'var(--text-muted)' }} />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {isPlatformAdmin && (
+            <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => router.push('/admin')}
                 style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  padding: '12px 14px',
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-default)',
-                  borderRadius: 'var(--radius-sm)',
+                  gap: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--accent-primary)',
+                  background: 'none',
+                  border: 'none',
                   cursor: 'pointer',
+                  padding: 0,
                 }}
               >
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: '13px' }}>{ev.name}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>/{ev.slug}</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <StatusBadge status={ev.status} />
-                  <ArrowRight size={14} style={{ color: 'var(--text-muted)' }} />
-                </div>
-              </div>
-            ))}
-          </div>
+                <Shield size={14} /> Open Platform Administration
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -129,19 +198,20 @@ export default function RootPage() {
           maxWidth: '100%',
           background: 'var(--bg-panel)',
           border: '1px solid var(--border-default)',
+          borderTop: '3px solid var(--accent-primary)',
           borderRadius: 'var(--radius-md)',
           padding: '28px 24px',
           display: 'flex',
           flexDirection: 'column',
           gap: '18px',
-          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.4)',
+          boxShadow: '0 16px 40px rgba(0, 0, 0, 0.08)',
         }}
       >
         {/* Header */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
             <span style={{ width: '8px', height: '8px', background: 'var(--cylab-orange)', borderRadius: '2px' }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '18px', letterSpacing: '0.12em', color: '#fff' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '18px', letterSpacing: '0.12em', color: 'var(--text-primary)' }}>
               CYRIS
             </span>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>v0.1.1</span>

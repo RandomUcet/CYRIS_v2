@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvent } from '@/contexts/EventContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import { Search, ChevronDown, User, LogOut, Calendar } from 'lucide-react';
+import { Search, ChevronDown, User, LogOut, Calendar, Shield } from 'lucide-react';
 import { StatusBadge } from '../common/Badges';
 import { EventSwitcherModal } from './EventSwitcherModal';
 import { NotificationCenter } from './NotificationCenter';
@@ -16,7 +17,7 @@ interface TopBarProps {
 }
 
 export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, isPlatformAdmin, logout } = useAuth();
   const { selectedEvent } = useEvent();
   const { locale, timezone, setLocale, setTimezone, t } = usePreferences();
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
@@ -74,9 +75,9 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
               {breadcrumbs.map((b, i) => (
                 <React.Fragment key={i}>
                   {b.href ? (
-                    <a href={b.href} style={{ color: 'var(--text-secondary)' }}>
+                    <Link href={b.href} style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
                       {b.label}
-                    </a>
+                    </Link>
                   ) : (
                     <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{b.label}</span>
                   )}
@@ -216,6 +217,30 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
                       ))}
                     </select>
                   </div>
+
+                  {isPlatformAdmin && (
+                    <div style={{ padding: '0 8px 8px 8px' }}>
+                      <Link
+                        href="/admin"
+                        onClick={() => setIsUserMenuOpen(false)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          padding: '6px 8px',
+                          color: 'var(--accent-primary)',
+                          textDecoration: 'none',
+                          borderRadius: 'var(--radius-xs)',
+                          backgroundColor: 'var(--bg-surface)',
+                          border: '1px solid var(--border-subtle)',
+                        }}
+                      >
+                        <Shield size={13} /> Platform Administration
+                      </Link>
+                    </div>
+                  )}
 
                   <button
                     type="button"

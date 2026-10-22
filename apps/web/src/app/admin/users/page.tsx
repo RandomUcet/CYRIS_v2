@@ -32,14 +32,17 @@ interface MembershipItem {
 }
 
 export default function AdminUsersPage() {
-  const { currentEvent } = useEvent();
+  const { currentEvent, events, selectEvent } = useEvent();
   const { formatDate } = usePreferences();
   const [memberships, setMemberships] = useState<MembershipItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchMemberships = async () => {
-    if (!currentEvent?.id) return;
+    if (!currentEvent?.id) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -57,8 +60,12 @@ export default function AdminUsersPage() {
   };
 
   useEffect(() => {
-    fetchMemberships();
-  }, [currentEvent?.id]);
+    if (!currentEvent?.id && events.length > 0) {
+      selectEvent(events[0].id);
+    } else {
+      void fetchMemberships();
+    }
+  }, [currentEvent?.id, events]);
 
   const columns: Column<MembershipItem>[] = [
     {
@@ -163,7 +170,28 @@ export default function AdminUsersPage() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {events.length > 0 && (
+              <select
+                value={currentEvent?.id || ''}
+                onChange={(e) => selectEvent(e.target.value)}
+                style={{
+                  fontSize: '11px',
+                  padding: '4px 8px',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-xs)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                }}
+              >
+                {events.map((ev) => (
+                  <option key={ev.id} value={ev.id}>
+                    {ev.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               onClick={fetchMemberships}
               className="btn btn-secondary"

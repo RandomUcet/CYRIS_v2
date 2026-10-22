@@ -65,21 +65,23 @@ export default function OverviewPage() {
 
   // Operational capabilities resolved for the current user in this event
   const caps = workspace?.capabilities ?? [];
-  const hasOperationalContext = !isPlatformAdmin && Boolean(workspace?.unitIds.length);
-  const hasInvestigation = hasOperationalContext && caps.includes(UnitCapabilityKeys.INVESTIGATION);
-  const hasChemical = hasOperationalContext && caps.includes(UnitCapabilityKeys.CHEMICAL_ANALYSIS);
-  const hasForensics = hasOperationalContext && caps.includes(UnitCapabilityKeys.DIGITAL_FORENSICS);
+  const hasOperationalContext = isPlatformAdmin || Boolean(workspace?.unitIds.length);
+  const hasInvestigation = isPlatformAdmin || (hasOperationalContext && caps.includes(UnitCapabilityKeys.INVESTIGATION));
+  const hasChemical = isPlatformAdmin || (hasOperationalContext && caps.includes(UnitCapabilityKeys.CHEMICAL_ANALYSIS));
+  const hasForensics = isPlatformAdmin || (hasOperationalContext && caps.includes(UnitCapabilityKeys.DIGITAL_FORENSICS));
   const hasOps =
-    hasOperationalContext &&
-    (caps.includes(UnitCapabilityKeys.INCIDENT_OPERATIONS) ||
-      caps.includes(UnitCapabilityKeys.TECHNICAL_OPERATIONS) ||
-      caps.includes(UnitCapabilityKeys.CRISIS_MANAGEMENT));
+    isPlatformAdmin ||
+    (hasOperationalContext &&
+      (caps.includes(UnitCapabilityKeys.INCIDENT_OPERATIONS) ||
+        caps.includes(UnitCapabilityKeys.TECHNICAL_OPERATIONS) ||
+        caps.includes(UnitCapabilityKeys.CRISIS_MANAGEMENT)));
   const hasEvidence =
-    hasOperationalContext &&
-    (caps.includes(UnitCapabilityKeys.EVIDENCE) ||
-    hasInvestigation ||
-    hasChemical ||
-    hasForensics);
+    isPlatformAdmin ||
+    (hasOperationalContext &&
+      (caps.includes(UnitCapabilityKeys.EVIDENCE) ||
+      hasInvestigation ||
+      hasChemical ||
+      hasForensics));
 
   // Filtered operational datasets
   const activeCases = cases

@@ -51,6 +51,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     await apiClient.logout();
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('cyris_selected_event');
+    }
     setCurrentUser(null);
   };
 
