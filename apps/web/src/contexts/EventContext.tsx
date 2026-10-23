@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
 import { apiClient } from '@/lib/api-client';
 import type { EventResponse, WorkspaceResolutionResponse } from '@cyris/contracts';
 import { useAuth } from './AuthContext';
@@ -21,9 +22,23 @@ export interface EventContextType {
 const EventContext = createContext<EventContextType | undefined>(undefined);
 
 export function EventProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const { currentUser, isPlatformAdmin } = useAuth();
   const [events, setEvents] = useState<EventResponse[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+
+  // Synchronize eventId directly from URL route transitions
+  useEffect(() => {
+    if (pathname) {
+      const match = pathname.match(/^\/events\/([0-9a-fA-F-]{36})/);
+      if (match && match[1] && match[1] !== selectedEventId) {
+        setSelectedEventId(match[1]);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('cyris_selected_event', match[1]);
+        }
+      }
+    }
+  }, [pathname, selectedEventId]);
   const [workspace, setWorkspace] = useState<WorkspaceResolutionResponse | null>(null);
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);

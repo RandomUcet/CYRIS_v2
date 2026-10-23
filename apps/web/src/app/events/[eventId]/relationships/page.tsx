@@ -213,6 +213,11 @@ export default function DedicatedRelationshipsPage() {
                   <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)', marginTop: '6px' }}>
                     {selectedNode.label || selectedNode.id}
                   </div>
+                  {selectedNode.subtitle && (
+                    <div style={{ marginTop: '6px' }}>
+                      <RecordIdentifier id={selectedNode.subtitle} prefix="" />
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '12px', marginBottom: '16px' }}>

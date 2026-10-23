@@ -24,6 +24,15 @@ export const CreateRelationshipRequestSchema = z.object({
 
 export type CreateRelationshipRequest = z.infer<typeof CreateRelationshipRequestSchema>;
 
+export const ResolvedEntityIdentitySchema = z.object({
+  id: z.string().uuid(),
+  identifier: z.string(),
+  title: z.string(),
+  type: z.string(),
+});
+
+export type ResolvedEntityIdentity = z.infer<typeof ResolvedEntityIdentitySchema>;
+
 export const ResourceRelationshipItemSchema = z.object({
   id: z.string().uuid(),
   eventId: z.string().uuid(),
@@ -34,6 +43,8 @@ export const ResourceRelationshipItemSchema = z.object({
   createdAt: z.string(),
   removedAt: z.string().nullable().optional(),
   metadata: z.record(z.unknown()).nullable().optional(),
+  source: ResolvedEntityIdentitySchema.nullable().optional(),
+  target: ResolvedEntityIdentitySchema.nullable().optional(),
 });
 
 export type ResourceRelationshipItem = z.infer<typeof ResourceRelationshipItemSchema>;

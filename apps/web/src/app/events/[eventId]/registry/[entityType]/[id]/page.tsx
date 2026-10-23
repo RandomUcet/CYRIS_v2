@@ -522,7 +522,20 @@ export default function RegistryEntityDetailPage() {
                             >
                               {rel.relationshipType}
                             </span>
-                            <RecordIdentifier id={rel.targetResourceId === id ? rel.sourceResourceId : rel.targetResourceId} prefix="" />
+                            {(() => {
+                              const other = rel.targetResourceId === id ? rel.source : rel.target;
+                              const otherId = rel.targetResourceId === id ? rel.sourceResourceId : rel.targetResourceId;
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <RecordIdentifier id={other?.identifier || otherId.slice(0, 8)} prefix="" />
+                                  {other?.title && (
+                                    <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>
+                                      {other.title}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: '11px', color: 'var(--color-text-dim)' }}>{formatDate(rel.createdAt)}</span>

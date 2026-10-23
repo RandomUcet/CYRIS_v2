@@ -123,7 +123,7 @@ services:
     container_name: cyris-api
     restart: unless-stopped
     ports:
-      - "${CYRIS_API_PORT:-4000}:4000"
+      - "127.0.0.1:${CYRIS_API_PORT:-4000}:4000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -156,6 +156,7 @@ services:
       SMTP_PORT: ${SMTP_PORT:-25}
       CYRIS_MASTER_KEY: ${CYRIS_MASTER_KEY}
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:3000}
+      CYRIS_VERSION: ${CYRIS_VERSION:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:4000/health || exit 1"]
       interval: 10s
@@ -203,6 +204,7 @@ services:
       SMTP_PORT: ${SMTP_PORT:-25}
       CYRIS_MASTER_KEY: ${CYRIS_MASTER_KEY}
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:3000}
+      CYRIS_VERSION: ${CYRIS_VERSION:-}
     healthcheck:
       test: ["CMD", "node", "-e", "process.exit(0)"]
       interval: 15s
@@ -231,6 +233,8 @@ services:
       API_INTERNAL_URL: http://api:4000
       NEXT_PUBLIC_API_URL: /api
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:3000}
+      CYRIS_VERSION: ${CYRIS_VERSION:-}
+      NEXT_PUBLIC_CYRIS_VERSION: ${CYRIS_VERSION:-}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/', (res) => (res.statusCode >= 200 && res.statusCode < 400) ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))"]
       interval: 10s

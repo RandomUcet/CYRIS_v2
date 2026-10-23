@@ -233,6 +233,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
               <Link
                 key={item.id || item.href}
                 href={item.href}
+                prefetch={false}
                 title={collapsed ? labelText : undefined}
                 style={{
                   display: 'flex',

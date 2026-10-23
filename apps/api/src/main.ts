@@ -38,6 +38,11 @@ async function bootstrap(): Promise<void> {
 
   // Set X-Request-ID and standard security headers
   const fastifyInstance = app.getHttpAdapter().getInstance();
+
+  // Configure Node HTTP keep-alive timeouts to prevent ECONNRESET in client/reverse proxy
+  fastifyInstance.server.keepAliveTimeout = 65000;
+  fastifyInstance.server.headersTimeout = 66000;
+
   fastifyInstance.addHook('onSend', async (request: any, reply: any) => {
     if (request.id) {
       reply.header('X-Request-ID', request.id);
@@ -49,7 +54,10 @@ async function bootstrap(): Promise<void> {
       'Content-Security-Policy',
       "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self';"
     );
-    if (configService.isProduction) {
+    const isHttps = request.headers['x-forwarded-proto'] === 'https' ||
+      (request.headers['origin'] as string)?.startsWith('https://') ||
+      request.raw?.socket?.encrypted;
+    if (configService.isProduction && isHttps) {
       reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
   });

@@ -105,7 +105,7 @@ export default function IncidentsListPage() {
     try {
       const res = await apiClient.createIncident(eventId, {
         title: formData.title.trim(),
-        summary: formData.summary.trim() || undefined,
+        description: formData.summary.trim() || undefined,
         priority: formData.priority,
         occurredAt: formData.occurredAt ? new Date(formData.occurredAt).toISOString() : new Date().toISOString(),
       });

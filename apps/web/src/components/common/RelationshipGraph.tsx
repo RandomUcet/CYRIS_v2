@@ -88,19 +88,43 @@ export function RelationshipGraph({
         const tId = rel.targetResourceId || rel.targetId;
         if (!sId || !tId) continue;
 
-        if (!nMap.has(sId)) {
+        const srcIdentity = rel.source;
+        if (!nMap.has(sId) || (!nMap.get(sId)?.subtitle && srcIdentity?.identifier)) {
+          const label =
+            sId === centerResourceId && currentResourceTitle
+              ? currentResourceTitle
+              : srcIdentity?.title
+              ? `${srcIdentity.identifier ? srcIdentity.identifier + ' • ' : ''}${srcIdentity.title}`
+              : srcIdentity?.identifier || (sId === centerResourceId && currentResourceTitle ? currentResourceTitle : sId.slice(0, 8));
+          const type =
+            sId === centerResourceId && currentResourceType
+              ? currentResourceType.toLowerCase()
+              : srcIdentity?.type?.toLowerCase() || 'resource';
           nMap.set(sId, {
             id: sId,
-            label: sId === centerResourceId && currentResourceTitle ? currentResourceTitle : sId.slice(0, 8),
-            type: sId === centerResourceId && currentResourceType ? currentResourceType.toLowerCase() : 'resource',
+            label,
+            subtitle: srcIdentity?.identifier || (sId === centerResourceId ? currentResourceType : undefined),
+            type,
           });
         }
 
-        if (!nMap.has(tId)) {
+        const tgtIdentity = rel.target;
+        if (!nMap.has(tId) || (!nMap.get(tId)?.subtitle && tgtIdentity?.identifier)) {
+          const label =
+            tId === centerResourceId && currentResourceTitle
+              ? currentResourceTitle
+              : tgtIdentity?.title
+              ? `${tgtIdentity.identifier ? tgtIdentity.identifier + ' • ' : ''}${tgtIdentity.title}`
+              : tgtIdentity?.identifier || (tId === centerResourceId && currentResourceTitle ? currentResourceTitle : tId.slice(0, 8));
+          const type =
+            tId === centerResourceId && currentResourceType
+              ? currentResourceType.toLowerCase()
+              : tgtIdentity?.type?.toLowerCase() || 'resource';
           nMap.set(tId, {
             id: tId,
-            label: tId === centerResourceId && currentResourceTitle ? currentResourceTitle : tId.slice(0, 8),
-            type: tId === centerResourceId && currentResourceType ? currentResourceType.toLowerCase() : 'resource',
+            label,
+            subtitle: tgtIdentity?.identifier || (tId === centerResourceId ? currentResourceType : undefined),
+            type,
           });
         }
 

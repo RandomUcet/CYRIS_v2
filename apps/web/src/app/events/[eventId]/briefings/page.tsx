@@ -2,8 +2,13 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
+import { AppShell } from '@/components/layout/AppShell';
+import { RecordIdentifier } from '@/components/common/Badges';
+import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { RefreshCw, ExternalLink } from 'lucide-react';
 import type {
   ParticipantBriefingsListResponse,
   ParticipantBriefing,
@@ -56,124 +61,94 @@ export default function BriefingsPage() {
     setActionLoadingId(null);
   };
 
-  if (loading && !briefingsData) {
-    return (
-      <div style={{ padding: '32px 40px', color: 'var(--text-muted)' }}>
-        Loading operational briefings...
-      </div>
-    );
-  }
-
-  if (error && !briefingsData) {
-    return (
-      <div style={{ padding: '32px 40px', color: 'var(--accent-danger)' }}>
-        Error: {error}
-      </div>
-    );
-  }
-
   const newBriefings = briefingsData?.newBriefings ?? [];
   const earlierBriefings = briefingsData?.earlierBriefings ?? [];
 
   return (
-    <div
-      style={{
-        padding: '28px 40px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '24px',
-        maxWidth: '900px',
-      }}
+    <AppShell
+      breadcrumbs={[
+        { label: 'Operations', href: `/events/${eventId}/overview` },
+        { label: 'Briefings' },
+      ]}
+      title="Operational Briefings"
+      actions={
+        <button
+          onClick={() => void loadBriefings()}
+          className="btn btn-secondary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
+        >
+          <RefreshCw size={13} className={loading ? 'spin' : ''} />
+          Refresh
+        </button>
+      }
     >
-      {/* WORKSPACE HEADER */}
-      <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-          <span className="cyris-signal-marker" />
-          <h1 style={{ fontSize: '18px', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)', margin: 0 }}>
-            Operational Briefings
-          </h1>
-          {briefingsData && briefingsData.unreadCount > 0 && (
-            <span
-              style={{
-                fontSize: '11px',
-                fontFamily: 'monospace',
-                fontWeight: 700,
-                padding: '2px 6px',
-                backgroundColor: 'rgba(225, 92, 25, 0.2)',
-                color: 'var(--cyris-orange)',
-                border: '1px solid rgba(225, 92, 25, 0.4)',
-                borderRadius: '3px',
-              }}
-            >
-              {briefingsData.unreadCount} NEW
-            </span>
-          )}
-        </div>
-        <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)' }}>
-          Official incident communications, intelligence advisories, and situation updates delivered to your operational unit.
-        </p>
+      <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '1000px' }}>
+        {loading && !briefingsData ? (
+          <LoadingState message="Loading operational briefings..." />
+        ) : error && !briefingsData ? (
+          <ErrorState message={error} onRetry={() => void loadBriefings()} />
+        ) : newBriefings.length === 0 && earlierBriefings.length === 0 ? (
+          <EmptyState
+            title="No operational briefings"
+            description="No briefings or tactical advisories have been delivered to your operational unit yet."
+          />
+        ) : (
+          <>
+            {/* NEW BRIEFINGS */}
+            {newBriefings.length > 0 && (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-accent-ops)' }} />
+                  <span style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--color-text-main)' }}>
+                    New / Unread Briefings ({newBriefings.length})
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {newBriefings.map((b) => (
+                    <BriefingItemCard
+                      key={b.deliveryId}
+                      briefing={b}
+                      eventId={eventId}
+                      isNew
+                      actionLoading={actionLoadingId === b.deliveryId}
+                      onMarkRead={() => void handleMarkRead(b.deliveryId)}
+                      onAcknowledge={() => void handleAcknowledge(b.deliveryId)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* EARLIER BRIEFINGS */}
+            {earlierBriefings.length > 0 && (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', marginTop: newBriefings.length > 0 ? '12px' : '0' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-border-subtle)' }} />
+                  <span style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--color-text-dim)' }}>
+                    Earlier Deliveries ({earlierBriefings.length})
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {earlierBriefings.map((b) => (
+                    <BriefingItemCard
+                      key={b.deliveryId}
+                      briefing={b}
+                      eventId={eventId}
+                      isNew={false}
+                      actionLoading={actionLoadingId === b.deliveryId}
+                      onMarkRead={() => void handleMarkRead(b.deliveryId)}
+                      onAcknowledge={() => void handleAcknowledge(b.deliveryId)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
-
-      {newBriefings.length === 0 && earlierBriefings.length === 0 && (
-        <div style={{ padding: '32px 0', color: 'var(--text-dim)', fontStyle: 'italic', fontSize: '13px' }}>
-          No operational briefings have been released to your unit yet.
-        </div>
-      )}
-
-      {/* NEW BRIEFINGS */}
-      {newBriefings.length > 0 && (
-        <div>
-          <div className="cyris-section-header" style={{ marginBottom: '12px' }}>
-            <span className="cyris-signal-marker" />
-            <span>NEW / UNREAD BRIEFINGS</span>
-            <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--cyris-orange)' }}>
-              ({newBriefings.length})
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {newBriefings.map((b) => (
-              <BriefingItemCard
-                key={b.deliveryId}
-                briefing={b}
-                eventId={eventId}
-                isNew
-                actionLoading={actionLoadingId === b.deliveryId}
-                onMarkRead={() => handleMarkRead(b.deliveryId)}
-                onAcknowledge={() => handleAcknowledge(b.deliveryId)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* EARLIER BRIEFINGS */}
-      {earlierBriefings.length > 0 && (
-        <div>
-          <div className="cyris-section-header" style={{ marginBottom: '12px' }}>
-            <span className="cyris-signal-marker" />
-            <span>EARLIER DELIVERIES</span>
-            <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-dim)' }}>
-              ({earlierBriefings.length})
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {earlierBriefings.map((b) => (
-              <BriefingItemCard
-                key={b.deliveryId}
-                briefing={b}
-                eventId={eventId}
-                isNew={false}
-                actionLoading={actionLoadingId === b.deliveryId}
-                onMarkRead={() => handleMarkRead(b.deliveryId)}
-                onAcknowledge={() => handleAcknowledge(b.deliveryId)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+    </AppShell>
   );
 }
 
@@ -199,31 +174,32 @@ function BriefingItemCard({
     <div
       style={{
         padding: '16px 20px',
-        backgroundColor: isNew ? 'var(--bg-card)' : 'transparent',
-        border: isNew ? '1px solid var(--border-subtle)' : '1px solid var(--border-subtle)',
-        borderLeft: isNew ? '3px solid var(--cyris-orange)' : '3px solid transparent',
+        backgroundColor: 'var(--color-bg-surface)',
+        border: '1px solid var(--color-border-subtle)',
+        borderLeft: isNew ? '3px solid var(--color-accent-ops)' : '1px solid var(--color-border-subtle)',
+        borderRadius: 'var(--radius-sm)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
+        gap: '10px',
+        boxShadow: 'var(--shadow-sm)',
       }}
     >
-      {/* HEADER ROW */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '11px', fontFamily: 'monospace', color: isNew ? 'var(--cyris-orange)' : 'var(--text-dim)' }}>
+          <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: isNew ? 'var(--color-accent-ops)' : 'var(--color-text-dim)' }}>
             {timeStr}
           </span>
-          <span className="record-identifier">{briefing.injectNumber}</span>
+          <RecordIdentifier id={briefing.injectNumber} prefix="" />
           {isNew && (
             <span
               style={{
-                fontSize: '9px',
-                fontFamily: 'monospace',
+                fontSize: '10px',
+                fontFamily: 'var(--font-mono)',
                 fontWeight: 700,
-                color: 'var(--cyris-orange)',
-                backgroundColor: 'rgba(225, 92, 25, 0.15)',
-                padding: '1px 5px',
-                borderRadius: '2px',
+                color: 'var(--color-accent-ops)',
+                backgroundColor: 'rgba(2, 132, 199, 0.15)',
+                padding: '1px 6px',
+                borderRadius: '3px',
               }}
             >
               NEW
@@ -232,13 +208,13 @@ function BriefingItemCard({
           {briefing.requiresAcknowledgement && (
             <span
               style={{
-                fontSize: '9px',
-                fontFamily: 'monospace',
+                fontSize: '10px',
+                fontFamily: 'var(--font-mono)',
                 fontWeight: 700,
-                color: briefing.acknowledgedAt ? 'var(--accent-success)' : 'var(--accent-warning)',
+                color: briefing.acknowledgedAt ? 'var(--color-status-success)' : 'var(--color-accent-ops)',
                 backgroundColor: briefing.acknowledgedAt ? 'rgba(34, 197, 94, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-                padding: '1px 5px',
-                borderRadius: '2px',
+                padding: '1px 6px',
+                borderRadius: '3px',
                 border: briefing.acknowledgedAt ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(245, 158, 11, 0.3)',
               }}
             >
@@ -247,22 +223,13 @@ function BriefingItemCard({
           )}
         </div>
 
-        {/* ACTIONS */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {briefing.requiresAcknowledgement && !briefing.acknowledgedAt && (
             <button
               disabled={actionLoading}
               onClick={onAcknowledge}
-              style={{
-                padding: '4px 10px',
-                backgroundColor: 'var(--cyris-orange)',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '2px',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              className="btn btn-primary"
+              style={{ padding: '4px 10px', fontSize: '11px' }}
             >
               {actionLoading ? 'Acknowledging...' : 'Acknowledge Receipt'}
             </button>
@@ -272,15 +239,8 @@ function BriefingItemCard({
             <button
               disabled={actionLoading}
               onClick={onMarkRead}
-              style={{
-                padding: '4px 10px',
-                backgroundColor: 'transparent',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--text-secondary)',
-                borderRadius: '2px',
-                fontSize: '11px',
-                cursor: 'pointer',
-              }}
+              className="btn btn-secondary"
+              style={{ padding: '4px 10px', fontSize: '11px' }}
             >
               Mark Read
             </button>
@@ -288,41 +248,42 @@ function BriefingItemCard({
         </div>
       </div>
 
-      {/* BRIEFING TITLE */}
-      <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+      <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-main)' }}>
         {briefing.title}
       </div>
 
-      {/* BRIEFING CONTENT */}
       {briefing.content && (
-        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+        <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
           {briefing.content}
         </div>
       )}
 
-      {/* DISCLOSED RESOURCES LINKS */}
-      {briefing.disclosedResources.length > 0 && (
-        <div style={{ marginTop: '6px', paddingTop: '8px', borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-dim)', marginBottom: '4px' }}>
+      {briefing.disclosedResources && briefing.disclosedResources.length > 0 && (
+        <div style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px solid var(--color-border-subtle)' }}>
+          <div style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-dim)', marginBottom: '4px' }}>
             ACCESSIBLE EVIDENCE & RESOURCES DISCLOSED:
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {briefing.disclosedResources.map((res) => (
-              <a
+              <Link
                 key={res.resourceId}
                 href={`/events/${eventId}/${res.resourceType === 'evidence' ? 'evidence' : res.resourceType === 'case' ? 'cases' : 'registry'}/${res.resourceId}`}
                 style={{
                   fontSize: '11px',
-                  fontFamily: 'monospace',
-                  color: 'var(--accent-active)',
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--color-accent-ops)',
                   textDecoration: 'none',
                   padding: '2px 6px',
-                  backgroundColor: 'var(--bg-active)',
-                  border: '1px solid var(--border-subtle)',
+                  backgroundColor: 'var(--color-bg-panel)',
+                  border: '1px solid var(--color-border-subtle)',
+                  borderRadius: '3px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
                 }}
               >
-                ↗ {res.identifier ?? `${res.resourceType} (${res.resourceId.substring(0, 8)})`}
-              </a>
+                <ExternalLink size={11} /> {res.identifier ?? `${res.resourceType} (${res.resourceId.substring(0, 8)})`}
+              </Link>
             ))}
           </div>
         </div>

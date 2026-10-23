@@ -511,20 +511,28 @@ export class CyrisApiClient {
   }
 
   private async fetchJson<T>(path: string): Promise<{ ok: boolean; data?: T; error?: string }> {
-    try {
-      const res = await fetch(`${this.baseUrl}${path}`, {
-        cache: 'no-store',
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        const errJson = (await res.json().catch(() => ({}))) as { message?: string };
-        return { ok: false, error: errJson.message || `HTTP ${res.status}` };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(`${this.baseUrl}${path}`, {
+          cache: 'no-store',
+          credentials: 'include',
+        });
+        if (!res.ok) {
+          const errJson = (await res.json().catch(() => ({}))) as { message?: string };
+          return { ok: false, error: errJson.message || `HTTP ${res.status}` };
+        }
+        const data = (await res.json()) as T;
+        return { ok: true, data };
+      } catch (err) {
+        if (attempt === 0 && (err instanceof TypeError || (err as Error).message?.includes('fetch'))) {
+          // Transient socket reset during route transitions - retry once immediately
+          await new Promise((r) => setTimeout(r, 80));
+          continue;
+        }
+        return { ok: false, error: (err as Error).message };
       }
-      const data = (await res.json()) as T;
-      return { ok: true, data };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
     }
+    return { ok: false, error: 'Failed to fetch' };
   }
 
   private async postJson<T>(path: string, payload: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {

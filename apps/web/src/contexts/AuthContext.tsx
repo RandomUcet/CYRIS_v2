@@ -50,11 +50,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    await apiClient.logout();
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('cyris_selected_event');
+    try {
+      await apiClient.logout();
+    } finally {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('cyris_selected_event');
+        window.location.href = '/';
+      }
+      setCurrentUser(null);
     }
-    setCurrentUser(null);
   };
 
   const platformPermissions = currentUser?.platformPermissions ?? [];

@@ -49,6 +49,15 @@ export default function MedicalPage() {
   const [search, setSearch] = useState('');
   const [triageFilter, setTriageFilter] = useState('');
 
+  // Dynamically synchronize activeTab when searchParams change on client-side routing
+  useEffect(() => {
+    const view = searchParams.get('view');
+    if (view === 'triage') setActiveTab('triage');
+    else if (view === 'transfers') setActiveTab('transfers');
+    else if (view === 'all') setActiveTab('all');
+    else if (view === 'active') setActiveTab('active');
+  }, [searchParams]);
+
   // Create Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);

@@ -18,11 +18,16 @@ export class HealthService {
     private readonly mailService: MailService
   ) {}
 
+  private getVersion(): string {
+    const raw = process.env.CYRIS_VERSION || process.env.APP_VERSION || process.env.npm_package_version || '2.0.0';
+    return raw.replace(/^v/, '');
+  }
+
   getLiveness(): HealthResponse {
     return {
       status: 'ok',
       service: 'cyris-api',
-      version: '0.1.1',
+      version: this.getVersion(),
       timestamp: new Date().toISOString(),
       uptime: Math.floor((Date.now() - this.startTime) / 1000),
     };

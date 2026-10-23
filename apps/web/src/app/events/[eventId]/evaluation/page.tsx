@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
-import { RecordIdentifier, StatusBadge } from '@/components/common/Badges';
+import { RecordIdentifier } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,16 +13,10 @@ import {
   Eye,
   Plus,
   RefreshCw,
-  Search,
   Lock,
-  Unlock,
   Award,
-  Clock,
   CheckCircle,
-  FileText,
-  AlertTriangle,
   X,
-  ExternalLink,
 } from 'lucide-react';
 import type {
   EvaluationObjectiveItem,
@@ -33,7 +27,7 @@ export default function EvaluationPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
-  const { user, hasPermission } = useAuth();
+  const { hasPermission } = useAuth();
   const { formatTime } = usePreferences();
 
   const [activeTab, setActiveTab] = useState<'OBSERVATIONS' | 'OBJECTIVES'>('OBSERVATIONS');
@@ -44,7 +38,6 @@ export default function EvaluationPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Fast Live Observation Form State
-  const [targetUnitName, setTargetUnitName] = useState('');
   const [selectedObjectiveId, setSelectedObjectiveId] = useState('');
   const [relatedRecordId, setRelatedRecordId] = useState('');
   const [observationType, setObservationType] = useState<
@@ -62,29 +55,25 @@ export default function EvaluationPage() {
   const [newObjCode, setNewObjCode] = useState('');
   const [newObjTitle, setNewObjTitle] = useState('');
   const [newObjDesc, setNewObjDesc] = useState('');
-  const [newObjWeight, setNewObjWeight] = useState('1');
+  const [newObjWeight, setNewObjWeight] = useState('1.0');
   const [submittingObj, setSubmittingObj] = useState(false);
 
-  // Controller Lock / Publish
   const [locking, setLocking] = useState(false);
 
   const canManage = hasPermission('evaluation.manage');
-  const canObserve = hasPermission('evaluation.observe');
-  const canScore = hasPermission('evaluation.score');
   const canLock = hasPermission('evaluation.lock');
-  const canPublish = hasPermission('evaluation.publish');
 
   const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [objRes, obsRes] = await Promise.all([
+      const [objsRes, obsRes] = await Promise.all([
         apiClient.listEvaluationObjectives(eventId),
         apiClient.listEvaluationObservations(eventId),
       ]);
 
-      if (objRes.ok && objRes.data) {
-        setObjectives(objRes.data);
+      if (objsRes.ok && objsRes.data) {
+        setObjectives(objsRes.data);
       }
       if (obsRes.ok && obsRes.data) {
         setObservations(obsRes.data);
@@ -180,25 +169,28 @@ export default function EvaluationPage() {
       title="Exercise Evaluation"
       breadcrumbs={[{ label: 'Evaluation', href: `/events/${eventId}/evaluation` }]}
       actions={
-        <div className="flex items-center gap-2">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             onClick={fetchData}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition"
+            className="btn btn-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
           >
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={13} className={loading ? 'spin' : ''} />
             Refresh
           </button>
           <button
             onClick={() => router.push(`/events/${eventId}/evaluation/after-action`)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition font-mono"
+            className="btn btn-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
           >
-            <Award size={13} className="text-amber-400" />
+            <Award size={13} style={{ color: 'var(--color-accent-ops)' }} />
             After Action Review
           </button>
           {canManage && (
             <button
               onClick={() => setShowAddObjModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded transition shadow-sm"
+              className="btn btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
             >
               <Plus size={14} />
               New Objective
@@ -208,7 +200,8 @@ export default function EvaluationPage() {
             <button
               onClick={handleLockEvaluation}
               disabled={locking}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition"
+              className="btn btn-ghost"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
             >
               <Lock size={13} />
               Lock
@@ -217,35 +210,57 @@ export default function EvaluationPage() {
         </div>
       }
     >
-      <div className="space-y-6 max-w-7xl mx-auto">
+      <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '1400px' }}>
         {/* Navigation Tabs */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-          <div className="flex items-center gap-4 text-xs font-medium">
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderBottom: '1px solid var(--color-border-subtle)',
+            paddingBottom: '8px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '13px' }}>
             <button
               onClick={() => setActiveTab('OBSERVATIONS')}
-              className={`pb-2 transition border-b-2 flex items-center gap-2 ${
-                activeTab === 'OBSERVATIONS'
-                  ? 'border-blue-500 text-blue-400 font-semibold'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
-              }`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 10px',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: activeTab === 'OBSERVATIONS' ? '2px solid var(--color-accent-ops)' : '2px solid transparent',
+                color: activeTab === 'OBSERVATIONS' ? 'var(--color-accent-ops)' : 'var(--color-text-dim)',
+                fontWeight: activeTab === 'OBSERVATIONS' ? 700 : 500,
+                cursor: 'pointer',
+              }}
             >
               <Eye size={14} />
               Live Observations & Field Notes ({observations.length})
             </button>
             <button
               onClick={() => setActiveTab('OBJECTIVES')}
-              className={`pb-2 transition border-b-2 flex items-center gap-2 ${
-                activeTab === 'OBJECTIVES'
-                  ? 'border-blue-500 text-blue-400 font-semibold'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
-              }`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 10px',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: activeTab === 'OBJECTIVES' ? '2px solid var(--color-accent-ops)' : '2px solid transparent',
+                color: activeTab === 'OBJECTIVES' ? 'var(--color-accent-ops)' : 'var(--color-text-dim)',
+                fontWeight: activeTab === 'OBJECTIVES' ? 700 : 500,
+                cursor: 'pointer',
+              }}
             >
               <Target size={14} />
               Exercise Objectives ({objectives.length})
             </button>
           </div>
 
-          <div className="text-[11px] font-mono text-slate-500">
+          <div style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-dim)' }}>
             Confidential · Evaluator / Exercise Control Access Only
           </div>
         </div>
@@ -255,320 +270,456 @@ export default function EvaluationPage() {
         ) : error ? (
           <ErrorState message={error} onRetry={fetchData} />
         ) : activeTab === 'OBSERVATIONS' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left Column (2 Cols): Observations Log */}
-            <div className="lg:col-span-2 space-y-4">
-              <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow">
-                <div className="px-4 py-3 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between font-mono text-xs">
-                  <span className="font-bold uppercase tracking-wider text-slate-200">
-                    Recorded Live Observations
-                  </span>
-                  <span className="text-slate-500">{observations.length} total</span>
-                </div>
-
-                {observations.length === 0 ? (
-                  <div className="p-8 text-center text-xs text-slate-500 font-mono">
-                    No evaluator observations recorded yet. Use the quick logger on the right.
-                  </div>
-                ) : (
-                  <div className="divide-y divide-slate-800/60 font-mono text-xs">
-                    {observations.map((obs) => (
-                      <div key={obs.id} className="p-4 hover:bg-slate-800/20 transition space-y-2">
-                        <div className="flex items-center justify-between text-[11px] text-slate-400">
-                          <div className="flex items-center gap-2">
-                            <span className="text-slate-500">
-                              {formatTime(obs.observedAt)}
-                            </span>
-                            {obs.objectiveCode && (
-                              <span className="bg-blue-950/80 text-blue-300 border border-blue-800 px-1.5 py-0.5 rounded font-bold">
-                                {obs.objectiveCode}
-                              </span>
-                            )}
-                            {obs.targetUnitName && (
-                              <span className="text-slate-300 font-sans font-medium">
-                                Unit: {obs.targetUnitName}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 font-mono">
-                            {obs.result && (
-                              <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">
-                                {obs.result}
-                              </span>
-                            )}
-                            {obs.score !== null && obs.score !== undefined && (
-                              <span className="px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800 font-bold text-[10px]">
-                                Score: {obs.score}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <p className="text-slate-200 font-sans text-xs leading-relaxed whitespace-pre-wrap">
-                          {obs.note}
-                        </p>
-
-                        {obs.relatedResourceId && (
-                          <div className="text-[11px] text-slate-400 font-mono flex items-center gap-1.5 pt-1">
-                            <span className="text-slate-500">Related Record:</span>
-                            <span className="text-blue-400">{obs.relatedResourceId}</span>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+            {/* Left Column: Observations Log */}
+            <div
+              style={{
+                backgroundColor: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                overflow: 'hidden',
+                boxShadow: 'var(--shadow-sm)',
+              }}
+            >
+              <div
+                style={{
+                  padding: '12px 16px',
+                  backgroundColor: 'var(--color-bg-panel)',
+                  borderBottom: '1px solid var(--color-border-subtle)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  color: 'var(--color-text-main)',
+                }}
+              >
+                <span>Recorded Live Observations</span>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-dim)', fontWeight: 500 }}>
+                  {observations.length} total
+                </span>
               </div>
+
+              {observations.length === 0 ? (
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--color-text-dim)', fontSize: '12px' }}>
+                  No evaluator observations recorded yet. Use the logger on the right to record field observations.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {observations.map((obs) => (
+                    <div
+                      key={obs.id}
+                      style={{
+                        padding: '14px 16px',
+                        borderBottom: '1px solid var(--color-border-subtle)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ color: 'var(--color-text-dim)', fontFamily: 'var(--font-mono)' }}>
+                            {formatTime(obs.observedAt)}
+                          </span>
+                          {obs.objectiveCode && (
+                            <RecordIdentifier id={obs.objectiveCode} prefix="" />
+                          )}
+                          {obs.targetUnitName && (
+                            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+                              Unit: {obs.targetUnitName}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {obs.result && (
+                            <span
+                              style={{
+                                padding: '1px 6px',
+                                borderRadius: '3px',
+                                backgroundColor: 'var(--color-bg-panel)',
+                                border: '1px solid var(--color-border-subtle)',
+                                fontSize: '10px',
+                                fontFamily: 'var(--font-mono)',
+                                color: 'var(--color-text-main)',
+                              }}
+                            >
+                              {obs.result}
+                            </span>
+                          )}
+                          {obs.score !== null && obs.score !== undefined && (
+                            <span
+                              style={{
+                                padding: '1px 6px',
+                                borderRadius: '3px',
+                                backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                                color: 'var(--color-accent-ops)',
+                                fontWeight: 700,
+                                fontSize: '10px',
+                                fontFamily: 'var(--font-mono)',
+                              }}
+                            >
+                              Score: {obs.score}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-main)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                        {obs.note}
+                      </p>
+
+                      {obs.relatedResourceId && (
+                        <div style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-dim)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>Related Record:</span>
+                          <span style={{ color: 'var(--color-accent-ops)' }}>{obs.relatedResourceId}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Right Column (1 Col): Fast Live Observation Form */}
-            <div className="space-y-4">
-              <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 shadow">
-                <div className="flex items-center gap-2 border-b border-slate-800 pb-2 mb-3">
-                  <Eye size={15} className="text-blue-400" />
-                  <h3 className="text-xs font-bold font-mono uppercase tracking-wider text-slate-200">
-                    Fast Live Observation
-                  </h3>
+            {/* Right Column: Fast Live Observation Form */}
+            <div
+              style={{
+                backgroundColor: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '16px',
+                boxShadow: 'var(--shadow-sm)',
+                height: 'fit-content',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: '10px', marginBottom: '14px' }}>
+                <Eye size={15} style={{ color: 'var(--color-accent-ops)' }} />
+                <h3 style={{ margin: 0, fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-main)' }}>
+                  Fast Live Observation
+                </h3>
+              </div>
+
+              {saveSuccess && (
+                <div style={{ marginBottom: '12px', padding: '8px 12px', backgroundColor: 'rgba(34, 197, 94, 0.15)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 'var(--radius-xs)', color: 'var(--color-status-success)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <CheckCircle size={13} /> Observation recorded successfully!
+                </div>
+              )}
+
+              {saveError && (
+                <div style={{ marginBottom: '12px', padding: '8px 12px', backgroundColor: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 'var(--radius-xs)', color: 'var(--color-danger)', fontSize: '12px' }}>
+                  {saveError}
+                </div>
+              )}
+
+              <form onSubmit={handleFastObservationSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '4px' }}>
+                    Objective
+                  </label>
+                  <select
+                    value={selectedObjectiveId}
+                    onChange={(e) => setSelectedObjectiveId(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      backgroundColor: 'var(--color-bg-panel)',
+                      border: '1px solid var(--color-border-subtle)',
+                      borderRadius: 'var(--radius-xs)',
+                      color: 'var(--color-text-main)',
+                      fontSize: '12px',
+                    }}
+                  >
+                    <option value="">(Optional) General Observation</option>
+                    {objectives.map((obj) => (
+                      <option key={obj.id} value={obj.id}>
+                        {obj.code} — {obj.title}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                {saveSuccess && (
-                  <div className="mb-3 p-2 bg-emerald-950/60 border border-emerald-800 rounded text-emerald-300 text-xs font-mono flex items-center gap-1.5">
-                    <CheckCircle size={13} />
-                    Observation recorded successfully!
-                  </div>
-                )}
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '4px' }}>
+                    Related Record ID (Evidence, Incident, Task, Case...)
+                  </label>
+                  <input
+                    type="text"
+                    value={relatedRecordId}
+                    onChange={(e) => setRelatedRecordId(e.target.value)}
+                    placeholder="e.g. E-0042, INC-0004, TASK-0021"
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      backgroundColor: 'var(--color-bg-panel)',
+                      border: '1px solid var(--color-border-subtle)',
+                      borderRadius: 'var(--radius-xs)',
+                      color: 'var(--color-text-main)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '12px',
+                    }}
+                  />
+                </div>
 
-                {saveError && (
-                  <div className="mb-3 p-2 bg-red-950/60 border border-red-800 rounded text-red-300 text-xs font-mono">
-                    {saveError}
-                  </div>
-                )}
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '4px' }}>
+                    Observation Note <span style={{ color: 'var(--color-danger)' }}>*</span>
+                  </label>
+                  <textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={4}
+                    placeholder="e.g. Correctly verified image hash before analysis..."
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      backgroundColor: 'var(--color-bg-panel)',
+                      border: '1px solid var(--color-border-subtle)',
+                      borderRadius: 'var(--radius-xs)',
+                      color: 'var(--color-text-main)',
+                      fontSize: '12px',
+                      lineHeight: 1.4,
+                    }}
+                    required
+                  />
+                </div>
 
-                <form onSubmit={handleFastObservationSubmit} className="space-y-3 text-xs">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   <div>
-                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                      Objective
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '4px' }}>
+                      Result Assessment
                     </label>
                     <select
-                      value={selectedObjectiveId}
-                      onChange={(e) => setSelectedObjectiveId(e.target.value)}
-                      className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 font-mono focus:outline-none focus:border-blue-500"
+                      value={result}
+                      onChange={(e) => setResult(e.target.value as any)}
+                      style={{
+                        width: '100%',
+                        padding: '6px 8px',
+                        backgroundColor: 'var(--color-bg-panel)',
+                        border: '1px solid var(--color-border-subtle)',
+                        borderRadius: 'var(--radius-xs)',
+                        color: 'var(--color-text-main)',
+                        fontSize: '11px',
+                      }}
                     >
-                      <option value="">(Optional) General Observation</option>
-                      {objectives.map((obj) => (
-                        <option key={obj.id} value={obj.id}>
-                          {obj.code} — {obj.title}
-                        </option>
-                      ))}
+                      <option value="EXCEEDED">Exceeded</option>
+                      <option value="MET">Met</option>
+                      <option value="PARTIALLY_MET">Partially Met</option>
+                      <option value="NOT_MET">Not Met</option>
+                      <option value="UNOBSERVED">Unobserved</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                      Related Record ID (Evidence, Incident, Task, Case...)
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '4px' }}>
+                      Score (0-5, Optional)
                     </label>
                     <input
-                      type="text"
-                      value={relatedRecordId}
-                      onChange={(e) => setRelatedRecordId(e.target.value)}
-                      placeholder="e.g. E-0042, INC-0004, TASK-0021"
-                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 font-mono focus:outline-none focus:border-blue-500"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={score}
+                      onChange={(e) => setScore(e.target.value ? Number(e.target.value) : '')}
+                      placeholder="e.g. 4"
+                      style={{
+                        width: '100%',
+                        padding: '6px 8px',
+                        backgroundColor: 'var(--color-bg-panel)',
+                        border: '1px solid var(--color-border-subtle)',
+                        borderRadius: 'var(--radius-xs)',
+                        color: 'var(--color-text-main)',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '11px',
+                      }}
                     />
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                      Observation Note <span className="text-rose-400">*</span>
-                    </label>
-                    <textarea
-                      value={note}
-                      onChange={(e) => setNote(e.target.value)}
-                      rows={4}
-                      placeholder="e.g. Correctly verified image hash before analysis..."
-                      className="w-full p-2 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500"
-                      required
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                        Result Assessment
-                      </label>
-                      <select
-                        value={result}
-                        onChange={(e) => setResult(e.target.value as any)}
-                        className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-slate-200 font-mono focus:outline-none focus:border-blue-500 text-[11px]"
-                      >
-                        <option value="EXCEEDED">Exceeded</option>
-                        <option value="MET">Met</option>
-                        <option value="PARTIALLY_MET">Partially Met</option>
-                        <option value="NOT_MET">Not Met</option>
-                        <option value="UNOBSERVED">Unobserved</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                        Score (0-5, Optional)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={score}
-                        onChange={(e) => setScore(e.target.value ? Number(e.target.value) : '')}
-                        placeholder="e.g. 4"
-                        className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-slate-200 font-mono focus:outline-none focus:border-blue-500 text-[11px]"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={savingObservation}
-                    className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow"
-                  >
-                    <CheckCircle size={14} />
-                    {savingObservation ? 'Saving...' : 'Save Observation'}
-                  </button>
-                </form>
-              </div>
+                <button
+                  type="submit"
+                  disabled={savingObservation}
+                  className="btn btn-primary"
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginTop: '6px' }}
+                >
+                  <CheckCircle size={14} />
+                  {savingObservation ? 'Saving...' : 'Save Observation'}
+                </button>
+              </form>
             </div>
           </div>
         ) : (
           /* OBJECTIVES TAB */
-          <div className="space-y-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-950/70 border-b border-slate-800 text-slate-400 uppercase font-mono tracking-wider text-[11px]">
-                    <th className="py-2.5 px-4 w-28">Code</th>
-                    <th className="py-2.5 px-4">Title & Description</th>
-                    <th className="py-2.5 px-4 w-28">Category</th>
-                    <th className="py-2.5 px-4 w-24">Weight</th>
-                    <th className="py-2.5 px-4 w-32">Criteria Count</th>
+          <div
+            style={{
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              overflow: 'hidden',
+              boxShadow: 'var(--shadow-sm)',
+            }}
+          >
+            <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <thead>
+                <tr style={{ backgroundColor: 'var(--color-bg-panel)', borderBottom: '1px solid var(--color-border-subtle)', color: 'var(--color-text-dim)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                  <th style={{ padding: '10px 16px', width: '120px' }}>Code</th>
+                  <th style={{ padding: '10px 16px' }}>Title & Description</th>
+                  <th style={{ padding: '10px 16px', width: '120px' }}>Category</th>
+                  <th style={{ padding: '10px 16px', width: '90px' }}>Weight</th>
+                  <th style={{ padding: '10px 16px', width: '130px' }}>Criteria Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {objectives.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--color-text-dim)' }}>
+                      No evaluation objectives registered for this event.
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-sans">
-                  {objectives.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-500 font-mono">
-                        No evaluation objectives registered for this event.
+                ) : (
+                  objectives.map((obj) => (
+                    <tr key={obj.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <td style={{ padding: '12px 16px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-accent-ops)' }}>
+                        <RecordIdentifier id={obj.code} prefix="" />
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>{obj.title}</div>
+                        {obj.description && (
+                          <div style={{ color: 'var(--color-text-secondary)', fontSize: '11px', marginTop: '2px' }}>{obj.description}</div>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 16px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-dim)' }}>
+                        {obj.category || 'GENERAL'}
+                      </td>
+                      <td style={{ padding: '12px 16px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                        {obj.weight ?? 1.0}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: 'var(--color-text-dim)' }}>
+                        {obj.criteria?.length || 0} criteria
                       </td>
                     </tr>
-                  ) : (
-                    objectives.map((obj) => (
-                      <tr key={obj.id} className="hover:bg-slate-800/30">
-                        <td className="py-3 px-4 font-mono font-bold text-blue-400">{obj.code}</td>
-                        <td className="py-3 px-4">
-                          <div className="font-semibold text-slate-200">{obj.title}</div>
-                          {obj.description && (
-                            <div className="text-slate-400 text-xs mt-0.5">{obj.description}</div>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 font-mono text-slate-400 text-[11px]">
-                          {obj.category || 'GENERAL'}
-                        </td>
-                        <td className="py-3 px-4 font-mono font-bold text-slate-300">
-                          {obj.weight ?? 1.0}
-                        </td>
-                        <td className="py-3 px-4 font-mono text-slate-400">
-                          {obj.criteria?.length || 0} criteria
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
       {/* New Objective Modal */}
       {showAddObjModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <form
-            onSubmit={handleCreateObjective}
-            className="bg-slate-900 border border-slate-700 rounded-lg max-w-md w-full p-5 shadow-2xl space-y-4"
-          >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h4 className="font-semibold text-slate-100 text-sm">Add Evaluation Objective</h4>
-              <button
-                type="button"
-                onClick={() => setShowAddObjModal(false)}
-                className="text-slate-400 hover:text-white"
-              >
+        <div className="modal-backdrop" onClick={() => setShowAddObjModal(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                Add Evaluation Objective
+              </h3>
+              <button className="btn btn-ghost" type="button" onClick={() => setShowAddObjModal(false)}>
                 <X size={16} />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <form onSubmit={handleCreateObjective} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Code (e.g. OBJ-04)</label>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '4px' }}>
+                  Objective Code *
+                </label>
                 <input
                   type="text"
                   value={newObjCode}
                   onChange={(e) => setNewObjCode(e.target.value)}
-                  placeholder="OBJ-01"
-                  className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 font-mono focus:outline-none focus:border-blue-500"
+                  placeholder="e.g. OBJ-INC-01"
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    backgroundColor: 'var(--color-bg-panel)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-xs)',
+                    color: 'var(--color-text-main)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '12px',
+                  }}
                   required
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Title</label>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '4px' }}>
+                  Title *
+                </label>
                 <input
                   type="text"
                   value={newObjTitle}
                   onChange={(e) => setNewObjTitle(e.target.value)}
-                  placeholder="e.g. Preserve digital evidence integrity"
-                  className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500"
+                  placeholder="e.g. Timely Initial Incident Assessment"
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    backgroundColor: 'var(--color-bg-panel)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-xs)',
+                    color: 'var(--color-text-main)',
+                    fontSize: '12px',
+                  }}
                   required
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Description</label>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '4px' }}>
+                  Description
+                </label>
                 <textarea
                   value={newObjDesc}
                   onChange={(e) => setNewObjDesc(e.target.value)}
                   rows={3}
-                  placeholder="Scope, expected performance..."
-                  className="w-full p-2 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500"
+                  placeholder="Details of performance expectations..."
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    backgroundColor: 'var(--color-bg-panel)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-xs)',
+                    color: 'var(--color-text-main)',
+                    fontSize: '12px',
+                  }}
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Evaluation Weight</label>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '4px' }}>
+                  Weight
+                </label>
                 <input
                   type="number"
                   step="0.1"
+                  min="0.1"
+                  max="10"
                   value={newObjWeight}
                   onChange={(e) => setNewObjWeight(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 font-mono focus:outline-none focus:border-blue-500"
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    backgroundColor: 'var(--color-bg-panel)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-xs)',
+                    color: 'var(--color-text-main)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '12px',
+                  }}
                 />
               </div>
-            </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setShowAddObjModal(false)}
-                className="px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submittingObj}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded transition"
-              >
-                {submittingObj ? 'Saving...' : 'Add Objective'}
-              </button>
-            </div>
-          </form>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowAddObjModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={submittingObj} className="btn btn-primary">
+                  {submittingObj ? 'Creating...' : 'Create Objective'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </AppShell>

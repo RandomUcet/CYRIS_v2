@@ -72,7 +72,10 @@ async function main(): Promise<void> {
   console.log('  CYRIS v2 — Operator Credential Management');
   console.log('================================================================\n');
 
-  const email = await askQuestion('Account Email: ');
+  let email = process.env.CYRIS_OPERATOR_EMAIL || '';
+  if (!email) {
+    email = await askQuestion('Account Email: ');
+  }
   if (!email || !email.includes('@')) {
     console.error('Error: A valid email address is required.');
     process.exit(1);
@@ -92,19 +95,22 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const password = await askSecret('Enter new password: ');
-  const confirmPassword = await askSecret('Confirm new password: ');
+  let password = process.env.CYRIS_OPERATOR_PASSWORD || '';
+  if (!password) {
+    password = await askSecret('Enter new password: ');
+    const confirmPassword = await askSecret('Confirm new password: ');
 
-  if (!password || password.length < 8) {
-    console.error('\nError: Password must be at least 8 characters long.');
-    await closeDatabaseConnection();
-    process.exit(1);
-  }
+    if (!password || password.length < 8) {
+      console.error('\nError: Password must be at least 8 characters long.');
+      await closeDatabaseConnection();
+      process.exit(1);
+    }
 
-  if (password !== confirmPassword) {
-    console.error('\nError: Passwords do not match.');
-    await closeDatabaseConnection();
-    process.exit(1);
+    if (password !== confirmPassword) {
+      console.error('\nError: Passwords do not match.');
+      await closeDatabaseConnection();
+      process.exit(1);
+    }
   }
 
   console.log('\nHashing credentials with Argon2id...');

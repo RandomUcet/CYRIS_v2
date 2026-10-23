@@ -38,6 +38,14 @@ export class AuthController {
     private readonly identityService: IdentityService
   ) {}
 
+  private isRequestSecure(req: CyrisRequest): boolean {
+    const isHttps =
+      req.headers['x-forwarded-proto'] === 'https' ||
+      (req.headers['origin'] as string)?.startsWith('https://') ||
+      Boolean((req.raw?.socket as any)?.encrypted);
+    return this.configService.isProduction && Boolean(isHttps);
+  }
+
   @Get('providers')
   async getPublicProviders() {
     return this.identityService.listPublicProviders();
@@ -88,7 +96,7 @@ export class AuthController {
       res.setCookie(COOKIE_NAME, sessionToken, {
         path: '/',
         httpOnly: true,
-        secure: this.configService.isProduction,
+        secure: this.isRequestSecure(req),
         sameSite: 'lax',
         maxAge: COOKIE_MAX_AGE_SECONDS,
       });
@@ -142,7 +150,7 @@ export class AuthController {
     res.clearCookie(COOKIE_NAME, {
       path: '/',
       httpOnly: true,
-      secure: this.configService.isProduction,
+      secure: this.isRequestSecure(req),
       sameSite: 'lax',
     });
 
@@ -175,7 +183,7 @@ export class AuthController {
     res.setCookie(COOKIE_NAME, sessionToken, {
       path: '/',
       httpOnly: true,
-      secure: this.configService.isProduction,
+      secure: this.isRequestSecure(req),
       sameSite: 'lax',
       maxAge: COOKIE_MAX_AGE_SECONDS,
     });
@@ -206,7 +214,7 @@ export class AuthController {
     res.setCookie(COOKIE_NAME, sessionToken, {
       path: '/',
       httpOnly: true,
-      secure: this.configService.isProduction,
+      secure: this.isRequestSecure(req),
       sameSite: 'lax',
       maxAge: COOKIE_MAX_AGE_SECONDS,
     });

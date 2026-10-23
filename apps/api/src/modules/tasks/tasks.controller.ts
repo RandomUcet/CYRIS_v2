@@ -7,6 +7,7 @@ import {
   Query,
   Body,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -38,8 +39,11 @@ export class TasksController {
     @Query() query: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<OperationalTaskItem[]> {
-    const filters = TaskQueryFiltersSchema.parse(query || {});
-    return this.tasksService.listTasks(eventId, filters, user);
+    const parse = TaskQueryFiltersSchema.safeParse(query || {});
+    if (!parse.success) {
+      throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid query parameters');
+    }
+    return this.tasksService.listTasks(eventId, parse.data, user);
   }
 
   @Post()
@@ -48,8 +52,11 @@ export class TasksController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<OperationalTaskItem> {
-    const dto = CreateOperationalTaskRequestSchema.parse(body);
-    return this.tasksService.createTask(eventId, dto, user);
+    const parse = CreateOperationalTaskRequestSchema.safeParse(body);
+    if (!parse.success) {
+      throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task payload');
+    }
+    return this.tasksService.createTask(eventId, parse.data, user);
   }
 
   @Get(':taskId')
@@ -68,8 +75,11 @@ export class TasksController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<OperationalTaskDetail> {
-    const dto = UpdateOperationalTaskRequestSchema.parse(body);
-    return this.tasksService.updateTask(taskId, dto, user);
+    const parse = UpdateOperationalTaskRequestSchema.safeParse(body);
+    if (!parse.success) {
+      throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task update payload');
+    }
+    return this.tasksService.updateTask(taskId, parse.data, user);
   }
 
   @Post(':taskId/assign')
@@ -79,8 +89,11 @@ export class TasksController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<OperationalTaskDetail> {
-    const dto = AssignOperationalTaskRequestSchema.parse(body);
-    return this.tasksService.assignTask(taskId, dto, user);
+    const parse = AssignOperationalTaskRequestSchema.safeParse(body);
+    if (!parse.success) {
+      throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task assign payload');
+    }
+    return this.tasksService.assignTask(taskId, parse.data, user);
   }
 
   @Post(':taskId/acknowledge')
@@ -90,8 +103,11 @@ export class TasksController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<OperationalTaskDetail> {
-    const dto = AcknowledgeOperationalTaskRequestSchema.parse(body);
-    return this.tasksService.acknowledgeTask(taskId, dto, user);
+    const parse = AcknowledgeOperationalTaskRequestSchema.safeParse(body);
+    if (!parse.success) {
+      throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task acknowledge payload');
+    }
+    return this.tasksService.acknowledgeTask(taskId, parse.data, user);
   }
 
   @Post(':taskId/start')
@@ -101,8 +117,11 @@ export class TasksController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<OperationalTaskDetail> {
-    const dto = StartOperationalTaskRequestSchema.parse(body);
-    return this.tasksService.startTask(taskId, dto, user);
+    const parse = StartOperationalTaskRequestSchema.safeParse(body);
+    if (!parse.success) {
+      throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task start payload');
+    }
+    return this.tasksService.startTask(taskId, parse.data, user);
   }
 
   @Post(':taskId/block')
@@ -112,8 +131,11 @@ export class TasksController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<OperationalTaskDetail> {
-    const dto = BlockOperationalTaskRequestSchema.parse(body);
-    return this.tasksService.blockTask(taskId, dto, user);
+    const parse = BlockOperationalTaskRequestSchema.safeParse(body);
+    if (!parse.success) {
+      throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task block payload');
+    }
+    return this.tasksService.blockTask(taskId, parse.data, user);
   }
 
   @Post(':taskId/complete')
@@ -123,8 +145,11 @@ export class TasksController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<OperationalTaskDetail> {
-    const dto = CompleteOperationalTaskRequestSchema.parse(body);
-    return this.tasksService.completeTask(taskId, dto, user);
+    const parse = CompleteOperationalTaskRequestSchema.safeParse(body);
+    if (!parse.success) {
+      throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task complete payload');
+    }
+    return this.tasksService.completeTask(taskId, parse.data, user);
   }
 
   @Post(':taskId/cancel')
@@ -134,8 +159,11 @@ export class TasksController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<OperationalTaskDetail> {
-    const dto = CancelOperationalTaskRequestSchema.parse(body);
-    return this.tasksService.cancelTask(taskId, dto, user);
+    const parse = CancelOperationalTaskRequestSchema.safeParse(body);
+    if (!parse.success) {
+      throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task cancel payload');
+    }
+    return this.tasksService.cancelTask(taskId, parse.data, user);
   }
 
   @Post(':taskId/reopen')
@@ -145,7 +173,10 @@ export class TasksController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<OperationalTaskDetail> {
-    const dto = ReopenOperationalTaskRequestSchema.parse(body);
-    return this.tasksService.reopenTask(taskId, dto, user);
+    const parse = ReopenOperationalTaskRequestSchema.safeParse(body);
+    if (!parse.success) {
+      throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task reopen payload');
+    }
+    return this.tasksService.reopenTask(taskId, parse.data, user);
   }
 }

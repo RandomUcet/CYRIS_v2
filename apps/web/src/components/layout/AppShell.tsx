@@ -45,16 +45,21 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  if (loading) {
+  // Guard: if unauthenticated in AppShell, immediately redirect to login root
+  useEffect(() => {
+    if (!loading && !currentUser) {
+      if (typeof window !== 'undefined') {
+        window.location.href = '/';
+      }
+    }
+  }, [loading, currentUser]);
+
+  if (loading || !currentUser) {
     return (
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <LoadingState message="Authenticating CYRIS operator session..." />
+        <LoadingState message={!currentUser ? 'Session required. Redirecting to login...' : 'Authenticating CYRIS operator session...'} />
       </div>
     );
-  }
-
-  if (!currentUser) {
-    return <>{children}</>;
   }
 
   return (

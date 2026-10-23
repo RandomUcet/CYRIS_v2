@@ -1,12 +1,28 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { eq, and, or, isNull, desc } from 'drizzle-orm';
+import { eq, and, or, isNull, desc, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { ActivityService } from './activity.service.js';
 import { SearchIndexerService } from '../search/search-indexer.service.js';
-import { resources, resourceRelationships, ResourceVisibility, type ResourceVisibilityValue } from '@cyris/db';
+import {
+  resources,
+  resourceRelationships,
+  ResourceVisibility,
+  type ResourceVisibilityValue,
+  persons,
+  organisations,
+  locations,
+  vehicles,
+  devices,
+  weapons,
+  incidents,
+  cases,
+  evidence,
+  operationalTasks,
+  documents,
+} from '@cyris/db';
 import { generateId } from '@cyris/shared';
-import type { ResourceItem, ResourceRelationshipItem } from '@cyris/contracts';
+import type { ResourceItem, ResourceRelationshipItem, ResolvedEntityIdentity } from '@cyris/contracts';
 
 export interface RegisterResourceOptions {
   id?: string;
@@ -201,6 +217,8 @@ export class ResourceService {
       db
     );
 
+    const identityMap = await this.resolveIdentities([created!.sourceResourceId, created!.targetResourceId]);
+
     return {
       id: created!.id,
       eventId: created!.eventId,
@@ -211,6 +229,8 @@ export class ResourceService {
       createdAt: created!.createdAt.toISOString(),
       removedAt: created!.removedAt ? created!.removedAt.toISOString() : null,
       metadata: (created!.metadata as Record<string, unknown>) || null,
+      source: identityMap.get(created!.sourceResourceId) || null,
+      target: identityMap.get(created!.targetResourceId) || null,
     };
   }
 
@@ -276,6 +296,263 @@ export class ResourceService {
   }
 
   /**
+   * Resolves human-facing identifiers and titles for a batch of resource IDs.
+   */
+  async resolveIdentities(resourceIds: string[]): Promise<Map<string, ResolvedEntityIdentity>> {
+    const map = new Map<string, ResolvedEntityIdentity>();
+    const uniqueIds = Array.from(new Set(resourceIds.filter(Boolean)));
+    if (uniqueIds.length === 0) return map;
+
+    const db = this.databaseService.client;
+    const resRows = await db
+      .select({ id: resources.id, resourceType: resources.resourceType })
+      .from(resources)
+      .where(inArray(resources.id, uniqueIds));
+
+    const typeGroups = new Map<string, string[]>();
+    for (const r of resRows) {
+      const list = typeGroups.get(r.resourceType) || [];
+      list.push(r.id);
+      typeGroups.set(r.resourceType, list);
+    }
+
+    const typeQueries: Promise<void>[] = [];
+
+    if (typeGroups.has('person')) {
+      typeQueries.push(
+        db
+          .select({ id: persons.id, identifier: persons.identifier, title: persons.displayName })
+          .from(persons)
+          .where(inArray(persons.id, typeGroups.get('person')!))
+          .then((rows) => {
+            for (const row of rows) {
+              map.set(row.id, {
+                id: row.id,
+                identifier: row.identifier || `PER-${row.id.slice(0, 8)}`,
+                title: row.title,
+                type: 'person',
+              });
+            }
+          })
+      );
+    }
+
+    if (typeGroups.has('organisation')) {
+      typeQueries.push(
+        db
+          .select({ id: organisations.id, identifier: organisations.identifier, title: organisations.name })
+          .from(organisations)
+          .where(inArray(organisations.id, typeGroups.get('organisation')!))
+          .then((rows) => {
+            for (const row of rows) {
+              map.set(row.id, {
+                id: row.id,
+                identifier: row.identifier || `ORG-${row.id.slice(0, 8)}`,
+                title: row.title,
+                type: 'organisation',
+              });
+            }
+          })
+      );
+    }
+
+    if (typeGroups.has('location')) {
+      typeQueries.push(
+        db
+          .select({ id: locations.id, identifier: locations.identifier, title: locations.name })
+          .from(locations)
+          .where(inArray(locations.id, typeGroups.get('location')!))
+          .then((rows) => {
+            for (const row of rows) {
+              map.set(row.id, {
+                id: row.id,
+                identifier: row.identifier || `LOC-${row.id.slice(0, 8)}`,
+                title: row.title,
+                type: 'location',
+              });
+            }
+          })
+      );
+    }
+
+    if (typeGroups.has('vehicle')) {
+      typeQueries.push(
+        db
+          .select({ id: vehicles.id, identifier: vehicles.identifier, title: vehicles.label })
+          .from(vehicles)
+          .where(inArray(vehicles.id, typeGroups.get('vehicle')!))
+          .then((rows) => {
+            for (const row of rows) {
+              map.set(row.id, {
+                id: row.id,
+                identifier: row.identifier || `VEH-${row.id.slice(0, 8)}`,
+                title: row.title,
+                type: 'vehicle',
+              });
+            }
+          })
+      );
+    }
+
+    if (typeGroups.has('device')) {
+      typeQueries.push(
+        db
+          .select({ id: devices.id, identifier: devices.identifier, title: devices.label })
+          .from(devices)
+          .where(inArray(devices.id, typeGroups.get('device')!))
+          .then((rows) => {
+            for (const row of rows) {
+              map.set(row.id, {
+                id: row.id,
+                identifier: row.identifier || `DEV-${row.id.slice(0, 8)}`,
+                title: row.title,
+                type: 'device',
+              });
+            }
+          })
+      );
+    }
+
+    if (typeGroups.has('weapon')) {
+      typeQueries.push(
+        db
+          .select({
+            id: weapons.id,
+            identifier: weapons.identifier,
+            model: weapons.model,
+            manufacturer: weapons.manufacturer,
+            category: weapons.category,
+          })
+          .from(weapons)
+          .where(inArray(weapons.id, typeGroups.get('weapon')!))
+          .then((rows) => {
+            for (const row of rows) {
+              const title = [row.manufacturer, row.model].filter(Boolean).join(' ') || row.category || 'Weapon';
+              map.set(row.id, {
+                id: row.id,
+                identifier: row.identifier || `WPN-${row.id.slice(0, 8)}`,
+                title,
+                type: 'weapon',
+              });
+            }
+          })
+      );
+    }
+
+    if (typeGroups.has('incident')) {
+      typeQueries.push(
+        db
+          .select({ id: incidents.id, identifier: incidents.incidentNumber, title: incidents.title })
+          .from(incidents)
+          .where(inArray(incidents.id, typeGroups.get('incident')!))
+          .then((rows) => {
+            for (const row of rows) {
+              map.set(row.id, {
+                id: row.id,
+                identifier: row.identifier || `INC-${row.id.slice(0, 8)}`,
+                title: row.title,
+                type: 'incident',
+              });
+            }
+          })
+      );
+    }
+
+    if (typeGroups.has('case')) {
+      typeQueries.push(
+        db
+          .select({ id: cases.id, identifier: cases.caseNumber, title: cases.title })
+          .from(cases)
+          .where(inArray(cases.id, typeGroups.get('case')!))
+          .then((rows) => {
+            for (const row of rows) {
+              map.set(row.id, {
+                id: row.id,
+                identifier: row.identifier || `CASE-${row.id.slice(0, 8)}`,
+                title: row.title,
+                type: 'case',
+              });
+            }
+          })
+      );
+    }
+
+    if (typeGroups.has('evidence')) {
+      typeQueries.push(
+        db
+          .select({ id: evidence.id, identifier: evidence.evidenceNumber, title: evidence.title })
+          .from(evidence)
+          .where(inArray(evidence.id, typeGroups.get('evidence')!))
+          .then((rows) => {
+            for (const row of rows) {
+              map.set(row.id, {
+                id: row.id,
+                identifier: row.identifier || `E-${row.id.slice(0, 8)}`,
+                title: row.title,
+                type: 'evidence',
+              });
+            }
+          })
+      );
+    }
+
+    if (typeGroups.has('operational_task') || typeGroups.has('task')) {
+      const taskIds = [...(typeGroups.get('operational_task') || []), ...(typeGroups.get('task') || [])];
+      typeQueries.push(
+        db
+          .select({ id: operationalTasks.id, identifier: operationalTasks.taskNumber, title: operationalTasks.title })
+          .from(operationalTasks)
+          .where(inArray(operationalTasks.id, taskIds))
+          .then((rows) => {
+            for (const row of rows) {
+              map.set(row.id, {
+                id: row.id,
+                identifier: row.identifier || `TASK-${row.id.slice(0, 8)}`,
+                title: row.title,
+                type: 'task',
+              });
+            }
+          })
+      );
+    }
+
+    if (typeGroups.has('document')) {
+      typeQueries.push(
+        db
+          .select({ id: documents.id, identifier: documents.documentNumber, title: documents.title })
+          .from(documents)
+          .where(inArray(documents.id, typeGroups.get('document')!))
+          .then((rows) => {
+            for (const row of rows) {
+              map.set(row.id, {
+                id: row.id,
+                identifier: row.identifier || `DOC-${row.id.slice(0, 8)}`,
+                title: row.title,
+                type: 'document',
+              });
+            }
+          })
+      );
+    }
+
+    await Promise.all(typeQueries);
+
+    // Any remaining resources that didn't have a domain table match
+    for (const r of resRows) {
+      if (!map.has(r.id)) {
+        map.set(r.id, {
+          id: r.id,
+          identifier: `${r.resourceType.toUpperCase()}-${r.id.slice(0, 8)}`,
+          title: r.resourceType.toUpperCase(),
+          type: r.resourceType,
+        });
+      }
+    }
+
+    return map;
+  }
+
+  /**
    * Lists all active relationships for a given resource (as either source or target).
    */
   async listRelationships(resourceId: string): Promise<ResourceRelationshipItem[]> {
@@ -293,6 +570,9 @@ export class ResourceService {
       )
       .orderBy(desc(resourceRelationships.createdAt));
 
+    const allIds = rows.flatMap((r) => [r.sourceResourceId, r.targetResourceId]);
+    const identityMap = await this.resolveIdentities(allIds);
+
     return rows.map((r) => ({
       id: r.id,
       eventId: r.eventId,
@@ -303,6 +583,8 @@ export class ResourceService {
       createdAt: r.createdAt.toISOString(),
       removedAt: r.removedAt ? r.removedAt.toISOString() : null,
       metadata: (r.metadata as Record<string, unknown>) || null,
+      source: identityMap.get(r.sourceResourceId) || null,
+      target: identityMap.get(r.targetResourceId) || null,
     }));
   }
 
@@ -322,6 +604,9 @@ export class ResourceService {
       .orderBy(desc(resourceRelationships.createdAt))
       .limit(limit);
 
+    const allIds = rows.flatMap((r) => [r.sourceResourceId, r.targetResourceId]);
+    const identityMap = await this.resolveIdentities(allIds);
+
     return rows.map((r) => ({
       id: r.id,
       eventId: r.eventId,
@@ -332,6 +617,8 @@ export class ResourceService {
       createdAt: r.createdAt.toISOString(),
       removedAt: null,
       metadata: (r.metadata as Record<string, unknown>) || null,
+      source: identityMap.get(r.sourceResourceId) || null,
+      target: identityMap.get(r.targetResourceId) || null,
     }));
   }
 }

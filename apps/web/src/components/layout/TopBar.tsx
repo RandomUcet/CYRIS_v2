@@ -222,6 +222,7 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
                     <div style={{ padding: '0 8px 8px 8px' }}>
                       <Link
                         href="/admin"
+                        prefetch={false}
                         onClick={() => setIsUserMenuOpen(false)}
                         style={{
                           display: 'flex',

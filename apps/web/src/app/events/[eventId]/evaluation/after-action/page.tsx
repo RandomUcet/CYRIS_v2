@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
+import { RecordIdentifier } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -12,11 +13,8 @@ import {
   ArrowLeft,
   RefreshCw,
   FileText,
-  Lock,
   Globe,
   CheckCircle,
-  Clock,
-  Sparkles,
 } from 'lucide-react';
 import type { AfterActionReviewResponse } from '@cyris/contracts';
 
@@ -83,26 +81,29 @@ export default function AfterActionPage() {
         { label: 'After Action', href: `/events/${eventId}/evaluation/after-action` },
       ]}
       actions={
-        <div className="flex items-center gap-2">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             onClick={() => router.push(`/events/${eventId}/evaluation`)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition"
+            className="btn btn-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
           >
             <ArrowLeft size={13} />
             Back to Live
           </button>
           <button
             onClick={fetchAar}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition"
+            className="btn btn-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
           >
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={13} className={loading ? 'spin' : ''} />
             Refresh
           </button>
           {canPublish && (
             <button
               onClick={handlePublish}
               disabled={publishing}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded transition shadow-sm"
+              className="btn btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
             >
               <Globe size={13} />
               Publish Findings
@@ -111,32 +112,55 @@ export default function AfterActionPage() {
         </div>
       }
     >
-      <div className="space-y-6 max-w-6xl mx-auto font-sans">
+      <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '1200px' }}>
         {/* Banner */}
-        <div className="bg-slate-900 border border-slate-800 rounded-lg p-5 flex items-center justify-between shadow">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-amber-950/80 border border-amber-800/60 flex items-center justify-center text-amber-400">
+        <div
+          style={{
+            backgroundColor: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border-subtle)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div
+              style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--color-accent-ops)',
+              }}
+            >
               <Award size={20} />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-100 uppercase tracking-wider font-mono">
+              <h2 style={{ margin: 0, fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-main)' }}>
                 Post-Exercise Evaluator Synthesis
               </h2>
-              <p className="text-xs text-slate-400">
+              <p style={{ margin: '3px 0 0 0', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
                 Aggregated observation notes, human scoring metrics, and canonical fact linkage.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-xs font-mono">
-            <div className="bg-slate-950 px-3 py-1.5 rounded border border-slate-800 text-slate-300">
-              Status: <strong className="text-white">{aar?.status || 'DRAFT'}</strong>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
+            <div style={{ backgroundColor: 'var(--color-bg-panel)', padding: '6px 12px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-main)' }}>
+              Status: <strong>{aar?.status || 'DRAFT'}</strong>
             </div>
           </div>
         </div>
 
         {publishMessage && (
-          <div className="p-3 bg-emerald-950/60 border border-emerald-800 rounded text-emerald-300 text-xs font-mono flex items-center gap-2">
+          <div style={{ padding: '10px 14px', backgroundColor: 'rgba(34, 197, 94, 0.15)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 'var(--radius-xs)', color: 'var(--color-status-success)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <CheckCircle size={14} />
             {publishMessage}
           </div>
@@ -149,46 +173,76 @@ export default function AfterActionPage() {
         ) : !aar ? (
           <EmptyState title="No AAR data" description="After action review data could not be compiled." />
         ) : (
-          <div className="space-y-6">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {/* Executive Synthesis Summary */}
-            <div className="bg-slate-900 border border-slate-800 rounded-lg p-5 space-y-3">
-              <h3 className="text-xs font-bold font-mono uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <FileText size={14} className="text-blue-400" />
+            <div
+              style={{
+                backgroundColor: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+                boxShadow: 'var(--shadow-sm)',
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FileText size={14} style={{ color: 'var(--color-accent-ops)' }} />
                 Exercise Summary
               </h3>
-              <p className="text-slate-300 text-xs leading-relaxed whitespace-pre-wrap">
+              <p style={{ margin: 0, color: 'var(--color-text-secondary)', fontSize: '13px', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
                 {aar.observationsCount} field observations recorded across {aar.objectivesCount} exercise objectives.
                 Exercise evaluation status: {aar.status}. Generated on {formatTime(aar.generatedAt)}.
               </p>
             </div>
 
             {/* Performance by Objective */}
-            <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow">
-              <div className="px-4 py-3 bg-slate-950/80 border-b border-slate-800 font-mono text-xs font-bold uppercase text-slate-200">
+            <div
+              style={{
+                backgroundColor: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                overflow: 'hidden',
+                boxShadow: 'var(--shadow-sm)',
+              }}
+            >
+              <div
+                style={{
+                  padding: '12px 16px',
+                  backgroundColor: 'var(--color-bg-panel)',
+                  borderBottom: '1px solid var(--color-border-subtle)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  color: 'var(--color-text-main)',
+                }}
+              >
                 Objectives Assessment Summary ({aar.objectives.length})
               </div>
 
-              <div className="divide-y divide-slate-800/60">
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {aar.objectives.map((obj) => (
-                  <div key={obj.id} className="p-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-blue-400 text-xs">{obj.code}</span>
-                        <span className="font-semibold text-slate-200 text-xs">{obj.title}</span>
+                  <div key={obj.id} style={{ padding: '16px', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <RecordIdentifier id={obj.code} prefix="" />
+                        <span style={{ fontWeight: 600, color: 'var(--color-text-main)', fontSize: '13px' }}>{obj.title}</span>
                       </div>
-                      <span className="text-[11px] font-mono text-slate-400">
+                      <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-dim)' }}>
                         Weight: {obj.weight ?? 1.0}
                       </span>
                     </div>
 
                     {obj.description && (
-                      <p className="text-slate-400 text-xs">{obj.description}</p>
+                      <p style={{ margin: 0, color: 'var(--color-text-secondary)', fontSize: '12px' }}>{obj.description}</p>
                     )}
 
-                    <div className="flex items-center gap-4 text-[11px] font-mono text-slate-400 pt-1">
-                      <span>Criteria defined: <strong className="text-slate-200">{obj.criteria.length}</strong></span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-dim)', paddingTop: '4px' }}>
+                      <span>Criteria defined: <strong style={{ color: 'var(--color-text-main)' }}>{obj.criteria.length}</strong></span>
                       {obj.targetUnitName && (
-                        <span>Assigned Unit: <strong className="text-slate-300">{obj.targetUnitName}</strong></span>
+                        <span>Assigned Unit: <strong style={{ color: 'var(--color-text-main)' }}>{obj.targetUnitName}</strong></span>
                       )}
                     </div>
                   </div>
@@ -197,34 +251,70 @@ export default function AfterActionPage() {
             </div>
 
             {/* Recent Field Observations */}
-            <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow">
-              <div className="px-4 py-3 bg-slate-950/80 border-b border-slate-800 font-mono text-xs font-bold uppercase text-slate-200 flex items-center justify-between">
+            <div
+              style={{
+                backgroundColor: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                overflow: 'hidden',
+                boxShadow: 'var(--shadow-sm)',
+              }}
+            >
+              <div
+                style={{
+                  padding: '12px 16px',
+                  backgroundColor: 'var(--color-bg-panel)',
+                  borderBottom: '1px solid var(--color-border-subtle)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  color: 'var(--color-text-main)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
                 <span>Recent Field Observations ({aar.recentObservations.length})</span>
-                <span className="text-[11px] font-normal text-slate-400">Total recorded: {aar.observationsCount}</span>
+                <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--color-text-dim)' }}>Total recorded: {aar.observationsCount}</span>
               </div>
 
-              <div className="divide-y divide-slate-800/60 font-mono text-xs">
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {aar.recentObservations.length === 0 ? (
-                  <div className="p-4 text-center text-slate-500">No field observations logged yet.</div>
+                  <div style={{ padding: '32px', textAlign: 'center', color: 'var(--color-text-dim)', fontSize: '12px' }}>
+                    No field observations logged yet.
+                  </div>
                 ) : (
                   aar.recentObservations.map((obs) => (
-                    <div key={obs.id} className="px-4 py-2.5 flex items-center justify-between hover:bg-slate-800/20">
-                      <div className="flex items-center gap-3">
-                        <span className="text-slate-500 text-[11px]">
+                    <div
+                      key={obs.id}
+                      style={{
+                        padding: '12px 16px',
+                        borderBottom: '1px solid var(--color-border-subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: '12px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ color: 'var(--color-text-dim)', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
                           {formatTime(obs.observedAt)}
                         </span>
                         {obs.targetUnitName && (
-                          <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">
+                          <span style={{ padding: '2px 6px', borderRadius: '3px', backgroundColor: 'var(--color-bg-panel)', border: '1px solid var(--color-border-subtle)', fontSize: '10px' }}>
                             {obs.targetUnitName}
                           </span>
                         )}
-                        <span className="text-slate-200 font-sans font-medium">{obs.note}</span>
+                        <span style={{ color: 'var(--color-text-main)', fontWeight: 500 }}>{obs.note}</span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {obs.score !== null && obs.score !== undefined && (
-                          <span className="text-amber-400 font-bold text-[11px]">Score: {obs.score}</span>
+                          <span style={{ color: 'var(--color-accent-ops)', fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                            Score: {obs.score}
+                          </span>
                         )}
-                        <span className="text-[10px] text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-dim)', backgroundColor: 'var(--color-bg-panel)', padding: '2px 6px', borderRadius: '3px', border: '1px solid var(--color-border-subtle)', fontFamily: 'var(--font-mono)' }}>
                           {obs.observationType}
                         </span>
                       </div>

@@ -20,8 +20,20 @@ export default function RootPage() {
   const [submitting, setSubmitting] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [publicProviders, setPublicProviders] = useState<Array<{ id: string; name: string; category: string; displayName: string }>>([]);
+  const [systemVersion, setSystemVersion] = useState<string>(
+    process.env.NEXT_PUBLIC_CYRIS_VERSION ? `v${process.env.NEXT_PUBLIC_CYRIS_VERSION.replace(/^v/, '')}` : 'v2.0'
+  );
 
   useEffect(() => {
+    apiClient
+      .getHealth()
+      .then((res) => {
+        if (res.ok && res.data?.version) {
+          setSystemVersion(`v${res.data.version.replace(/^v/, '')}`);
+        }
+      })
+      .catch(() => {});
+
     apiClient
       .getPublicAuthProviders()
       .then((res) => {
@@ -214,7 +226,7 @@ export default function RootPage() {
             <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '18px', letterSpacing: '0.12em', color: 'var(--text-primary)' }}>
               CYRIS
             </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>v0.1.1</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>{systemVersion}</span>
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
             Cybertron Registry & Intelligence System
