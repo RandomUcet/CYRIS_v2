@@ -22,6 +22,7 @@ export * from './tasks.js';
 export * from './medical.js';
 export * from './evaluation.js';
 export * from './command.js';
+export * from './command-defcon.js';
 export * from './preferences.js';
 export * from './notifications.js';
 export * from './identity.js';

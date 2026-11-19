@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import type { OperationalPictureResponse } from '@cyris/contracts';
+import { DefconPanel } from '@/components/command/DefconPanel';
 
 export default function CommandPage() {
   const params = useParams();
@@ -106,6 +107,7 @@ export default function CommandPage() {
   return (
     <AppShell breadcrumbs={[{ label: 'Command', href: `/events/${eventId}/command` }]}>
       <div className="space-y-6 max-w-7xl mx-auto">
+        <DefconPanel eventId={eventId} />
         {/* Command Header Banner */}
         <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">

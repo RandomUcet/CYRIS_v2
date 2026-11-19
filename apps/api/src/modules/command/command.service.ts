@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { TasksService } from '../tasks/tasks.service.js';
 import { MedicalService } from '../medical/medical.service.js';
@@ -15,14 +15,19 @@ import {
   activityEvents,
   operationalTasks,
   events,
+  commandDefconStates,
+  auditEvents,
 } from '@cyris/db';
 import { Permissions } from '@cyris/shared';
 import type {
   OperationalPictureResponse,
   CreateSitrepRequest,
   DocumentItem,
-  IncidentResponse,
+  CommandDefconSnapshot,
+  ChangeCommandDefconRequest,
 } from '@cyris/contracts';
+import { AuthorizationService } from '../authorization/authorization.service.js';
+import { assertExpectedRevision } from './defcon-policy.js';
 
 @Injectable()
 export class CommandService {
@@ -34,11 +39,89 @@ export class CommandService {
     private readonly investigationService: InvestigationService,
     private readonly auditService: AuditService,
     private readonly activityService: ActivityService,
-    private readonly resourceAccessService: ResourceAccessService
+    private readonly resourceAccessService: ResourceAccessService,
+    private readonly authorizationService: AuthorizationService
   ) {}
 
   private get db() {
     return this.databaseService.client;
+  }
+
+  async getDefcon(eventId: string, user: AuthenticatedUser): Promise<CommandDefconSnapshot> {
+    await this.assertEventPermission(eventId, user, Permissions.COMMAND_READ);
+    const [state] = await this.db.select().from(commandDefconStates)
+      .where(eq(commandDefconStates.eventId, eventId)).limit(1);
+    const historyRows = await this.db.select({
+      id: auditEvents.id,
+      level: sql<number>`(${auditEvents.changes}->>'toLevel')::integer`,
+      reason: sql<string>`(${auditEvents.metadata}->>'reason')`,
+      occurredAt: auditEvents.occurredAt,
+      actorUserId: auditEvents.actorUserId,
+    }).from(auditEvents).where(and(
+      eq(auditEvents.eventId, eventId),
+      eq(auditEvents.action, 'command.defcon.changed'),
+    )).orderBy(desc(auditEvents.occurredAt)).limit(20);
+
+    return {
+      eventId,
+      level: state?.level && state.level >= 1 && state.level <= 5 ? state.level as 1 | 2 | 3 | 4 | 5 : null,
+      revision: state?.revision ?? 0,
+      reason: state?.reason ?? null,
+      updatedByUserId: state?.updatedByUserId ?? null,
+      updatedAt: state?.updatedAt?.toISOString() ?? null,
+      history: historyRows.filter((row) => row.level >= 1 && row.level <= 5 && typeof row.reason === 'string').map((row) => ({
+        id: row.id,
+        level: row.level as 1 | 2 | 3 | 4 | 5,
+        reason: row.reason,
+        occurredAt: row.occurredAt.toISOString(),
+        actorUserId: row.actorUserId,
+      })),
+    };
+  }
+
+  async changeDefcon(eventId: string, dto: ChangeCommandDefconRequest, user: AuthenticatedUser): Promise<CommandDefconSnapshot> {
+    await this.assertEventPermission(eventId, user, Permissions.COMMAND_DEFCON_CHANGE);
+    const changedAt = new Date();
+    await this.databaseService.client.transaction(async (tx) => {
+      const [current] = await tx.select({ revision: commandDefconStates.revision })
+        .from(commandDefconStates).where(eq(commandDefconStates.eventId, eventId)).limit(1);
+      const revision = current?.revision ?? 0;
+      assertExpectedRevision(dto.expectedRevision, revision);
+      if (current) {
+        const updated = await tx.update(commandDefconStates).set({
+          level: dto.level, revision: revision + 1, reason: dto.reason,
+          updatedByUserId: user.id, updatedAt: changedAt,
+        }).where(and(
+          eq(commandDefconStates.eventId, eventId),
+          eq(commandDefconStates.revision, dto.expectedRevision),
+        )).returning({ eventId: commandDefconStates.eventId });
+        if (updated.length !== 1) throw new ConflictException('DEFCON state changed concurrently');
+      } else {
+        await tx.insert(commandDefconStates).values({
+          eventId, level: dto.level, revision: 1, reason: dto.reason,
+          updatedByUserId: user.id, updatedAt: changedAt,
+        });
+      }
+      await this.auditService.record({
+        action: 'command.defcon.changed', category: 'command', eventId,
+        resourceType: 'command_defcon', resourceId: eventId, actorUserId: user.id,
+        metadata: { reason: dto.reason },
+        changes: { fromRevision: revision, toRevision: revision + 1, toLevel: dto.level },
+        txClient: tx,
+      });
+    });
+    return this.getDefcon(eventId, user);
+  }
+
+  private async assertEventPermission(
+    eventId: string,
+    user: AuthenticatedUser,
+    permission: typeof Permissions.COMMAND_READ | typeof Permissions.COMMAND_DEFCON_CHANGE,
+  ): Promise<void> {
+    const [event] = await this.db.select({ id: events.id }).from(events).where(eq(events.id, eventId)).limit(1);
+    if (!event) throw new NotFoundException(`Event '${eventId}' not found`);
+    const allowed = await this.authorizationService.authorize({ user, permission, context: { eventId } });
+    if (!allowed) throw new ForbiddenException(`Forbidden: Missing permission '${permission}'`);
   }
 
   /**

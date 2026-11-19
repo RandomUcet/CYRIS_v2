@@ -102,6 +102,8 @@ import type {
   ScenarioDataRequest,
   ScenarioDataPreview,
   ScenarioDataBatchResponse,
+  CommandDefconSnapshot,
+  ChangeCommandDefconRequest,
 } from '@cyris/contracts';
 
 export class CyrisApiClient {
@@ -1276,6 +1278,17 @@ export class CyrisApiClient {
     payload: CreateSitrepRequest
   ): Promise<{ ok: boolean; data?: DocumentItem; error?: string }> {
     return this.postJson<DocumentItem>(`/events/${eventId}/command/sitrep`, payload);
+  }
+
+  async getDefcon(eventId: string): Promise<{ ok: boolean; data?: CommandDefconSnapshot; error?: string }> {
+    return this.fetchJson<CommandDefconSnapshot>(`/events/${eventId}/command/defcon`);
+  }
+
+  async changeDefcon(
+    eventId: string,
+    payload: ChangeCommandDefconRequest
+  ): Promise<{ ok: boolean; data?: CommandDefconSnapshot; error?: string }> {
+    return this.postJson<CommandDefconSnapshot>(`/events/${eventId}/command/defcon`, payload);
   }
 
   // ============================================================================

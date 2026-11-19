@@ -140,6 +140,10 @@ export const Permissions = {
   TASK_COMPLETE: 'task.complete',
   TASK_CANCEL: 'task.cancel',
 
+  // Command and exercise readiness
+  COMMAND_READ: 'command.read',
+  COMMAND_DEFCON_CHANGE: 'command.defcon.change',
+
   // Medical Response & Operations
   MEDICAL_READ: 'medical.read',
   MEDICAL_CREATE: 'medical.create',

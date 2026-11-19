@@ -24,3 +24,4 @@ export * from './tasks.js';
 export * from './medical.js';
 export * from './evaluation.js';
 export * from './notifications.js';
+export * from './command.js';
