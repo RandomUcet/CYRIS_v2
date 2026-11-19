@@ -107,9 +107,11 @@ export default function CommandPage() {
 
   return (
     <AppShell breadcrumbs={[{ label: 'Command', href: `/events/${eventId}/command` }]}>
-      <div className="space-y-6 max-w-7xl mx-auto">
-        <DefconPanel eventId={eventId} />
-        <DisruptionPanel eventId={eventId} />
+      <div className="command-workspace">
+        <div className="command-workspace__readiness">
+          <DefconPanel eventId={eventId} />
+          <DisruptionPanel eventId={eventId} />
+        </div>
         {/* Command Header Banner */}
         <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">

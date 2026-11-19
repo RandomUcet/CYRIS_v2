@@ -1,15 +1,17 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvent } from '@/contexts/EventContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import { Search, ChevronDown, User, LogOut, Calendar, Shield } from 'lucide-react';
+import { Search, ChevronDown, User, LogOut, Calendar, Shield, Activity } from 'lucide-react';
 import { StatusBadge } from '../common/Badges';
 import { EventSwitcherModal } from './EventSwitcherModal';
 import { NotificationCenter } from './NotificationCenter';
 import { SUPPORTED_LOCALES, COMMON_TIMEZONES } from '@/lib/i18n';
+import { apiClient } from '@/lib/api-client';
+import type { CommandDefconSnapshot } from '@cyris/contracts';
 
 interface TopBarProps {
   onOpenSearch: () => void;
@@ -17,11 +19,24 @@ interface TopBarProps {
 }
 
 export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
-  const { currentUser, isPlatformAdmin, logout } = useAuth();
+  const { currentUser, isPlatformAdmin, hasPermission, logout } = useAuth();
   const { selectedEvent } = useEvent();
   const { locale, timezone, setLocale, setTimezone, t } = usePreferences();
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [readiness, setReadiness] = useState<CommandDefconSnapshot | null>(null);
+
+  useEffect(() => {
+    if (!selectedEvent || !hasPermission('command.read', selectedEvent.id)) {
+      setReadiness(null);
+      return;
+    }
+    let active = true;
+    apiClient.getDefcon(selectedEvent.id).then((result) => {
+      if (active && result.ok && result.data) setReadiness(result.data);
+    });
+    return () => { active = false; };
+  }, [hasPermission, selectedEvent]);
 
   return (
     <>
@@ -42,6 +57,7 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
         {/* Left: Event Banner & Breadcrumbs */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {selectedEvent ? (
+            <React.Fragment>
             <button
               type="button"
               onClick={() => setIsSwitcherOpen(true)}
@@ -65,6 +81,30 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
               <StatusBadge status={selectedEvent.status} />
               <ChevronDown size={11} style={{ color: 'var(--text-muted)' }} />
             </button>
+
+            {readiness && (
+              <Link
+                href={`/events/${readiness.eventId}/command`}
+                title="Read-only exercise readiness"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '3px 8px',
+                  height: '28px',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-xs)',
+                  color: readiness.initialized ? 'var(--status-success)' : 'var(--status-warning)',
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  textDecoration: 'none',
+                }}
+              >
+                <Activity size={12} />
+                {readiness.initialized ? `DEFCON ${readiness.level ?? '?'}` : 'DEFCON ?'}
+              </Link>
+            )}
+            </React.Fragment>
           ) : (
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{t('topbar.noEvent')}</span>
           )}

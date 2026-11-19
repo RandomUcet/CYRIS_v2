@@ -34,7 +34,12 @@ export function DefconPanel({ eventId }: { eventId: string }) {
     setSnapshot((previous) => {
       const accepted = acceptDefconSnapshot(previous, next, eventId);
       if (!accepted) return previous;
-      if (next.level !== null && !draftDirty) setLevel(next.level);
+      const supersededDraft = previous !== null && next.revision > previous.revision;
+      if (next.level !== null && (!draftDirty || supersededDraft)) setLevel(next.level);
+      if (supersededDraft) {
+        setReason('');
+        setDraftDirty(false);
+      }
       setLastConfirmedAt(next.updatedAt ?? new Date().toISOString());
       return accepted;
     });
@@ -152,7 +157,24 @@ export function DefconPanel({ eventId }: { eventId: string }) {
               {saving ? 'Ukládám…' : snapshot.initialized ? 'Potvrdit' : 'Inicializovat'}
             </button>
           </div>}
-          {snapshot.history.length > 0 && <p className="text-[11px] text-slate-500">Historie změn: {snapshot.history.length} (audit)</p>}
+          {snapshot.history.length > 0 && (
+            <details className="rounded border border-slate-800 bg-slate-950/60 p-3">
+              <summary className="cursor-pointer text-[11px] text-slate-400">
+                Historie změn ({snapshot.history.length})
+              </summary>
+              <div className="mt-2 space-y-2">
+                {snapshot.history.map((entry) => (
+                  <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-2 text-[11px]">
+                    <span className="font-mono text-slate-200">DEFCON {entry.level}</span>
+                    <span className="text-slate-400">{entry.reason}</span>
+                    <time className="text-slate-500" dateTime={entry.occurredAt}>
+                      {new Date(entry.occurredAt).toLocaleString()}
+                    </time>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       ) : null}
     </section>

@@ -103,6 +103,25 @@
   --shadow-lg: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
 }
 
+.command-workspace {
+  width: min(100%, 80rem);
+  margin: 0 auto;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.command-workspace__readiness {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 900px) {
+  .command-workspace__readiness {
+    grid-template-columns: 1fr;
+  }
+}
+
 .dialog-overlay {
   position: fixed;
   inset: 0;
