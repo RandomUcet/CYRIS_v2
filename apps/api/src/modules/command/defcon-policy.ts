@@ -12,3 +12,12 @@ export function assertExpectedRevision(expected: number, current: number): void 
     throw new ConflictException(`DEFCON revision conflict: expected ${expected}, current ${current}`);
   }
 }
+
+export function isConcurrentInitializationError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === '23505'
+  );
+}

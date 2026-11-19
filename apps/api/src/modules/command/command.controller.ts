@@ -5,6 +5,7 @@ import {
   Param,
   Body,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -33,7 +34,19 @@ export class CommandController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.commandService.changeDefcon(eventId, ChangeCommandDefconRequestSchema.parse(body), user);
+    try {
+      return await this.commandService.changeDefcon(eventId, ChangeCommandDefconRequestSchema.parse(body), user);
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'issues' in error &&
+        Array.isArray(error.issues)
+      ) {
+        throw new BadRequestException('Invalid DEFCON change request');
+      }
+      throw error;
+    }
   }
 
   @Get('operational-picture')

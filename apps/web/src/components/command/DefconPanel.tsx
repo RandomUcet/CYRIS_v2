@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, RefreshCw, Shield } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { CommandDefconLevel, CommandDefconSnapshot } from '@cyris/contracts';
+import { acceptDefconSnapshot } from './defcon-live';
 
 const LEVELS: Array<{ value: CommandDefconLevel; label: string; color: string }> = [
   { value: 5, label: 'Klid/Mír', color: '#29c76f' },
@@ -16,32 +17,60 @@ const LEVELS: Array<{ value: CommandDefconLevel; label: string; color: string }>
 
 export function DefconPanel({ eventId }: { eventId: string }) {
   const { hasPermission } = useAuth();
-  const canChange = hasPermission('command.defcon.change');
+  const canChange = hasPermission('command.defcon.change', eventId);
   const [snapshot, setSnapshot] = useState<CommandDefconSnapshot | null>(null);
-  const [level, setLevel] = useState<CommandDefconLevel>(5);
+  const [level, setLevel] = useState<CommandDefconLevel | null>(null);
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const [lastConfirmedAt, setLastConfirmedAt] = useState<string | null>(null);
+  const requestId = useRef(0);
 
-  const load = async () => {
+  const acceptSnapshot = useCallback((next: CommandDefconSnapshot, id: number) => {
+    if (id !== requestId.current || next.eventId !== eventId) return false;
+    setSnapshot((previous) => {
+      const accepted = acceptDefconSnapshot(previous, next, eventId);
+      if (!accepted) return previous;
+      if (next.level !== null) setLevel(next.level);
+      setLastConfirmedAt(next.updatedAt ?? new Date().toISOString());
+      return accepted;
+    });
+    setStale(false);
+    return true;
+  }, [eventId]);
+
+  const load = useCallback(async (showError = true) => {
+    const id = ++requestId.current;
     setLoading(true);
-    setError(null);
+    if (showError) setError(null);
     const result = await apiClient.getDefcon(eventId);
-    if (result.ok && result.data) {
-      setSnapshot(result.data);
-      if (result.data.level) setLevel(result.data.level);
-    } else {
+    if (result.ok && result.data && acceptSnapshot(result.data, id)) {
+      if (!result.data.initialized) setLevel(null);
+    } else if (showError && id === requestId.current) {
       setError(result.error || 'DEFCON stav není dostupný');
+      setStale(true);
     }
-    setLoading(false);
-  };
+    if (id === requestId.current) setLoading(false);
+  }, [acceptSnapshot, eventId]);
 
-  useEffect(() => { void load(); }, [eventId]);
+  useEffect(() => {
+    void load();
+    const interval = window.setInterval(() => void load(false), 10000);
+    const onFocus = () => void load(false);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      requestId.current += 1;
+    };
+  }, [eventId, load]);
 
   const submit = async () => {
-    if (!snapshot || reason.trim().length < 3) return;
-    if (!window.confirm(`Potvrdit změnu na DEFCON ${level}?`)) return;
+    const initializing = snapshot && !snapshot.initialized;
+    if (!snapshot || (!initializing && (snapshot.level === null || stale)) || level === null || reason.trim().length < 3 || saving) return;
+    if (!window.confirm(`${initializing ? 'Inicializovat' : 'Potvrdit změnu'} na DEFCON ${level}?`)) return;
     setSaving(true);
     setError(null);
     const result = await apiClient.changeDefcon(eventId, {
@@ -50,11 +79,12 @@ export function DefconPanel({ eventId }: { eventId: string }) {
       reason: reason.trim(),
     });
     if (result.ok && result.data) {
-      setSnapshot(result.data);
+      acceptSnapshot(result.data, requestId.current);
       setReason('');
     } else {
+      await load(false);
       setError(result.error || 'Změna DEFCON selhala; stav mohl být mezitím změněn.');
-      await load();
+      setStale(true);
     }
     setSaving(false);
   };
@@ -85,13 +115,16 @@ export function DefconPanel({ eventId }: { eventId: string }) {
           <div className="text-xs text-slate-400">
             Aktuální: <strong className="text-slate-200">{snapshot.level ? `DEFCON ${snapshot.level}` : 'NEZNÁMÝ / NEINICIALIZOVANÝ'}</strong>
             <span className="ml-3">Revize {snapshot.revision}</span>
+            {stale && <span className="ml-3 text-amber-300">STALE — potvrďte obnovení</span>}
+            {lastConfirmedAt && <span className="ml-3">Poslední potvrzení {new Date(lastConfirmedAt).toLocaleTimeString()}</span>}
           </div>
-          {canChange && <div className="flex gap-2">
+          {!snapshot.initialized && <p className="text-xs text-amber-300">Stav nebyl inicializován. Nejprve proveďte explicitní inicializaci.</p>}
+          {canChange && ((snapshot.initialized && !stale) || !snapshot.initialized) && <div className="flex gap-2">
             <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Důvod změny (povinný)"
               className="flex-1 rounded bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200" />
-            <button onClick={() => void submit()} disabled={saving || reason.trim().length < 3}
+            <button onClick={() => void submit()} disabled={saving || loading || stale || level === null || reason.trim().length < 3}
               className="px-3 py-2 rounded bg-amber-600 text-xs font-semibold text-white disabled:opacity-50">
-              {saving ? 'Ukládám…' : 'Potvrdit'}
+              {saving ? 'Ukládám…' : snapshot.initialized ? 'Potvrdit' : 'Inicializovat'}
             </button>
           </div>}
           {snapshot.history.length > 0 && <p className="text-[11px] text-slate-500">Historie změn: {snapshot.history.length} (audit)</p>}

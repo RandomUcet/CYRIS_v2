@@ -27,7 +27,7 @@ import type {
   ChangeCommandDefconRequest,
 } from '@cyris/contracts';
 import { AuthorizationService } from '../authorization/authorization.service.js';
-import { assertExpectedRevision } from './defcon-policy.js';
+import { assertExpectedRevision, isConcurrentInitializationError } from './defcon-policy.js';
 
 @Injectable()
 export class CommandService {
@@ -65,6 +65,7 @@ export class CommandService {
     return {
       eventId,
       level: state?.level && state.level >= 1 && state.level <= 5 ? state.level as 1 | 2 | 3 | 4 | 5 : null,
+      initialized: Boolean(state),
       revision: state?.revision ?? 0,
       reason: state?.reason ?? null,
       updatedByUserId: state?.updatedByUserId ?? null,
@@ -97,10 +98,17 @@ export class CommandService {
         )).returning({ eventId: commandDefconStates.eventId });
         if (updated.length !== 1) throw new ConflictException('DEFCON state changed concurrently');
       } else {
-        await tx.insert(commandDefconStates).values({
-          eventId, level: dto.level, revision: 1, reason: dto.reason,
-          updatedByUserId: user.id, updatedAt: changedAt,
-        });
+        try {
+          await tx.insert(commandDefconStates).values({
+            eventId, level: dto.level, revision: 1, reason: dto.reason,
+            updatedByUserId: user.id, updatedAt: changedAt,
+          });
+        } catch (error) {
+          if (isConcurrentInitializationError(error)) {
+            throw new ConflictException('DEFCON state was initialized concurrently');
+          }
+          throw error;
+        }
       }
       await this.auditService.record({
         action: 'command.defcon.changed', category: 'command', eventId,

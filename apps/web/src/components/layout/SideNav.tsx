@@ -137,20 +137,33 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
       ? [staticAdminSection]
       : [];
   const sectionsToRender: WorkspaceNavSection[] = selectedEventId
-    ? baseSections.map((section) => ({
-        ...section,
-        items: section.items.some((item) => item.id === 'nav-my-work')
-          ? section.items
-          : [
+    ? (() => {
+        const alreadyPresent = baseSections.some((section) => section.items.some((item) => item.id === 'nav-my-work'));
+        let inserted = alreadyPresent;
+        const seen = new Set<string>();
+        return baseSections.map((section) => {
+          const filteredItems = section.items.filter((item) => {
+            if (item.id !== 'nav-my-work') return true;
+            if (seen.has(item.id)) return false;
+            seen.add(item.id);
+            return true;
+          });
+          if (inserted) return { ...section, items: filteredItems };
+          inserted = true;
+          return {
+            ...section,
+            items: [
               {
                 id: 'nav-my-work',
                 label: 'My Work',
                 href: `/events/${selectedEventId}/my-work`,
                 iconKey: 'briefcase',
               },
-              ...section.items,
+              ...filteredItems,
             ],
-      }))
+          };
+        });
+      })()
     : baseSections;
 
   const getNavLabel = (item: WorkspaceNavItem): string => {

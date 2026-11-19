@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { ChangeCommandDefconRequestSchema } from '@cyris/contracts';
-import { assertExpectedRevision, validateDefconLevel } from './defcon-policy.js';
+import { assertExpectedRevision, isConcurrentInitializationError, validateDefconLevel } from './defcon-policy.js';
 
 describe('DEFCON policy', () => {
   it('accepts only levels 1 through 5 and requires a reason', () => {
@@ -33,5 +33,10 @@ describe('DEFCON policy', () => {
       level: 5, expectedRevision: 0, reason: 'Initial explicit posture',
     });
     assert.equal(result.success, true);
+  });
+
+  it('turns a concurrent initial insert into a revision conflict signal', () => {
+    assert.equal(isConcurrentInitializationError({ code: '23505' }), true);
+    assert.equal(isConcurrentInitializationError({ code: '23503' }), false);
   });
 });

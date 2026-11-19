@@ -8,6 +8,7 @@ export type CommandDefconLevel = z.infer<typeof CommandDefconLevelSchema>;
 export const CommandDefconSnapshotSchema = z.object({
   eventId: z.string().uuid(),
   level: CommandDefconLevelSchema.nullable(),
+  initialized: z.boolean(),
   revision: z.number().int().nonnegative(),
   reason: z.string().nullable(),
   updatedByUserId: z.string().uuid().nullable(),
