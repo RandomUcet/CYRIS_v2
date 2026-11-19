@@ -80,6 +80,25 @@ export class CommandService {
     };
   }
 
+  async getReadiness(eventId: string, user: AuthenticatedUser): Promise<{
+    eventId: string; level: CommandDefconSnapshot['level']; initialized: boolean; revision: number; updatedAt: string | null;
+  }> {
+    await this.assertEventPermission(eventId, user, Permissions.COMMAND_READ);
+    const [state] = await this.db.select({
+      eventId: commandDefconStates.eventId,
+      level: commandDefconStates.level,
+      revision: commandDefconStates.revision,
+      updatedAt: commandDefconStates.updatedAt,
+    }).from(commandDefconStates).where(eq(commandDefconStates.eventId, eventId)).limit(1);
+    return {
+      eventId,
+      level: state?.level && state.level >= 1 && state.level <= 5 ? state.level as CommandDefconSnapshot['level'] : null,
+      initialized: Boolean(state),
+      revision: state?.revision ?? 0,
+      updatedAt: state?.updatedAt?.toISOString() ?? null,
+    };
+  }
+
   async changeDefcon(eventId: string, dto: ChangeCommandDefconRequest, user: AuthenticatedUser): Promise<CommandDefconSnapshot> {
     await this.assertEventPermission(eventId, user, Permissions.COMMAND_DEFCON_CHANGE);
     const changedAt = new Date();

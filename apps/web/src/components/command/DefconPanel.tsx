@@ -26,7 +26,8 @@ export function DefconPanel({ eventId }: { eventId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [lastConfirmedAt, setLastConfirmedAt] = useState<string | null>(null);
-  const [draftDirty, setDraftDirty] = useState(false);
+  const [, setDraftDirty] = useState(false);
+  const draftDirtyRef = useRef(false);
   const requestId = useRef(0);
 
   const acceptSnapshot = useCallback((next: CommandDefconSnapshot, id: number) => {
@@ -35,17 +36,18 @@ export function DefconPanel({ eventId }: { eventId: string }) {
       const accepted = acceptDefconSnapshot(previous, next, eventId);
       if (!accepted) return previous;
       const supersededDraft = previous !== null && next.revision > previous.revision;
-      if (next.level !== null && (!draftDirty || supersededDraft)) setLevel(next.level);
+      if (next.level !== null && (!draftDirtyRef.current || supersededDraft)) setLevel(next.level);
       if (supersededDraft) {
         setReason('');
         setDraftDirty(false);
+        draftDirtyRef.current = false;
       }
       setLastConfirmedAt(next.updatedAt ?? new Date().toISOString());
       return accepted;
     });
     setStale(false);
     return true;
-  }, [draftDirty, eventId]);
+  }, [eventId]);
 
   const load = useCallback(async (showError = true) => {
     const id = ++requestId.current;
@@ -74,6 +76,7 @@ export function DefconPanel({ eventId }: { eventId: string }) {
     setSnapshot(null);
     setLevel(null);
     setDraftDirty(false);
+    draftDirtyRef.current = false;
     setStale(false);
     void load();
     const interval = window.setInterval(() => void load(false), 10000);
@@ -106,6 +109,7 @@ export function DefconPanel({ eventId }: { eventId: string }) {
         acceptSnapshot(result.data, requestId.current);
         setReason('');
         setDraftDirty(false);
+        draftDirtyRef.current = false;
       } else {
         await load(false);
         setError(result.error || 'Změna DEFCON selhala; stav mohl být mezitím změněn.');
@@ -135,7 +139,7 @@ export function DefconPanel({ eventId }: { eventId: string }) {
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {LEVELS.map((item) => (
-              <button key={item.value} disabled={!canChange || saving || loading || stale} onClick={() => { setLevel(item.value); setDraftDirty(true); }}
+              <button key={item.value} disabled={!canChange || saving || loading || stale} onClick={() => { setLevel(item.value); setDraftDirty(true); draftDirtyRef.current = true; }}
                 className={`px-3 py-2 rounded border text-xs font-mono ${level === item.value ? 'border-white' : 'border-slate-700'}`}
                 style={{ color: item.color }}>
                 {item.value} — {item.label}

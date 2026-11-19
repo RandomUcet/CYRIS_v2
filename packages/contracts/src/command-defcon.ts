@@ -23,6 +23,15 @@ export const CommandDefconSnapshotSchema = z.object({
 });
 export type CommandDefconSnapshot = z.infer<typeof CommandDefconSnapshotSchema>;
 
+export const CommandReadinessSnapshotSchema = z.object({
+  eventId: z.string().uuid(),
+  level: CommandDefconLevelSchema.nullable(),
+  initialized: z.boolean(),
+  revision: z.number().int().nonnegative(),
+  updatedAt: z.string().nullable(),
+});
+export type CommandReadinessSnapshot = z.infer<typeof CommandReadinessSnapshotSchema>;
+
 export const ChangeCommandDefconRequestSchema = z.object({
   level: CommandDefconLevelSchema,
   expectedRevision: z.number().int().nonnegative(),

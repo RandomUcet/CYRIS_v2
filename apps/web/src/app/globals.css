@@ -116,10 +116,100 @@
   gap: 1rem;
 }
 
+.command-wallboard {
+  min-height: 100vh;
+  padding: clamp(1.5rem, 4vw, 4rem);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 2rem;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+}
+
+.command-wallboard__header,
+.command-wallboard__status,
+.command-wallboard__footer {
+  width: min(100%, 96rem);
+  margin: 0 auto;
+}
+
+.command-wallboard__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.command-wallboard__eyebrow,
+.command-wallboard__connection,
+.command-wallboard__identity,
+.command-wallboard__revision,
+.command-wallboard__footer {
+  color: var(--text-muted);
+  font-size: clamp(.7rem, 1vw, .9rem);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.command-wallboard__eyebrow,
+.command-wallboard__connection {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  font-weight: 700;
+}
+
+.command-wallboard h1 {
+  margin: .4rem 0;
+  font-size: clamp(1.5rem, 4vw, 3rem);
+}
+
+.command-wallboard__connection.is-live { color: var(--status-success); }
+.command-wallboard__connection.is-stale { color: var(--status-warning); }
+
+.command-wallboard__status {
+  align-self: center;
+  border: 2px solid;
+  border-radius: var(--radius-md);
+  padding: clamp(1.5rem, 5vw, 5rem);
+  background: var(--bg-panel);
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, .18);
+}
+
+.command-wallboard__status-label,
+.command-wallboard__revision {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.command-wallboard__status-label > span:first-child {
+  font-size: clamp(.75rem, 1.2vw, 1rem);
+  letter-spacing: .12em;
+  font-weight: 700;
+}
+
+.command-wallboard__level {
+  display: flex;
+  align-items: baseline;
+  gap: clamp(1rem, 4vw, 3rem);
+  margin-top: 2rem;
+}
+
+.command-wallboard__level strong { font-size: clamp(4rem, 14vw, 12rem); line-height: .9; }
+.command-wallboard__level span { font-size: clamp(1rem, 3vw, 2.5rem); font-weight: 700; }
+.command-wallboard__warning { color: var(--status-warning); font-weight: 600; }
+.command-wallboard__footer { display: flex; justify-content: space-between; gap: 1rem; }
+
 @media (max-width: 900px) {
   .command-workspace__readiness {
     grid-template-columns: 1fr;
   }
+  .command-wallboard__header,
+  .command-wallboard__footer,
+  .command-wallboard__status-label,
+  .command-wallboard__level { flex-direction: column; align-items: flex-start; }
 }
 
 .dialog-overlay {

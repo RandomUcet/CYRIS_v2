@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvent } from '@/contexts/EventContext';
@@ -10,8 +10,15 @@ import { StatusBadge } from '../common/Badges';
 import { EventSwitcherModal } from './EventSwitcherModal';
 import { NotificationCenter } from './NotificationCenter';
 import { SUPPORTED_LOCALES, COMMON_TIMEZONES } from '@/lib/i18n';
-import { apiClient } from '@/lib/api-client';
-import type { CommandDefconSnapshot } from '@cyris/contracts';
+import { useDefconReadiness } from '@/hooks/useDefconReadiness';
+
+const DEFCON_COLORS: Record<number, string> = {
+  1: '#d62d2d',
+  2: '#ff7a18',
+  3: '#f3c53b',
+  4: '#3b82f6',
+  5: '#29c76f',
+};
 
 interface TopBarProps {
   onOpenSearch: () => void;
@@ -24,19 +31,10 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
   const { locale, timezone, setLocale, setTimezone, t } = usePreferences();
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const [readiness, setReadiness] = useState<CommandDefconSnapshot | null>(null);
-
-  useEffect(() => {
-    if (!selectedEvent || !hasPermission('command.read', selectedEvent.id)) {
-      setReadiness(null);
-      return;
-    }
-    let active = true;
-    apiClient.getDefcon(selectedEvent.id).then((result) => {
-      if (active && result.ok && result.data) setReadiness(result.data);
-    });
-    return () => { active = false; };
-  }, [hasPermission, selectedEvent]);
+  const { snapshot: readiness, stale: readinessStale } = useDefconReadiness(
+    selectedEvent?.id ?? '',
+    Boolean(selectedEvent && hasPermission('command.read', selectedEvent.id)),
+  );
 
   return (
     <>
@@ -94,14 +92,14 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
                   height: '28px',
                   border: '1px solid var(--border-subtle)',
                   borderRadius: 'var(--radius-xs)',
-                  color: readiness.initialized ? 'var(--status-success)' : 'var(--status-warning)',
+                  color: readinessStale ? 'var(--status-warning)' : readiness.initialized && readiness.level ? DEFCON_COLORS[readiness.level] : 'var(--status-warning)',
                   fontSize: '10px',
                   fontWeight: 700,
                   textDecoration: 'none',
                 }}
               >
                 <Activity size={12} />
-                {readiness.initialized ? `DEFCON ${readiness.level ?? '?'}` : 'DEFCON ?'}
+                {readinessStale ? 'DEFCON STALE' : readiness.initialized ? `DEFCON ${readiness.level ?? '?'}` : 'DEFCON ?'}
               </Link>
             )}
             </React.Fragment>

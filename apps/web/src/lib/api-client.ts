@@ -103,6 +103,7 @@ import type {
   ScenarioDataPreview,
   ScenarioDataBatchResponse,
   CommandDefconSnapshot,
+  CommandReadinessSnapshot,
   ChangeCommandDefconRequest,
   DisruptionSnapshot,
   CreateDisruptionRequest,
@@ -1286,6 +1287,9 @@ export class CyrisApiClient {
 
   async getDefcon(eventId: string): Promise<{ ok: boolean; data?: CommandDefconSnapshot; error?: string }> {
     return this.fetchJson<CommandDefconSnapshot>(`/events/${eventId}/command/defcon`);
+  }
+  async getReadiness(eventId: string): Promise<{ ok: boolean; data?: CommandReadinessSnapshot; error?: string }> {
+    return this.fetchJson<CommandReadinessSnapshot>(`/events/${eventId}/command/readiness`);
   }
 
   async changeDefcon(
