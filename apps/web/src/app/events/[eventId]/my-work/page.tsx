@@ -8,7 +8,7 @@ import { StatusBadge } from '@/components/common/Badges';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import type { MyWorkResponse, MyWorkView } from '@cyris/contracts';
+import type { MyWorkResponse, MyWorkView, ServiceStatusResponse, ServiceStatusState } from '@cyris/contracts';
 
 export default function MyWorkPage() {
   const params = useParams();
@@ -24,6 +24,8 @@ export default function MyWorkPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [serviceStatus, setServiceStatus] = useState<ServiceStatusResponse | null>(null);
+  const [serviceStatusError, setServiceStatusError] = useState<string | null>(null);
 
   const requestSequence = useRef(0);
   const canViewUnit = hasPermission('task.read', eventId) || hasPermission('lab.read', eventId);
@@ -77,6 +79,25 @@ export default function MyWorkPage() {
     };
   }, [eventId, canViewUnit, isPlatformAdmin, user]);
 
+  useEffect(() => {
+    if (!eventId) return;
+    let active = true;
+    setServiceStatusError(null);
+    apiClient.getServiceStatus(eventId).then((response) => {
+      if (!active) return;
+      if (response.ok && response.data) setServiceStatus(response.data);
+      else setServiceStatusError(response.error || 'Unable to load service status');
+    }).catch((cause) => {
+      if (active) setServiceStatusError(cause instanceof Error ? cause.message : 'Unable to load service status');
+    });
+    return () => {
+      active = false;
+    };
+  }, [eventId, refreshNonce]);
+
+  const serviceStateLabel = (state: ServiceStatusState) => t(`serviceStatus.state.${state.toLowerCase()}`);
+  const serviceImpactLabel = (impact: string) => t(`serviceStatus.impact.${impact.toLowerCase()}`);
+
   const selectView = (next: MyWorkView) => {
     setView(next);
     setPage(1);
@@ -122,6 +143,33 @@ export default function MyWorkPage() {
             </select>
           )}
         </div>
+        <section className="service-status-panel" aria-labelledby="service-status-title">
+          <div className="service-status-heading">
+            <div>
+              <h2 id="service-status-title">{t('serviceStatus.title')}</h2>
+              <p>{t('serviceStatus.subtitle')}</p>
+            </div>
+            {serviceStatus && <time dateTime={serviceStatus.generatedAt}>{formatDate(serviceStatus.generatedAt)}</time>}
+          </div>
+          {serviceStatusError && <p className="service-status-error">{serviceStatusError}</p>}
+          {!serviceStatus && !serviceStatusError && <p className="service-status-muted">{t('serviceStatus.loading')}</p>}
+          {serviceStatus && (
+            <div className="service-status-list">
+              {serviceStatus.items.map((item, index) => (
+                <div className="service-status-item" key={`${item.service}-${item.revision ?? 'baseline'}-${index}`}>
+                  <div>
+                    <strong>{item.service}</strong>
+                    {item.reason && <small>{item.reason}</small>}
+                  </div>
+                  <span className={`service-status-badge service-status-${item.state.toLowerCase()}`}>
+                    {serviceStateLabel(item.state)}
+                  </span>
+                  <span className="service-status-impact">{serviceImpactLabel(item.impact)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
         {loading && <LoadingState />}
         {!loading && error && <ErrorState message={error} onRetry={() => setRefreshNonce((value) => value + 1)} />}
         {!loading && !error && result && result.items.length === 0 && (

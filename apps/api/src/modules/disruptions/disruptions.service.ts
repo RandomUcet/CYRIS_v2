@@ -29,8 +29,10 @@ import type {
   CreateRecoveryArtifactRequest,
   RecoveryArtifact,
 } from '@cyris/contracts';
+import type { ServiceStatusResponse, ServiceStatusItem } from '@cyris/contracts';
 import { assertRevision, assertParticipantWriteAllowed, assertSupportedDisruption, ENFORCED_DISRUPTION_MODULE, isActiveDisruption, resolveDisruption } from './disruption-policy.js';
 import { assertApprovalHasReport, assertLinkedDisruptionActive, assertNoDuplicateReport, assertObjectiveTransition, assertPublishedAudienceAccess, assertReportAllowed } from './recovery-policy.js';
+import { isVisibleToParticipant, projectServiceImpact, resolveServiceStatusState } from './service-status-policy.js';
 
 @Injectable()
 export class DisruptionsService {
@@ -70,6 +72,64 @@ export class DisruptionsService {
       active: Boolean(active),
       revision: active?.revision ?? null,
     };
+  }
+
+  async getServiceStatus(eventId: string, user: AuthenticatedUser): Promise<ServiceStatusResponse> {
+    const canManage = await this.authorizationService.authorize({
+      user,
+      permission: Permissions.SCENARIO_MANAGE,
+      context: { eventId },
+    });
+    const canReadCommandStatus = await this.authorizationService.authorize({
+      user,
+      permission: Permissions.COMMAND_READ,
+      context: { eventId },
+    });
+    if (!canManage && !canReadCommandStatus) await this.assertParticipantAccess(eventId, user);
+
+    const unitRows = await this.db
+      .select({ unitId: membershipUnitAssignments.unitId })
+      .from(eventMemberships)
+      .innerJoin(membershipUnitAssignments, eq(membershipUnitAssignments.membershipId, eventMemberships.id))
+      .where(and(
+        eq(eventMemberships.eventId, eventId),
+        eq(eventMemberships.userId, user.id),
+        eq(eventMemberships.status, MembershipStatus.ACTIVE),
+      ));
+    const unitIds = new Set(unitRows.map((row) => row.unitId));
+    const rows = await this.db
+      .select()
+      .from(exerciseDisruptions)
+      .where(and(eq(exerciseDisruptions.eventId, eventId), eq(exerciseDisruptions.module, ENFORCED_DISRUPTION_MODULE)))
+      .orderBy(desc(exerciseDisruptions.startsAt));
+    const now = new Date();
+    const visible = rows.filter((row) => canManage || canReadCommandStatus || isVisibleToParticipant(row.targetType, row.targetId, user.id, unitIds));
+    const items: ServiceStatusItem[] = visible.map((row) => {
+      const state = resolveServiceStatusState(row, now);
+      return {
+        service: row.module,
+        state,
+        impact: projectServiceImpact(state === 'EXPIRED' || state === 'RESTORED' ? null : row),
+        startsAt: row.startsAt.toISOString(),
+        expiresAt: row.expiresAt?.toISOString() ?? null,
+        restoredAt: row.restoredAt?.toISOString() ?? null,
+        revision: row.revision,
+        reason: canManage ? row.reason : null,
+      };
+    });
+    if (items.length === 0) {
+      items.push({
+        service: ENFORCED_DISRUPTION_MODULE,
+        state: 'OPERATIONAL',
+        impact: 'NONE',
+        startsAt: null,
+        expiresAt: null,
+        restoredAt: null,
+        revision: null,
+        reason: null,
+      });
+    }
+    return { eventId, generatedAt: now.toISOString(), items };
   }
 
   async listOperator(eventId: string, user: AuthenticatedUser): Promise<DisruptionSnapshot[]> {

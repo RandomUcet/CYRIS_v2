@@ -26,4 +26,5 @@ export * from './command-defcon.js';
 export * from './disruptions.js';
 export * from './preferences.js';
 export * from './notifications.js';
+export * from './service-status.js';
 export * from './identity.js';

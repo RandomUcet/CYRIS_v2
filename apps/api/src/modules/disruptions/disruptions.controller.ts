@@ -29,6 +29,11 @@ export class DisruptionsController {
     return this.disruptionsService.getParticipantStatus(eventId, user);
   }
 
+  @Get('service-status')
+  serviceStatus(@Param('eventId') eventId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.disruptionsService.getServiceStatus(eventId, user);
+  }
+
   @Post()
   async start(@Param('eventId') eventId: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     const parsed = CreateDisruptionRequestSchema.safeParse(body);

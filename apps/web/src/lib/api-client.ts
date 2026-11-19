@@ -117,6 +117,7 @@ import type {
   RecoveryReportRequest,
   RecoveryArtifact,
   CreateRecoveryArtifactRequest,
+  ServiceStatusResponse,
 } from '@cyris/contracts';
 
 export class CyrisApiClient {
@@ -1313,6 +1314,10 @@ export class CyrisApiClient {
 
   async getDisruptionStatus(eventId: string): Promise<{ ok: boolean; data?: ParticipantDisruptionStatus; error?: string }> {
     return this.fetchJson<ParticipantDisruptionStatus>(`/events/${eventId}/disruptions/status`);
+  }
+
+  async getServiceStatus(eventId: string): Promise<{ ok: boolean; data?: ServiceStatusResponse; error?: string }> {
+    return this.fetchJson<ServiceStatusResponse>(`/events/${eventId}/disruptions/service-status`);
   }
 
   async startDisruption(
