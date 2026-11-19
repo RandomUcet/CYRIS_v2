@@ -51,11 +51,16 @@ export class ResourcesController {
 
   @Get('resources/:resourceId')
   @RequirePermission(Permissions.EVENT_READ, PermissionScopes.EVENT)
-  async getResource(@Param('resourceId') resourceId: string): Promise<ResourceItem> {
+  async getResource(
+    @Param('eventId') eventId: string,
+    @Param('resourceId') resourceId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<ResourceItem> {
     const resource = await this.resourceService.getResource(resourceId);
-    if (!resource) {
+    if (!resource || resource.eventId !== eventId) {
       throw new NotFoundException(`Resource '${resourceId}' not found`);
     }
+    await this.resourceAccessService.assertCanAccessResource(user, resourceId, Permissions.REGISTRY_READ);
     return resource;
   }
 
@@ -121,8 +126,13 @@ export class ResourcesController {
   @RequirePermission(Permissions.EVENT_READ, PermissionScopes.EVENT)
   async listRelationships(
     @Param('resourceId') resourceId: string,
+    @Param('eventId') eventId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<ResourceRelationshipItem[]> {
+    const resource = await this.resourceService.getResource(resourceId);
+    if (!resource || resource.eventId !== eventId) {
+      throw new NotFoundException(`Resource '${resourceId}' not found`);
+    }
     await this.resourceAccessService.assertCanAccessResource(
       user,
       resourceId,
@@ -212,10 +222,22 @@ export class ResourcesController {
   @RequirePermission(Permissions.EVENT_READ, PermissionScopes.EVENT)
   async getActivityFeed(
     @Param('eventId') eventId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('resourceId') resourceId?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string
   ): Promise<ActivityEventItem[]> {
+    if (resourceId) {
+      const resource = await this.resourceService.getResource(resourceId);
+      if (!resource || resource.eventId !== eventId) {
+        throw new NotFoundException(`Resource '${resourceId}' not found`);
+      }
+      await this.resourceAccessService.assertCanAccessResource(
+        user,
+        resourceId,
+        Permissions.TIMELINE_READ
+      );
+    }
     return this.activityService.getActivityFeed({
       eventId,
       resourceId,

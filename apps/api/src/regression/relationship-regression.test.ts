@@ -11,7 +11,7 @@ test('relationship regression suite requires an explicit isolated database opt-i
 });
 
 skipWithoutVerifiedDatabase(
-  'database: unauthorized relationship enumeration is denied or filtered for both endpoints',
+  'NOT IMPLEMENTED: unauthorized relationship enumeration is denied or filtered for both endpoints',
   async () => {
     throw new Error(
       'Harness extension required: create isolated resources and exercise memberships, then call both relationship listing paths'
@@ -20,7 +20,7 @@ skipWithoutVerifiedDatabase(
 );
 
 skipWithoutVerifiedDatabase(
-  'database: cross-event relationship creation fails without mutation',
+  'NOT IMPLEMENTED: cross-event relationship creation fails without mutation',
   async () => {
     throw new Error(
       'Harness extension required: create resources in separate isolated exercises and verify no relationship row is inserted'
@@ -29,7 +29,7 @@ skipWithoutVerifiedDatabase(
 );
 
 skipWithoutVerifiedDatabase(
-  'database: unauthorized relationship creation and removal fail without mutation',
+  'NOT IMPLEMENTED: unauthorized relationship creation and removal fail without mutation',
   async () => {
     throw new Error(
       'Harness extension required: invoke the real controller/service authorization path with an unprivileged user'
@@ -38,7 +38,7 @@ skipWithoutVerifiedDatabase(
 );
 
 skipWithoutVerifiedDatabase(
-  'database: authorized relationship removal succeeds only within the exercise boundary',
+  'NOT IMPLEMENTED: authorized relationship removal succeeds only within the exercise boundary',
   async () => {
     throw new Error(
       'Harness extension required: create an authorized relationship and verify event-scoped removal'

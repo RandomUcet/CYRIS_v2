@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { eq, desc, inArray, and, ne, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
@@ -116,6 +116,17 @@ export class LaboratoryService {
       if (!unit) {
         throw new BadRequestException('The requested laboratory unit is not valid for this exercise');
       }
+      const [capability] = await this.db
+        .select({ unitId: unitCapabilities.unitId })
+        .from(unitCapabilities)
+        .where(and(
+          eq(unitCapabilities.unitId, unit.id),
+          eq(unitCapabilities.capabilityKey, 'chemical_analysis')
+        ))
+        .limit(1);
+      if (!capability) {
+        throw new BadRequestException('The requested unit is not enabled for laboratory work');
+      }
       return { unitId: unit.id, ambiguous: false };
     }
 
@@ -135,6 +146,63 @@ export class LaboratoryService {
 
     if (candidates.length === 1) return { unitId: candidates[0]!.unitId, ambiguous: false };
     return { unitId: null, ambiguous: candidates.length > 1 };
+  }
+
+  private async assertLaboratoryUnit(eventId: string, unitId: string): Promise<void> {
+    const [unit] = await this.db
+      .select({ id: organizationalUnits.id })
+      .from(organizationalUnits)
+      .innerJoin(unitCapabilities, eq(unitCapabilities.unitId, organizationalUnits.id))
+      .where(and(
+        eq(organizationalUnits.id, unitId),
+        eq(organizationalUnits.eventId, eventId),
+        eq(unitCapabilities.capabilityKey, 'chemical_analysis')
+      ))
+      .limit(1);
+    if (!unit) {
+      throw new BadRequestException('The destination unit is not enabled for laboratory work in this exercise');
+    }
+  }
+
+  private async assertEligibleLaboratoryWorker(
+    eventId: string,
+    unitId: string,
+    userId: string
+  ): Promise<void> {
+    await this.assertLaboratoryUnit(eventId, unitId);
+    const [targetUser] = await this.db
+      .select({ id: users.id, status: users.status })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (!targetUser || targetUser.status !== UserStatus.ACTIVE) {
+      throw new BadRequestException('The laboratory worker is inactive or does not exist');
+    }
+    const [membership] = await this.db
+      .select({ id: eventMemberships.id })
+      .from(eventMemberships)
+      .innerJoin(
+        membershipUnitAssignments,
+        eq(membershipUnitAssignments.membershipId, eventMemberships.id)
+      )
+      .where(and(
+        eq(eventMemberships.eventId, eventId),
+        eq(eventMemberships.userId, userId),
+        eq(eventMemberships.status, MembershipStatus.ACTIVE),
+        eq(membershipUnitAssignments.unitId, unitId)
+      ))
+      .limit(1);
+    if (!membership) {
+      throw new BadRequestException('The laboratory worker is not an active member of the destination unit');
+    }
+    const allowed = await this.authorizationService.authorize({
+      user: { id: userId, email: '', displayName: '', status: 'ACTIVE' },
+      permission: Permissions.LAB_WORK,
+      context: { eventId, unitId },
+    });
+    if (!allowed) {
+      throw new BadRequestException('The destination user is not permitted to perform laboratory work');
+    }
   }
 
   async listLaboratoryUnits(eventId: string, user: AuthenticatedUser): Promise<Array<{ id: string; name: string }>> {
@@ -572,83 +640,88 @@ export class LaboratoryService {
       if (data.status === 'APPROVED') updatePayload.approvedAt = now;
     }
 
-    const [updated] = await this.db
-      .update(labAnalyses)
-      .set(updatePayload)
-      .where(eq(labAnalyses.id, analysisId))
-      .returning();
-
-    // Audit
-    const auditAction = data.status && data.status !== currentStatus
-      ? data.status === 'COMPLETED'
-        ? 'lab.completed'
-        : data.status === 'APPROVED'
-          ? 'lab.approved'
-          : 'lab.status.changed'
-      : 'lab.updated';
-
-    await this.auditService.record({
-      action: auditAction,
-      category: 'laboratory',
-      eventId,
-      resourceType: 'lab_analysis',
-      resourceId: analysisId,
-      actorUserId: user.id,
-      metadata: {
-        analysisNumber: updated!.analysisNumber,
-        previousStatus: currentStatus,
-        newStatus: data.status,
-      },
-    });
-
-    // Activity
-    if (data.status && data.status !== currentStatus) {
-      let activityType = 'lab.status_changed';
-      let title = `Lab analysis ${updated!.analysisNumber} status changed to ${data.status}`;
-
-      if (data.status === 'ACCEPTED') {
-        activityType = 'lab.accepted';
-        title = `Lab analysis ${updated!.analysisNumber} accepted`;
-      } else if (data.status === 'IN_PROGRESS') {
-        activityType = 'lab.started';
-        title = `Work started on lab analysis ${updated!.analysisNumber}`;
-      } else if (data.status === 'COMPLETED') {
-        activityType = 'lab.completed';
-        title = `Lab analysis ${updated!.analysisNumber} completed: ${data.conclusion ?? 'Findings documented'}`;
-      } else if (data.status === 'APPROVED') {
-        activityType = 'lab.approved';
-        title = `Lab analysis ${updated!.analysisNumber} approved`;
-      } else if (data.status === 'REJECTED') {
-        activityType = 'lab.rejected';
-        title = `Lab analysis ${updated!.analysisNumber} rejected`;
+    const updated = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${eventId}:${analysisId}`}))`);
+      const [row] = await tx
+        .update(labAnalyses)
+        .set(updatePayload)
+        .where(and(eq(labAnalyses.id, analysisId), eq(labAnalyses.status, currentStatus)))
+        .returning();
+      if (!row) {
+        throw new ConflictException('Laboratory analysis changed while this update was being processed');
       }
 
-      await this.activityService.recordActivity({
-        eventId,
-        resourceId: analysisId,
-        activityType,
-        actorUserId: user.id,
-        title,
-        summary: data.conclusion ?? data.notes ?? undefined,
-        causationId: data.causationId,
-        relatedResourceIds: existing.evidenceIds,
-        metadata: { from: currentStatus, to: data.status },
-      });
-    }
+      const auditAction = data.status && data.status !== currentStatus
+        ? data.status === 'COMPLETED'
+          ? 'lab.completed'
+          : data.status === 'APPROVED'
+            ? 'lab.approved'
+            : 'lab.status.changed'
+        : 'lab.updated';
 
-    // Search outbox
-    await this.searchIndexerService.emitSearchUpsert('lab_analysis', analysisId);
+      await this.auditService.record({
+        action: auditAction,
+        category: 'laboratory',
+        eventId,
+        resourceType: 'lab_analysis',
+        resourceId: analysisId,
+        actorUserId: user.id,
+        metadata: {
+          analysisNumber: row.analysisNumber,
+          previousStatus: currentStatus,
+          newStatus: data.status,
+        },
+        txClient: tx,
+      });
+
+      if (data.status && data.status !== currentStatus) {
+        let activityType = 'lab.status_changed';
+        let title = `Lab analysis ${row.analysisNumber} status changed to ${data.status}`;
+
+        if (data.status === 'ACCEPTED') {
+          activityType = 'lab.accepted';
+          title = `Lab analysis ${row.analysisNumber} accepted`;
+        } else if (data.status === 'IN_PROGRESS') {
+          activityType = 'lab.started';
+          title = `Work started on lab analysis ${row.analysisNumber}`;
+        } else if (data.status === 'COMPLETED') {
+          activityType = 'lab.completed';
+          title = `Lab analysis ${row.analysisNumber} completed: ${data.conclusion ?? 'Findings documented'}`;
+        } else if (data.status === 'APPROVED') {
+          activityType = 'lab.approved';
+          title = `Lab analysis ${row.analysisNumber} approved`;
+        } else if (data.status === 'REJECTED') {
+          activityType = 'lab.rejected';
+          title = `Lab analysis ${row.analysisNumber} rejected`;
+        }
+
+        await this.activityService.recordActivity({
+          eventId,
+          resourceId: analysisId,
+          activityType,
+          actorUserId: user.id,
+          title,
+          summary: data.conclusion ?? data.notes ?? undefined,
+          causationId: data.causationId,
+          relatedResourceIds: existing.evidenceIds,
+          metadata: { from: currentStatus, to: data.status },
+        }, tx);
+      }
+
+      await this.searchIndexerService.emitSearchUpsert('lab_analysis', analysisId, tx);
+      return row;
+    });
 
     return {
       ...existing,
-      ...updated!,
-      requestedAt: updated!.requestedAt.toISOString(),
-      acceptedAt: updated!.acceptedAt ? updated!.acceptedAt.toISOString() : null,
-      startedAt: updated!.startedAt ? updated!.startedAt.toISOString() : null,
-      completedAt: updated!.completedAt ? updated!.completedAt.toISOString() : null,
-      approvedAt: updated!.approvedAt ? updated!.approvedAt.toISOString() : null,
-      createdAt: updated!.createdAt.toISOString(),
-      updatedAt: updated!.updatedAt.toISOString(),
+      ...updated,
+      requestedAt: updated.requestedAt.toISOString(),
+      acceptedAt: updated.acceptedAt ? updated.acceptedAt.toISOString() : null,
+      startedAt: updated.startedAt ? updated.startedAt.toISOString() : null,
+      completedAt: updated.completedAt ? updated.completedAt.toISOString() : null,
+      approvedAt: updated.approvedAt ? updated.approvedAt.toISOString() : null,
+      createdAt: updated.createdAt.toISOString(),
+      updatedAt: updated.updatedAt.toISOString(),
     };
   }
 
@@ -669,58 +742,10 @@ export class LaboratoryService {
       context: { eventId, unitId: destinationUnitId },
     });
 
-    const [unit] = await this.db
-      .select({ id: organizationalUnits.id, eventId: organizationalUnits.eventId })
-      .from(organizationalUnits)
-      .where(
-        and(
-          eq(organizationalUnits.id, destinationUnitId),
-          eq(organizationalUnits.eventId, eventId)
-        )
-      )
-      .limit(1);
-    if (!unit) throw new BadRequestException('The destination unit is not in this exercise');
+    await this.assertLaboratoryUnit(eventId, destinationUnitId);
 
     if (data.assignedToUserId) {
-      const [targetUser] = await this.db
-        .select({ id: users.id, status: users.status })
-        .from(users)
-        .where(eq(users.id, data.assignedToUserId))
-        .limit(1);
-      if (!targetUser || targetUser.status !== UserStatus.ACTIVE) {
-        throw new BadRequestException('The reassignment target user is inactive or does not exist');
-      }
-
-      const [membership] = await this.db
-        .select({ id: eventMemberships.id })
-        .from(eventMemberships)
-        .innerJoin(
-          membershipUnitAssignments,
-          eq(membershipUnitAssignments.membershipId, eventMemberships.id)
-        )
-        .where(
-          and(
-            eq(eventMemberships.eventId, eventId),
-            eq(eventMemberships.userId, targetUser.id),
-            eq(eventMemberships.status, MembershipStatus.ACTIVE),
-            eq(membershipUnitAssignments.unitId, destinationUnitId)
-          )
-        )
-        .limit(1);
-      if (!membership) {
-        throw new BadRequestException('The reassignment target is not an active member of the destination unit');
-      }
-
-      await this.authorizationService.assertAuthorized({
-        user: {
-          id: targetUser.id,
-          email: '',
-          displayName: '',
-          status: 'ACTIVE',
-        },
-        permission: Permissions.LAB_WORK,
-        context: { eventId, unitId: destinationUnitId },
-      });
+      await this.assertEligibleLaboratoryWorker(eventId, destinationUnitId, data.assignedToUserId);
     }
 
     const now = new Date();
@@ -811,55 +836,34 @@ export class LaboratoryService {
         updates.approvedAt = null;
       }
     }
+    const effectiveUnitId = data.assignedUnitId === undefined
+      ? existing.assignedUnitId
+      : data.assignedUnitId;
+    const effectiveUserId = data.assignedToUserId === undefined
+      ? existing.assignedToUserId
+      : data.assignedToUserId;
     if (data.assignedUnitId !== undefined) {
-      if (data.assignedUnitId) {
-        const [destination] = await this.db
-          .select({ id: organizationalUnits.id })
-          .from(organizationalUnits)
-          .where(and(
-            eq(organizationalUnits.id, data.assignedUnitId),
-            eq(organizationalUnits.eventId, eventId)
-          ))
-          .limit(1);
-        if (!destination) throw new BadRequestException('The corrected unit is not in this exercise');
-      }
+      if (data.assignedUnitId) await this.assertLaboratoryUnit(eventId, data.assignedUnitId);
       updates.assignedUnitId = data.assignedUnitId;
     }
+    if (effectiveUserId) {
+      if (!effectiveUnitId) throw new BadRequestException('A destination laboratory unit is required');
+      await this.assertEligibleLaboratoryWorker(eventId, effectiveUnitId, effectiveUserId);
+    }
     if (data.assignedToUserId !== undefined) {
-      if (data.assignedToUserId) {
-        const targetUnitId = data.assignedUnitId ?? existing.assignedUnitId;
-        if (!targetUnitId) throw new BadRequestException('A destination laboratory unit is required');
-        const [membership] = await this.db
-          .select({ id: eventMemberships.id })
-          .from(eventMemberships)
-          .innerJoin(membershipUnitAssignments, eq(membershipUnitAssignments.membershipId, eventMemberships.id))
-          .where(and(
-            eq(eventMemberships.eventId, eventId),
-            eq(eventMemberships.userId, data.assignedToUserId),
-            eq(eventMemberships.status, MembershipStatus.ACTIVE),
-            eq(membershipUnitAssignments.unitId, targetUnitId)
-          ))
-          .limit(1);
-        if (!membership) throw new BadRequestException('The correction target is not an active member of the destination unit');
-        await this.authorizationService.assertAuthorized({
-          user: { id: data.assignedToUserId, email: '', displayName: '', status: 'ACTIVE' },
-          permission: Permissions.LAB_WORK,
-          context: { eventId, unitId: targetUnitId },
-        });
-      }
       updates.assignedToUserId = data.assignedToUserId;
     }
 
     await this.db.transaction(async (tx) => {
       await tx.update(labAnalyses).set(updates).where(eq(labAnalyses.id, analysisId));
       await tx.update(resources).set({
-        owningUnitId: data.assignedUnitId === undefined ? existing.assignedUnitId : data.assignedUnitId,
+        owningUnitId: effectiveUnitId,
         updatedAt: now,
       }).where(eq(resources.id, analysisId));
       await tx.delete(resourceAssignments).where(eq(resourceAssignments.resourceId, analysisId));
-      if (data.assignedToUserId) {
+      if (effectiveUserId && effectiveUnitId) {
         await tx.insert(resourceAssignments).values({
-          id: generateId(), eventId, resourceId: analysisId, userId: data.assignedToUserId,
+          id: generateId(), eventId, resourceId: analysisId, userId: effectiveUserId,
           unitId: null, assignedByUserId: user.id,
         });
       }

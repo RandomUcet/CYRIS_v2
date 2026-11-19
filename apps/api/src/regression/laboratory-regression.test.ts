@@ -75,7 +75,7 @@ test('work updates reject unknown workflow statuses', () => {
 });
 
 skipWithoutVerifiedDatabase(
-  'database: assignment eligibility excludes inactive, wrong-unit, wrong-exercise, and missing-permission users',
+  'NOT IMPLEMENTED: database assignment eligibility excludes inactive, wrong-unit, wrong-exercise, and missing-permission users',
   async () => {
     throw new Error(
       'Harness extension required: provision isolated exercise memberships, units, roles, and laboratory rows before running this test'
@@ -84,7 +84,7 @@ skipWithoutVerifiedDatabase(
 );
 
 skipWithoutVerifiedDatabase(
-  'database: concurrent laboratory requests serialize assignment and preserve transaction consistency',
+  'NOT IMPLEMENTED: database concurrent laboratory requests serialize assignment and preserve transaction consistency',
   async () => {
     throw new Error(
       'Harness extension required: run concurrent requests against an isolated disposable PostgreSQL instance'
@@ -93,7 +93,7 @@ skipWithoutVerifiedDatabase(
 );
 
 skipWithoutVerifiedDatabase(
-  'database: reassignment and correction preserve findings and invalidate approval metadata when reopening',
+  'NOT IMPLEMENTED: database reassignment and correction preserve findings and invalidate approval metadata when reopening',
   async () => {
     throw new Error(
       'Harness extension required: exercise the real LaboratoryService with isolated database fixtures'

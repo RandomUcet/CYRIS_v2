@@ -285,7 +285,52 @@ export class ResourceAccessService {
       .where(and(...conditions))
       .limit(1);
 
-    if (assignment) return true;
+    if (assignment) {
+      const [resource] = await db
+        .select({
+          eventId: resources.eventId,
+          owningUnitId: resources.owningUnitId,
+        })
+        .from(resources)
+        .where(eq(resources.id, resourceId))
+        .limit(1);
+
+      if (!resource) return false;
+
+      const [membership] = await db
+        .select({ id: eventMemberships.id })
+        .from(eventMemberships)
+        .innerJoin(
+          membershipUnitAssignments,
+          eq(membershipUnitAssignments.membershipId, eventMemberships.id)
+        )
+        .where(
+          and(
+            eq(eventMemberships.eventId, resource.eventId),
+            eq(eventMemberships.userId, userId),
+            eq(eventMemberships.status, MembershipStatus.ACTIVE),
+            resource.owningUnitId
+              ? eq(membershipUnitAssignments.unitId, resource.owningUnitId)
+              : inArray(membershipUnitAssignments.unitId, unitIds)
+          )
+        )
+        .limit(1);
+
+      if (!membership) return false;
+
+      const hasLabWork = await this.authzService.authorize({
+        user: {
+          id: userId,
+          email: '',
+          displayName: '',
+          status: 'ACTIVE',
+        },
+        permission: Permissions.LAB_WORK,
+        context: { eventId: resource.eventId, unitId: resource.owningUnitId ?? undefined },
+      });
+
+      if (hasLabWork) return true;
+    }
 
     const [task] = await db
       .select({
