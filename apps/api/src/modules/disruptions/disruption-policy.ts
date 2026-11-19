@@ -5,8 +5,9 @@ export const ENFORCED_DISRUPTION_MODULE = 'tasks' as const;
 export const ENFORCED_DISRUPTION_MODES = ['UNAVAILABLE', 'READ_ONLY', 'DEGRADED'] as const;
 
 export function assertSupportedDisruption(module: string, mode: string): void {
-  if (module !== ENFORCED_DISRUPTION_MODULE || !ENFORCED_DISRUPTION_MODES.includes(mode as typeof ENFORCED_DISRUPTION_MODES[number])) {
-    throw new ForbiddenException('Only supported tasks disruption modes are allowed');
+  if (module !== ENFORCED_DISRUPTION_MODULE || mode === 'DEGRADED' ||
+    !ENFORCED_DISRUPTION_MODES.includes(mode as typeof ENFORCED_DISRUPTION_MODES[number])) {
+    throw new ForbiddenException('Only tasks UNAVAILABLE and READ_ONLY disruption modes are allowed');
   }
 }
 

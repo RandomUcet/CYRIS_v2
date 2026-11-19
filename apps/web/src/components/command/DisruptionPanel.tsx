@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, RotateCcw, ShieldAlert } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -9,7 +9,6 @@ import type { DisruptionMode, DisruptionSnapshot } from '@cyris/contracts';
 const MODES: Array<{ value: DisruptionMode; label: string }> = [
   { value: 'UNAVAILABLE', label: 'Nedostupné' },
   { value: 'READ_ONLY', label: 'Pouze čtení' },
-  { value: 'DEGRADED', label: 'Degradované' },
 ];
 
 export function DisruptionPanel({ eventId }: { eventId: string }) {
@@ -19,34 +18,55 @@ export function DisruptionPanel({ eventId }: { eventId: string }) {
   const [rows, setRows] = useState<DisruptionSnapshot[]>([]);
   const [mode, setMode] = useState<DisruptionMode>('READ_ONLY');
   const [reason, setReason] = useState('');
+  const [targetType, setTargetType] = useState<'EVENT' | 'UNIT'>('EVENT');
+  const [targetId, setTargetId] = useState('');
+  const [units, setUnits] = useState<Array<{ id: string; name: string }>>([]);
+  const [startsAt, setStartsAt] = useState('');
+  const [expiresAt, setExpiresAt] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const requestSequence = useRef(0);
 
   const load = useCallback(async () => {
+    const sequence = ++requestSequence.current;
     setLoading(true);
     setError(null);
     const result = await apiClient.listDisruptions(eventId);
+    if (sequence !== requestSequence.current) return;
     if (result.ok && result.data) setRows(result.data);
     else setError(result.error || 'Disruption stav není dostupný');
     setLoading(false);
   }, [eventId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    setRows([]);
+    void load();
+    let active = true;
+    apiClient.getUnits(eventId).then((result) => {
+      if (active && result.ok && result.data) setUnits(result.data.map((unit: { id: string; name: string }) => ({ id: unit.id, name: unit.name })));
+    });
+    return () => { active = false; };
+  }, [eventId, load]);
 
   const start = async () => {
     if (reason.trim().length < 3 || saving) return;
     setSaving(true);
     setError(null);
     const result = await apiClient.startDisruption(eventId, {
-      targetType: 'EVENT',
-      targetId: null,
+      targetType,
+      targetId: targetType === 'UNIT' ? targetId : null,
       module: 'tasks',
       mode,
       reason: reason.trim(),
+      startsAt: startsAt ? new Date(startsAt).toISOString() : undefined,
+      expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
     });
     if (result.ok) {
       setReason('');
+      setTargetId('');
+      setStartsAt('');
+      setExpiresAt('');
       await load();
     } else setError(result.error || 'Disruption se nepodařilo spustit');
     setSaving(false);
@@ -54,11 +74,13 @@ export function DisruptionPanel({ eventId }: { eventId: string }) {
 
   const restore = async (row: DisruptionSnapshot) => {
     if (!window.confirm(`Obnovit modul tasks? Revize ${row.revision}`)) return;
+    const reason = window.prompt('Důvod obnovení', 'Obnovení operátorem');
+    if (!reason?.trim()) return;
     setSaving(true);
     setError(null);
     const result = await apiClient.restoreDisruption(eventId, row.id, {
       expectedRevision: row.revision,
-      reason: 'Obnovení operátorem',
+      reason: reason.trim(),
     });
     if (result.ok) await load();
     else setError(result.error || 'Obnovení se nepodařilo');
@@ -78,9 +100,21 @@ export function DisruptionPanel({ eventId }: { eventId: string }) {
             className="rounded bg-slate-950 border border-slate-700 px-2 py-2 text-xs text-slate-200">
             {MODES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
+          <select value={targetType} onChange={(event) => setTargetType(event.target.value as 'EVENT' | 'UNIT')}
+            className="rounded bg-slate-950 border border-slate-700 px-2 py-2 text-xs text-slate-200">
+            <option value="EVENT">Celá událost</option>
+            <option value="UNIT">Jednotka</option>
+          </select>
+          {targetType === 'UNIT' && <select value={targetId} onChange={(event) => setTargetId(event.target.value)}
+            className="rounded bg-slate-950 border border-slate-700 px-2 py-2 text-xs text-slate-200">
+            <option value="">Vyberte jednotku</option>
+            {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+          </select>}
           <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Důvod (povinný)"
             className="min-w-52 flex-1 rounded bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200" />
-          <button onClick={() => void start()} disabled={saving || reason.trim().length < 3}
+          <input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} aria-label="Začátek" />
+          <input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} aria-label="Konec" />
+          <button onClick={() => void start()} disabled={saving || reason.trim().length < 3 || (targetType === 'UNIT' && !targetId)}
             className="rounded bg-orange-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Spustit</button>
         </div>
       )}

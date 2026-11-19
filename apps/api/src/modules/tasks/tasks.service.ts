@@ -872,7 +872,6 @@ export class TasksService {
     query: MyWorkQuery,
     user: AuthenticatedUser
   ): Promise<MyWorkResponse> {
-    await this.disruptionsService.assertTaskReadAllowed(eventId, user);
     const requestedUnitId = query.unitId;
     if (query.view === 'unit' && !requestedUnitId) {
       throw new BadRequestException('unitId is required for a unit work queue');

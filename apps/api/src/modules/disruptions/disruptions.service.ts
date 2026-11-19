@@ -49,15 +49,7 @@ export class DisruptionsService {
 
   async getParticipantStatus(eventId: string, user: AuthenticatedUser): Promise<ParticipantDisruptionStatus> {
     await this.assertEventPermission(eventId, user, Permissions.SCENARIO_READ);
-    const rows = await this.getApplicableRows(eventId, user);
-    const memberships = await this.db.select({ unitId: membershipUnitAssignments.unitId })
-      .from(eventMemberships)
-      .innerJoin(membershipUnitAssignments, eq(membershipUnitAssignments.membershipId, eventMemberships.id))
-      .where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, user.id), eq(eventMemberships.status, MembershipStatus.ACTIVE)));
-    const restriction = { UNAVAILABLE: 3, READ_ONLY: 2, DEGRADED: 1 } as const;
-    const active = [resolveDisruption(rows, new Date(), user.id, null), ...memberships.map((membership) => resolveDisruption(rows, new Date(), user.id, membership.unitId))]
-      .filter((row): row is NonNullable<typeof row> => Boolean(row))
-      .sort((left, right) => restriction[right.mode as keyof typeof restriction] - restriction[left.mode as keyof typeof restriction])[0] ?? null;
+    const active = await this.getEffectiveDisruption(eventId, user);
     return {
       eventId,
       module: ENFORCED_DISRUPTION_MODULE,
@@ -148,21 +140,19 @@ export class DisruptionsService {
   async assertTaskWriteAllowed(eventId: string, user: AuthenticatedUser, unitId?: string | null): Promise<void> {
     const excon = await this.authorizationService.authorize({ user, permission: Permissions.SCENARIO_OVERRIDE, context: { eventId } });
     if (excon) return;
-    const rows = await this.db.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.eventId, eventId), eq(exerciseDisruptions.module, ENFORCED_DISRUPTION_MODULE)));
-    assertParticipantWriteAllowed(resolveDisruption(rows, new Date(), user.id, unitId));
+    assertParticipantWriteAllowed(await this.getEffectiveDisruption(eventId, user));
   }
 
   async assertTaskReadAllowed(eventId: string, user: AuthenticatedUser, unitId?: string | null): Promise<void> {
     const excon = await this.authorizationService.authorize({ user, permission: Permissions.SCENARIO_OVERRIDE, context: { eventId } });
     if (excon) return;
-    const rows = await this.db.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.eventId, eventId), eq(exerciseDisruptions.module, ENFORCED_DISRUPTION_MODULE)));
-    const active = resolveDisruption(rows, new Date(), user.id, unitId);
+    const active = await this.getEffectiveDisruption(eventId, user);
     if (active?.mode === 'UNAVAILABLE') {
       throw new ForbiddenException('Module is simulated as unavailable');
     }
   }
 
-  private async getApplicableRows(eventId: string, user: AuthenticatedUser) {
+  private async getEffectiveDisruption(eventId: string, user: AuthenticatedUser) {
     const memberships = await this.db.select({ unitId: membershipUnitAssignments.unitId })
       .from(eventMemberships)
       .innerJoin(membershipUnitAssignments, eq(membershipUnitAssignments.membershipId, eventMemberships.id))
@@ -170,11 +160,16 @@ export class DisruptionsService {
     const unitIds = new Set(memberships.map((membership) => membership.unitId));
     const rows = await this.db.select().from(exerciseDisruptions)
       .where(and(eq(exerciseDisruptions.eventId, eventId), eq(exerciseDisruptions.module, ENFORCED_DISRUPTION_MODULE)));
-    return rows.filter((row) =>
-      row.targetType === 'EVENT' ||
-      (row.targetType === 'USER' && row.targetId === user.id) ||
-      (row.targetType === 'UNIT' && row.targetId && unitIds.has(row.targetId))
-    );
+    const candidates = [
+      resolveDisruption(rows, new Date(), user.id, null),
+      ...Array.from(unitIds, (unitId: string) => resolveDisruption(rows, new Date(), user.id, unitId)),
+    ].filter((row): row is NonNullable<typeof row> => Boolean(row));
+    return candidates.sort((left, right) => {
+      const restriction = { UNAVAILABLE: 3, READ_ONLY: 2, DEGRADED: 1 } as const;
+      return restriction[right.mode as keyof typeof restriction] - restriction[left.mode as keyof typeof restriction]
+        || right.startsAt.getTime() - left.startsAt.getTime()
+        || left.id.localeCompare(right.id);
+    })[0] ?? null;
   }
 
   private async validateTarget(eventId: string, targetType: CreateDisruptionRequest['targetType'], targetId: string | null | undefined): Promise<void> {

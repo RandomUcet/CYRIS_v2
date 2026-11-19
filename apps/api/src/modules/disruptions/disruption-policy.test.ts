@@ -52,6 +52,7 @@ describe('disruption policy', () => {
 
   it('enforces the tasks module allowlist and event-bound target semantics', () => {
     assert.doesNotThrow(() => assertSupportedDisruption('tasks', 'READ_ONLY'));
+    assert.throws(() => assertSupportedDisruption('tasks', 'DEGRADED'));
     assert.throws(() => assertSupportedDisruption('documents', 'READ_ONLY'));
     assert.equal(isTargetApplicable(row({ targetType: 'EVENT' }), 'user', null), true);
     assert.equal(isTargetApplicable(row({ targetType: 'UNIT', targetId: 'unit' }), 'user', 'unit'), true);
