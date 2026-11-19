@@ -53,6 +53,8 @@ export const ScenarioConditionType = {
   INCIDENT_STATUS: 'INCIDENT_STATUS',
   EVIDENCE_STATUS: 'EVIDENCE_STATUS',
   LAB_STATUS: 'LAB_STATUS',
+  TASK_STATUS: 'TASK_STATUS',
+  RECOVERY_OBJECTIVE_STATUS: 'RECOVERY_OBJECTIVE_STATUS',
 } as const;
 
 export type ScenarioConditionTypeValue = (typeof ScenarioConditionType)[keyof typeof ScenarioConditionType];
@@ -63,6 +65,31 @@ export const ScenarioConditionLogic = {
 } as const;
 
 export type ScenarioConditionLogicValue = (typeof ScenarioConditionLogic)[keyof typeof ScenarioConditionLogic];
+
+export type ScenarioConditionResult = {
+  met: boolean;
+  reason: string;
+};
+
+export function scenarioStatusMatches(actual: string | null | undefined, expected: string | null | undefined): ScenarioConditionResult {
+  if (!actual || !expected) return { met: false, reason: 'Target status is missing or unavailable' };
+  return actual === expected
+    ? { met: true, reason: '' }
+    : { met: false, reason: `Expected status ${expected}, current status is ${actual}` };
+}
+
+export function combineScenarioConditions(
+  results: readonly ScenarioConditionResult[],
+  logic: ScenarioConditionLogicValue,
+): ScenarioConditionResult {
+  const met = results.length === 0 || (logic === 'ANY'
+    ? results.some((result) => result.met)
+    : results.every((result) => result.met));
+  return {
+    met,
+    reason: met ? '' : results.filter((result) => !result.met).map((result) => result.reason).join('; '),
+  };
+}
 
 export const ScenarioTargetType = {
   EVENT: 'EVENT',
@@ -161,6 +188,8 @@ export const ScenarioInjectConditionInputSchema = z.object({
     'INCIDENT_STATUS',
     'EVIDENCE_STATUS',
     'LAB_STATUS',
+    'TASK_STATUS',
+    'RECOVERY_OBJECTIVE_STATUS',
   ]),
   targetResourceId: z.string().uuid().optional().nullable(),
   targetIdentifier: z.string().optional().nullable(),

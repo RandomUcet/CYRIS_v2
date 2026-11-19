@@ -531,6 +531,13 @@ export class ScenarioInjectsService {
     if (candidateDepIds.includes(currentInjectId)) {
       throw new BadRequestException('Inject cannot depend on itself.');
     }
+    const candidates = await this.db
+      .select({ id: scenarioInjects.id, eventId: scenarioInjects.eventId })
+      .from(scenarioInjects)
+      .where(inArray(scenarioInjects.id, candidateDepIds));
+    if (candidates.length !== new Set(candidateDepIds).size || candidates.some((candidate) => candidate.eventId !== eventId)) {
+      throw new BadRequestException('Dependencies must reference injects in the same event.');
+    }
 
     const allDeps = await this.db
       .select({
@@ -594,12 +601,12 @@ export class ScenarioInjectsService {
       })
       .from(scenarioInjectDependencies)
       .innerJoin(scenarioInjects, eq(scenarioInjectDependencies.dependsOnInjectId, scenarioInjects.id))
-      .where(eq(scenarioInjectDependencies.injectId, inj.id));
+      .where(and(eq(scenarioInjectDependencies.injectId, inj.id), eq(scenarioInjectDependencies.eventId, inj.eventId)));
 
     const conditions = await this.db
       .select()
       .from(scenarioInjectConditions)
-      .where(eq(scenarioInjectConditions.injectId, inj.id));
+      .where(and(eq(scenarioInjectConditions.injectId, inj.id), eq(scenarioInjectConditions.eventId, inj.eventId)));
 
     const targets = await this.db
       .select({

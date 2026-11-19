@@ -914,6 +914,32 @@ export default function ScenarioControlPage() {
                 Trigger: {selectedInject.triggerType} · Policy: {selectedInject.releasePolicy}
               </div>
 
+              {selectedInject.conditions.length > 0 && (
+                <div style={{ marginBottom: '10px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '2px' }}>
+                    CONDITIONS ({selectedInject.conditionLogic})
+                  </div>
+                  {selectedInject.conditions.map((condition) => {
+                    const labels: Record<string, string> = {
+                      TASK_STATUS: 'Operational task status',
+                      RECOVERY_OBJECTIVE_STATUS: 'Recovery objective status',
+                      INJECT_RELEASED: 'Inject released',
+                      CASE_STATUS: 'Case status',
+                      INCIDENT_STATUS: 'Incident status',
+                      EVIDENCE_STATUS: 'Evidence status',
+                      LAB_STATUS: 'Laboratory status',
+                      ACTIVITY_OCCURRED: 'Activity occurred',
+                    };
+                    return (
+                      <div key={condition.id} style={{ fontSize: '11px', color: condition.isSatisfied ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
+                        • {labels[condition.conditionType] ?? condition.conditionType}: {condition.targetStatus ?? 'configured target'}
+                        {!condition.isSatisfied && ' (unmet)'}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {selectedInject.dependencies.length > 0 && (
                 <div style={{ marginBottom: '10px' }}>
                   <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '2px' }}>

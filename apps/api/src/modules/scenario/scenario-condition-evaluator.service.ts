@@ -9,6 +9,8 @@ import {
   incidents,
   evidence,
   labAnalyses,
+  operationalTasks,
+  recoveryObjectives,
   activityEvents,
   ActivityVisibility,
 } from '@cyris/db';
@@ -59,7 +61,7 @@ export class ScenarioConditionEvaluatorService {
       })
       .from(scenarioInjectDependencies)
       .innerJoin(scenarioInjects, eq(scenarioInjectDependencies.dependsOnInjectId, scenarioInjects.id))
-      .where(eq(scenarioInjectDependencies.injectId, injectId));
+      .where(and(eq(scenarioInjectDependencies.injectId, injectId), eq(scenarioInjectDependencies.eventId, inject.eventId)));
 
     for (const dep of dependencies) {
       if (dep.depStatus !== 'RELEASED') {
@@ -84,7 +86,7 @@ export class ScenarioConditionEvaluatorService {
             const [dep] = await db
               .select({ status: scenarioInjects.status })
               .from(scenarioInjects)
-              .where(eq(scenarioInjects.id, cond.targetResourceId))
+              .where(and(eq(scenarioInjects.id, cond.targetResourceId), eq(scenarioInjects.eventId, inject.eventId)))
               .limit(1);
             isMet = dep?.status === 'RELEASED';
           }
@@ -135,6 +137,30 @@ export class ScenarioConditionEvaluatorService {
 
             const [lab] = await db.select({ status: labAnalyses.status }).from(labAnalyses).where(whereClause).limit(1);
             isMet = Boolean(lab && lab.status === cond.targetStatus);
+          }
+          break;
+        }
+
+        case 'TASK_STATUS': {
+          if (cond.targetResourceId || cond.targetIdentifier) {
+            const whereClause = cond.targetResourceId
+              ? eq(operationalTasks.id, cond.targetResourceId)
+              : eq(operationalTasks.taskNumber, cond.targetIdentifier!);
+            const [task] = await db.select({ status: operationalTasks.status }).from(operationalTasks)
+              .where(and(whereClause, eq(operationalTasks.eventId, inject.eventId))).limit(1);
+            isMet = Boolean(task && task.status === cond.targetStatus);
+          }
+          break;
+        }
+
+        case 'RECOVERY_OBJECTIVE_STATUS': {
+          if (cond.targetResourceId || cond.targetIdentifier) {
+            const whereClause = cond.targetResourceId
+              ? eq(recoveryObjectives.id, cond.targetResourceId)
+              : eq(recoveryObjectives.title, cond.targetIdentifier!);
+            const [objective] = await db.select({ status: recoveryObjectives.status }).from(recoveryObjectives)
+              .where(and(whereClause, eq(recoveryObjectives.eventId, inject.eventId))).limit(1);
+            isMet = Boolean(objective && objective.status === cond.targetStatus);
           }
           break;
         }
