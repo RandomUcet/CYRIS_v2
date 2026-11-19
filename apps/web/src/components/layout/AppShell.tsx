@@ -18,6 +18,7 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
   const { currentUser, loading } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [showWorkspaceHelp, setShowWorkspaceHelp] = useState(false);
 
   // Global ⌘K / Ctrl+K listener
   useEffect(() => {
@@ -69,6 +70,17 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100vh' }}>
         <TopBar onOpenSearch={() => setIsSearchOpen(true)} breadcrumbs={breadcrumbs} />
         <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--bg-canvas)' }}>
+          <div className="workspace-help-bar">
+            <span>Pracujete v aktuálním eventu. Začněte v <strong>My Work</strong>; Command je určen pro autorizované operační řízení.</span>
+            <button type="button" onClick={() => setShowWorkspaceHelp((value) => !value)} aria-expanded={showWorkspaceHelp}>Nápověda</button>
+          </div>
+          {showWorkspaceHelp && (
+            <div className="workspace-help-panel" role="note">
+              <strong>Rychlá orientace</strong>
+              <span>My Work zobrazuje vaše dostupné úkoly. Command a změny DEFCON jsou viditelné pouze podle eventových oprávnění.</span>
+              <button type="button" onClick={() => setShowWorkspaceHelp(false)}>Zavřít</button>
+            </div>
+          )}
           {children}
         </main>
       </div>

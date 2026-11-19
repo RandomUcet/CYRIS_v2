@@ -124,54 +124,54 @@ export function DefconPanel({ eventId }: { eventId: string }) {
   };
 
   return (
-    <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-2">
-          <Shield size={17} className="text-amber-400" />
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">Exercise readiness / DEFCON</h3>
+    <section className="command-defcon-panel">
+      <div className="command-defcon-header">
+        <div className="command-defcon-title">
+          <Shield size={17} className="command-defcon-icon" />
+          <h3 className="command-defcon-heading">Exercise readiness / DEFCON</h3>
         </div>
-        <button onClick={() => void load()} disabled={loading} className="text-slate-400 hover:text-slate-200" aria-label="Obnovit DEFCON">
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        <button onClick={() => void load()} disabled={loading} className="command-defcon-refresh" aria-label="Obnovit DEFCON">
+          <RefreshCw size={14} className={loading ? 'command-defcon-spin' : ''} />
         </button>
       </div>
-      {error && <div className="mb-3 flex items-center gap-2 text-xs text-red-300"><AlertTriangle size={14} />{error}</div>}
-      {loading ? <p className="text-xs text-slate-500">Načítám autoritativní stav…</p> : snapshot ? (
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
+      {error && <div className="command-defcon-error"><AlertTriangle size={14} />{error}</div>}
+      {loading ? <p className="command-defcon-loading">Načítám autoritativní stav…</p> : snapshot ? (
+        <div className="command-defcon-content">
+          <div className="command-defcon-levels">
             {LEVELS.map((item) => (
               <button key={item.value} disabled={!canChange || saving || loading || stale} onClick={() => { setLevel(item.value); setDraftDirty(true); draftDirtyRef.current = true; }}
-                className={`px-3 py-2 rounded border text-xs font-mono ${level === item.value ? 'border-white' : 'border-slate-700'}`}
+                className={`command-defcon-level ${level === item.value ? 'command-defcon-level-selected' : ''}`}
                 style={{ color: item.color }}>
                 {item.value} — {item.label}
               </button>
             ))}
           </div>
-          <div className="text-xs text-slate-400">
-            Aktuální: <strong className="text-slate-200">{snapshot.level ? `DEFCON ${snapshot.level}` : 'NEZNÁMÝ / NEINICIALIZOVANÝ'}</strong>
-            <span className="ml-3">Revize {snapshot.revision}</span>
-            {stale && <span className="ml-3 text-amber-300">STALE — potvrďte obnovení</span>}
-            {lastConfirmedAt && <span className="ml-3">Poslední potvrzení {new Date(lastConfirmedAt).toLocaleTimeString()}</span>}
+          <div className="command-defcon-meta">
+            Aktuální: <strong>{snapshot.level ? `DEFCON ${snapshot.level}` : 'NEZNÁMÝ / NEINICIALIZOVANÝ'}</strong>
+            <span>Revize {snapshot.revision}</span>
+            {stale && <span className="command-defcon-stale">STALE — potvrďte obnovení</span>}
+            {lastConfirmedAt && <span>Poslední potvrzení {new Date(lastConfirmedAt).toLocaleTimeString()}</span>}
           </div>
-          {!snapshot.initialized && <p className="text-xs text-amber-300">Stav nebyl inicializován. Nejprve proveďte explicitní inicializaci.</p>}
-          {canChange && ((snapshot.initialized && !stale) || !snapshot.initialized) && <div className="flex gap-2">
+          {!snapshot.initialized && <p className="command-defcon-warning">Stav nebyl inicializován. Nejprve proveďte explicitní inicializaci.</p>}
+          {canChange && ((snapshot.initialized && !stale) || !snapshot.initialized) && <div className="command-defcon-mutation">
             <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Důvod změny (povinný)"
-              className="flex-1 rounded bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200" />
+              className="command-defcon-reason" />
             <button onClick={() => void submit()} disabled={saving || loading || stale || level === null || reason.trim().length < 3}
-              className="px-3 py-2 rounded bg-amber-600 text-xs font-semibold text-white disabled:opacity-50">
+              className="command-defcon-submit">
               {saving ? 'Ukládám…' : snapshot.initialized ? 'Potvrdit' : 'Inicializovat'}
             </button>
           </div>}
           {snapshot.history.length > 0 && (
-            <details className="rounded border border-slate-800 bg-slate-950/60 p-3">
-              <summary className="cursor-pointer text-[11px] text-slate-400">
+            <details className="command-defcon-history">
+              <summary>
                 Historie změn ({snapshot.history.length})
               </summary>
-              <div className="mt-2 space-y-2">
+              <div className="command-defcon-history-list">
                 {snapshot.history.map((entry) => (
-                  <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-2 text-[11px]">
-                    <span className="font-mono text-slate-200">DEFCON {entry.level}</span>
-                    <span className="text-slate-400">{entry.reason}</span>
-                    <time className="text-slate-500" dateTime={entry.occurredAt}>
+                  <div key={entry.id} className="command-defcon-history-row">
+                    <span className="command-defcon-history-level">DEFCON {entry.level}</span>
+                    <span className="command-defcon-history-reason">{entry.reason}</span>
+                    <time dateTime={entry.occurredAt}>
                       {new Date(entry.occurredAt).toLocaleString()}
                     </time>
                   </div>
