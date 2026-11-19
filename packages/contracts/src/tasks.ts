@@ -181,3 +181,38 @@ export type TaskQueryFilters = z.infer<typeof TaskQueryFiltersSchema>;
 
 export type TaskPriority = TaskPriorityType;
 export type TaskStatus = TaskStatusType;
+
+export const MyWorkViewSchema = z.enum(['personal', 'unit', 'event']);
+export type MyWorkView = z.infer<typeof MyWorkViewSchema>;
+
+export const MyWorkQuerySchema = z.object({
+  view: MyWorkViewSchema.default('personal'),
+  unitId: z.string().uuid().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(50),
+});
+export type MyWorkQuery = z.infer<typeof MyWorkQuerySchema>;
+
+export const MyWorkItemSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  kind: z.enum(['TASK', 'LAB_ANALYSIS']),
+  identifier: z.string(),
+  title: z.string(),
+  status: z.string(),
+  assignedToUserId: z.string().uuid().nullable(),
+  assignedUnitId: z.string().uuid().nullable(),
+  assignedUnitName: z.string().optional(),
+  updatedAt: z.string(),
+  href: z.string(),
+});
+export type MyWorkItem = z.infer<typeof MyWorkItemSchema>;
+
+export const MyWorkResponseSchema = z.object({
+  items: z.array(MyWorkItemSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().positive(),
+  view: MyWorkViewSchema,
+});
+export type MyWorkResponse = z.infer<typeof MyWorkResponseSchema>;

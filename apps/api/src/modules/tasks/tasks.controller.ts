@@ -24,6 +24,7 @@ import {
   CancelOperationalTaskRequestSchema,
   ReopenOperationalTaskRequestSchema,
   TaskQueryFiltersSchema,
+  MyWorkQuerySchema,
   type OperationalTaskItem,
   type OperationalTaskDetail,
 } from '@cyris/contracts';
@@ -42,6 +43,19 @@ export class TasksController {
     const parse = TaskQueryFiltersSchema.safeParse(query || {});
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid query parameters');
+    }
+
+    @Get('my-work')
+    async listMyWork(
+      @Param('eventId') eventId: string,
+      @Query() query: unknown,
+      @CurrentUser() user: AuthenticatedUser
+    ) {
+      const parse = MyWorkQuerySchema.safeParse(query || {});
+      if (!parse.success) {
+        throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid My Work query');
+      }
+      return this.tasksService.listMyWork(eventId, parse.data, user);
     }
     return this.tasksService.listTasks(eventId, parse.data, user);
   }

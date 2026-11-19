@@ -61,6 +61,7 @@ import type {
   CreateCourtDecisionRequest,
   OperationalTaskItem,
   OperationalTaskDetail,
+  MyWorkResponse,
   CreateOperationalTaskRequest,
   UpdateOperationalTaskRequest,
   AssignOperationalTaskRequest,
@@ -1012,6 +1013,19 @@ export class CyrisApiClient {
   ): Promise<{ ok: boolean; data?: OperationalTaskItem[]; error?: string }> {
     const qs = query ? `?${new URLSearchParams(query as any).toString()}` : '';
     return this.fetchJson<OperationalTaskItem[]>(`/events/${eventId}/tasks${qs}`);
+  }
+
+  async listMyWork(
+    eventId: string,
+    query?: { view?: 'personal' | 'unit' | 'event'; unitId?: string; page?: number; limit?: number }
+  ): Promise<{ ok: boolean; data?: MyWorkResponse; error?: string }> {
+    const params = new URLSearchParams();
+    if (query?.view) params.set('view', query.view);
+    if (query?.unitId) params.set('unitId', query.unitId);
+    if (query?.page) params.set('page', String(query.page));
+    if (query?.limit) params.set('limit', String(query.limit));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return this.fetchJson<MyWorkResponse>(`/events/${eventId}/tasks/my-work${qs}`);
   }
 
   async getTask(

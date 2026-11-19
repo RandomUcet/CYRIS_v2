@@ -6,6 +6,7 @@ import { ResourcesModule } from '../resources/resources.module.js';
 import { AuditModule } from '../audit/audit.module.js';
 import { SearchModule } from '../search/search.module.js';
 import { AuthModule } from '../auth/auth.module.js';
+import { AuthorizationModule } from '../authorization/authorization.module.js';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AuthModule } from '../auth/auth.module.js';
     AuditModule,
     SearchModule,
     AuthModule,
+    AuthorizationModule,
   ],
   controllers: [TasksController],
   providers: [TasksService],
