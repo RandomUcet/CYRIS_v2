@@ -144,7 +144,7 @@
 @keyframes command-defcon-spin { to { transform: rotate(360deg); } }
 .workspace-help-bar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: .75rem;
   align-items: center;
   padding: .45rem 1rem;
@@ -162,7 +162,7 @@
   font-weight: 600;
 }
 .workspace-help-panel {
-  display: flex;
+  display: inline-flex;
   gap: .75rem;
   align-items: center;
   padding: .65rem 1rem;
@@ -170,6 +170,52 @@
   background: var(--accent-subtle);
   color: var(--text-secondary);
   font-size: .6875rem;
+}
+.topbar-identity { color: var(--text-muted); font-size: .6875rem; white-space: nowrap; }
+.command-disruption-panel { padding: 1rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-panel); color: var(--text-secondary); font-size: .75rem; }
+.command-disruption-heading, .command-disruption-error, .command-disruption-controls, .command-disruption-row, .command-disruption-secondary { display: flex; align-items: center; gap: .5rem; }
+.command-disruption-heading { margin-bottom: .75rem; color: var(--text-primary); }
+.command-disruption-heading h3, .command-disruption-recovery h4 { margin: 0; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.command-disruption-error { margin-bottom: .75rem; color: var(--status-danger); }
+.command-disruption-controls { flex-wrap: wrap; margin-bottom: 1rem; }
+.command-disruption-input { min-width: 0; padding: .5rem .625rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); background: var(--bg-canvas); color: var(--text-primary); font-size: .75rem; }
+.command-disruption-reason { flex: 1; min-width: 13rem; }
+.command-disruption-primary, .command-disruption-secondary { padding: .5rem .75rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); background: transparent; color: var(--text-primary); cursor: pointer; font-size: .75rem; }
+.command-disruption-primary { border-color: var(--accent-warning); background: var(--accent-warning); color: var(--bg-canvas); font-weight: 700; }
+.command-disruption-primary:disabled, .command-disruption-secondary:disabled { opacity: .5; cursor: not-allowed; }
+.command-disruption-muted { color: var(--text-muted); }
+.command-disruption-list { display: grid; gap: .5rem; }
+.command-disruption-row { justify-content: space-between; flex-wrap: wrap; padding: .625rem .75rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); }
+.command-disruption-row span, .command-disruption-objective > span, .command-disruption-artifact, .command-disruption-report { color: var(--text-muted); }
+.command-disruption-recovery { display: grid; gap: .5rem; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle); }
+.command-disruption-objective { display: grid; gap: .25rem; padding: .625rem .75rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); }
+.command-disruption-link { margin-left: .75rem; border: 0; background: transparent; color: var(--accent-active); cursor: pointer; text-decoration: underline; }
+.command-disruption-report, .command-disruption-artifact { margin-top: .25rem; }
+.command-disruption-artifact-form { display: grid; gap: .25rem; margin-top: .5rem; }
+.my-work-page { padding: 1.25rem 1.5rem; }
+.my-work-subtitle { margin: .375rem 0 0; color: var(--text-muted); font-size: .875rem; }
+.my-work-toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.my-work-list { display: grid; gap: .5rem; }
+.my-work-item {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr) 8.75rem 10rem;
+  gap: .75rem;
+  align-items: center;
+  width: 100%;
+  padding: .75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.my-work-item:hover, .my-work-item:focus-visible { border-color: var(--border-focus); background: var(--bg-surface-hover); }
+.my-work-item small { display: block; margin-top: .2rem; color: var(--text-muted); font-size: .75rem; }
+.my-work-pagination { display: flex; gap: .5rem; margin-top: 1rem; align-items: center; }
+@media (max-width: 760px) {
+  .my-work-page { padding: 1rem; }
+  .my-work-item { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 700px) {
   .command-defcon-mutation { align-items: stretch; flex-direction: column; }

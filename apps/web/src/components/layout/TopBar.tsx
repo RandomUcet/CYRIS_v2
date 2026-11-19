@@ -106,6 +106,14 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
           ) : (
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{t('topbar.noEvent')}</span>
           )}
+          {selectedEvent && currentUser && (
+            <span className="topbar-identity" title="Aktivní eventový kontext">
+              {currentUser.user.displayName}
+              {currentUser.memberships.filter((membership) => membership.eventId === selectedEvent.id && membership.status === 'ACTIVE').flatMap((membership) => membership.unitIds).length > 0
+                ? ` · ${currentUser.memberships.filter((membership) => membership.eventId === selectedEvent.id && membership.status === 'ACTIVE').flatMap((membership) => membership.unitIds).length} unit scope`
+                : ''}
+            </span>
+          )}
 
           {breadcrumbs.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>

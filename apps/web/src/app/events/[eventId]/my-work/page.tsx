@@ -15,7 +15,7 @@ export default function MyWorkPage() {
   const router = useRouter();
   const eventId = params.eventId as string;
   const { user, hasPermission, isPlatformAdmin } = useAuth();
-  const { formatDate } = usePreferences();
+  const { formatDate, t } = usePreferences();
   const [view, setView] = useState<MyWorkView>('personal');
   const [unitId, setUnitId] = useState('');
   const [units, setUnits] = useState<Array<{ id: string; name: string }>>([]);
@@ -51,7 +51,9 @@ export default function MyWorkPage() {
     }).catch((cause) => {
       if (sequence !== requestSequence.current) return;
       setError(cause instanceof Error ? cause.message : 'Unable to load My Work');
-    }).finally(() => setLoading(false));
+    }).finally(() => {
+      if (sequence === requestSequence.current) setLoading(false);
+    });
   }, [eventId, page, refreshNonce, unitId, view]);
 
   useEffect(() => {
@@ -82,14 +84,14 @@ export default function MyWorkPage() {
 
   return (
     <AppShell breadcrumbs={[{ label: 'Operations' }, { label: 'My Work' }]}>
-      <div style={{ padding: '20px 24px' }}>
+      <div className="my-work-page">
         <div style={{ marginBottom: 16 }}>
-          <h1 style={{ margin: 0, fontSize: 20 }}>My Work</h1>
-          <p style={{ color: 'var(--color-text-muted)', margin: '6px 0 0' }}>
-            Read-only view of authorized operational tasks and laboratory analyses.
+          <h1 style={{ margin: 0, fontSize: '1.5rem' }}>My Work</h1>
+          <p className="my-work-subtitle">
+            {t('myWork.subtitle')}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        <div className="my-work-toolbar">
           {(['personal', ...(canViewUnit ? ['unit'] : []), ...(canViewEvent ? ['event'] : [])] as MyWorkView[]).map((option) => (
             <button
               key={option}
@@ -122,39 +124,30 @@ export default function MyWorkPage() {
         </div>
         {loading && <LoadingState />}
         {!loading && error && <ErrorState message={error} onRetry={() => setRefreshNonce((value) => value + 1)} />}
-        {!loading && !error && result && result.items.length === 0 && <EmptyState title="No authorized work" />}
+        {!loading && !error && result && result.items.length === 0 && (
+          <EmptyState title={t('myWork.emptyTitle')} description={t('myWork.emptyDescription')} />
+        )}
         {!loading && !error && result && result.items.length > 0 && (
           <>
-            <div style={{ display: 'grid', gap: 8 }}>
+            <div className="my-work-list">
               {result.items.map((item) => (
                 <button
                   key={`${item.kind}-${item.id}`}
                   type="button"
                   onClick={() => router.push(item.href)}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '120px 1fr 140px 160px',
-                    gap: 12,
-                    alignItems: 'center',
-                    textAlign: 'left',
-                    padding: 12,
-                    border: '1px solid var(--color-border-subtle)',
-                    borderRadius: 6,
-                    background: 'var(--color-surface)',
-                    color: 'var(--color-text-main)',
-                  }}
+                  className="my-work-item"
                 >
                   <span>{item.identifier}</span>
-                  <span>{item.title}<small style={{ display: 'block', color: 'var(--color-text-muted)' }}>{item.kind}</small></span>
+                  <span><strong>{item.title}</strong><small>{item.kind} · {t('myWork.nextAction')}</small></span>
                   <StatusBadge status={item.status} />
                   <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>{formatDate(item.updatedAt)}</span>
                 </button>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>Previous</button>
-              <span style={{ padding: '6px 0' }}>Page {result.page}</span>
-              <button type="button" disabled={page * result.limit >= result.total} onClick={() => setPage((current) => current + 1)}>Next</button>
+            <div className="my-work-pagination">
+              <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>{t('myWork.previous')}</button>
+              <span style={{ padding: '6px 0' }}>{t('myWork.page')} {result.page}</span>
+              <button type="button" disabled={page * result.limit >= result.total} onClick={() => setPage((current) => current + 1)}>{t('myWork.next')}</button>
             </div>
           </>
         )}

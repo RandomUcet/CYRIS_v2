@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -50,6 +50,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
   const { isPlatformAdmin } = useAuth();
   const { selectedEventId, workspace, loadingWorkspace } = useEvent();
   const { t } = usePreferences();
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
   const renderIcon = (iconKey?: string) => {
     switch (iconKey) {
@@ -232,12 +233,25 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
 
   const renderSection = (section: WorkspaceNavSection) => {
     if (!section.items || section.items.length === 0) return null;
+    const sectionHasActiveRoute = section.items.some((item) => pathname === item.href || pathname.startsWith(item.href));
+    const isSectionCollapsed = collapsedSections[section.id] === true && !sectionHasActiveRoute;
 
     return (
       <div key={section.id} style={{ marginBottom: '14px' }}>
         {!collapsed && (
-          <div
+          <button
+            type="button"
+            aria-expanded={!isSectionCollapsed}
+            onClick={() => setCollapsedSections((current) => ({ ...current, [section.id]: !isSectionCollapsed }))}
             style={{
+              display: 'flex',
+              width: '100%',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              border: 0,
+              background: 'transparent',
+              cursor: 'pointer',
+              textAlign: 'left',
               padding: '6px 14px 4px 14px',
               fontSize: '10px',
               fontWeight: 700,
@@ -247,9 +261,10 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
             }}
           >
             {getSectionTitle(section.title)}
-          </div>
+            <ChevronRight size={12} style={{ transform: isSectionCollapsed ? undefined : 'rotate(90deg)' }} />
+          </button>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+        {!isSectionCollapsed && <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
           {section.items.map((item: WorkspaceNavItem) => {
             const isActive =
               pathname === item.href ||
@@ -314,7 +329,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
               </Link>
             );
           })}
-        </div>
+        </div>}
       </div>
     );
   };

@@ -59,6 +59,15 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'topbar.search': 'Search CYRIS (e.g. "type:unit", "INC-0001")…',
     'topbar.switchEvent': 'Click to switch exercise edition',
     'topbar.noEvent': 'No Event Selected',
+    'myWork.subtitle': 'Authorized work available in this exercise event.',
+    'myWork.emptyTitle': 'No available work',
+    'myWork.emptyDescription': 'Assigned tasks and analyses appear here when this event makes them available to you.',
+    'myWork.nextAction': 'Next action: open detail',
+    'myWork.previous': 'Previous',
+    'myWork.next': 'Next',
+    'myWork.page': 'Page',
+    'workspace.help': 'Workspace help',
+    'workspace.helpCopy': 'Start in My Work. Command and DEFCON changes appear only when permitted for the active event.',
 
     // Statuses & Lifecycle
     'status.open': 'Open',
@@ -339,6 +348,15 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'topbar.search': 'Hledat v CYRIS (např. "type:unit", "INC-0001")…',
     'topbar.switchEvent': 'Klikněte pro přepnutí cvičení',
     'topbar.noEvent': 'Není vybráno cvičení',
+    'myWork.subtitle': 'Dostupná práce pro tento event podle aktivního členství.',
+    'myWork.emptyTitle': 'Žádná dostupná práce',
+    'myWork.emptyDescription': 'Přiřazené úkoly a analýzy se objeví, jakmile je pro vás event zpřístupní.',
+    'myWork.nextAction': 'Další krok: otevřít detail',
+    'myWork.previous': 'Předchozí',
+    'myWork.next': 'Další',
+    'myWork.page': 'Stránka',
+    'workspace.help': 'Nápověda k pracovnímu prostoru',
+    'workspace.helpCopy': 'Začněte v My Work. Command a změny DEFCON se zobrazí jen podle oprávnění aktivního eventu.',
 
     // Statuses & Lifecycle
     'status.open': 'Otevřeno',

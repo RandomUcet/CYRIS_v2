@@ -46,7 +46,7 @@ export default function RootPage() {
 
   useEffect(() => {
     if (!loading && currentUser && selectedEventId) {
-      router.push(`/events/${selectedEventId}/overview`);
+      router.push(`/events/${selectedEventId}/my-work`);
     }
   }, [loading, currentUser, selectedEventId, router]);
 

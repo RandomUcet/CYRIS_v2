@@ -112,49 +112,49 @@ export function DisruptionPanel({ eventId }: { eventId: string }) {
   };
 
   return (
-    <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <ShieldAlert size={16} className="text-orange-400" />
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">Simulované omezení modulu tasks</h3>
+    <section className="command-disruption-panel">
+      <div className="command-disruption-heading">
+        <ShieldAlert size={16} />
+        <h3>Simulované omezení modulu tasks</h3>
       </div>
-      {error && <p className="mb-3 flex items-center gap-2 text-xs text-red-300"><AlertTriangle size={14} />{error}</p>}
+      {error && <p className="command-disruption-error"><AlertTriangle size={14} />{error}</p>}
       {canManage && (
-        <div className="flex flex-wrap gap-2 mb-4">
+        <div className="command-disruption-controls">
           <select value={mode} onChange={(event) => setMode(event.target.value as DisruptionMode)}
-            className="rounded bg-slate-950 border border-slate-700 px-2 py-2 text-xs text-slate-200">
+            className="command-disruption-input">
             {MODES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
           <select value={targetType} onChange={(event) => setTargetType(event.target.value as 'EVENT' | 'UNIT')}
-            className="rounded bg-slate-950 border border-slate-700 px-2 py-2 text-xs text-slate-200">
+            className="command-disruption-input">
             <option value="EVENT">Celá událost</option>
             <option value="UNIT">Jednotka</option>
           </select>
           {targetType === 'UNIT' && <select value={targetId} onChange={(event) => setTargetId(event.target.value)}
-            className="rounded bg-slate-950 border border-slate-700 px-2 py-2 text-xs text-slate-200">
+            className="command-disruption-input">
             <option value="">Vyberte jednotku</option>
             {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
           </select>}
           <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Důvod (povinný)"
-            className="min-w-52 flex-1 rounded bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200" />
+            className="command-disruption-input command-disruption-reason" />
           <input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} aria-label="Začátek" />
           <input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} aria-label="Konec" />
           <button onClick={() => void start()} disabled={saving || reason.trim().length < 3 || (targetType === 'UNIT' && !targetId)}
-            className="rounded bg-orange-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Spustit</button>
+            className="command-disruption-primary">Spustit</button>
         </div>
       )}
-      {loading ? <p className="text-xs text-slate-500">Načítám disruption záznamy…</p> : rows.length === 0 ? (
-        <p className="text-xs text-slate-500">Žádné disruption záznamy.</p>
+      {loading ? <p className="command-disruption-muted">Načítám disruption záznamy…</p> : rows.length === 0 ? (
+        <p className="command-disruption-muted">Žádné disruption záznamy.</p>
       ) : (
-        <div className="space-y-2">
+        <div className="command-disruption-list">
           {rows.map((row) => (
-            <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 px-3 py-2 text-xs">
+            <div key={row.id} className="command-disruption-row">
               <div>
-                <strong className="text-slate-200">{row.mode}</strong>
-                <span className="ml-2 text-slate-400">{row.reason}</span>
-                <span className="ml-2 text-slate-500">revize {row.revision}</span>
+                <strong>{row.mode}</strong>
+                <span>{row.reason}</span>
+                <span>revize {row.revision}</span>
               </div>
               {canRestore && row.active && <button onClick={() => void restore(row)} disabled={saving}
-                className="flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-slate-300 disabled:opacity-50">
+                className="command-disruption-secondary">
                 <RotateCcw size={12} /> Obnovit
               </button>}
             </div>
@@ -162,34 +162,34 @@ export function DisruptionPanel({ eventId }: { eventId: string }) {
         </div>
       )}
       {canManage && (
-        <div className="mt-5 space-y-2 border-t border-slate-800 pt-4">
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-300">Cíle obnovy</h4>
-          <input value={objectiveTitle} onChange={(event) => setObjectiveTitle(event.target.value)} placeholder="Název cíle" className="w-full rounded bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200" />
-          <textarea value={objectiveInstructions} onChange={(event) => setObjectiveInstructions(event.target.value)} placeholder="Bezpečné instrukce pro účastníky" className="min-h-20 w-full rounded bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200" />
+        <div className="command-disruption-recovery">
+          <h4>Cíle obnovy</h4>
+          <input value={objectiveTitle} onChange={(event) => setObjectiveTitle(event.target.value)} placeholder="Název cíle" className="command-disruption-input" />
+          <textarea value={objectiveInstructions} onChange={(event) => setObjectiveInstructions(event.target.value)} placeholder="Bezpečné instrukce pro účastníky" className="command-disruption-input" />
           {rows.filter((row) => row.active).map((row) => (
-            <button key={row.id} type="button" disabled={saving || objectiveTitle.trim().length < 3 || objectiveInstructions.trim().length < 3} onClick={() => void createObjective(row.id)} className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 disabled:opacity-50">
+            <button key={row.id} type="button" disabled={saving || objectiveTitle.trim().length < 3 || objectiveInstructions.trim().length < 3} onClick={() => void createObjective(row.id)} className="command-disruption-secondary">
               Vytvořit cíl pro revizi {row.revision}
             </button>
           ))}
           {objectives.map((objective) => (
-            <div key={objective.id} className="rounded border border-slate-800 px-3 py-2 text-xs">
-              <strong className="text-slate-200">{objective.title}</strong>
-              <span className="ml-2 text-slate-500">{objective.status} · revize {objective.revision}</span>
-              {objective.status === 'DRAFT' && <button type="button" className="ml-3 underline" onClick={() => void apiClient.publishRecoveryObjective(eventId, objective.id, objective.revision).then((result) => { if (result.ok && result.data) setObjectives((current) => current.map((item) => item.id === objective.id ? result.data! : item)); })}>Publikovat</button>}
-              {objective.status === 'PUBLISHED' && <button type="button" className="ml-3 underline" onClick={() => void apiClient.reviewRecoveryObjective(eventId, objective.id, { expectedRevision: objective.revision, decision: 'APPROVE' }).then((result) => { if (result.ok && result.data) setObjectives((current) => current.map((item) => item.id === objective.id ? result.data! : item)); })}>Schválit</button>}
-              {objective.status === 'PUBLISHED' && <button type="button" className="ml-3 underline" onClick={() => void apiClient.reviewRecoveryObjective(eventId, objective.id, { expectedRevision: objective.revision, decision: 'REJECT' }).then((result) => { if (result.ok && result.data) setObjectives((current) => current.map((item) => item.id === objective.id ? result.data! : item)); })}>Zamítnout</button>}
-              <button type="button" className="ml-3 underline" onClick={() => void apiClient.listRecoveryReports(eventId, objective.id).then((result) => { if (result.ok && result.data) setReports((current) => ({ ...current, [objective.id]: result.data! })); })}>Reporty</button>
-              <button type="button" className="ml-3 underline" onClick={() => void apiClient.listRecoveryArtifacts(eventId, objective.id).then((result) => { if (result.ok && result.data) setArtifacts((current) => ({ ...current, [objective.id]: result.data! })); })}>Artefakty</button>
-              {objective.status === 'APPROVED' && <button type="button" className="ml-3 underline" onClick={() => { const reason = window.prompt('Důvod obnovení'); if (reason?.trim()) void apiClient.restoreRecoveryObjective(eventId, objective.id, { expectedRevision: objective.revision, reason: reason.trim() }).then((result) => { if (result.ok && result.data) setObjectives((current) => current.map((item) => item.id === objective.id ? result.data! : item)); }); }}>Obnovit</button>}
-              {reports[objective.id]?.map((item) => <p key={item.id} className="mt-1 text-slate-400">{item.body}</p>)}
+            <div key={objective.id} className="command-disruption-objective">
+              <strong>{objective.title}</strong>
+              <span>{objective.status} · revize {objective.revision}</span>
+              {objective.status === 'DRAFT' && <button type="button" className="command-disruption-link" onClick={() => void apiClient.publishRecoveryObjective(eventId, objective.id, objective.revision).then((result) => { if (result.ok && result.data) setObjectives((current) => current.map((item) => item.id === objective.id ? result.data! : item)); })}>Publikovat</button>}
+              {objective.status === 'PUBLISHED' && <button type="button" className="command-disruption-link" onClick={() => void apiClient.reviewRecoveryObjective(eventId, objective.id, { expectedRevision: objective.revision, decision: 'APPROVE' }).then((result) => { if (result.ok && result.data) setObjectives((current) => current.map((item) => item.id === objective.id ? result.data! : item)); })}>Schválit</button>}
+              {objective.status === 'PUBLISHED' &&               <button type="button" className="command-disruption-link" onClick={() => void apiClient.reviewRecoveryObjective(eventId, objective.id, { expectedRevision: objective.revision, decision: 'REJECT' }).then((result) => { if (result.ok && result.data) setObjectives((current) => current.map((item) => item.id === objective.id ? result.data! : item)); })}>Zamítnout</button>}
+              <button type="button" className="command-disruption-link" onClick={() => void apiClient.listRecoveryReports(eventId, objective.id).then((result) => { if (result.ok && result.data) setReports((current) => ({ ...current, [objective.id]: result.data! })); })}>Reporty</button>
+              <button type="button" className="command-disruption-link" onClick={() => void apiClient.listRecoveryArtifacts(eventId, objective.id).then((result) => { if (result.ok && result.data) setArtifacts((current) => ({ ...current, [objective.id]: result.data! })); })}>Artefakty</button>
+              {objective.status === 'APPROVED' && <button type="button" className="command-disruption-link" onClick={() => { const reason = window.prompt('Důvod obnovení'); if (reason?.trim()) void apiClient.restoreRecoveryObjective(eventId, objective.id, { expectedRevision: objective.revision, reason: reason.trim() }).then((result) => { if (result.ok && result.data) setObjectives((current) => current.map((item) => item.id === objective.id ? result.data! : item)); }); }}>Obnovit</button>}
+              {reports[objective.id]?.map((item) => <p key={item.id} className="command-disruption-report">{item.body}</p>)}
               {objective.status === 'DRAFT' && (
-                <div className="mt-2 space-y-1">
-                  <input value={artifactTitle} onChange={(event) => setArtifactTitle(event.target.value)} placeholder="Název textového artefaktu" className="w-full rounded bg-slate-950 border border-slate-700 px-2 py-1 text-xs" />
-                  <textarea value={artifactBody} onChange={(event) => setArtifactBody(event.target.value)} placeholder="Synthetic log/config/instructions" className="min-h-16 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1 text-xs" />
-                  <button type="button" disabled={!artifactTitle.trim() || !artifactBody.trim()} className="rounded border border-slate-700 px-2 py-1 text-xs disabled:opacity-50" onClick={() => void apiClient.createRecoveryArtifact(eventId, objective.id, { title: artifactTitle.trim(), filename: `${objective.id}.txt`, body: artifactBody }).then((result) => { if (result.ok && result.data) { setArtifacts((current) => ({ ...current, [objective.id]: [...(current[objective.id] ?? []), result.data!] })); setArtifactTitle(''); setArtifactBody(''); } })}>Přidat textový artefakt</button>
+                <div className="command-disruption-artifact-form">
+                  <input value={artifactTitle} onChange={(event) => setArtifactTitle(event.target.value)} placeholder="Název textového artefaktu" className="command-disruption-input" />
+                  <textarea value={artifactBody} onChange={(event) => setArtifactBody(event.target.value)} placeholder="Synthetic log/config/instructions" className="command-disruption-input" />
+                  <button type="button" disabled={!artifactTitle.trim() || !artifactBody.trim()} className="command-disruption-secondary" onClick={() => void apiClient.createRecoveryArtifact(eventId, objective.id, { title: artifactTitle.trim(), filename: `${objective.id}.txt`, body: artifactBody }).then((result) => { if (result.ok && result.data) { setArtifacts((current) => ({ ...current, [objective.id]: [...(current[objective.id] ?? []), result.data!] })); setArtifactTitle(''); setArtifactBody(''); } })}>Přidat textový artefakt</button>
                 </div>
               )}
-              {artifacts[objective.id]?.map((artifact) => <div key={artifact.id} className="mt-1 text-slate-400">{artifact.title} · {artifact.status}{artifact.status === 'DRAFT' && objective.status === 'PUBLISHED' && <button type="button" className="ml-2 underline" onClick={() => void apiClient.publishRecoveryArtifact(eventId, objective.id, artifact.id, artifact.revision).then((result) => { if (result.ok && result.data) setArtifacts((current) => ({ ...current, [objective.id]: current[objective.id]!.map((item) => item.id === artifact.id ? result.data! : item) })); })}>Publikovat</button>}</div>)}
+              {artifacts[objective.id]?.map((artifact) => <div key={artifact.id} className="command-disruption-artifact">{artifact.title} · {artifact.status}{artifact.status === 'DRAFT' && objective.status === 'PUBLISHED' && <button type="button" className="command-disruption-link" onClick={() => void apiClient.publishRecoveryArtifact(eventId, objective.id, artifact.id, artifact.revision).then((result) => { if (result.ok && result.data) setArtifacts((current) => ({ ...current, [objective.id]: current[objective.id]!.map((item) => item.id === artifact.id ? result.data! : item) })); })}>Publikovat</button>}</div>)}
             </div>
           ))}
         </div>
