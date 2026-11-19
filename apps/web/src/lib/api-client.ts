@@ -1415,6 +1415,10 @@ export class CyrisApiClient {
     return this.patchJson<IdentityProviderSummary>(`/admin/settings/identity/${id}/toggle`, { enabled });
   }
 
+  async testIdentityProvider(id: string): Promise<{ ok: boolean; data?: { ok: boolean; transport: 'MOCK'; message: string }; error?: string }> {
+    return this.postJson<{ ok: boolean; transport: 'MOCK'; message: string }>(`/admin/settings/identity/${id}/test`, { transport: 'MOCK' });
+  }
+
   async deleteIdentityProvider(id: string): Promise<{ ok: boolean; error?: string }> {
     return this.deleteJson<{ success: boolean }>(`/admin/settings/identity/${id}`);
   }

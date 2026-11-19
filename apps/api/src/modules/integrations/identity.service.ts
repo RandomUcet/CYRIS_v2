@@ -20,6 +20,7 @@ import type {
   OidcConfig,
   IdentityProviderSummary,
 } from '@cyris/contracts';
+import { validateLdapConfig } from '@cyris/contracts';
 
 @Injectable()
 export class IdentityService {
@@ -149,6 +150,8 @@ export class IdentityService {
     if (!name || !config) {
       throw new BadRequestException('Provider name and configuration are required');
     }
+    const configErrors = validateLdapConfig(config);
+    if (configErrors.length > 0) throw new BadRequestException(configErrors.join('; '));
 
     const db = this.databaseService.client;
     const providerId = id ?? generateId();
@@ -198,6 +201,28 @@ export class IdentityService {
     });
 
     return this.getProvider(providerId);
+  }
+
+  async testLdapProvider(id: string, transport: 'MOCK' = 'MOCK'): Promise<{
+    ok: boolean;
+    transport: 'MOCK';
+    providerId: string;
+    certificateVerification: 'ENFORCED';
+    message: string;
+  }> {
+    if (transport !== 'MOCK') throw new BadRequestException('Only the bounded MOCK transport is available in this environment');
+    const provider = await this.getProvider(id);
+    if (provider.category !== 'LDAP') throw new BadRequestException('Provider is not LDAP');
+    const config = provider.config as unknown as LdapConfig;
+    const configErrors = validateLdapConfig(config);
+    if (configErrors.length > 0) throw new BadRequestException(configErrors.join('; '));
+    return {
+      ok: true,
+      transport: 'MOCK',
+      providerId: id,
+      certificateVerification: 'ENFORCED',
+      message: 'Configuration validated; no network connection was attempted.',
+    };
   }
 
   /**

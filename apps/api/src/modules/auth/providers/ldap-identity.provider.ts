@@ -15,7 +15,7 @@ import {
 } from '@cyris/db';
 import { generateId } from '@cyris/shared';
 import type { IIdentityProvider, AuthenticatedIdentity } from './identity-provider.interface.js';
-import type { LdapConfig } from '@cyris/contracts';
+import { validateLdapConfig, type LdapConfig } from '@cyris/contracts';
 
 export interface LdapCredentials {
   providerId?: string;
@@ -78,6 +78,10 @@ export class LdapIdentityProvider implements IIdentityProvider {
     }
 
     const config = providerRow.config as LdapConfig;
+    if (validateLdapConfig(config).length > 0) {
+      this.logger.warn(`LDAP auth denied: invalid provider configuration ${providerRow.id}`);
+      return null;
+    }
     let bindPassword = '';
     try {
       bindPassword = (await this.secretService.getSecret(providerRow.id, 'BIND_PASSWORD')) ?? '';
@@ -90,7 +94,7 @@ export class LdapIdentityProvider implements IIdentityProvider {
       url: config.url,
       timeout: 5000,
       connectTimeout: 5000,
-      tlsOptions: config.tls ? { rejectUnauthorized: false } : undefined,
+      tlsOptions: config.tls ? { rejectUnauthorized: true } : undefined,
     });
 
     try {
@@ -130,7 +134,7 @@ export class LdapIdentityProvider implements IIdentityProvider {
         url: config.url,
         timeout: 5000,
         connectTimeout: 5000,
-        tlsOptions: config.tls ? { rejectUnauthorized: false } : undefined,
+        tlsOptions: config.tls ? { rejectUnauthorized: true } : undefined,
       });
 
       try {

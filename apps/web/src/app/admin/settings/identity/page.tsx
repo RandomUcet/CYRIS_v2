@@ -35,6 +35,7 @@ export default function IdentitySettingsPage() {
   const [ldapName, setLdapName] = useState('Active Directory');
   const [ldapUrl, setLdapUrl] = useState('ldap://localhost:389');
   const [ldapTls, setLdapTls] = useState(false);
+  const [ldapTransportSecurity, setLdapTransportSecurity] = useState<'NONE' | 'LDAPS' | 'STARTTLS'>('NONE');
   const [ldapBindDn, setLdapBindDn] = useState('cn=admin,dc=example,dc=org');
   const [ldapBindPassword, setLdapBindPassword] = useState('');
   const [ldapBaseDn, setLdapBaseDn] = useState('dc=example,dc=org');
@@ -61,6 +62,11 @@ export default function IdentitySettingsPage() {
     setLoading(false);
   };
 
+  const handleTest = async (id: string) => {
+    const res = await apiClient.testIdentityProvider(id);
+    alert(res.ok ? (res.data?.message ?? 'Configuration valid') : `LDAP test failed: ${res.error}`);
+  };
+
   useEffect(() => {
     fetchProviders();
   }, []);
@@ -82,7 +88,8 @@ export default function IdentitySettingsPage() {
     const config: LdapConfig = {
       displayName: ldapName,
       url: ldapUrl,
-      tls: ldapTls,
+      tls: ldapTransportSecurity !== 'NONE',
+      transportSecurity: ldapTransportSecurity,
       bindDn: ldapBindDn,
       baseDn: ldapBaseDn,
       userFilter: ldapUserFilter,
@@ -295,6 +302,11 @@ export default function IdentitySettingsPage() {
                 </div>
 
                 <div style={{ textAlign: 'right' }}>
+                  {p.category === 'LDAP' && (
+                    <button type="button" className="btn-ghost" onClick={() => handleTest(p.id)} title="Validate locally without network access">
+                      Test (mock)
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => handleDelete(p.id)}
@@ -349,6 +361,15 @@ export default function IdentitySettingsPage() {
                 <div>
                   <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>LDAP URL</label>
                   <input value={ldapUrl} onChange={(e) => setLdapUrl(e.target.value)} placeholder="ldap://10.0.0.1:389" required />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Transport security</label>
+                  <select value={ldapTransportSecurity} onChange={(e) => setLdapTransportSecurity(e.target.value as typeof ldapTransportSecurity)}>
+                    <option value="NONE">Plain LDAP (test only)</option>
+                    <option value="LDAPS">LDAPS (certificate verification required)</option>
+                    <option value="STARTTLS">StartTLS (certificate verification required)</option>
+                  </select>
                 </div>
 
                 <div>
