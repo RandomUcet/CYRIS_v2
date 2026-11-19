@@ -10,6 +10,8 @@ import {
   membershipUnitAssignments,
   events,
   MembershipStatus,
+  recoveryObjectives,
+  recoveryReports,
 } from '@cyris/db';
 import { Permissions } from '@cyris/shared';
 import type {
@@ -17,8 +19,15 @@ import type {
   DisruptionSnapshot,
   RestoreDisruptionRequest,
   ParticipantDisruptionStatus,
+  CreateRecoveryObjectiveRequest,
+  RecoveryObjectiveReviewRequest,
+  RecoveryObjectiveRestoreRequest,
+  RecoveryReportRequest,
+  RecoveryObjective,
+  RecoveryReport,
 } from '@cyris/contracts';
 import { assertRevision, assertParticipantWriteAllowed, assertSupportedDisruption, ENFORCED_DISRUPTION_MODULE, isActiveDisruption, resolveDisruption } from './disruption-policy.js';
+import { assertObjectiveTransition, assertReportAllowed } from './recovery-policy.js';
 
 @Injectable()
 export class DisruptionsService {
@@ -136,6 +145,152 @@ export class DisruptionsService {
       return row;
     });
     return this.toSnapshot(restored);
+  }
+
+  async createRecoveryObjective(eventId: string, dto: CreateRecoveryObjectiveRequest, user: AuthenticatedUser): Promise<RecoveryObjective> {
+    await this.assertEventPermission(eventId, user, Permissions.SCENARIO_MANAGE);
+    const [disruption] = await this.db.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.id, dto.disruptionId), eq(exerciseDisruptions.eventId, eventId))).limit(1);
+    if (!disruption || disruption.restoredAt || disruption.module !== ENFORCED_DISRUPTION_MODULE) {
+      throw new ConflictException('Recovery objective requires an active task disruption in this event');
+    }
+    await this.validateAudience(eventId, dto.audienceType, dto.audienceId);
+    const [row] = await this.db.transaction(async (tx) => {
+      const created = await tx.insert(recoveryObjectives).values({
+        eventId, disruptionId: dto.disruptionId, audienceType: dto.audienceType, audienceId: dto.audienceId ?? null,
+        title: dto.title, instructions: dto.instructions, status: 'DRAFT', revision: 1, createdByUserId: user.id,
+      }).returning();
+      await this.auditService.record({
+        action: 'exercise.recovery_objective.created', category: 'scenario', eventId,
+        resourceType: 'recovery_objective', resourceId: created[0]!.id, actorUserId: user.id,
+        metadata: { disruptionId: dto.disruptionId, audienceType: dto.audienceType, audienceId: dto.audienceId ?? null },
+        txClient: tx,
+      });
+      return created;
+    });
+    return this.toRecoveryObjective(row!);
+  }
+
+  async listRecoveryObjectives(eventId: string, user: AuthenticatedUser): Promise<RecoveryObjective[]> {
+    const canManage = await this.authorizationService.authorize({ user, permission: Permissions.SCENARIO_MANAGE, context: { eventId } });
+    if (canManage) {
+      const rows = await this.db.select().from(recoveryObjectives).where(eq(recoveryObjectives.eventId, eventId)).orderBy(desc(recoveryObjectives.createdAt));
+      return rows.map((row) => this.toRecoveryObjective(row));
+    }
+    await this.assertParticipantAccess(eventId, user);
+    const rows = await this.db.select().from(recoveryObjectives).where(and(eq(recoveryObjectives.eventId, eventId), eq(recoveryObjectives.status, 'PUBLISHED'))).orderBy(desc(recoveryObjectives.createdAt));
+    const visible: RecoveryObjective[] = [];
+    for (const row of rows) {
+      if (await this.audienceMatches(eventId, row.audienceType, row.audienceId, user)) visible.push(this.toRecoveryObjective(row));
+    }
+    return visible;
+  }
+
+  async publishRecoveryObjective(eventId: string, objectiveId: string, expectedRevision: number, user: AuthenticatedUser): Promise<RecoveryObjective> {
+    await this.assertEventPermission(eventId, user, Permissions.SCENARIO_MANAGE);
+    const row = await this.transitionObjective(eventId, objectiveId, expectedRevision, 'PUBLISHED', user, 'exercise.recovery_objective.published');
+    return this.toRecoveryObjective(row);
+  }
+
+  async reviewRecoveryObjective(eventId: string, objectiveId: string, dto: RecoveryObjectiveReviewRequest, user: AuthenticatedUser): Promise<RecoveryObjective> {
+    await this.assertEventPermission(eventId, user, Permissions.SCENARIO_OVERRIDE);
+    const status = dto.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+    const row = await this.transitionObjective(eventId, objectiveId, dto.expectedRevision, status, user, `exercise.recovery_objective.${status.toLowerCase()}`);
+    return this.toRecoveryObjective(row);
+  }
+
+  async restoreFromRecoveryObjective(eventId: string, objectiveId: string, dto: RecoveryObjectiveRestoreRequest, user: AuthenticatedUser): Promise<RecoveryObjective> {
+    await this.assertEventPermission(eventId, user, Permissions.SCENARIO_OVERRIDE);
+    const result = await this.db.transaction(async (tx) => {
+      const [objective] = await tx.select().from(recoveryObjectives).where(and(eq(recoveryObjectives.id, objectiveId), eq(recoveryObjectives.eventId, eventId))).limit(1);
+      if (!objective || objective.status !== 'APPROVED') throw new ConflictException('Only an approved recovery objective can restore its disruption');
+      if (objective.revision !== dto.expectedRevision) throw new ConflictException('Recovery objective revision conflict');
+      assertObjectiveTransition(objective.status as RecoveryObjective['status'], 'RESTORED');
+      const [disruption] = await tx.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.id, objective.disruptionId), eq(exerciseDisruptions.eventId, eventId))).limit(1);
+      if (!disruption || disruption.restoredAt) throw new ConflictException('Linked disruption is already restored or unavailable');
+      const [restored] = await tx.update(exerciseDisruptions).set({ revision: disruption.revision + 1, restoredAt: new Date(), restoredByUserId: user.id }).where(and(eq(exerciseDisruptions.id, disruption.id), eq(exerciseDisruptions.revision, disruption.revision), isNull(exerciseDisruptions.restoredAt))).returning();
+      if (!restored) throw new ConflictException('Disruption was restored concurrently');
+      const [updated] = await tx.update(recoveryObjectives).set({ status: 'RESTORED', revision: objective.revision + 1, reviewedByUserId: user.id, reviewedAt: new Date() }).where(and(eq(recoveryObjectives.id, objective.id), eq(recoveryObjectives.revision, dto.expectedRevision))).returning();
+      if (!updated) throw new ConflictException('Recovery objective was changed concurrently');
+      await this.auditService.record({
+        action: 'exercise.recovery_objective.restored', category: 'scenario', eventId,
+        resourceType: 'recovery_objective', resourceId: objective.id, actorUserId: user.id,
+        metadata: { disruptionId: disruption.id, reason: dto.reason }, changes: { fromRevision: objective.revision, toRevision: updated.revision }, txClient: tx,
+      });
+      return updated;
+    });
+    return this.toRecoveryObjective(result);
+  }
+
+  async submitRecoveryReport(eventId: string, objectiveId: string, dto: RecoveryReportRequest, user: AuthenticatedUser): Promise<RecoveryReport> {
+    await this.assertParticipantAccess(eventId, user);
+    const [objective] = await this.db.select().from(recoveryObjectives).where(and(eq(recoveryObjectives.id, objectiveId), eq(recoveryObjectives.eventId, eventId), eq(recoveryObjectives.status, 'PUBLISHED'))).limit(1);
+    if (!objective || !(await this.audienceMatches(eventId, objective.audienceType, objective.audienceId, user))) throw new ForbiddenException('Recovery objective is not available in this event scope');
+    const [disruption] = await this.db.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.id, objective.disruptionId), eq(exerciseDisruptions.eventId, eventId))).limit(1);
+    assertReportAllowed(objective.status as RecoveryObjective['status'], Boolean(disruption && isActiveDisruption(disruption)));
+    const [row] = await this.db.transaction(async (tx) => {
+      const created = await tx.insert(recoveryReports).values({ objectiveId, eventId, authorUserId: user.id, body: dto.body, revision: 1 }).returning();
+      await this.auditService.record({
+        action: 'exercise.recovery_report.submitted', category: 'scenario', eventId,
+        resourceType: 'recovery_objective', resourceId: objectiveId, actorUserId: user.id,
+        metadata: { objectiveRevision: objective.revision }, txClient: tx,
+      });
+      return created;
+    });
+    return this.toRecoveryReport(row!);
+  }
+
+  async listRecoveryReports(eventId: string, objectiveId: string, user: AuthenticatedUser): Promise<RecoveryReport[]> {
+    await this.assertEventPermission(eventId, user, Permissions.SCENARIO_OVERRIDE);
+    const rows = await this.db.select().from(recoveryReports).where(and(eq(recoveryReports.eventId, eventId), eq(recoveryReports.objectiveId, objectiveId))).orderBy(desc(recoveryReports.createdAt));
+    return rows.map((row) => this.toRecoveryReport(row));
+  }
+
+  private async transitionObjective(eventId: string, objectiveId: string, expectedRevision: number, status: 'PUBLISHED' | 'APPROVED' | 'REJECTED', user: AuthenticatedUser, action: string) {
+    const [row] = await this.db.transaction(async (tx) => {
+      const [current] = await tx.select().from(recoveryObjectives).where(and(eq(recoveryObjectives.id, objectiveId), eq(recoveryObjectives.eventId, eventId))).limit(1);
+      if (!current || current.revision !== expectedRevision) throw new ConflictException('Recovery objective revision conflict');
+      assertObjectiveTransition(current.status as RecoveryObjective['status'], status);
+      const [updated] = await tx.update(recoveryObjectives).set({ status, revision: current.revision + 1, reviewedByUserId: user.id, reviewedAt: new Date(), publishedAt: status === 'PUBLISHED' ? new Date() : current.publishedAt }).where(and(eq(recoveryObjectives.id, objectiveId), eq(recoveryObjectives.eventId, eventId), eq(recoveryObjectives.revision, expectedRevision))).returning();
+      if (!updated) throw new ConflictException('Recovery objective was changed concurrently');
+      await this.auditService.record({ action, category: 'scenario', eventId, resourceType: 'recovery_objective', resourceId: objectiveId, actorUserId: user.id, metadata: { fromRevision: current.revision, toRevision: updated.revision }, txClient: tx });
+      return [updated];
+    });
+    return row!;
+  }
+
+  private async validateAudience(eventId: string, audienceType: CreateRecoveryObjectiveRequest['audienceType'], audienceId?: string | null): Promise<void> {
+    if (audienceType === 'EVENT') {
+      if (audienceId) throw new BadRequestException('EVENT audience must not have audienceId');
+      return;
+    }
+    if (!audienceId) throw new BadRequestException('UNIT and USER audiences require audienceId');
+    if (audienceType === 'USER') {
+      const [membership] = await this.db.select({ id: eventMemberships.id }).from(eventMemberships).where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, audienceId), eq(eventMemberships.status, MembershipStatus.ACTIVE))).limit(1);
+      if (!membership) throw new NotFoundException('Audience user is not an active event member');
+      return;
+    }
+    const [assignment] = await this.db.select({ id: membershipUnitAssignments.id }).from(membershipUnitAssignments).innerJoin(eventMemberships, eq(eventMemberships.id, membershipUnitAssignments.membershipId)).where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.status, MembershipStatus.ACTIVE), eq(membershipUnitAssignments.unitId, audienceId))).limit(1);
+    if (!assignment) throw new NotFoundException('Audience unit is not active in this event');
+  }
+
+  private async audienceMatches(eventId: string, audienceType: string, audienceId: string | null, user: AuthenticatedUser): Promise<boolean> {
+    if (audienceType === 'EVENT') return true;
+    if (audienceType === 'USER') return audienceId === user.id && await this.isActiveMember(eventId, user.id);
+    const assignments = await this.db.select({ unitId: membershipUnitAssignments.unitId }).from(eventMemberships).innerJoin(membershipUnitAssignments, eq(membershipUnitAssignments.membershipId, eventMemberships.id)).where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, user.id), eq(eventMemberships.status, MembershipStatus.ACTIVE)));
+    return assignments.some((assignment) => assignment.unitId === audienceId);
+  }
+
+  private async isActiveMember(eventId: string, userId: string): Promise<boolean> {
+    const [membership] = await this.db.select({ id: eventMemberships.id }).from(eventMemberships).where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, userId), eq(eventMemberships.status, MembershipStatus.ACTIVE))).limit(1);
+    return Boolean(membership);
+  }
+
+  private toRecoveryObjective(row: typeof recoveryObjectives.$inferSelect): RecoveryObjective {
+    return { id: row.id, eventId: row.eventId, disruptionId: row.disruptionId, audienceType: row.audienceType as RecoveryObjective['audienceType'], audienceId: row.audienceId, title: row.title, instructions: row.instructions, status: row.status as RecoveryObjective['status'], revision: row.revision, createdAt: row.createdAt.toISOString(), publishedAt: row.publishedAt?.toISOString() ?? null };
+  }
+
+  private toRecoveryReport(row: typeof recoveryReports.$inferSelect): RecoveryReport {
+    return { id: row.id, objectiveId: row.objectiveId, body: row.body, createdAt: row.createdAt.toISOString() };
   }
 
   async assertTaskWriteAllowed(eventId: string, user: AuthenticatedUser, unitId?: string | null): Promise<void> {

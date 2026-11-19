@@ -109,6 +109,12 @@ import type {
   CreateDisruptionRequest,
   RestoreDisruptionRequest,
   ParticipantDisruptionStatus,
+  RecoveryObjective,
+  RecoveryReport,
+  CreateRecoveryObjectiveRequest,
+  RecoveryObjectiveReviewRequest,
+  RecoveryObjectiveRestoreRequest,
+  RecoveryReportRequest,
 } from '@cyris/contracts';
 
 export class CyrisApiClient {
@@ -1288,7 +1294,7 @@ export class CyrisApiClient {
   async getDefcon(eventId: string): Promise<{ ok: boolean; data?: CommandDefconSnapshot; error?: string }> {
     return this.fetchJson<CommandDefconSnapshot>(`/events/${eventId}/command/defcon`);
   }
-  async getReadiness(eventId: string): Promise<{ ok: boolean; data?: CommandReadinessSnapshot; error?: string }> {
+  async getCommandReadiness(eventId: string): Promise<{ ok: boolean; data?: CommandReadinessSnapshot; error?: string }> {
     return this.fetchJson<CommandReadinessSnapshot>(`/events/${eventId}/command/readiness`);
   }
 
@@ -1320,6 +1326,28 @@ export class CyrisApiClient {
     payload: RestoreDisruptionRequest
   ): Promise<{ ok: boolean; data?: DisruptionSnapshot; error?: string }> {
     return this.postJson<DisruptionSnapshot>(`/events/${eventId}/disruptions/${disruptionId}/restore`, payload);
+  }
+
+  async listRecoveryObjectives(eventId: string): Promise<{ ok: boolean; data?: RecoveryObjective[]; error?: string }> {
+    return this.fetchJson<RecoveryObjective[]>(`/events/${eventId}/disruptions/recovery-objectives`);
+  }
+  async createRecoveryObjective(eventId: string, payload: CreateRecoveryObjectiveRequest): Promise<{ ok: boolean; data?: RecoveryObjective; error?: string }> {
+    return this.postJson<RecoveryObjective>(`/events/${eventId}/disruptions/recovery-objectives`, payload);
+  }
+  async publishRecoveryObjective(eventId: string, objectiveId: string, expectedRevision: number): Promise<{ ok: boolean; data?: RecoveryObjective; error?: string }> {
+    return this.postJson<RecoveryObjective>(`/events/${eventId}/disruptions/recovery-objectives/${objectiveId}/publish`, { expectedRevision });
+  }
+  async reviewRecoveryObjective(eventId: string, objectiveId: string, payload: RecoveryObjectiveReviewRequest): Promise<{ ok: boolean; data?: RecoveryObjective; error?: string }> {
+    return this.postJson<RecoveryObjective>(`/events/${eventId}/disruptions/recovery-objectives/${objectiveId}/review`, payload);
+  }
+  async restoreRecoveryObjective(eventId: string, objectiveId: string, payload: RecoveryObjectiveRestoreRequest): Promise<{ ok: boolean; data?: RecoveryObjective; error?: string }> {
+    return this.postJson<RecoveryObjective>(`/events/${eventId}/disruptions/recovery-objectives/${objectiveId}/restore`, payload);
+  }
+  async submitRecoveryReport(eventId: string, objectiveId: string, payload: RecoveryReportRequest): Promise<{ ok: boolean; data?: RecoveryReport; error?: string }> {
+    return this.postJson<RecoveryReport>(`/events/${eventId}/disruptions/recovery-objectives/${objectiveId}/reports`, payload);
+  }
+  async listRecoveryReports(eventId: string, objectiveId: string): Promise<{ ok: boolean; data?: RecoveryReport[]; error?: string }> {
+    return this.fetchJson<RecoveryReport[]>(`/events/${eventId}/disruptions/recovery-objectives/${objectiveId}/reports`);
   }
 
   // ============================================================================

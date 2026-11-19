@@ -56,3 +56,49 @@ export type RestoreDisruptionRequest = z.infer<typeof RestoreDisruptionRequestSc
 export type DisruptionSnapshot = z.infer<typeof DisruptionSnapshotSchema>;
 export type ParticipantDisruptionStatus = z.infer<typeof ParticipantDisruptionStatusSchema>;
 export type DisruptionMode = z.infer<typeof DisruptionModeSchema>;
+
+export const RecoveryAudienceTypeSchema = z.enum(['EVENT', 'UNIT', 'USER']);
+export const RecoveryObjectiveStatusSchema = z.enum(['DRAFT', 'PUBLISHED', 'APPROVED', 'REJECTED', 'RESTORED']);
+export const CreateRecoveryObjectiveRequestSchema = z.object({
+  disruptionId: z.string().uuid(),
+  audienceType: RecoveryAudienceTypeSchema,
+  audienceId: z.string().uuid().nullable().optional(),
+  title: z.string().trim().min(3).max(200),
+  instructions: z.string().trim().min(3).max(4000),
+});
+export const RecoveryObjectiveReviewRequestSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+  decision: z.enum(['APPROVE', 'REJECT']),
+});
+export const RecoveryObjectiveRestoreRequestSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+  reason: z.string().trim().min(3).max(1000),
+});
+export const RecoveryReportRequestSchema = z.object({
+  body: z.string().trim().min(3).max(4000),
+});
+export const RecoveryObjectiveSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  disruptionId: z.string().uuid(),
+  audienceType: RecoveryAudienceTypeSchema,
+  audienceId: z.string().uuid().nullable(),
+  title: z.string(),
+  instructions: z.string(),
+  status: RecoveryObjectiveStatusSchema,
+  revision: z.number().int().positive(),
+  createdAt: z.string(),
+  publishedAt: z.string().nullable(),
+});
+export const RecoveryReportSchema = z.object({
+  id: z.string().uuid(),
+  objectiveId: z.string().uuid(),
+  body: z.string(),
+  createdAt: z.string(),
+});
+export type CreateRecoveryObjectiveRequest = z.infer<typeof CreateRecoveryObjectiveRequestSchema>;
+export type RecoveryObjectiveReviewRequest = z.infer<typeof RecoveryObjectiveReviewRequestSchema>;
+export type RecoveryObjectiveRestoreRequest = z.infer<typeof RecoveryObjectiveRestoreRequestSchema>;
+export type RecoveryReportRequest = z.infer<typeof RecoveryReportRequestSchema>;
+export type RecoveryObjective = z.infer<typeof RecoveryObjectiveSchema>;
+export type RecoveryReport = z.infer<typeof RecoveryReportSchema>;

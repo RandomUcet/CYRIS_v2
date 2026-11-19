@@ -13,7 +13,7 @@ export function useDefconReadiness(eventId: string, enabled = true) {
   const refresh = useCallback(async () => {
     const id = ++requestId.current;
     try {
-      const result = await apiClient.getReadiness(eventId);
+      const result = await apiClient.getCommandReadiness(eventId);
       if (id !== requestId.current) return;
       if (result.ok && result.data && result.data.eventId === eventId) {
         setSnapshot(result.data);

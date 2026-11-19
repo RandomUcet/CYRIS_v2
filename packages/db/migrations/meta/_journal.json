@@ -120,6 +120,13 @@
       "when": 1792601000000,
       "tag": "0016_exercise_disruptions",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792602000000,
+      "tag": "0017_recovery_objectives",
+      "breakpoints": true
     }
   ]
 }
