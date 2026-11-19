@@ -76,4 +76,9 @@ describe('disruption policy', () => {
     });
     assert.deepEqual(status, { eventId: '00000000-0000-0000-0000-000000000001', module: 'tasks', mode: 'READ_ONLY', active: true, revision: 3 });
   });
+
+  it('treats persisted DEGRADED records as non-enforced input', () => {
+    assert.doesNotThrow(() => resolveDisruption([row({ mode: 'DEGRADED' })], new Date(), 'user'));
+    assert.doesNotThrow(() => assertParticipantWriteAllowed(row({ mode: 'DEGRADED' })));
+  });
 });

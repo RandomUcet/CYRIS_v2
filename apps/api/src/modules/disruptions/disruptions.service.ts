@@ -48,8 +48,9 @@ export class DisruptionsService {
   }
 
   async getParticipantStatus(eventId: string, user: AuthenticatedUser): Promise<ParticipantDisruptionStatus> {
-    await this.assertEventPermission(eventId, user, Permissions.SCENARIO_READ);
-    const active = await this.getEffectiveDisruption(eventId, user);
+    await this.assertParticipantAccess(eventId, user);
+    const resolved = await this.getEffectiveDisruption(eventId, user);
+    const active = resolved?.mode === 'DEGRADED' ? null : resolved;
     return {
       eventId,
       module: ENFORCED_DISRUPTION_MODULE,
@@ -188,6 +189,24 @@ export class DisruptionsService {
     const [event] = await this.db.select({ id: events.id }).from(events).where(eq(events.id, eventId)).limit(1);
     if (!event) throw new NotFoundException(`Event '${eventId}' not found`);
     await this.authorizationService.assertAuthorized({ user, permission, context: { eventId } });
+  }
+
+  private async assertParticipantAccess(eventId: string, user: AuthenticatedUser): Promise<void> {
+    const [event] = await this.db.select({ id: events.id }).from(events).where(eq(events.id, eventId)).limit(1);
+    if (!event) throw new NotFoundException(`Event '${eventId}' not found`);
+    const canReadTasks = await this.authorizationService.authorize({
+      user,
+      permission: Permissions.TASK_READ,
+      context: { eventId },
+    });
+    const canOverride = await this.authorizationService.authorize({
+      user,
+      permission: Permissions.SCENARIO_OVERRIDE,
+      context: { eventId },
+    });
+    if (!canReadTasks && !canOverride) {
+      throw new ForbiddenException('Event participation does not authorize task disruption status');
+    }
   }
 
   private toSnapshot(row: typeof exerciseDisruptions.$inferSelect): DisruptionSnapshot {
