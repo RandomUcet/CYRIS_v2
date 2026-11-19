@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
@@ -14,38 +14,66 @@ export default function MyWorkPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
-  const { user } = useAuth();
+  const { user, hasPermission, isPlatformAdmin } = useAuth();
   const { formatDate } = usePreferences();
   const [view, setView] = useState<MyWorkView>('personal');
   const [unitId, setUnitId] = useState('');
+  const [units, setUnits] = useState<Array<{ id: string; name: string }>>([]);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<MyWorkResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
-  const units = useMemo(() => {
-    const memberships = user?.memberships ?? [];
-    return memberships.flatMap((membership) =>
-      membership.unitIds.map((id) => ({ id, name: id }))
-    );
-  }, [user]);
+  const requestSequence = useRef(0);
+  const canViewUnit = hasPermission('task.read', eventId) || hasPermission('lab.read', eventId);
+  const canViewEvent = isPlatformAdmin || hasPermission('task.read', eventId) || hasPermission('lab.read', eventId);
 
   useEffect(() => {
     if (!eventId) return;
+    const sequence = ++requestSequence.current;
     setLoading(true);
     setError(null);
+    if (view === 'unit' && !unitId) {
+      setLoading(false);
+      setResult(null);
+      return;
+    }
     apiClient.listMyWork(eventId, {
       view,
       unitId: view === 'unit' ? unitId || undefined : undefined,
       page,
       limit: 50,
     }).then((response) => {
+      if (sequence !== requestSequence.current) return;
       if (response.ok && response.data) setResult(response.data);
       else setError(response.error || 'Unable to load My Work');
     }).catch((cause) => {
+      if (sequence !== requestSequence.current) return;
       setError(cause instanceof Error ? cause.message : 'Unable to load My Work');
     }).finally(() => setLoading(false));
-  }, [eventId, page, unitId, view]);
+  }, [eventId, page, refreshNonce, unitId, view]);
+
+  useEffect(() => {
+    if (!eventId || !canViewUnit) return;
+    let active = true;
+    apiClient.getUnits(eventId).then((response) => {
+      if (active && response.ok && response.data) {
+        const membershipUnitIds = new Set(
+          user?.memberships
+            .filter((membership) => membership.status === 'ACTIVE' && membership.eventId === eventId)
+            .flatMap((membership) => membership.unitIds) ?? []
+        );
+        setUnits(response.data.map((unit: { id: string; name: string }) => ({
+          id: unit.id,
+          name: unit.name,
+        })).filter((unit) => isPlatformAdmin || membershipUnitIds.has(unit.id)));
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [eventId, canViewUnit, isPlatformAdmin, user]);
 
   const selectView = (next: MyWorkView) => {
     setView(next);
@@ -62,7 +90,7 @@ export default function MyWorkPage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-          {(['personal', 'unit', 'event'] as MyWorkView[]).map((option) => (
+          {(['personal', ...(canViewUnit ? ['unit'] : []), ...(canViewEvent ? ['event'] : [])] as MyWorkView[]).map((option) => (
             <button
               key={option}
               type="button"
@@ -93,7 +121,7 @@ export default function MyWorkPage() {
           )}
         </div>
         {loading && <LoadingState />}
-        {!loading && error && <ErrorState message={error} onRetry={() => setPage((current) => current)} />}
+        {!loading && error && <ErrorState message={error} onRetry={() => setRefreshNonce((value) => value + 1)} />}
         {!loading && !error && result && result.items.length === 0 && <EmptyState title="No authorized work" />}
         {!loading && !error && result && result.items.length > 0 && (
           <>

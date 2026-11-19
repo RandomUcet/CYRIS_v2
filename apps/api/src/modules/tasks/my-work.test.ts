@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { sortAndPaginateMyWork } from './my-work.js';
+import { isActionableMyWorkItem, isMyWorkViewAllowed, sortAndPaginateMyWork } from './my-work.js';
 import { skipWithoutVerifiedDatabase } from '../../regression/isolated-postgres-harness.js';
 
 const item = (id: string, updatedAt: string) => ({
@@ -37,6 +38,26 @@ test('My Work aggregation has stable updated-time/id ordering and pagination', (
   ], 1, 2);
   assert.deepEqual(result.items.map((entry) => entry.id), ['c', 'b']);
   assert.equal(result.total, 3);
+});
+
+test('My Work excludes terminal task and laboratory statuses', () => {
+  assert.equal(isActionableMyWorkItem({ kind: 'TASK', status: 'COMPLETED' }), false);
+  assert.equal(isActionableMyWorkItem({ kind: 'TASK', status: 'IN_PROGRESS' }), true);
+  assert.equal(isActionableMyWorkItem({ kind: 'LAB_ANALYSIS', status: 'APPROVED' }), false);
+  assert.equal(isActionableMyWorkItem({ kind: 'LAB_ANALYSIS', status: 'REQUESTED' }), true);
+});
+
+test('My Work view scope allows only personal, authorized unit, or authorized event views', () => {
+  assert.equal(isMyWorkViewAllowed('personal', false, false, false), true);
+  assert.equal(isMyWorkViewAllowed('unit', true, false, true), true);
+  assert.equal(isMyWorkViewAllowed('unit', true, false, false), false);
+  assert.equal(isMyWorkViewAllowed('event', false, false, false), false);
+  assert.equal(isMyWorkViewAllowed('event', false, true, false), true);
+});
+
+test('My Work controller route is declared before the dynamic task route', () => {
+  const source = readFileSync(new URL('./tasks.controller.ts', import.meta.url), 'utf8');
+  assert.ok(source.indexOf("@Get('my-work')") < source.indexOf("@Get(':taskId')"));
 });
 
 skipWithoutVerifiedDatabase(

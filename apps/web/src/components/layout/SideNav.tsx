@@ -130,12 +130,28 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
     ],
   };
 
-  const sectionsToRender: WorkspaceNavSection[] =
+  const baseSections: WorkspaceNavSection[] =
     workspace && workspace.sections.length > 0
       ? workspace.sections
       : isPlatformAdmin
       ? [staticAdminSection]
       : [];
+  const sectionsToRender: WorkspaceNavSection[] = selectedEventId
+    ? baseSections.map((section) => ({
+        ...section,
+        items: section.items.some((item) => item.id === 'nav-my-work')
+          ? section.items
+          : [
+              {
+                id: 'nav-my-work',
+                label: 'My Work',
+                href: `/events/${selectedEventId}/my-work`,
+                iconKey: 'briefcase',
+              },
+              ...section.items,
+            ],
+      }))
+    : baseSections;
 
   const getNavLabel = (item: WorkspaceNavItem): string => {
     const idMap: Record<string, string> = {
@@ -152,6 +168,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
       'nav-overview': 'nav.command',
       'nav-command': 'nav.command',
       'nav-tasks': 'nav.tasks',
+      'nav-my-work': 'nav.myWork',
       'nav-incidents': 'nav.incidents',
       'nav.registry': 'nav.registry',
       'nav.cases': 'nav.cases',

@@ -1,5 +1,22 @@
 import type { MyWorkItem } from '@cyris/contracts';
 
+export function isActionableMyWorkItem(item: Pick<MyWorkItem, 'kind' | 'status'>): boolean {
+  return item.kind === 'TASK'
+    ? !['COMPLETED', 'CANCELLED'].includes(item.status)
+    : !['APPROVED', 'REJECTED', 'CANCELLED'].includes(item.status);
+}
+
+export function isMyWorkViewAllowed(
+  view: 'personal' | 'unit' | 'event',
+  canViewUnit: boolean,
+  canViewEvent: boolean,
+  unitSelected: boolean
+): boolean {
+  return view === 'personal' ||
+    (view === 'unit' && canViewUnit && unitSelected) ||
+    (view === 'event' && canViewEvent);
+}
+
 export function sortAndPaginateMyWork(
   items: MyWorkItem[],
   page: number,

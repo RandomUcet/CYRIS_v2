@@ -44,20 +44,20 @@ export class TasksController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid query parameters');
     }
-
-    @Get('my-work')
-    async listMyWork(
-      @Param('eventId') eventId: string,
-      @Query() query: unknown,
-      @CurrentUser() user: AuthenticatedUser
-    ) {
-      const parse = MyWorkQuerySchema.safeParse(query || {});
-      if (!parse.success) {
-        throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid My Work query');
-      }
-      return this.tasksService.listMyWork(eventId, parse.data, user);
-    }
     return this.tasksService.listTasks(eventId, parse.data, user);
+  }
+
+  @Get('my-work')
+  async listMyWork(
+    @Param('eventId') eventId: string,
+    @Query() query: unknown,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    const parse = MyWorkQuerySchema.safeParse(query || {});
+    if (!parse.success) {
+      throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid My Work query');
+    }
+    return this.tasksService.listMyWork(eventId, parse.data, user);
   }
 
   @Post()

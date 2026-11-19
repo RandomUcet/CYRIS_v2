@@ -43,7 +43,7 @@ import type {
 } from '@cyris/contracts';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
-import { sortAndPaginateMyWork } from './my-work.js';
+import { isActionableMyWorkItem, isMyWorkViewAllowed, sortAndPaginateMyWork } from './my-work.js';
 
 @Injectable()
 export class TasksService {
@@ -794,109 +794,6 @@ export class TasksService {
     if (filters.status) {
       whereConditions.push(eq(operationalTasks.status, filters.status));
     }
-
-    async listMyWork(
-      eventId: string,
-      query: MyWorkQuery,
-      user: AuthenticatedUser
-    ): Promise<MyWorkResponse> {
-      const requestedUnitId = query.unitId;
-      if (query.view === 'unit' && !requestedUnitId) {
-        throw new BadRequestException('unitId is required for a unit work queue');
-      }
-
-      const canViewEvent = await this.authorizationService.authorize({
-        user,
-        permission: Permissions.TASK_READ,
-        context: { eventId },
-      }) || await this.authorizationService.authorize({
-        user,
-        permission: Permissions.LAB_READ,
-        context: { eventId },
-      });
-      const canViewUnit = requestedUnitId
-        ? await this.authorizationService.authorize({
-            user,
-            permission: Permissions.TASK_READ,
-            context: { eventId, unitId: requestedUnitId },
-          }) || await this.authorizationService.authorize({
-            user,
-            permission: Permissions.LAB_READ,
-            context: { eventId, unitId: requestedUnitId },
-          })
-        : false;
-
-      if (query.view === 'event' && !canViewEvent) {
-        throw new ForbiddenException('Event-wide My Work access is not authorized');
-      }
-      if (query.view === 'unit' && !canViewUnit) {
-        throw new ForbiddenException('Unit My Work access is not authorized');
-      }
-
-      const [taskRows, labRows] = await Promise.all([
-        this.db.select({ task: operationalTasks, resource: resources })
-          .from(operationalTasks)
-          .innerJoin(resources, eq(operationalTasks.id, resources.id))
-          .where(eq(operationalTasks.eventId, eventId)),
-        this.db.select({ analysis: labAnalyses, resource: resources })
-          .from(labAnalyses)
-          .innerJoin(resources, eq(labAnalyses.id, resources.id))
-          .where(eq(resources.eventId, eventId)),
-      ]);
-
-      const items: MyWorkItem[] = [];
-      for (const row of taskRows) {
-        const personal = row.task.assignedUserId === user.id;
-        const unitMatch = Boolean(requestedUnitId && row.task.assignedUnitId === requestedUnitId);
-        if ((query.view === 'personal' && !personal) ||
-          (query.view === 'unit' && !unitMatch) ||
-          (query.view === 'event' && !canViewEvent)) continue;
-        if (!await this.resourceAccessService.canAccessResource(user, row.task.id, Permissions.TASK_READ)) continue;
-        items.push({
-          id: row.task.id,
-          eventId,
-          kind: 'TASK',
-          identifier: row.task.taskNumber,
-          title: row.task.title,
-          status: row.task.status,
-          assignedToUserId: row.task.assignedUserId,
-          assignedUnitId: row.task.assignedUnitId,
-          assignedUnitName: await this.getUnitName(row.task.assignedUnitId),
-          updatedAt: row.task.updatedAt.toISOString(),
-          href: `/events/${eventId}/tasks/${row.task.id}`,
-        });
-      }
-      for (const row of labRows) {
-        const personal = row.analysis.assignedToUserId === user.id;
-        const unitMatch = Boolean(requestedUnitId && row.analysis.assignedUnitId === requestedUnitId);
-        if ((query.view === 'personal' && !personal) ||
-          (query.view === 'unit' && !unitMatch) ||
-          (query.view === 'event' && !canViewEvent)) continue;
-        if (!await this.resourceAccessService.canAccessResource(user, row.analysis.id, Permissions.LAB_READ)) continue;
-        items.push({
-          id: row.analysis.id,
-          eventId,
-          kind: 'LAB_ANALYSIS',
-          identifier: row.analysis.analysisNumber,
-          title: row.analysis.analysisType,
-          status: row.analysis.status,
-          assignedToUserId: row.analysis.assignedToUserId,
-          assignedUnitId: row.analysis.assignedUnitId,
-          assignedUnitName: await this.getUnitName(row.analysis.assignedUnitId),
-          updatedAt: row.analysis.updatedAt.toISOString(),
-          href: `/events/${eventId}/lab/${row.analysis.id}`,
-        });
-      }
-
-      const paged = sortAndPaginateMyWork(items, query.page, query.limit);
-      return {
-        items: paged.items,
-        total: paged.total,
-        page: query.page,
-        limit: query.limit,
-        view: query.view,
-      };
-    }
     if (filters.priority) {
       whereConditions.push(eq(operationalTasks.priority, filters.priority));
     }
@@ -945,6 +842,108 @@ export class TasksService {
     }
 
     return accessible;
+  }
+
+  async listMyWork(
+    eventId: string,
+    query: MyWorkQuery,
+    user: AuthenticatedUser
+  ): Promise<MyWorkResponse> {
+    const requestedUnitId = query.unitId;
+    if (query.view === 'unit' && !requestedUnitId) {
+      throw new BadRequestException('unitId is required for a unit work queue');
+    }
+
+    const canViewEvent = await this.authorizationService.authorize({
+      user,
+      permission: Permissions.TASK_READ,
+      context: { eventId },
+    }) || await this.authorizationService.authorize({
+      user,
+      permission: Permissions.LAB_READ,
+      context: { eventId },
+    });
+    const canViewUnit = requestedUnitId
+      ? await this.authorizationService.authorize({
+          user,
+          permission: Permissions.TASK_READ,
+          context: { eventId, unitId: requestedUnitId },
+        }) || await this.authorizationService.authorize({
+          user,
+          permission: Permissions.LAB_READ,
+          context: { eventId, unitId: requestedUnitId },
+        })
+      : false;
+
+    if (!isMyWorkViewAllowed(query.view, canViewUnit, canViewEvent, Boolean(requestedUnitId))) {
+      throw new ForbiddenException('Event-wide My Work access is not authorized');
+    }
+
+    const [taskRows, labRows] = await Promise.all([
+      this.db.select({ task: operationalTasks, resource: resources })
+        .from(operationalTasks)
+        .innerJoin(resources, eq(operationalTasks.id, resources.id))
+        .where(eq(operationalTasks.eventId, eventId)),
+      this.db.select({ analysis: labAnalyses, resource: resources })
+        .from(labAnalyses)
+        .innerJoin(resources, eq(labAnalyses.id, resources.id))
+        .where(eq(resources.eventId, eventId)),
+    ]);
+
+    const items: MyWorkItem[] = [];
+    for (const row of taskRows) {
+      const personal = row.task.assignedUserId === user.id;
+      const unitMatch = Boolean(requestedUnitId && row.task.assignedUnitId === requestedUnitId);
+      if ((query.view === 'personal' && !personal) ||
+        (query.view === 'unit' && !unitMatch) ||
+        (query.view === 'event' && !canViewEvent) ||
+        !isActionableMyWorkItem({ kind: 'TASK', status: row.task.status })) continue;
+      if (!await this.resourceAccessService.canAccessResource(user, row.task.id, Permissions.TASK_READ)) continue;
+      items.push({
+        id: row.task.id,
+        eventId,
+        kind: 'TASK',
+        identifier: row.task.taskNumber,
+        title: row.task.title,
+        status: row.task.status,
+        assignedToUserId: row.task.assignedUserId,
+        assignedUnitId: row.task.assignedUnitId,
+        assignedUnitName: await this.getUnitName(row.task.assignedUnitId),
+        updatedAt: row.task.updatedAt.toISOString(),
+        href: `/events/${eventId}/tasks/${row.task.id}`,
+      });
+    }
+    for (const row of labRows) {
+      const personal = row.analysis.assignedToUserId === user.id;
+      const unitMatch = Boolean(requestedUnitId && row.analysis.assignedUnitId === requestedUnitId);
+      if ((query.view === 'personal' && !personal) ||
+        (query.view === 'unit' && !unitMatch) ||
+        (query.view === 'event' && !canViewEvent) ||
+        !isActionableMyWorkItem({ kind: 'LAB_ANALYSIS', status: row.analysis.status })) continue;
+      if (!await this.resourceAccessService.canAccessResource(user, row.analysis.id, Permissions.LAB_READ)) continue;
+      items.push({
+        id: row.analysis.id,
+        eventId,
+        kind: 'LAB_ANALYSIS',
+        identifier: row.analysis.analysisNumber,
+        title: row.analysis.analysisType,
+        status: row.analysis.status,
+        assignedToUserId: row.analysis.assignedToUserId,
+        assignedUnitId: row.analysis.assignedUnitId,
+        assignedUnitName: await this.getUnitName(row.analysis.assignedUnitId),
+        updatedAt: row.analysis.updatedAt.toISOString(),
+        href: `/events/${eventId}/lab/${row.analysis.id}`,
+      });
+    }
+
+    const paged = sortAndPaginateMyWork(items, query.page, query.limit);
+    return {
+      items: paged.items,
+      total: paged.total,
+      page: query.page,
+      limit: query.limit,
+      view: query.view,
+    };
   }
 
   private async validateAssignmentTargets(
