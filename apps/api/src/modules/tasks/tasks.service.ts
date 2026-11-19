@@ -74,6 +74,7 @@ export class TasksService {
     dto: CreateOperationalTaskRequest,
     user: AuthenticatedUser
   ): Promise<OperationalTaskItem> {
+    await this.disruptionsService.assertTaskWriteAllowed(eventId, user, dto.assignedUnitId);
     await this.validateAssignmentTargets(eventId, dto.assignedUnitId, dto.assignedUserId);
     const taskId = generateId();
 
@@ -210,6 +211,7 @@ export class TasksService {
     if (!existing) {
       throw new NotFoundException(`Task '${taskId}' not found`);
     }
+    await this.disruptionsService.assertTaskReadAllowed(existing.eventId, user, existing.assignedUnitId);
     await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
 
     const updates: Record<string, unknown> = {
@@ -263,6 +265,7 @@ export class TasksService {
     if (!existing) {
       throw new NotFoundException(`Task '${taskId}' not found`);
     }
+    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
     await this.validateAssignmentTargets(existing.eventId, dto.assignedUnitId, dto.assignedUserId);
 
     const now = new Date();
@@ -344,6 +347,7 @@ export class TasksService {
     if (!existing) {
       throw new NotFoundException(`Task '${taskId}' not found`);
     }
+    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
 
     if (existing.status === 'COMPLETED' || existing.status === 'CANCELLED') {
       throw new BadRequestException(`Cannot acknowledge task in ${existing.status} status`);
@@ -406,6 +410,7 @@ export class TasksService {
     if (!existing) {
       throw new NotFoundException(`Task '${taskId}' not found`);
     }
+    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
 
     if (existing.status === 'COMPLETED' || existing.status === 'CANCELLED') {
       throw new BadRequestException(`Cannot start task in ${existing.status} status. Reopen first.`);
@@ -469,6 +474,7 @@ export class TasksService {
     if (!existing) {
       throw new NotFoundException(`Task '${taskId}' not found`);
     }
+    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
 
     if (existing.status === 'COMPLETED' || existing.status === 'CANCELLED') {
       throw new BadRequestException(`Cannot block task in ${existing.status} status`);
@@ -531,6 +537,7 @@ export class TasksService {
     if (!existing) {
       throw new NotFoundException(`Task '${taskId}' not found`);
     }
+    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
 
     const now = new Date();
     await this.db
@@ -591,6 +598,7 @@ export class TasksService {
     if (!existing) {
       throw new NotFoundException(`Task '${taskId}' not found`);
     }
+    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
 
     const now = new Date();
     await this.db
@@ -650,6 +658,7 @@ export class TasksService {
     if (!existing) {
       throw new NotFoundException(`Task '${taskId}' not found`);
     }
+    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
 
     if (existing.status !== 'COMPLETED' && existing.status !== 'CANCELLED') {
       throw new BadRequestException(`Task is in ${existing.status} status and cannot be reopened`);
@@ -698,7 +707,7 @@ export class TasksService {
   /**
    * Retrieves single task detail with relationships and access check.
    */
-  async getTaskDetail(taskId: string, user: AuthenticatedUser): Promise<OperationalTaskDetail> {
+  async getTaskDetail(taskId: string, user: AuthenticatedUser, expectedEventId?: string): Promise<OperationalTaskDetail> {
     await this.resourceAccessService.assertCanAccessResource(
       user,
       taskId,
@@ -722,6 +731,10 @@ export class TasksService {
     if (!row) {
       throw new NotFoundException(`Task '${taskId}' not found`);
     }
+    if (expectedEventId && row.task.eventId !== expectedEventId) {
+      throw new NotFoundException(`Task '${taskId}' not found in this event`);
+    }
+    await this.disruptionsService.assertTaskReadAllowed(row.task.eventId, user, row.task.assignedUnitId);
 
     // Resolve assigned unit/user labels
     let assignedUnitName: string | undefined;
@@ -792,6 +805,7 @@ export class TasksService {
     filters: TaskQueryFilters,
     user: AuthenticatedUser
   ): Promise<OperationalTaskItem[]> {
+    await this.disruptionsService.assertTaskReadAllowed(eventId, user);
     const whereConditions = [eq(operationalTasks.eventId, eventId)];
 
     if (filters.status) {
@@ -825,6 +839,12 @@ export class TasksService {
 
     const accessible: OperationalTaskItem[] = [];
     for (const r of rows) {
+      try {
+        await this.disruptionsService.assertTaskReadAllowed(eventId, user, r.task.assignedUnitId);
+      } catch (error) {
+        if (error instanceof ForbiddenException) continue;
+        throw error;
+      }
       const allowed = await this.resourceAccessService.canAccessResource(
         user,
         r.task.id,
@@ -852,6 +872,7 @@ export class TasksService {
     query: MyWorkQuery,
     user: AuthenticatedUser
   ): Promise<MyWorkResponse> {
+    await this.disruptionsService.assertTaskReadAllowed(eventId, user);
     const requestedUnitId = query.unitId;
     if (query.view === 'unit' && !requestedUnitId) {
       throw new BadRequestException('unitId is required for a unit work queue');
@@ -901,6 +922,12 @@ export class TasksService {
         (query.view === 'unit' && !unitMatch) ||
         (query.view === 'event' && !canViewEvent) ||
         !isActionableMyWorkItem({ kind: 'TASK', status: row.task.status })) continue;
+      try {
+        await this.disruptionsService.assertTaskReadAllowed(eventId, user, row.task.assignedUnitId);
+      } catch (error) {
+        if (error instanceof ForbiddenException) continue;
+        throw error;
+      }
       if (!await this.resourceAccessService.canAccessResource(user, row.task.id, Permissions.TASK_READ)) continue;
       items.push({
         id: row.task.id,

@@ -107,6 +107,7 @@ import type {
   DisruptionSnapshot,
   CreateDisruptionRequest,
   RestoreDisruptionRequest,
+  ParticipantDisruptionStatus,
 } from '@cyris/contracts';
 
 export class CyrisApiClient {
@@ -1296,6 +1297,10 @@ export class CyrisApiClient {
 
   async listDisruptions(eventId: string): Promise<{ ok: boolean; data?: DisruptionSnapshot[]; error?: string }> {
     return this.fetchJson<DisruptionSnapshot[]>(`/events/${eventId}/disruptions`);
+  }
+
+  async getDisruptionStatus(eventId: string): Promise<{ ok: boolean; data?: ParticipantDisruptionStatus; error?: string }> {
+    return this.fetchJson<ParticipantDisruptionStatus>(`/events/${eventId}/disruptions/status`);
   }
 
   async startDisruption(

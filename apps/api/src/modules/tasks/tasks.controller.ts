@@ -75,11 +75,11 @@ export class TasksController {
 
   @Get(':taskId')
   async getTask(
-    @Param('eventId') _eventId: string,
+    @Param('eventId') eventId: string,
     @Param('taskId') taskId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<OperationalTaskDetail> {
-    return this.tasksService.getTaskDetail(taskId, user);
+    return this.tasksService.getTaskDetail(taskId, user, eventId);
   }
 
   @Patch(':taskId')

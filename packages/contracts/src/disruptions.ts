@@ -43,6 +43,16 @@ export const DisruptionSnapshotSchema = z.object({
   active: z.boolean(),
 });
 
+export const ParticipantDisruptionStatusSchema = z.object({
+  eventId: z.string().uuid(),
+  module: z.literal('tasks'),
+  mode: DisruptionModeSchema.nullable(),
+  active: z.boolean(),
+  revision: z.number().int().nonnegative().nullable(),
+});
+
 export type CreateDisruptionRequest = z.infer<typeof CreateDisruptionRequestSchema>;
 export type RestoreDisruptionRequest = z.infer<typeof RestoreDisruptionRequestSchema>;
 export type DisruptionSnapshot = z.infer<typeof DisruptionSnapshotSchema>;
+export type ParticipantDisruptionStatus = z.infer<typeof ParticipantDisruptionStatusSchema>;
+export type DisruptionMode = z.infer<typeof DisruptionModeSchema>;

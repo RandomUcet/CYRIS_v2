@@ -15,7 +15,12 @@ export class DisruptionsController {
 
   @Get()
   list(@Param('eventId') eventId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.disruptionsService.listParticipantVisible(eventId, user);
+    return this.disruptionsService.listOperator(eventId, user);
+  }
+
+  @Get('status')
+  status(@Param('eventId') eventId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.disruptionsService.getParticipantStatus(eventId, user);
   }
 
   @Post()

@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
@@ -16,8 +16,9 @@ import type {
   CreateDisruptionRequest,
   DisruptionSnapshot,
   RestoreDisruptionRequest,
+  ParticipantDisruptionStatus,
 } from '@cyris/contracts';
-import { assertRevision, assertParticipantWriteAllowed, isActiveDisruption, resolveDisruption } from './disruption-policy.js';
+import { assertRevision, assertParticipantWriteAllowed, assertSupportedDisruption, ENFORCED_DISRUPTION_MODULE, isActiveDisruption, resolveDisruption } from './disruption-policy.js';
 
 @Injectable()
 export class DisruptionsService {
@@ -37,7 +38,7 @@ export class DisruptionsService {
       .select({ unitId: membershipUnitAssignments.unitId })
       .from(eventMemberships)
       .innerJoin(membershipUnitAssignments, eq(membershipUnitAssignments.membershipId, eventMemberships.id))
-      .where(and(eq(eventMemberships.userId, user.id), eq(eventMemberships.status, MembershipStatus.ACTIVE)));
+      .where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, user.id), eq(eventMemberships.status, MembershipStatus.ACTIVE)));
     const unitIds = new Set(memberships.map((membership) => membership.unitId));
     const rows = await this.db.select().from(exerciseDisruptions).where(eq(exerciseDisruptions.eventId, eventId)).orderBy(desc(exerciseDisruptions.startsAt));
     return rows
@@ -46,10 +47,43 @@ export class DisruptionsService {
       .map((row) => this.toSnapshot(row));
   }
 
+  async getParticipantStatus(eventId: string, user: AuthenticatedUser): Promise<ParticipantDisruptionStatus> {
+    await this.assertEventPermission(eventId, user, Permissions.SCENARIO_READ);
+    const rows = await this.getApplicableRows(eventId, user);
+    const memberships = await this.db.select({ unitId: membershipUnitAssignments.unitId })
+      .from(eventMemberships)
+      .innerJoin(membershipUnitAssignments, eq(membershipUnitAssignments.membershipId, eventMemberships.id))
+      .where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, user.id), eq(eventMemberships.status, MembershipStatus.ACTIVE)));
+    const restriction = { UNAVAILABLE: 3, READ_ONLY: 2, DEGRADED: 1 } as const;
+    const active = [resolveDisruption(rows, new Date(), user.id, null), ...memberships.map((membership) => resolveDisruption(rows, new Date(), user.id, membership.unitId))]
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .sort((left, right) => restriction[right.mode as keyof typeof restriction] - restriction[left.mode as keyof typeof restriction])[0] ?? null;
+    return {
+      eventId,
+      module: ENFORCED_DISRUPTION_MODULE,
+      mode: active?.mode as ParticipantDisruptionStatus['mode'] ?? null,
+      active: Boolean(active),
+      revision: active?.revision ?? null,
+    };
+  }
+
+  async listOperator(eventId: string, user: AuthenticatedUser): Promise<DisruptionSnapshot[]> {
+    await this.assertEventPermission(eventId, user, Permissions.SCENARIO_MANAGE);
+    const rows = await this.db.select().from(exerciseDisruptions)
+      .where(eq(exerciseDisruptions.eventId, eventId))
+      .orderBy(desc(exerciseDisruptions.startsAt));
+    return rows.map((row) => this.toSnapshot(row));
+  }
+
   async start(eventId: string, dto: CreateDisruptionRequest, user: AuthenticatedUser): Promise<DisruptionSnapshot> {
     await this.assertEventPermission(eventId, user, Permissions.SCENARIO_MANAGE);
+    assertSupportedDisruption(dto.module, dto.mode);
     await this.validateTarget(eventId, dto.targetType, dto.targetId);
     const startsAt = dto.startsAt ? new Date(dto.startsAt) : new Date();
+    const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
+    if (Number.isNaN(startsAt.getTime()) || (expiresAt && (Number.isNaN(expiresAt.getTime()) || expiresAt <= startsAt))) {
+      throw new BadRequestException('Disruption start and expiry must be valid and expiry must be after start');
+    }
     const created = await this.db.transaction(async (tx) => {
       const [row] = await tx.insert(exerciseDisruptions).values({
         eventId,
@@ -58,7 +92,7 @@ export class DisruptionsService {
         module: dto.module,
         mode: dto.mode,
         startsAt,
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        expiresAt,
         reason: dto.reason,
         revision: 1,
         createdByUserId: user.id,
@@ -114,8 +148,33 @@ export class DisruptionsService {
   async assertTaskWriteAllowed(eventId: string, user: AuthenticatedUser, unitId?: string | null): Promise<void> {
     const excon = await this.authorizationService.authorize({ user, permission: Permissions.SCENARIO_OVERRIDE, context: { eventId } });
     if (excon) return;
-    const rows = await this.db.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.eventId, eventId), eq(exerciseDisruptions.module, 'tasks')));
+    const rows = await this.db.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.eventId, eventId), eq(exerciseDisruptions.module, ENFORCED_DISRUPTION_MODULE)));
     assertParticipantWriteAllowed(resolveDisruption(rows, new Date(), user.id, unitId));
+  }
+
+  async assertTaskReadAllowed(eventId: string, user: AuthenticatedUser, unitId?: string | null): Promise<void> {
+    const excon = await this.authorizationService.authorize({ user, permission: Permissions.SCENARIO_OVERRIDE, context: { eventId } });
+    if (excon) return;
+    const rows = await this.db.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.eventId, eventId), eq(exerciseDisruptions.module, ENFORCED_DISRUPTION_MODULE)));
+    const active = resolveDisruption(rows, new Date(), user.id, unitId);
+    if (active?.mode === 'UNAVAILABLE') {
+      throw new ForbiddenException('Module is simulated as unavailable');
+    }
+  }
+
+  private async getApplicableRows(eventId: string, user: AuthenticatedUser) {
+    const memberships = await this.db.select({ unitId: membershipUnitAssignments.unitId })
+      .from(eventMemberships)
+      .innerJoin(membershipUnitAssignments, eq(membershipUnitAssignments.membershipId, eventMemberships.id))
+      .where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, user.id), eq(eventMemberships.status, MembershipStatus.ACTIVE)));
+    const unitIds = new Set(memberships.map((membership) => membership.unitId));
+    const rows = await this.db.select().from(exerciseDisruptions)
+      .where(and(eq(exerciseDisruptions.eventId, eventId), eq(exerciseDisruptions.module, ENFORCED_DISRUPTION_MODULE)));
+    return rows.filter((row) =>
+      row.targetType === 'EVENT' ||
+      (row.targetType === 'USER' && row.targetId === user.id) ||
+      (row.targetType === 'UNIT' && row.targetId && unitIds.has(row.targetId))
+    );
   }
 
   private async validateTarget(eventId: string, targetType: CreateDisruptionRequest['targetType'], targetId: string | null | undefined): Promise<void> {
