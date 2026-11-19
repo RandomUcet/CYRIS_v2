@@ -1,5 +1,5 @@
 import { Injectable, ForbiddenException, NotFoundException, Logger } from '@nestjs/common';
-import { eq, and, or, inArray } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
@@ -21,6 +21,7 @@ import {
   PermissionScopes,
   type PermissionKey,
 } from '@cyris/shared';
+import { assignmentMatchesPrincipal } from './resource-assignment-predicate.js';
 
 @Injectable()
 export class ResourceAccessService {
@@ -269,67 +270,18 @@ export class ResourceAccessService {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async isResourceAssignedToUser(db: any, resourceId: string, userId: string, unitIds: string[]): Promise<boolean> {
-    const conditions = [
-      eq(resourceAssignments.resourceId, resourceId),
-      unitIds.length > 0
-        ? or(
-            eq(resourceAssignments.userId, userId),
-            inArray(resourceAssignments.unitId, unitIds)
-          )
-        : eq(resourceAssignments.userId, userId),
-    ];
-
-    const [assignment] = await db
-      .select({ id: resourceAssignments.id })
+    const assignments = await db
+      .select({
+        userId: resourceAssignments.userId,
+        unitId: resourceAssignments.unitId,
+      })
       .from(resourceAssignments)
-      .where(and(...conditions))
-      .limit(1);
+      .where(eq(resourceAssignments.resourceId, resourceId));
 
-    if (assignment) {
-      const [resource] = await db
-        .select({
-          eventId: resources.eventId,
-          owningUnitId: resources.owningUnitId,
-        })
-        .from(resources)
-        .where(eq(resources.id, resourceId))
-        .limit(1);
-
-      if (!resource) return false;
-
-      const [membership] = await db
-        .select({ id: eventMemberships.id })
-        .from(eventMemberships)
-        .innerJoin(
-          membershipUnitAssignments,
-          eq(membershipUnitAssignments.membershipId, eventMemberships.id)
-        )
-        .where(
-          and(
-            eq(eventMemberships.eventId, resource.eventId),
-            eq(eventMemberships.userId, userId),
-            eq(eventMemberships.status, MembershipStatus.ACTIVE),
-            resource.owningUnitId
-              ? eq(membershipUnitAssignments.unitId, resource.owningUnitId)
-              : inArray(membershipUnitAssignments.unitId, unitIds)
-          )
-        )
-        .limit(1);
-
-      if (!membership) return false;
-
-      const hasLabWork = await this.authzService.authorize({
-        user: {
-          id: userId,
-          email: '',
-          displayName: '',
-          status: 'ACTIVE',
-        },
-        permission: Permissions.LAB_WORK,
-        context: { eventId: resource.eventId, unitId: resource.owningUnitId ?? undefined },
-      });
-
-      if (hasLabWork) return true;
+    if (assignments.some((assignment: { userId: string | null; unitId: string | null }) =>
+      assignmentMatchesPrincipal(assignment, userId, unitIds)
+    )) {
+      return true;
     }
 
     const [task] = await db

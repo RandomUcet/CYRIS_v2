@@ -68,6 +68,7 @@ export class LaboratoryService {
     unitId: string,
     user: AuthenticatedUser
   ): Promise<Array<{ id: string; displayName: string }>> {
+    await this.assertLaboratoryUnit(eventId, unitId);
     await this.authorizationService.assertAuthorized({
       user,
       permission: Permissions.LAB_REASSIGN,
@@ -86,11 +87,7 @@ export class LaboratoryService {
       ));
     const eligible: Array<{ id: string; displayName: string }> = [];
     for (const member of members) {
-      if (await this.authorizationService.authorize({
-        user: { id: member.id, email: '', displayName: member.displayName, status: 'ACTIVE' },
-        permission: Permissions.LAB_WORK,
-        context: { eventId, unitId },
-      })) {
+      if (await this.isEligibleLaboratoryWorker(eventId, unitId, member.id, member.displayName)) {
         eligible.push(member);
       }
     }
@@ -195,14 +192,28 @@ export class LaboratoryService {
     if (!membership) {
       throw new BadRequestException('The laboratory worker is not an active member of the destination unit');
     }
+    if (!(await this.isEligibleLaboratoryWorker(eventId, unitId, userId))) {
+      throw new BadRequestException('The destination user is not permitted to perform laboratory work');
+    }
+  }
+
+  private async isEligibleLaboratoryWorker(
+    eventId: string,
+    unitId: string,
+    userId: string,
+    displayName = ''
+  ): Promise<boolean> {
     const allowed = await this.authorizationService.authorize({
-      user: { id: userId, email: '', displayName: '', status: 'ACTIVE' },
+      user: {
+        id: userId,
+        email: '',
+        displayName,
+        status: 'ACTIVE',
+      },
       permission: Permissions.LAB_WORK,
       context: { eventId, unitId },
     });
-    if (!allowed) {
-      throw new BadRequestException('The destination user is not permitted to perform laboratory work');
-    }
+    return allowed;
   }
 
   async listLaboratoryUnits(eventId: string, user: AuthenticatedUser): Promise<Array<{ id: string; name: string }>> {
@@ -259,16 +270,7 @@ export class LaboratoryService {
 
     const eligible: Array<{ userId: string }> = [];
     for (const member of memberships) {
-      const allowed = await this.authorizationService.authorize({
-        user: {
-          id: member.userId,
-          email: '',
-          displayName: '',
-          status: 'ACTIVE',
-        },
-        permission: Permissions.LAB_WORK,
-        context: { eventId, unitId },
-      });
+      const allowed = await this.isEligibleLaboratoryWorker(eventId, unitId, member.userId);
       if (allowed) eligible.push({ userId: member.userId });
     }
 

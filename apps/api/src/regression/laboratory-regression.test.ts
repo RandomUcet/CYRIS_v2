@@ -6,6 +6,7 @@ import {
   UpdateLabAnalysisRequestSchema,
 } from '@cyris/contracts';
 import { selectLowestWorkloadCandidate } from '../modules/laboratory/laboratory-assignment.js';
+import { assignmentMatchesPrincipal } from '../modules/resources/resource-assignment-predicate.js';
 import { skipWithoutVerifiedDatabase } from './isolated-postgres-harness.js';
 
 test('laboratory selection excludes unavailable candidates before selection', () => {
@@ -72,6 +73,21 @@ test('work updates reject unknown workflow statuses', () => {
   });
 
   assert.equal(result.success, false);
+});
+
+test('generic assigned access matches legacy user and unit assignments without laboratory role assumptions', () => {
+  assert.equal(
+    assignmentMatchesPrincipal({ userId: 'legacy-user', unitId: null }, 'legacy-user', []),
+    true
+  );
+  assert.equal(
+    assignmentMatchesPrincipal({ userId: null, unitId: 'legacy-unit' }, 'other-user', ['legacy-unit']),
+    true
+  );
+  assert.equal(
+    assignmentMatchesPrincipal({ userId: null, unitId: null }, 'unassigned-user', ['legacy-unit']),
+    false
+  );
 });
 
 skipWithoutVerifiedDatabase(
