@@ -12,6 +12,7 @@ import {
   MembershipStatus,
   recoveryObjectives,
   recoveryReports,
+  recoveryArtifacts,
 } from '@cyris/db';
 import { Permissions } from '@cyris/shared';
 import type {
@@ -25,9 +26,11 @@ import type {
   RecoveryReportRequest,
   RecoveryObjective,
   RecoveryReport,
+  CreateRecoveryArtifactRequest,
+  RecoveryArtifact,
 } from '@cyris/contracts';
 import { assertRevision, assertParticipantWriteAllowed, assertSupportedDisruption, ENFORCED_DISRUPTION_MODULE, isActiveDisruption, resolveDisruption } from './disruption-policy.js';
-import { assertObjectiveTransition, assertReportAllowed } from './recovery-policy.js';
+import { assertApprovalHasReport, assertLinkedDisruptionActive, assertNoDuplicateReport, assertObjectiveTransition, assertPublishedAudienceAccess, assertReportAllowed } from './recovery-policy.js';
 
 @Injectable()
 export class DisruptionsService {
@@ -187,6 +190,10 @@ export class DisruptionsService {
 
   async publishRecoveryObjective(eventId: string, objectiveId: string, expectedRevision: number, user: AuthenticatedUser): Promise<RecoveryObjective> {
     await this.assertEventPermission(eventId, user, Permissions.SCENARIO_MANAGE);
+    const [objective] = await this.db.select().from(recoveryObjectives).where(and(eq(recoveryObjectives.id, objectiveId), eq(recoveryObjectives.eventId, eventId))).limit(1);
+    if (!objective) throw new NotFoundException('Recovery objective not found');
+    const [disruption] = await this.db.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.id, objective.disruptionId), eq(exerciseDisruptions.eventId, eventId))).limit(1);
+    if (!disruption || !isActiveDisruption(disruption)) throw new ConflictException('The linked disruption must still be active before publication');
     const row = await this.transitionObjective(eventId, objectiveId, expectedRevision, 'PUBLISHED', user, 'exercise.recovery_objective.published');
     return this.toRecoveryObjective(row);
   }
@@ -194,6 +201,13 @@ export class DisruptionsService {
   async reviewRecoveryObjective(eventId: string, objectiveId: string, dto: RecoveryObjectiveReviewRequest, user: AuthenticatedUser): Promise<RecoveryObjective> {
     await this.assertEventPermission(eventId, user, Permissions.SCENARIO_OVERRIDE);
     const status = dto.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+    if (status === 'APPROVED') {
+      const [report] = await this.db.select({ id: recoveryReports.id })
+        .from(recoveryReports)
+        .where(eq(recoveryReports.objectiveId, objectiveId))
+        .limit(1);
+      try { assertApprovalHasReport(Boolean(report)); } catch { throw new ConflictException('A participant recovery report is required before approval'); }
+    }
     const row = await this.transitionObjective(eventId, objectiveId, dto.expectedRevision, status, user, `exercise.recovery_objective.${status.toLowerCase()}`);
     return this.toRecoveryObjective(row);
   }
@@ -204,9 +218,9 @@ export class DisruptionsService {
       const [objective] = await tx.select().from(recoveryObjectives).where(and(eq(recoveryObjectives.id, objectiveId), eq(recoveryObjectives.eventId, eventId))).limit(1);
       if (!objective || objective.status !== 'APPROVED') throw new ConflictException('Only an approved recovery objective can restore its disruption');
       if (objective.revision !== dto.expectedRevision) throw new ConflictException('Recovery objective revision conflict');
-      assertObjectiveTransition(objective.status as RecoveryObjective['status'], 'RESTORED');
+      try { assertObjectiveTransition(objective.status as RecoveryObjective['status'], 'RESTORED'); } catch { throw new ConflictException('Invalid recovery objective transition'); }
       const [disruption] = await tx.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.id, objective.disruptionId), eq(exerciseDisruptions.eventId, eventId))).limit(1);
-      if (!disruption || disruption.restoredAt) throw new ConflictException('Linked disruption is already restored or unavailable');
+      try { assertLinkedDisruptionActive(Boolean(disruption && isActiveDisruption(disruption))); } catch { throw new ConflictException('Linked disruption is expired, restored or unavailable'); }
       const [restored] = await tx.update(exerciseDisruptions).set({ revision: disruption.revision + 1, restoredAt: new Date(), restoredByUserId: user.id }).where(and(eq(exerciseDisruptions.id, disruption.id), eq(exerciseDisruptions.revision, disruption.revision), isNull(exerciseDisruptions.restoredAt))).returning();
       if (!restored) throw new ConflictException('Disruption was restored concurrently');
       const [updated] = await tx.update(recoveryObjectives).set({ status: 'RESTORED', revision: objective.revision + 1, reviewedByUserId: user.id, reviewedAt: new Date() }).where(and(eq(recoveryObjectives.id, objective.id), eq(recoveryObjectives.revision, dto.expectedRevision))).returning();
@@ -226,7 +240,10 @@ export class DisruptionsService {
     const [objective] = await this.db.select().from(recoveryObjectives).where(and(eq(recoveryObjectives.id, objectiveId), eq(recoveryObjectives.eventId, eventId), eq(recoveryObjectives.status, 'PUBLISHED'))).limit(1);
     if (!objective || !(await this.audienceMatches(eventId, objective.audienceType, objective.audienceId, user))) throw new ForbiddenException('Recovery objective is not available in this event scope');
     const [disruption] = await this.db.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.id, objective.disruptionId), eq(exerciseDisruptions.eventId, eventId))).limit(1);
-    assertReportAllowed(objective.status as RecoveryObjective['status'], Boolean(disruption && isActiveDisruption(disruption)));
+    try { assertReportAllowed(objective.status as RecoveryObjective['status'], Boolean(disruption && isActiveDisruption(disruption))); } catch { throw new ConflictException('The linked disruption is expired, restored or unavailable'); }
+    const [existing] = await this.db.select({ id: recoveryReports.id }).from(recoveryReports)
+      .where(and(eq(recoveryReports.objectiveId, objectiveId), eq(recoveryReports.authorUserId, user.id))).limit(1);
+    try { assertNoDuplicateReport(Boolean(existing)); } catch { throw new ConflictException('A recovery report was already submitted for this objective'); }
     const [row] = await this.db.transaction(async (tx) => {
       const created = await tx.insert(recoveryReports).values({ objectiveId, eventId, authorUserId: user.id, body: dto.body, revision: 1 }).returning();
       await this.auditService.record({
@@ -239,9 +256,94 @@ export class DisruptionsService {
     return this.toRecoveryReport(row!);
   }
 
+  async listRecoveryArtifacts(eventId: string, objectiveId: string, user: AuthenticatedUser): Promise<RecoveryArtifact[]> {
+    const [objective] = await this.db.select().from(recoveryObjectives)
+      .where(and(eq(recoveryObjectives.id, objectiveId), eq(recoveryObjectives.eventId, eventId))).limit(1);
+    if (!objective) throw new NotFoundException('Recovery objective not found');
+    const canManage = await this.authorizationService.authorize({ user, permission: Permissions.SCENARIO_MANAGE, context: { eventId } });
+    if (!canManage) {
+      await this.assertParticipantAccess(eventId, user);
+      try { assertPublishedAudienceAccess(objective.status === 'PUBLISHED', await this.audienceMatches(eventId, objective.audienceType, objective.audienceId, user)); } catch { throw new ForbiddenException('Recovery artifact is not available in this event scope'); }
+    }
+    const conditions = canManage
+      ? eq(recoveryArtifacts.objectiveId, objectiveId)
+      : and(eq(recoveryArtifacts.objectiveId, objectiveId), eq(recoveryArtifacts.status, 'PUBLISHED'));
+    const rows = await this.db.select().from(recoveryArtifacts)
+      .where(conditions)
+      .orderBy(desc(recoveryArtifacts.createdAt));
+    return rows.map((row) => this.toRecoveryArtifact(row));
+  }
+
+  async createRecoveryArtifact(eventId: string, dto: CreateRecoveryArtifactRequest, user: AuthenticatedUser): Promise<RecoveryArtifact> {
+    await this.assertEventPermission(eventId, user, Permissions.SCENARIO_MANAGE);
+    const [objective] = await this.db.select().from(recoveryObjectives)
+      .where(and(eq(recoveryObjectives.id, dto.objectiveId), eq(recoveryObjectives.eventId, eventId), eq(recoveryObjectives.status, 'DRAFT'))).limit(1);
+    if (!objective) throw new ConflictException('Artifacts can only be attached to a draft objective in this event');
+    const [row] = await this.db.transaction(async (tx) => {
+      const created = await tx.insert(recoveryArtifacts).values({
+        objectiveId: dto.objectiveId, eventId, title: dto.title, filename: dto.filename,
+        mimeType: 'text/plain', body: dto.body, status: 'DRAFT', revision: 1, createdByUserId: user.id,
+      }).returning();
+      await this.auditService.record({
+        action: 'exercise.recovery_artifact.created', category: 'scenario', eventId,
+        resourceType: 'recovery_artifact', resourceId: created[0]!.id, actorUserId: user.id,
+        metadata: { objectiveId: dto.objectiveId, filename: dto.filename, mimeType: 'text/plain' }, txClient: tx,
+      });
+      return created;
+    });
+    return this.toRecoveryArtifact(row!);
+  }
+
+  async publishRecoveryArtifact(eventId: string, artifactId: string, expectedRevision: number, user: AuthenticatedUser): Promise<RecoveryArtifact> {
+    await this.assertEventPermission(eventId, user, Permissions.SCENARIO_MANAGE);
+    const [row] = await this.db.transaction(async (tx) => {
+      const [current] = await tx.select().from(recoveryArtifacts).where(and(eq(recoveryArtifacts.id, artifactId), eq(recoveryArtifacts.eventId, eventId))).limit(1);
+      if (!current || current.status !== 'DRAFT' || current.revision !== expectedRevision) throw new ConflictException('Recovery artifact revision or state conflict');
+      const [objective] = await tx.select().from(recoveryObjectives).where(and(eq(recoveryObjectives.id, current.objectiveId), eq(recoveryObjectives.eventId, eventId), eq(recoveryObjectives.status, 'PUBLISHED'))).limit(1);
+      if (!objective) throw new ConflictException('Publish the recovery objective before publishing its artifact');
+      const [disruption] = await tx.select().from(exerciseDisruptions).where(and(eq(exerciseDisruptions.id, objective.disruptionId), eq(exerciseDisruptions.eventId, eventId))).limit(1);
+      try { assertLinkedDisruptionActive(Boolean(disruption && isActiveDisruption(disruption))); } catch { throw new ConflictException('The linked disruption must still be active before artifact publication'); }
+      const [updated] = await tx.update(recoveryArtifacts).set({ status: 'PUBLISHED', revision: current.revision + 1, publishedAt: new Date() })
+        .where(and(eq(recoveryArtifacts.id, artifactId), eq(recoveryArtifacts.revision, expectedRevision), eq(recoveryArtifacts.status, 'DRAFT'))).returning();
+      if (!updated) throw new ConflictException('Recovery artifact was changed concurrently');
+      await this.auditService.record({
+        action: 'exercise.recovery_artifact.published', category: 'scenario', eventId,
+        resourceType: 'recovery_artifact', resourceId: artifactId, actorUserId: user.id,
+        metadata: { objectiveId: current.objectiveId, fromRevision: current.revision, toRevision: updated.revision }, txClient: tx,
+      });
+      return [updated];
+    });
+    return this.toRecoveryArtifact(row!);
+  }
+
+  async downloadRecoveryArtifact(eventId: string, artifactId: string, user: AuthenticatedUser): Promise<{ body: string; filename: string }> {
+    const [artifact] = await this.db.select().from(recoveryArtifacts)
+      .where(and(eq(recoveryArtifacts.id, artifactId), eq(recoveryArtifacts.eventId, eventId), eq(recoveryArtifacts.status, 'PUBLISHED'))).limit(1);
+    if (!artifact) throw new NotFoundException('Published recovery artifact not found');
+    const [objective] = await this.db.select().from(recoveryObjectives).where(and(eq(recoveryObjectives.id, artifact.objectiveId), eq(recoveryObjectives.eventId, eventId))).limit(1);
+    if (!objective || objective.status !== 'PUBLISHED') throw new ConflictException('Recovery objective is no longer published');
+    const canManage = await this.authorizationService.authorize({ user, permission: Permissions.SCENARIO_MANAGE, context: { eventId } });
+    if (!canManage) {
+      await this.assertParticipantAccess(eventId, user);
+      try { assertPublishedAudienceAccess(objective.status === 'PUBLISHED', await this.audienceMatches(eventId, objective.audienceType, objective.audienceId, user)); } catch { throw new ForbiddenException('Recovery artifact is not available in this event scope'); }
+    }
+    return { body: artifact.body, filename: artifact.filename };
+  }
+
   async listRecoveryReports(eventId: string, objectiveId: string, user: AuthenticatedUser): Promise<RecoveryReport[]> {
-    await this.assertEventPermission(eventId, user, Permissions.SCENARIO_OVERRIDE);
-    const rows = await this.db.select().from(recoveryReports).where(and(eq(recoveryReports.eventId, eventId), eq(recoveryReports.objectiveId, objectiveId))).orderBy(desc(recoveryReports.createdAt));
+    const canReview = await this.authorizationService.authorize({ user, permission: Permissions.SCENARIO_OVERRIDE, context: { eventId } });
+    const [objective] = await this.db.select().from(recoveryObjectives).where(and(eq(recoveryObjectives.id, objectiveId), eq(recoveryObjectives.eventId, eventId))).limit(1);
+    if (!objective) throw new NotFoundException('Recovery objective not found');
+    if (!canReview) {
+      await this.assertParticipantAccess(eventId, user);
+      if (objective.status !== 'PUBLISHED' || !(await this.audienceMatches(eventId, objective.audienceType, objective.audienceId, user))) {
+        throw new ForbiddenException('Recovery report is not available in this event scope');
+      }
+    }
+    const conditions = canReview
+      ? and(eq(recoveryReports.eventId, eventId), eq(recoveryReports.objectiveId, objectiveId))
+      : and(eq(recoveryReports.eventId, eventId), eq(recoveryReports.objectiveId, objectiveId), eq(recoveryReports.authorUserId, user.id));
+    const rows = await this.db.select().from(recoveryReports).where(conditions).orderBy(desc(recoveryReports.createdAt));
     return rows.map((row) => this.toRecoveryReport(row));
   }
 
@@ -249,7 +351,7 @@ export class DisruptionsService {
     const [row] = await this.db.transaction(async (tx) => {
       const [current] = await tx.select().from(recoveryObjectives).where(and(eq(recoveryObjectives.id, objectiveId), eq(recoveryObjectives.eventId, eventId))).limit(1);
       if (!current || current.revision !== expectedRevision) throw new ConflictException('Recovery objective revision conflict');
-      assertObjectiveTransition(current.status as RecoveryObjective['status'], status);
+      try { assertObjectiveTransition(current.status as RecoveryObjective['status'], status); } catch { throw new ConflictException('Invalid recovery objective transition'); }
       const [updated] = await tx.update(recoveryObjectives).set({ status, revision: current.revision + 1, reviewedByUserId: user.id, reviewedAt: new Date(), publishedAt: status === 'PUBLISHED' ? new Date() : current.publishedAt }).where(and(eq(recoveryObjectives.id, objectiveId), eq(recoveryObjectives.eventId, eventId), eq(recoveryObjectives.revision, expectedRevision))).returning();
       if (!updated) throw new ConflictException('Recovery objective was changed concurrently');
       await this.auditService.record({ action, category: 'scenario', eventId, resourceType: 'recovery_objective', resourceId: objectiveId, actorUserId: user.id, metadata: { fromRevision: current.revision, toRevision: updated.revision }, txClient: tx });
@@ -290,7 +392,11 @@ export class DisruptionsService {
   }
 
   private toRecoveryReport(row: typeof recoveryReports.$inferSelect): RecoveryReport {
-    return { id: row.id, objectiveId: row.objectiveId, body: row.body, createdAt: row.createdAt.toISOString() };
+    return { id: row.id, objectiveId: row.objectiveId, body: row.body, authorUserId: row.authorUserId, createdAt: row.createdAt.toISOString() };
+  }
+
+  private toRecoveryArtifact(row: typeof recoveryArtifacts.$inferSelect): RecoveryArtifact {
+    return { id: row.id, objectiveId: row.objectiveId, title: row.title, filename: row.filename, mimeType: 'text/plain', status: row.status as RecoveryArtifact['status'], revision: row.revision, createdAt: row.createdAt.toISOString(), publishedAt: row.publishedAt?.toISOString() ?? null };
   }
 
   async assertTaskWriteAllowed(eventId: string, user: AuthenticatedUser, unitId?: string | null): Promise<void> {

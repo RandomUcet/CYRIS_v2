@@ -94,6 +94,7 @@ export const RecoveryReportSchema = z.object({
   id: z.string().uuid(),
   objectiveId: z.string().uuid(),
   body: z.string(),
+  authorUserId: z.string().uuid(),
   createdAt: z.string(),
 });
 export type CreateRecoveryObjectiveRequest = z.infer<typeof CreateRecoveryObjectiveRequestSchema>;
@@ -102,3 +103,22 @@ export type RecoveryObjectiveRestoreRequest = z.infer<typeof RecoveryObjectiveRe
 export type RecoveryReportRequest = z.infer<typeof RecoveryReportRequestSchema>;
 export type RecoveryObjective = z.infer<typeof RecoveryObjectiveSchema>;
 export type RecoveryReport = z.infer<typeof RecoveryReportSchema>;
+export const CreateRecoveryArtifactRequestSchema = z.object({
+  objectiveId: z.string().uuid(),
+  title: z.string().trim().min(3).max(200),
+  filename: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  body: z.string().min(1).max(20000),
+});
+export const RecoveryArtifactSchema = z.object({
+  id: z.string().uuid(),
+  objectiveId: z.string().uuid(),
+  title: z.string(),
+  filename: z.string(),
+  mimeType: z.literal('text/plain'),
+  status: z.enum(['DRAFT', 'PUBLISHED']),
+  revision: z.number().int().positive(),
+  createdAt: z.string(),
+  publishedAt: z.string().nullable(),
+});
+export type CreateRecoveryArtifactRequest = z.infer<typeof CreateRecoveryArtifactRequestSchema>;
+export type RecoveryArtifact = z.infer<typeof RecoveryArtifactSchema>;

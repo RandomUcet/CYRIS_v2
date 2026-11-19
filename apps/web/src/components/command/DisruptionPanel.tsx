@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, RotateCcw, ShieldAlert } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
-import type { DisruptionMode, DisruptionSnapshot, RecoveryObjective, RecoveryReport } from '@cyris/contracts';
+import type { DisruptionMode, DisruptionSnapshot, RecoveryObjective, RecoveryReport, RecoveryArtifact } from '@cyris/contracts';
 
 const MODES: Array<{ value: DisruptionMode; label: string }> = [
   { value: 'UNAVAILABLE', label: 'Nedostupné' },
@@ -28,6 +28,9 @@ export function DisruptionPanel({ eventId }: { eventId: string }) {
   const [saving, setSaving] = useState(false);
   const [objectives, setObjectives] = useState<RecoveryObjective[]>([]);
   const [reports, setReports] = useState<Record<string, RecoveryReport[]>>({});
+  const [artifacts, setArtifacts] = useState<Record<string, RecoveryArtifact[]>>({});
+  const [artifactTitle, setArtifactTitle] = useState('');
+  const [artifactBody, setArtifactBody] = useState('');
   const [objectiveTitle, setObjectiveTitle] = useState('');
   const [objectiveInstructions, setObjectiveInstructions] = useState('');
   const requestSequence = useRef(0);
@@ -176,8 +179,17 @@ export function DisruptionPanel({ eventId }: { eventId: string }) {
               {objective.status === 'PUBLISHED' && <button type="button" className="ml-3 underline" onClick={() => void apiClient.reviewRecoveryObjective(eventId, objective.id, { expectedRevision: objective.revision, decision: 'APPROVE' }).then((result) => { if (result.ok && result.data) setObjectives((current) => current.map((item) => item.id === objective.id ? result.data! : item)); })}>Schválit</button>}
               {objective.status === 'PUBLISHED' && <button type="button" className="ml-3 underline" onClick={() => void apiClient.reviewRecoveryObjective(eventId, objective.id, { expectedRevision: objective.revision, decision: 'REJECT' }).then((result) => { if (result.ok && result.data) setObjectives((current) => current.map((item) => item.id === objective.id ? result.data! : item)); })}>Zamítnout</button>}
               <button type="button" className="ml-3 underline" onClick={() => void apiClient.listRecoveryReports(eventId, objective.id).then((result) => { if (result.ok && result.data) setReports((current) => ({ ...current, [objective.id]: result.data! })); })}>Reporty</button>
+              <button type="button" className="ml-3 underline" onClick={() => void apiClient.listRecoveryArtifacts(eventId, objective.id).then((result) => { if (result.ok && result.data) setArtifacts((current) => ({ ...current, [objective.id]: result.data! })); })}>Artefakty</button>
               {objective.status === 'APPROVED' && <button type="button" className="ml-3 underline" onClick={() => { const reason = window.prompt('Důvod obnovení'); if (reason?.trim()) void apiClient.restoreRecoveryObjective(eventId, objective.id, { expectedRevision: objective.revision, reason: reason.trim() }).then((result) => { if (result.ok && result.data) setObjectives((current) => current.map((item) => item.id === objective.id ? result.data! : item)); }); }}>Obnovit</button>}
               {reports[objective.id]?.map((item) => <p key={item.id} className="mt-1 text-slate-400">{item.body}</p>)}
+              {objective.status === 'DRAFT' && (
+                <div className="mt-2 space-y-1">
+                  <input value={artifactTitle} onChange={(event) => setArtifactTitle(event.target.value)} placeholder="Název textového artefaktu" className="w-full rounded bg-slate-950 border border-slate-700 px-2 py-1 text-xs" />
+                  <textarea value={artifactBody} onChange={(event) => setArtifactBody(event.target.value)} placeholder="Synthetic log/config/instructions" className="min-h-16 w-full rounded bg-slate-950 border border-slate-700 px-2 py-1 text-xs" />
+                  <button type="button" disabled={!artifactTitle.trim() || !artifactBody.trim()} className="rounded border border-slate-700 px-2 py-1 text-xs disabled:opacity-50" onClick={() => void apiClient.createRecoveryArtifact(eventId, objective.id, { title: artifactTitle.trim(), filename: `${objective.id}.txt`, body: artifactBody }).then((result) => { if (result.ok && result.data) { setArtifacts((current) => ({ ...current, [objective.id]: [...(current[objective.id] ?? []), result.data!] })); setArtifactTitle(''); setArtifactBody(''); } })}>Přidat textový artefakt</button>
+                </div>
+              )}
+              {artifacts[objective.id]?.map((artifact) => <div key={artifact.id} className="mt-1 text-slate-400">{artifact.title} · {artifact.status}{artifact.status === 'DRAFT' && objective.status === 'PUBLISHED' && <button type="button" className="ml-2 underline" onClick={() => void apiClient.publishRecoveryArtifact(eventId, objective.id, artifact.id, artifact.revision).then((result) => { if (result.ok && result.data) setArtifacts((current) => ({ ...current, [objective.id]: current[objective.id]!.map((item) => item.id === artifact.id ? result.data! : item) })); })}>Publikovat</button>}</div>)}
             </div>
           ))}
         </div>

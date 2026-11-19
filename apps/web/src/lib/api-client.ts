@@ -115,6 +115,8 @@ import type {
   RecoveryObjectiveReviewRequest,
   RecoveryObjectiveRestoreRequest,
   RecoveryReportRequest,
+  RecoveryArtifact,
+  CreateRecoveryArtifactRequest,
 } from '@cyris/contracts';
 
 export class CyrisApiClient {
@@ -1348,6 +1350,15 @@ export class CyrisApiClient {
   }
   async listRecoveryReports(eventId: string, objectiveId: string): Promise<{ ok: boolean; data?: RecoveryReport[]; error?: string }> {
     return this.fetchJson<RecoveryReport[]>(`/events/${eventId}/disruptions/recovery-objectives/${objectiveId}/reports`);
+  }
+  async listRecoveryArtifacts(eventId: string, objectiveId: string): Promise<{ ok: boolean; data?: RecoveryArtifact[]; error?: string }> {
+    return this.fetchJson<RecoveryArtifact[]>(`/events/${eventId}/disruptions/recovery-objectives/${objectiveId}/artifacts`);
+  }
+  async createRecoveryArtifact(eventId: string, objectiveId: string, payload: Omit<CreateRecoveryArtifactRequest, 'objectiveId'>): Promise<{ ok: boolean; data?: RecoveryArtifact; error?: string }> {
+    return this.postJson<RecoveryArtifact>(`/events/${eventId}/disruptions/recovery-objectives/${objectiveId}/artifacts`, payload);
+  }
+  async publishRecoveryArtifact(eventId: string, objectiveId: string, artifactId: string, expectedRevision: number): Promise<{ ok: boolean; data?: RecoveryArtifact; error?: string }> {
+    return this.postJson<RecoveryArtifact>(`/events/${eventId}/disruptions/recovery-objectives/${objectiveId}/artifacts/${artifactId}/publish`, { expectedRevision });
   }
 
   // ============================================================================

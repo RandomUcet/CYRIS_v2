@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, integer, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { generateId } from '@cyris/shared';
 import { events } from './events.js';
 import { users } from './users.js';
@@ -36,8 +36,26 @@ export const recoveryReports = pgTable('recovery_reports', {
   revision: integer('revision').notNull().default(1),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
-  objectiveAuthorIdx: index('recovery_reports_objective_author_idx').on(table.objectiveId, table.authorUserId),
+  objectiveAuthorIdx: uniqueIndex('recovery_reports_objective_author_unique').on(table.objectiveId, table.authorUserId),
+}));
+
+export const recoveryArtifacts = pgTable('recovery_artifacts', {
+  id: uuid('id').primaryKey().$defaultFn(() => generateId()),
+  objectiveId: uuid('objective_id').notNull().references(() => recoveryObjectives.id, { onDelete: 'cascade' }),
+  eventId: uuid('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 200 }).notNull(),
+  filename: varchar('filename', { length: 128 }).notNull(),
+  mimeType: varchar('mime_type', { length: 64 }).notNull().default('text/plain'),
+  body: text('body').notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('DRAFT'),
+  revision: integer('revision').notNull().default(1),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  objectiveIdx: index('recovery_artifacts_objective_idx').on(table.objectiveId, table.status),
 }));
 
 export type RecoveryObjective = typeof recoveryObjectives.$inferSelect;
 export type RecoveryReport = typeof recoveryReports.$inferSelect;
+export type RecoveryArtifact = typeof recoveryArtifacts.$inferSelect;

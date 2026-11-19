@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Res, UseGuards } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
@@ -9,6 +10,7 @@ import {
   RecoveryObjectiveReviewRequestSchema,
   RecoveryObjectiveRestoreRequestSchema,
   RecoveryReportRequestSchema,
+  CreateRecoveryArtifactRequestSchema,
 } from '@cyris/contracts';
 import { DisruptionsService } from './disruptions.service.js';
 
@@ -89,5 +91,32 @@ export class DisruptionsController {
     const parsed = RecoveryReportRequestSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.errors[0]?.message ?? 'Invalid recovery report payload');
     return this.disruptionsService.submitRecoveryReport(eventId, objectiveId, parsed.data, user);
+  }
+
+  @Get('recovery-objectives/:objectiveId/artifacts')
+  listRecoveryArtifacts(@Param('eventId') eventId: string, @Param('objectiveId') objectiveId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.disruptionsService.listRecoveryArtifacts(eventId, objectiveId, user);
+  }
+
+  @Post('recovery-objectives/:objectiveId/artifacts')
+  async createRecoveryArtifact(@Param('eventId') eventId: string, @Param('objectiveId') objectiveId: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    const parsed = CreateRecoveryArtifactRequestSchema.safeParse({ ...(body as Record<string, unknown>), objectiveId });
+    if (!parsed.success) throw new BadRequestException(parsed.error.errors[0]?.message ?? 'Invalid recovery artifact payload');
+    return this.disruptionsService.createRecoveryArtifact(eventId, parsed.data, user);
+  }
+
+  @Post('recovery-objectives/:objectiveId/artifacts/:artifactId/publish')
+  async publishRecoveryArtifact(@Param('eventId') eventId: string, @Param('artifactId') artifactId: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    const parsed = RecoveryObjectiveRestoreRequestSchema.pick({ expectedRevision: true }).safeParse(body);
+    if (!parsed.success) throw new BadRequestException('A valid expectedRevision is required');
+    return this.disruptionsService.publishRecoveryArtifact(eventId, artifactId, parsed.data.expectedRevision, user);
+  }
+
+  @Get('recovery-objectives/:objectiveId/artifacts/:artifactId/download')
+  async downloadRecoveryArtifact(@Param('eventId') eventId: string, @Param('artifactId') artifactId: string, @CurrentUser() user: AuthenticatedUser, @Res() reply: FastifyReply) {
+    const file = await this.disruptionsService.downloadRecoveryArtifact(eventId, artifactId, user);
+    reply.header('Content-Type', 'text/plain; charset=utf-8');
+    reply.header('Content-Disposition', `attachment; filename="${file.filename}"`);
+    return reply.send(file.body);
   }
 }
