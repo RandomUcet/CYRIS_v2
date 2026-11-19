@@ -78,6 +78,41 @@ export function scenarioStatusMatches(actual: string | null | undefined, expecte
     : { met: false, reason: `Expected status ${expected}, current status is ${actual}` };
 }
 
+export function validateScenarioDependencyGraph(
+  currentInjectId: string,
+  candidateDependencyIds: readonly string[],
+  existingEdges: readonly { injectId: string; dependsOnInjectId: string }[],
+): string | null {
+  if (candidateDependencyIds.includes(currentInjectId)) return 'Inject cannot depend on itself.';
+  const graph = new Map<string, string[]>();
+  for (const edge of existingEdges) {
+    const list = graph.get(edge.injectId) ?? [];
+    list.push(edge.dependsOnInjectId);
+    graph.set(edge.injectId, list);
+  }
+  graph.set(currentInjectId, [...candidateDependencyIds]);
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (node: string): boolean => {
+    if (visiting.has(node)) return true;
+    if (visited.has(node)) return false;
+    visiting.add(node);
+    for (const dependency of graph.get(node) ?? []) if (visit(dependency)) return true;
+    visiting.delete(node);
+    visited.add(node);
+    return false;
+  };
+  return visit(currentInjectId) ? 'Circular dependency detected between scenario injects.' : null;
+}
+
+export function canScenarioAutoRelease(
+  status: string,
+  releasePolicy: string,
+  isActiveScenario: boolean,
+): boolean {
+  return isActiveScenario && releasePolicy === 'AUTO_RELEASE' && status !== 'DRAFT' && status !== 'CANCELLED';
+}
+
 export function combineScenarioConditions(
   results: readonly ScenarioConditionResult[],
   logic: ScenarioConditionLogicValue,

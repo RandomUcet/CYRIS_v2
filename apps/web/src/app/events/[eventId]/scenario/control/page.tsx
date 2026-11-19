@@ -13,6 +13,8 @@ import type {
   ScenarioInjectResponse,
   ScenarioPhaseResponse,
   AudiencePreviewResponse,
+  ScenarioInjectTargetInput,
+  ScenarioInjectActionInput,
 } from '@cyris/contracts';
 
 function formatDateTime(value?: string | null) {
@@ -83,6 +85,17 @@ export default function ScenarioControlPage() {
   const [newEffect, setNewEffect] = useState<'NONE' | 'CREATE_INCIDENT'>('NONE');
   const [units, setUnits] = useState<Array<{ id: string; name: string }>>([]);
   const [newTargetUnitId, setNewTargetUnitId] = useState('');
+  const [newTargetType, setNewTargetType] = useState<'UNIT' | 'USER' | 'EVENT'>('UNIT');
+  const [newTargetUserId, setNewTargetUserId] = useState('');
+  const [newConditionType, setNewConditionType] = useState<'NONE' | 'TASK_STATUS' | 'RECOVERY_OBJECTIVE_STATUS'>('NONE');
+  const [newConditionTargetId, setNewConditionTargetId] = useState('');
+  const [newConditionStatus, setNewConditionStatus] = useState('');
+  const [newConditionLogic, setNewConditionLogic] = useState<'ALL' | 'ANY'>('ALL');
+  const [newDependencies, setNewDependencies] = useState<string[]>([]);
+  const [editInjectId, setEditInjectId] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<Array<{ id: string; taskNumber?: string; title?: string; status?: string }>>([]);
+  const [objectives, setObjectives] = useState<Array<{ id: string; title: string; status: string }>>([]);
+  const [members, setMembers] = useState<Array<{ userId: string; displayName?: string; unitId?: string }>>([]);
   const [clockTime, setClockTime] = useState('');
 
   // Fetch Run Sheet
@@ -109,6 +122,15 @@ export default function ScenarioControlPage() {
       if (res.ok && res.data) {
         setUnits(res.data.map((unit: { id: string; name: string }) => ({ id: unit.id, name: unit.name })));
       }
+    });
+    apiClient.listTasks(eventId, { limit: 100 }).then((res) => {
+      if (res.ok && res.data) setTasks(res.data as typeof tasks);
+    });
+    apiClient.listRecoveryObjectives(eventId).then((res) => {
+      if (res.ok && res.data) setObjectives(res.data as typeof objectives);
+    });
+    apiClient.getMemberships(eventId).then((res) => {
+      if (res.ok && res.data) setMembers(res.data as typeof members);
     });
     // Lightweight polling every 4 seconds
     const interval = setInterval(() => {
@@ -172,6 +194,30 @@ export default function ScenarioControlPage() {
       await loadRunSheet(true);
     }
     setActionLoading(false);
+  };
+
+  const openInjectDesigner = (inject?: ScenarioInjectResponse) => {
+    setEditInjectId(inject?.id ?? null);
+    setNewTitle(inject?.title ?? '');
+    setNewSummary(inject?.controllerSummary ?? '');
+    setNewParticipantTitle(inject?.participantTitle ?? '');
+    setNewParticipantContent(inject?.participantContent ?? '');
+    setNewPriority((inject?.priority as typeof newPriority) ?? 'NORMAL');
+    setNewTriggerType((inject?.triggerType as typeof newTriggerType) ?? 'MANUAL');
+    setNewReleasePolicy((inject?.releasePolicy as typeof newReleasePolicy) ?? 'MANUAL_CONFIRMATION');
+    setNewConditionLogic((inject?.conditionLogic as typeof newConditionLogic) ?? 'ALL');
+    setNewPhaseId(inject?.phaseId ?? '');
+    setNewScheduledAt(inject?.scheduledAt ? new Date(inject.scheduledAt).toISOString().slice(0, 16) : '');
+    const target = inject?.targets[0];
+    setNewTargetType((target?.targetType as typeof newTargetType) ?? 'UNIT');
+    setNewTargetUnitId(target?.targetUnitId ?? '');
+    setNewTargetUserId(target?.targetUserId ?? '');
+    const condition = inject?.conditions[0];
+    setNewConditionType((condition?.conditionType as typeof newConditionType) ?? 'NONE');
+    setNewConditionTargetId(condition?.targetResourceId ?? '');
+    setNewConditionStatus(condition?.targetStatus ?? '');
+    setNewDependencies(inject?.dependencies.map((dependency) => dependency.dependsOnInjectId) ?? []);
+    setShowCreateInjectModal(true);
   };
 
   const handleOpenPreview = async (injectId: string) => {
@@ -245,7 +291,35 @@ export default function ScenarioControlPage() {
       return;
     }
     setActionLoading(true);
-    const res = await apiClient.createScenarioInject(eventId, {
+    if (newTargetType === 'UNIT' && !newTargetUnitId) {
+      alert('Select an explicit recipient unit.');
+      setActionLoading(false);
+      return;
+    }
+    if (newTargetType === 'USER' && !newTargetUserId) {
+      alert('Select an explicit recipient user.');
+      setActionLoading(false);
+      return;
+    }
+    if (newTriggerType === 'CONDITION' && newConditionType === 'NONE') {
+      alert('Condition trigger requires a typed condition.');
+      setActionLoading(false);
+      return;
+    }
+    const conditions = newConditionType === 'NONE' ? [] : [{
+      conditionType: newConditionType,
+      targetResourceId: newConditionTargetId || undefined,
+      targetStatus: newConditionStatus || undefined,
+    }];
+    const targets: ScenarioInjectTargetInput[] = newTargetType === 'UNIT'
+      ? [{ targetType: 'UNIT', targetUnitId: newTargetUnitId }]
+      : newTargetType === 'USER'
+        ? [{ targetType: 'USER', targetUserId: newTargetUserId }]
+        : [{ targetType: 'EVENT' }];
+    const actions: ScenarioInjectActionInput[] = newEffect === 'CREATE_INCIDENT'
+      ? [{ actionType: 'CREATE_INCIDENT', targetType: 'EVENT', parameters: { title: newTitle.trim(), description: newSummary.trim(), priority: newPriority === 'CRITICAL' ? 'CRITICAL' : newPriority === 'HIGH' ? 'HIGH' : newPriority === 'LOW' ? 'LOW' : 'MEDIUM' } }]
+      : [];
+    const payload = {
       phaseId: newPhaseId || undefined,
       title: newTitle.trim(),
       controllerSummary: newSummary.trim(),
@@ -254,19 +328,22 @@ export default function ScenarioControlPage() {
       priority: newPriority,
       triggerType: newTriggerType,
       releasePolicy: newReleasePolicy,
+      conditionLogic: newConditionLogic,
       controllerNotes: newNotes.trim() || undefined,
       scheduledAt: newScheduledAt ? new Date(newScheduledAt).toISOString() : undefined,
-      targets: newTargetUnitId
-        ? [{ targetType: 'UNIT', targetUnitId: newTargetUnitId }]
-        : [{ targetType: 'EVENT' }],
-      actions: newEffect === 'CREATE_INCIDENT'
-        ? [{ actionType: 'CREATE_INCIDENT', targetType: 'EVENT', parameters: { title: newTitle.trim(), description: newSummary.trim(), priority: newPriority === 'CRITICAL' ? 'CRITICAL' : newPriority === 'HIGH' ? 'HIGH' : newPriority === 'LOW' ? 'LOW' : 'MEDIUM' } }]
-        : [],
-    });
+      conditions,
+      dependencies: newDependencies,
+      targets,
+      actions,
+    };
+    const res = editInjectId
+      ? await apiClient.updateScenarioInject(eventId, editInjectId, payload)
+      : await apiClient.createScenarioInject(eventId, payload);
     if (!res.ok) {
       alert(`Create inject failed: ${res.error}`);
     } else {
       setShowCreateInjectModal(false);
+      setEditInjectId(null);
       setNewTitle('');
       setNewSummary('');
       setNewParticipantTitle('');
@@ -331,6 +408,53 @@ export default function ScenarioControlPage() {
                 EXERCISE RUN SHEET
               </span>
             </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>CONDITION TYPE</label>
+                <select value={newConditionType} onChange={(e) => setNewConditionType(e.target.value as typeof newConditionType)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                  <option value="NONE">No condition</option><option value="TASK_STATUS">Task status</option><option value="RECOVERY_OBJECTIVE_STATUS">Recovery objective status</option>
+                </select>
+              </div>
+              {newConditionType !== 'NONE' ? (
+                <>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>TARGET</label>
+                    <select value={newConditionTargetId} onChange={(e) => {
+                      const id = e.target.value;
+                      setNewConditionTargetId(id);
+                    }} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                      <option value="">Select event-scoped target</option>
+                      {(newConditionType === 'TASK_STATUS' ? tasks : objectives).map((item) => <option key={item.id} value={item.id}>{'taskNumber' in item ? `${item.taskNumber ?? item.id} — ${item.title ?? ''}` : item.title}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>EXPECTED STATUS</label>
+                    <select value={newConditionStatus} onChange={(e) => setNewConditionStatus(e.target.value)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                      <option value="">Select valid status</option>
+                      {(newConditionType === 'TASK_STATUS'
+                        ? ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS', 'BLOCKED', 'COMPLETED', 'CANCELLED']
+                        : ['PUBLISHED', 'APPROVED', 'RESTORED', 'REJECTED']).map((status) => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  </div>
+                </>
+              ) : null}
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>CONDITION LOGIC</label>
+              <select value={newConditionLogic} onChange={(e) => setNewConditionLogic(e.target.value as typeof newConditionLogic)} style={{ width: '160px', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                <option value="ALL">ALL conditions</option><option value="ANY">ANY condition</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>PREREQUISITE INJECTS</label>
+              <select multiple value={newDependencies} onChange={(e) => setNewDependencies(Array.from(e.target.selectedOptions, (option) => option.value))} style={{ width: '100%', minHeight: '54px', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                {runSheet?.injects.filter((inject) => inject.id !== editInjectId && inject.status !== 'CANCELLED').map((inject) => (
+                  <option key={inject.id} value={inject.id}>{inject.injectNumber} — {inject.title}</option>
+                ))}
+              </select>
+              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '3px' }}>Transitive cycles and cross-event references are rejected by the API.</div>
+            </div>
             <nav aria-label="Scenario navigation" style={{ display: 'flex', gap: '12px', fontSize: '11px' }}>
               <Link href={`/events/${eventId}/overview`} style={{ color: 'var(--accent-active)' }}>Event Overview</Link>
               <Link href={`/events/${eventId}/scenario-data`} style={{ color: 'var(--accent-active)' }}>Scenario Data</Link>
@@ -339,7 +463,15 @@ export default function ScenarioControlPage() {
 
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
               <button
-                onClick={() => setShowCreateInjectModal(true)}
+                type="button"
+                onClick={() => openInjectDesigner(selectedInject ?? undefined)}
+                disabled={!selectedInject || selectedInject.status === 'RELEASED' || selectedInject.status === 'CANCELLED'}
+                style={{ ...compactButtonStyle, marginRight: '6px' }}
+              >
+                Edit design
+              </button>
+              <button
+                onClick={() => openInjectDesigner()}
                 style={{
                   padding: '5px 12px',
                   backgroundColor: 'var(--cyris-orange)',
@@ -1360,6 +1492,24 @@ export default function ScenarioControlPage() {
                     <option value="CREATE_INCIDENT">CREATE INCIDENT</option>
                   </select>
                 </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>RECIPIENT TYPE *</label>
+                  <select value={newTargetType} onChange={(e) => setNewTargetType(e.target.value as typeof newTargetType)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                    <option value="UNIT">Unit</option><option value="USER">User</option><option value="EVENT">Whole event</option>
+                  </select>
+                </div>
+                {newTargetType === 'USER' ? (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>RECIPIENT USER *</label>
+                    <select value={newTargetUserId} onChange={(e) => setNewTargetUserId(e.target.value)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                      <option value="">Select active event member</option>
+                      {members.map((member) => <option key={member.userId} value={member.userId}>{member.displayName ?? member.userId}</option>)}
+                    </select>
+                  </div>
+                ) : null}
               </div>
 
               <div>
