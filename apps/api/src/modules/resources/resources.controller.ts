@@ -25,13 +25,15 @@ import {
   type ResourceRelationshipItem,
   type ActivityEventItem,
 } from '@cyris/contracts';
+import { ResourceAccessService } from './resource-access.service.js';
 
 @Controller('events/:eventId')
 @UseGuards(AuthGuard, PermissionsGuard)
 export class ResourcesController {
   constructor(
     private readonly resourceService: ResourceService,
-    private readonly activityService: ActivityService
+    private readonly activityService: ActivityService,
+    private readonly resourceAccessService: ResourceAccessService
   ) {}
 
   @Post('resources')
@@ -70,6 +72,17 @@ export class ResourcesController {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid relationship payload');
     }
 
+    await this.resourceAccessService.assertCanAccessResource(
+      user,
+      sourceResourceId,
+      Permissions.REGISTRY_RELATIONSHIP_MANAGE
+    );
+    await this.resourceAccessService.assertCanAccessResource(
+      user,
+      parse.data.targetResourceId,
+      Permissions.REGISTRY_RELATIONSHIP_MANAGE
+    );
+
     return this.resourceService.createRelationship({
       eventId,
       sourceResourceId,
@@ -83,26 +96,79 @@ export class ResourcesController {
   @Get('relationships')
   @RequirePermission(Permissions.EVENT_READ, PermissionScopes.EVENT)
   async listEventRelationships(
-    @Param('eventId') eventId: string
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: AuthenticatedUser
   ): Promise<ResourceRelationshipItem[]> {
-    return this.resourceService.listEventRelationships(eventId);
+    const relationships = await this.resourceService.listEventRelationships(eventId);
+    const permitted: ResourceRelationshipItem[] = [];
+    for (const relationship of relationships) {
+      const sourceAllowed = await this.resourceAccessService.canAccessResource(
+        user,
+        relationship.sourceResourceId,
+        Permissions.REGISTRY_READ
+      );
+      const targetAllowed = await this.resourceAccessService.canAccessResource(
+        user,
+        relationship.targetResourceId,
+        Permissions.REGISTRY_READ
+      );
+      if (sourceAllowed && targetAllowed) permitted.push(relationship);
+    }
+    return permitted;
   }
 
   @Get('resources/:resourceId/relationships')
   @RequirePermission(Permissions.EVENT_READ, PermissionScopes.EVENT)
   async listRelationships(
-    @Param('resourceId') resourceId: string
+    @Param('resourceId') resourceId: string,
+    @CurrentUser() user: AuthenticatedUser
   ): Promise<ResourceRelationshipItem[]> {
-    return this.resourceService.listRelationships(resourceId);
+    await this.resourceAccessService.assertCanAccessResource(
+      user,
+      resourceId,
+      Permissions.REGISTRY_READ
+    );
+    const relationships = await this.resourceService.listRelationships(resourceId);
+    const permitted: ResourceRelationshipItem[] = [];
+    for (const relationship of relationships) {
+      const sourceAllowed = await this.resourceAccessService.canAccessResource(
+        user,
+        relationship.sourceResourceId,
+        Permissions.REGISTRY_READ
+      );
+      const targetAllowed = await this.resourceAccessService.canAccessResource(
+        user,
+        relationship.targetResourceId,
+        Permissions.REGISTRY_READ
+      );
+      if (sourceAllowed && targetAllowed) permitted.push(relationship);
+    }
+    return permitted;
   }
 
 
   @Delete('resources/relationships/:relationshipId')
   @RequirePermission(Permissions.EVENT_READ, PermissionScopes.EVENT)
   async removeRelationship(
-    @Param('relationshipId') relationshipId: string
+    @Param('eventId') eventId: string,
+    @Param('relationshipId') relationshipId: string,
+    @CurrentUser() user: AuthenticatedUser
   ): Promise<{ success: boolean }> {
-    await this.resourceService.removeRelationship(relationshipId);
+    const relationship = await this.resourceService.getRelationship(relationshipId);
+    if (!relationship || relationship.eventId !== eventId) {
+      throw new NotFoundException(`Relationship '${relationshipId}' not found`);
+    }
+    await this.resourceAccessService.assertCanAccessResource(
+      user,
+      relationship.sourceResourceId,
+      Permissions.REGISTRY_RELATIONSHIP_MANAGE
+    );
+    await this.resourceAccessService.assertCanAccessResource(
+      user,
+      relationship.targetResourceId,
+      Permissions.REGISTRY_RELATIONSHIP_MANAGE
+    );
+    await this.resourceService.removeRelationship(relationshipId, user.id);
     return { success: true };
   }
 
@@ -116,6 +182,18 @@ export class ResourcesController {
     const parse = CreateActivityEventRequestSchema.safeParse(body);
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid activity payload');
+    }
+
+    if (parse.data.resourceId) {
+      const resource = await this.resourceService.getResource(parse.data.resourceId);
+      if (!resource || resource.eventId !== eventId) {
+        throw new BadRequestException('Activity resource must belong to this exercise');
+      }
+      await this.resourceAccessService.assertCanAccessResource(
+        user,
+        parse.data.resourceId,
+        Permissions.TIMELINE_READ
+      );
     }
 
     return this.activityService.recordActivity({

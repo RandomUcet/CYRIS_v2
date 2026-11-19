@@ -63,3 +63,18 @@ export const LabAnalysisResponseSchema = z.object({
 });
 
 export type LabAnalysisResponse = z.infer<typeof LabAnalysisResponseSchema>;
+
+export const ReassignLabAnalysisRequestSchema = z.object({
+  assignedToUserId: z.string().uuid().nullable().optional(),
+  assignedUnitId: z.string().uuid().nullable().optional(),
+  reason: z.string().trim().min(3, 'A reassignment reason is required'),
+});
+export type ReassignLabAnalysisRequest = z.infer<typeof ReassignLabAnalysisRequestSchema>;
+
+export const CorrectLabAnalysisRequestSchema = z.object({
+  status: LabAnalysisStatusSchema.optional(),
+  assignedToUserId: z.string().uuid().nullable().optional(),
+  assignedUnitId: z.string().uuid().nullable().optional(),
+  reason: z.string().trim().min(3, 'A correction reason is required'),
+});
+export type CorrectLabAnalysisRequest = z.infer<typeof CorrectLabAnalysisRequestSchema>;

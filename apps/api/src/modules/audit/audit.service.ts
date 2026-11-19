@@ -28,6 +28,8 @@ export interface RecordAuditParams {
   requestId?: string | null;
   metadata?: Record<string, unknown>;
   changes?: Record<string, unknown> | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  txClient?: any;
 }
 
 @Injectable()
@@ -41,7 +43,7 @@ export class AuditService {
    * Central structured redaction is guaranteed on all metadata and change payloads.
    */
   async record(params: RecordAuditParams): Promise<string> {
-    const db = this.databaseService.client;
+    const db = params.txClient || this.databaseService.client;
     const auditId = generateId();
     const occurredAt = new Date();
 
@@ -79,10 +81,15 @@ export class AuditService {
     };
 
     try {
-      await db.transaction(async (tx) => {
-        await tx.insert(auditEvents).values(auditRow);
-        await tx.insert(outboxEvents).values(outboxRow);
-      });
+      if (params.txClient) {
+        await db.insert(auditEvents).values(auditRow);
+        await db.insert(outboxEvents).values(outboxRow);
+      } else {
+        await db.transaction(async (tx: any) => {
+          await tx.insert(auditEvents).values(auditRow);
+          await tx.insert(outboxEvents).values(outboxRow);
+        });
+      }
     } catch (err) {
       // If transaction fails, log error so that audit failures are traceable
       this.logger.error(`Failed to record audit event '${params.action}': ${(err as Error).message}`);

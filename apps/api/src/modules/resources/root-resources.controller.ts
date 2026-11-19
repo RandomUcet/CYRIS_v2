@@ -15,17 +15,43 @@ import {
   CreateRelationshipRequestSchema,
   type ResourceRelationshipItem,
 } from '@cyris/contracts';
+import { Permissions } from '@cyris/shared';
+import { ResourceAccessService } from './resource-access.service.js';
 
 @Controller('resources')
 @UseGuards(AuthGuard)
 export class RootResourcesController {
-  constructor(private readonly resourceService: ResourceService) {}
+  constructor(
+    private readonly resourceService: ResourceService,
+    private readonly resourceAccessService: ResourceAccessService
+  ) {}
 
   @Get(':resourceId/relationships')
   async listRelationships(
-    @Param('resourceId') resourceId: string
+    @Param('resourceId') resourceId: string,
+    @CurrentUser() user: AuthenticatedUser
   ): Promise<ResourceRelationshipItem[]> {
-    return this.resourceService.listRelationships(resourceId);
+    await this.resourceAccessService.assertCanAccessResource(
+      user,
+      resourceId,
+      Permissions.REGISTRY_READ
+    );
+    const relationships = await this.resourceService.listRelationships(resourceId);
+    const permitted: ResourceRelationshipItem[] = [];
+    for (const relationship of relationships) {
+      const sourceAllowed = await this.resourceAccessService.canAccessResource(
+        user,
+        relationship.sourceResourceId,
+        Permissions.REGISTRY_READ
+      );
+      const targetAllowed = await this.resourceAccessService.canAccessResource(
+        user,
+        relationship.targetResourceId,
+        Permissions.REGISTRY_READ
+      );
+      if (sourceAllowed && targetAllowed) permitted.push(relationship);
+    }
+    return permitted;
   }
 
   @Post(':sourceResourceId/relationships')
@@ -38,6 +64,17 @@ export class RootResourcesController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid relationship payload');
     }
+
+    await this.resourceAccessService.assertCanAccessResource(
+      user,
+      sourceResourceId,
+      Permissions.REGISTRY_RELATIONSHIP_MANAGE
+    );
+    await this.resourceAccessService.assertCanAccessResource(
+      user,
+      parse.data.targetResourceId,
+      Permissions.REGISTRY_RELATIONSHIP_MANAGE
+    );
 
     return this.resourceService.createRelationship({
       sourceResourceId,

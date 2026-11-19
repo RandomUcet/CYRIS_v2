@@ -29,6 +29,7 @@ import { RegistryService } from '../modules/registry/registry.service.js';
 import { InvestigationService } from '../modules/investigation/investigation.service.js';
 import { EvidenceService } from '../modules/evidence/evidence.service.js';
 import { LaboratoryService } from '../modules/laboratory/laboratory.service.js';
+import type { NotificationsService } from '../modules/notifications/notifications.service.js';
 import { TimelineService } from '../modules/timeline/timeline.service.js';
 import type { AuthenticatedUser } from '../modules/auth/session.service.js';
 
@@ -60,6 +61,9 @@ async function main() {
   const searchService = new SearchService(configService, searchAuthzService);
   const searchIndexerService = new SearchIndexerService(databaseService, searchService);
   const authzService = new AuthorizationService(databaseService);
+  const notificationTestDouble = {
+    emit: async () => null,
+  } as Pick<NotificationsService, 'emit'>;
   const resourceService = new ResourceService(databaseService, auditService, activityService, searchIndexerService);
   const resourceAccessService = new ResourceAccessService(databaseService, authzService);
   const resourceAssignmentService = new ResourceAssignmentService(
@@ -106,7 +110,9 @@ async function main() {
     identifierAllocatorService,
     auditService,
     activityService,
-    searchIndexerService
+    searchIndexerService,
+    notificationTestDouble as NotificationsService,
+    authzService
   );
   const timelineService = new TimelineService(databaseService, resourceAccessService);
 

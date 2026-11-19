@@ -7,6 +7,7 @@ import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
 import { RecordIdentifier, StatusBadge } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
+import { ResourcePicker } from '@/components/common/ResourcePicker';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
@@ -15,13 +16,12 @@ import { FlaskConical, Plus, RefreshCw, X, ArrowRight } from 'lucide-react';
 interface LabItem {
   id: string;
   analysisNumber: string;
-  title: string;
+  analysisType: string;
   purpose?: string;
-  status: 'REQUESTED' | 'ACCEPTED' | 'IN_PROGRESS' | 'COMPLETED' | 'APPROVED';
-  evidenceId?: string;
-  caseId?: string;
-  labUnitId?: string;
-  analystUserId?: string;
+  status: 'REQUESTED' | 'ACCEPTED' | 'IN_PROGRESS' | 'COMPLETED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  evidenceIds?: string[];
+  assignedUnitId?: string | null;
+  assignedToUserId?: string | null;
   createdAt: string;
 }
 
@@ -29,10 +29,13 @@ export default function LabListPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const { formatDate } = usePreferences();
 
   const [analyses, setAnalyses] = useState<LabItem[]>([]);
+  const [labUnits, setLabUnits] = useState<Array<{ id: string; name: string }>>([]);
+  const [workspace, setWorkspace] = useState<'all' | 'mine' | 'unassigned' | 'unit' | 'completed'>('all');
+  const [selectedUnitId, setSelectedUnitId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,13 +48,13 @@ export default function LabListPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    title: '',
+    analysisType: '',
     purpose: '',
     evidenceId: '',
-    caseId: '',
+    requestedFromUnitId: '',
   });
 
-  const canRequest = hasPermission('lab.request.create');
+  const canRequest = hasPermission('lab.request', eventId);
 
   const fetchAnalyses = async () => {
     setLoading(true);
@@ -63,6 +66,8 @@ export default function LabListPage() {
       } else {
         setError(res.error || 'Failed to load laboratory queue');
       }
+      const units = await apiClient.getLabUnits(eventId);
+      if (units.ok && units.data) setLabUnits(units.data);
     } catch (err: any) {
       setError(err.message || 'Network error');
     } finally {
@@ -78,21 +83,31 @@ export default function LabListPage() {
 
   const filteredAnalyses = useMemo(() => {
     return analyses.filter((a) => {
+      const workspaceMatch =
+        workspace === 'all' ||
+        (workspace === 'mine' && a.assignedToUserId === user?.user.id) ||
+        (workspace === 'unassigned' && !a.assignedToUserId) ||
+        (workspace === 'unit' && (!selectedUnitId || a.assignedUnitId === selectedUnitId)) ||
+        (workspace === 'completed' && ['COMPLETED', 'APPROVED'].includes(a.status));
       const matchSearch =
         !search ||
         a.analysisNumber?.toLowerCase().includes(search.toLowerCase()) ||
-        a.title?.toLowerCase().includes(search.toLowerCase()) ||
+        a.analysisType?.toLowerCase().includes(search.toLowerCase()) ||
         a.purpose?.toLowerCase().includes(search.toLowerCase());
 
       const matchStatus = !statusFilter || a.status === statusFilter;
-      return matchSearch && matchStatus;
+      return workspaceMatch && matchSearch && matchStatus;
     });
-  }, [analyses, search, statusFilter]);
+  }, [analyses, search, statusFilter, workspace, selectedUnitId, user?.user.id]);
 
   const handleCreateAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.title.trim()) {
-      setFormError('Analysis title is required');
+    if (!formData.analysisType.trim()) {
+      setFormError('Analysis type is required');
+      return;
+    }
+    if (!formData.evidenceId.trim()) {
+      setFormError('Select at least one evidence item');
       return;
     }
 
@@ -100,15 +115,15 @@ export default function LabListPage() {
     setFormError(null);
     try {
       const res = await apiClient.createLabAnalysis(eventId, {
-        title: formData.title.trim(),
+        analysisType: formData.analysisType.trim(),
         purpose: formData.purpose.trim() || undefined,
-        evidenceId: formData.evidenceId.trim() || undefined,
-        caseId: formData.caseId.trim() || undefined,
+        evidenceIds: [formData.evidenceId.trim()],
+        requestedFromUnitId: formData.requestedFromUnitId || undefined,
       });
 
       if (res.ok && res.data) {
         setShowCreateModal(false);
-        setFormData({ title: '', purpose: '', evidenceId: '', caseId: '' });
+        setFormData({ analysisType: '', purpose: '', evidenceId: '', requestedFromUnitId: '' });
         router.push(`/events/${eventId}/lab/${res.data.id}`);
       } else {
         setFormError(res.error || 'Failed to request analysis');
@@ -131,7 +146,9 @@ export default function LabListPage() {
       header: 'Title & Objective',
       accessor: (item) => (
         <div>
-          <div style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>{item.title}</div>
+          <div style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
+            {item.analysisType} · {item.analysisNumber}
+          </div>
           {item.purpose && (
             <div
               style={{
@@ -160,7 +177,7 @@ export default function LabListPage() {
       header: 'Analyst',
       accessor: (item) => (
         <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
-          {item.analystUserId ? `Analyst ${item.analystUserId.slice(0, 8)}` : 'Unassigned'}
+          {item.assignedToUserId ? 'Assigned analyst' : 'Unassigned'}
         </span>
       ),
       width: '140px',
@@ -266,6 +283,26 @@ export default function LabListPage() {
           }}
           totalResults={filteredAnalyses.length}
         />
+        <div style={{ display: 'flex', gap: '8px', margin: '12px 0' }}>
+          {([
+            ['all', 'All work'],
+            ['mine', 'My work'],
+            ['unassigned', 'Unassigned'],
+            ['unit', 'Unit work'],
+            ['completed', 'Completed'],
+          ] as const).map(([value, label]) => (
+            <button key={value} type="button" onClick={() => setWorkspace(value)}
+              className={`btn ${workspace === value ? 'btn-primary' : 'btn-secondary'}`}>
+              {label}
+            </button>
+          ))}
+          {workspace === 'unit' && (
+            <select value={selectedUnitId} onChange={(e) => setSelectedUnitId(e.target.value)} className="input-field">
+              <option value="">All laboratory units</option>
+              {labUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+            </select>
+          )}
+        </div>
 
         {/* Content */}
         {loading ? (
@@ -360,14 +397,29 @@ export default function LabListPage() {
 
                 <div style={{ marginBottom: '14px' }}>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                    Analysis Request Title *
+                    Responsible laboratory
+                  </label>
+                  <select
+                    value={formData.requestedFromUnitId}
+                    onChange={(e) => setFormData({ ...formData, requestedFromUnitId: e.target.value })}
+                    className="input-field"
+                    style={{ width: '100%' }}
+                  >
+                    <option value="">Automatic assignment</option>
+                    {labUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
+                    Analysis type *
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Memory Dump Extraction & C2 Beaconing Triage"
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    placeholder="e.g. DIGITAL_FORENSIC or CHEMICAL"
+                    value={formData.analysisType}
+                    onChange={(e) => setFormData({ ...formData, analysisType: e.target.value })}
                     className="input-field"
                     style={{ width: '100%' }}
                     autoFocus
@@ -375,33 +427,13 @@ export default function LabListPage() {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                      Evidence Resource UUID
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Optional Evidence UUID"
-                      value={formData.evidenceId}
-                      onChange={(e) => setFormData({ ...formData, evidenceId: e.target.value })}
-                      className="input-field"
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                      Associated Case UUID
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Optional Case UUID"
-                      value={formData.caseId}
-                      onChange={(e) => setFormData({ ...formData, caseId: e.target.value })}
-                      className="input-field"
-                      style={{ width: '100%' }}
-                    />
-                  </div>
+                  <ResourcePicker
+                    eventId={eventId}
+                    value={formData.evidenceId}
+                    onChange={(value) => setFormData({ ...formData, evidenceId: value })}
+                    label="Evidence"
+                    types="evidence"
+                  />
                 </div>
 
                 <div style={{ marginBottom: '18px' }}>

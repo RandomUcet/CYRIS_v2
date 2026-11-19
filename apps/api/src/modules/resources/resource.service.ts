@@ -7,6 +7,7 @@ import { SearchIndexerService } from '../search/search-indexer.service.js';
 import {
   resources,
   resourceRelationships,
+  resourceAssignments,
   ResourceVisibility,
   type ResourceVisibilityValue,
   persons,
@@ -115,12 +116,45 @@ export class ResourceService {
     };
   }
 
+  async getRelationship(relationshipId: string): Promise<ResourceRelationshipItem | null> {
+    const [row] = await this.databaseService.client
+      .select()
+      .from(resourceRelationships)
+      .where(
+        and(
+          eq(resourceRelationships.id, relationshipId),
+          isNull(resourceRelationships.removedAt)
+        )
+      )
+      .limit(1);
+
+    if (!row) return null;
+    return {
+      id: row.id,
+      eventId: row.eventId,
+      sourceResourceId: row.sourceResourceId,
+      targetResourceId: row.targetResourceId,
+      relationshipType: row.relationshipType,
+      createdByUserId: row.createdByUserId,
+      createdAt: row.createdAt.toISOString(),
+      removedAt: row.removedAt ? row.removedAt.toISOString() : null,
+      metadata: (row.metadata as Record<string, unknown>) || null,
+      source: null,
+      target: null,
+    };
+  }
+
   /**
    * Creates a directed relationship between two registered resources.
    * Validates both belong to the same event, audits, records activity,
    * and requests search reindexing for both related resources.
    */
   async createRelationship(params: CreateRelationshipParams): Promise<ResourceRelationshipItem> {
+    if (!params.txClient) {
+      return this.databaseService.client.transaction((tx) =>
+        this.createRelationship({ ...params, txClient: tx })
+      );
+    }
     const db = params.txClient || this.databaseService.client;
 
     const [source, target] = await Promise.all([
@@ -189,6 +223,7 @@ export class ResourceService {
         targetResourceType: target.resourceType,
         relationshipType: params.relationshipType,
       },
+      txClient: db,
     });
 
     // 2. Record operational activity
@@ -239,7 +274,13 @@ export class ResourceService {
    * Audited, emits activity, and schedules search reindex.
    */
   async removeRelationship(relationshipId: string, actorUserId?: string): Promise<void> {
-    const db = this.databaseService.client;
+    await this.databaseService.client.transaction((tx) =>
+      this.removeRelationshipInTransaction(relationshipId, actorUserId, tx)
+    );
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async removeRelationshipInTransaction(relationshipId: string, actorUserId: string | undefined, db: any): Promise<void> {
 
     const [row] = await db
       .select()
@@ -252,8 +293,8 @@ export class ResourceService {
     }
 
     const [source, target] = await Promise.all([
-      this.getResource(row.sourceResourceId),
-      this.getResource(row.targetResourceId),
+      this.getResource(row.sourceResourceId, db),
+      this.getResource(row.targetResourceId, db),
     ]);
 
     await db
@@ -274,6 +315,7 @@ export class ResourceService {
         targetResourceId: row.targetResourceId,
         relationshipType: row.relationshipType,
       },
+      txClient: db,
     });
 
     // 2. Activity
@@ -284,13 +326,14 @@ export class ResourceService {
       actorUserId,
       title: `Unlinked ${row.relationshipType} relationship`,
       relatedResourceIds: [row.targetResourceId],
-    });
+    }, db);
 
     // 3. Search reindex
     if (source && target) {
       await this.searchIndexerService.requestRelationshipReindex(
         { type: source.resourceType, id: source.id },
-        { type: target.resourceType, id: target.id }
+        { type: target.resourceType, id: target.id },
+        db
       );
     }
   }

@@ -20,6 +20,7 @@
     "verify:phase2-step3": "nest build && node dist/scripts/verify-phase2-step3.js",
     "verify:phase2-step4": "nest build && node dist/scripts/verify-phase2-step4.js",
     "verify:phase2-step5": "nest build && node dist/scripts/verify-phase2-step5.js",
+    "test:assignment": "node --import tsx --test src/modules/laboratory/laboratory-assignment.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

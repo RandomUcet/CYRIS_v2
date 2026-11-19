@@ -359,6 +359,84 @@ async function seedSystem(): Promise<void> {
   }
   console.log('  ✓ Ensured reusable Team Member event role.');
 
+  // Laboratory role templates are additive: existing role permissions and
+  // assignments are never replaced, so administrators can customize them.
+  const laboratoryRoles = [
+    {
+      slug: 'laboratory-worker',
+      name: 'Laboratory Worker',
+      description: 'Processes laboratory work assigned to the member or unit',
+      permissions: [
+        { key: Permissions.LAB_READ, scope: PermissionScopes.ASSIGNED },
+        { key: Permissions.LAB_ACCEPT, scope: PermissionScopes.ASSIGNED },
+        { key: Permissions.LAB_WORK, scope: PermissionScopes.ASSIGNED },
+        { key: Permissions.LAB_COMPLETE, scope: PermissionScopes.ASSIGNED },
+      ],
+    },
+    {
+      slug: 'laboratory-leader',
+      name: 'Laboratory Leader',
+      description: 'Coordinates laboratory workload within assigned units',
+      permissions: [
+        { key: Permissions.LAB_READ, scope: PermissionScopes.UNIT },
+        { key: Permissions.LAB_REASSIGN, scope: PermissionScopes.UNIT },
+        { key: Permissions.LAB_REQUEST, scope: PermissionScopes.UNIT },
+      ],
+    },
+    {
+      slug: 'excon',
+      name: 'EXCON',
+      description: 'Operational exercise control laboratory authority',
+      permissions: [
+        { key: Permissions.LAB_READ, scope: PermissionScopes.EVENT },
+        { key: Permissions.LAB_REQUEST, scope: PermissionScopes.EVENT },
+        { key: Permissions.LAB_ACCEPT, scope: PermissionScopes.EVENT },
+        { key: Permissions.LAB_WORK, scope: PermissionScopes.EVENT },
+        { key: Permissions.LAB_COMPLETE, scope: PermissionScopes.EVENT },
+        { key: Permissions.LAB_APPROVE, scope: PermissionScopes.EVENT },
+        { key: Permissions.LAB_REASSIGN, scope: PermissionScopes.EVENT },
+        { key: Permissions.LAB_CORRECT, scope: PermissionScopes.EVENT },
+      ],
+    },
+    {
+      slug: 'laboratory-requester',
+      name: 'Laboratory Requester',
+      description: 'Requests laboratory analysis and reads own results',
+      permissions: [
+        { key: Permissions.LAB_REQUEST, scope: PermissionScopes.EVENT },
+        { key: Permissions.LAB_READ, scope: PermissionScopes.OWN },
+      ],
+    },
+  ];
+
+  for (const template of laboratoryRoles) {
+    const [existingRole] = await db.execute(sql`
+      SELECT id FROM roles
+      WHERE event_id = ${event2027Id} AND slug = ${template.slug}
+      LIMIT 1;
+    `);
+    const roleId = (existingRole?.id as string | undefined) ?? generateId();
+    if (!existingRole) {
+      await db.execute(sql`
+        INSERT INTO roles (id, event_id, name, slug, description, created_at, updated_at)
+        VALUES (${roleId}, ${event2027Id}, ${template.name}, ${template.slug}, ${template.description}, NOW(), NOW());
+      `);
+    }
+    for (const permission of template.permissions) {
+      await db.execute(sql`
+        INSERT INTO role_permissions (id, role_id, permission_key, scope, created_at)
+        SELECT ${generateId()}, ${roleId}, ${permission.key}, ${permission.scope}, NOW()
+        WHERE NOT EXISTS (
+          SELECT 1 FROM role_permissions
+          WHERE role_id = ${roleId}
+            AND permission_key = ${permission.key}
+            AND scope = ${permission.scope}
+        );
+      `);
+    }
+  }
+  console.log('  ✓ Ensured configurable laboratory role templates.');
+
   // 5. Provision the official Czech Cybertron hierarchy idempotently.
   console.log('[5/6] Provisioning official organizational structure & capabilities for Czech Cybertron 2027...');
   const canonicalUnits = [

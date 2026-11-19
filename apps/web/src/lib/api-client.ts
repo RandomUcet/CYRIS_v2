@@ -356,6 +356,14 @@ export class CyrisApiClient {
   async getLabAnalyses(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/lab`);
   }
+  async getLabUnits(eventId: string) {
+    return this.fetchJson<Array<{ id: string; name: string }>>(`/events/${eventId}/lab/units`);
+  }
+  async getLabWorkers(eventId: string, unitId: string) {
+    return this.fetchJson<Array<{ id: string; displayName: string }>>(
+      `/events/${eventId}/lab/units/${unitId}/workers`
+    );
+  }
   async getLabAnalysis(eventId: string, analysisId: string) {
     return this.fetchJson<any>(`/events/${eventId}/lab/${analysisId}`);
   }
@@ -364,6 +372,12 @@ export class CyrisApiClient {
   }
   async updateLabAnalysis(eventId: string, analysisId: string, data: any) {
     return this.patchJson<any>(`/events/${eventId}/lab/${analysisId}`, data);
+  }
+  async reassignLabAnalysis(eventId: string, analysisId: string, data: any) {
+    return this.postJson<any>(`/events/${eventId}/lab/${analysisId}/reassign`, data);
+  }
+  async correctLabAnalysis(eventId: string, analysisId: string, data: any) {
+    return this.postJson<any>(`/events/${eventId}/lab/${analysisId}/correct`, data);
   }
 
   // Timeline

@@ -77,6 +77,8 @@ export const Permissions = {
   LAB_WORK: 'lab.work',
   LAB_COMPLETE: 'lab.complete',
   LAB_APPROVE: 'lab.approve',
+  LAB_REASSIGN: 'lab.reassign',
+  LAB_CORRECT: 'lab.correct',
 
   // Integrations & Intelligence
   INTEGRATION_MANAGE: 'integration.manage',
@@ -212,4 +214,3 @@ export function isScopeSufficient(
   // OWN and ASSIGNED are non-interchangeable contextual predicates
   return false;
 }
-

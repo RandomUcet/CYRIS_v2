@@ -52,8 +52,15 @@ export default function LabAnalysisDetailPage() {
   const [findings, setFindings] = useState('');
   const [conclusion, setConclusion] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [labUnits, setLabUnits] = useState<Array<{ id: string; name: string }>>([]);
+  const [eligibleWorkers, setEligibleWorkers] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [selectedUnitId, setSelectedUnitId] = useState('');
+  const [selectedWorkerId, setSelectedWorkerId] = useState('');
+  const [reassignReason, setReassignReason] = useState('');
 
-  const canApprove = hasPermission('lab.result.approve');
+  const canApprove = hasPermission('lab.approve', eventId);
+  const canReassign = hasPermission('lab.reassign', eventId);
+  const canCorrect = hasPermission('lab.correct', eventId);
 
   const fetchAnalysisDetails = async () => {
     setLoading(true);
@@ -92,8 +99,22 @@ export default function LabAnalysisDetailPage() {
   useEffect(() => {
     if (eventId && analysisId) {
       fetchAnalysisDetails();
+      apiClient.getLabUnits(eventId).then((res) => {
+        if (res.ok && res.data) setLabUnits(res.data);
+      });
     }
   }, [eventId, analysisId]);
+
+  useEffect(() => {
+    if (!selectedUnitId) {
+      setEligibleWorkers([]);
+      setSelectedWorkerId('');
+      return;
+    }
+    apiClient.getLabWorkers(eventId, selectedUnitId).then((res) => {
+      if (res.ok && res.data) setEligibleWorkers(res.data);
+    });
+  }, [eventId, selectedUnitId]);
 
   useEffect(() => {
     if (analysisId && activeTab === 'timeline') {
@@ -140,6 +161,56 @@ export default function LabAnalysisDetailPage() {
       }
     } catch (err: any) {
       alert(err.message);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleCorrection = async (status?: string) => {
+    const reason = window.prompt('Correction reason (required):');
+    if (!reason?.trim()) return;
+    setUpdating(true);
+    try {
+      const res = await apiClient.correctLabAnalysis(eventId, analysisId, { status, reason });
+      if (res.ok) await fetchAnalysisDetails();
+      else alert(res.error || 'Correction failed');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleDistribute = async () => {
+    if (!reassignReason.trim() || !selectedUnitId) return;
+    setUpdating(true);
+    try {
+      const res = await apiClient.reassignLabAnalysis(eventId, analysisId, {
+        assignedToUserId: null,
+        assignedUnitId: selectedUnitId,
+        reason: reassignReason.trim(),
+      });
+      if (res.ok) {
+        setReassignReason('');
+        await fetchAnalysisDetails();
+      }
+      else alert(res.error || 'Distribution failed');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleReassign = async () => {
+    if (!selectedUnitId || !selectedWorkerId || reassignReason.trim().length < 3) return;
+    setUpdating(true);
+    try {
+      const res = await apiClient.reassignLabAnalysis(eventId, analysisId, {
+        assignedUnitId: selectedUnitId,
+        assignedToUserId: selectedWorkerId,
+        reason: reassignReason.trim(),
+      });
+      if (res.ok) {
+        setReassignReason('');
+        await fetchAnalysisDetails();
+      } else alert(res.error || 'Reassignment failed');
     } finally {
       setUpdating(false);
     }
@@ -193,12 +264,12 @@ export default function LabAnalysisDetailPage() {
         {/* Record Header */}
         <RecordHeader
           identifier={analysisData.analysisNumber || analysisData.id}
-          title={analysisData.title}
+          title={analysisData.analysisType || analysisData.analysisNumber}
           status={<StatusBadge status={analysisData.status} />}
           priority={<span className="badge badge-neutral">FORENSIC ANALYSIS</span>}
           classification={<span className="badge badge-neutral">LAB REPORT</span>}
-          owningUnit={analysisData.labUnitId ? `Lab Unit: ${analysisData.labUnitId.slice(0, 8)}` : undefined}
-          lead={analysisData.analystUserId ? `Analyst: ${analysisData.analystUserId.slice(0, 8)}` : 'Unassigned'}
+          owningUnit={analysisData.assignedUnitId ? 'Responsible laboratory assigned' : 'Laboratory unassigned'}
+          lead={analysisData.assignedToUserId ? 'Assigned analyst' : 'Unassigned'}
           actions={
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
@@ -209,9 +280,36 @@ export default function LabAnalysisDetailPage() {
                 <Layers size={13} style={{ marginRight: '4px' }} />
                 {inspectorOpen ? 'Hide' : 'Inspect'}
               </button>
+              {canReassign && !analysisData.assignedToUserId && (
+                <button onClick={handleDistribute} disabled={updating} className="btn btn-secondary">
+                  Distribute to queue
+                </button>
+              )}
+              {canCorrect && (
+                <button onClick={() => handleCorrection('REQUESTED')} disabled={updating} className="btn btn-secondary">
+                  Reopen / correct
+                </button>
+              )}
             </div>
           }
         />
+
+        {canReassign && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '10px 24px', borderBottom: '1px solid var(--color-border-subtle)' }}>
+            <select className="input-field" value={selectedUnitId} onChange={(e) => setSelectedUnitId(e.target.value)} aria-label="Destination laboratory">
+              <option value="">Select destination laboratory</option>
+              {labUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+            </select>
+            <select className="input-field" value={selectedWorkerId} onChange={(e) => setSelectedWorkerId(e.target.value)} disabled={!selectedUnitId} aria-label="Eligible laboratory worker">
+              <option value="">Unassigned queue</option>
+              {eligibleWorkers.map((worker) => <option key={worker.id} value={worker.id}>{worker.displayName}</option>)}
+            </select>
+            <input className="input-field" value={reassignReason} onChange={(e) => setReassignReason(e.target.value)} placeholder="Reason" aria-label="Reassignment reason" />
+            <button onClick={selectedWorkerId ? handleReassign : handleDistribute} disabled={updating || !selectedUnitId || reassignReason.trim().length < 3} className="btn btn-secondary">
+              {selectedWorkerId ? 'Reassign' : 'Place in queue'}
+            </button>
+          </div>
+        )}
 
         {/* Lifecycle Stepper Bar */}
         <div
