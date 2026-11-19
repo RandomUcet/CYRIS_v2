@@ -26,6 +26,7 @@ export function DefconPanel({ eventId }: { eventId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [lastConfirmedAt, setLastConfirmedAt] = useState<string | null>(null);
+  const [draftDirty, setDraftDirty] = useState(false);
   const requestId = useRef(0);
 
   const acceptSnapshot = useCallback((next: CommandDefconSnapshot, id: number) => {
@@ -33,29 +34,42 @@ export function DefconPanel({ eventId }: { eventId: string }) {
     setSnapshot((previous) => {
       const accepted = acceptDefconSnapshot(previous, next, eventId);
       if (!accepted) return previous;
-      if (next.level !== null) setLevel(next.level);
+      if (next.level !== null && !draftDirty) setLevel(next.level);
       setLastConfirmedAt(next.updatedAt ?? new Date().toISOString());
       return accepted;
     });
     setStale(false);
     return true;
-  }, [eventId]);
+  }, [draftDirty, eventId]);
 
   const load = useCallback(async (showError = true) => {
     const id = ++requestId.current;
     setLoading(true);
     if (showError) setError(null);
-    const result = await apiClient.getDefcon(eventId);
-    if (result.ok && result.data && acceptSnapshot(result.data, id)) {
-      if (!result.data.initialized) setLevel(null);
-    } else if (showError && id === requestId.current) {
-      setError(result.error || 'DEFCON stav není dostupný');
-      setStale(true);
+    try {
+      const result = await apiClient.getDefcon(eventId);
+      if (result.ok && result.data && acceptSnapshot(result.data, id)) {
+        if (!result.data.initialized) setLevel(null);
+      } else if (showError && id === requestId.current) {
+        setError(result.error || 'DEFCON stav není dostupný');
+        setStale(true);
+      }
+    } catch (cause) {
+      if (id === requestId.current && showError) {
+        setError(cause instanceof Error ? cause.message : 'DEFCON stav není dostupný');
+        setStale(true);
+      }
+    } finally {
+      if (id === requestId.current) setLoading(false);
     }
-    if (id === requestId.current) setLoading(false);
   }, [acceptSnapshot, eventId]);
 
   useEffect(() => {
+    requestId.current += 1;
+    setSnapshot(null);
+    setLevel(null);
+    setDraftDirty(false);
+    setStale(false);
     void load();
     const interval = window.setInterval(() => void load(false), 10000);
     const onFocus = () => void load(false);
@@ -69,24 +83,35 @@ export function DefconPanel({ eventId }: { eventId: string }) {
 
   const submit = async () => {
     const initializing = snapshot && !snapshot.initialized;
+    if (!canChange) {
+      setError('Nemáte oprávnění měnit DEFCON v tomto cvičení.');
+      return;
+    }
     if (!snapshot || (!initializing && (snapshot.level === null || stale)) || level === null || reason.trim().length < 3 || saving) return;
     if (!window.confirm(`${initializing ? 'Inicializovat' : 'Potvrdit změnu'} na DEFCON ${level}?`)) return;
     setSaving(true);
     setError(null);
-    const result = await apiClient.changeDefcon(eventId, {
-      level,
-      expectedRevision: snapshot.revision,
-      reason: reason.trim(),
-    });
-    if (result.ok && result.data) {
-      acceptSnapshot(result.data, requestId.current);
-      setReason('');
-    } else {
-      await load(false);
-      setError(result.error || 'Změna DEFCON selhala; stav mohl být mezitím změněn.');
+    try {
+      const result = await apiClient.changeDefcon(eventId, {
+        level,
+        expectedRevision: snapshot.revision,
+        reason: reason.trim(),
+      });
+      if (result.ok && result.data) {
+        acceptSnapshot(result.data, requestId.current);
+        setReason('');
+        setDraftDirty(false);
+      } else {
+        await load(false);
+        setError(result.error || 'Změna DEFCON selhala; stav mohl být mezitím změněn.');
+        setStale(true);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Změna DEFCON selhala');
       setStale(true);
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (
@@ -105,7 +130,7 @@ export function DefconPanel({ eventId }: { eventId: string }) {
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {LEVELS.map((item) => (
-              <button key={item.value} disabled={!canChange} onClick={() => setLevel(item.value)}
+              <button key={item.value} disabled={!canChange || saving || loading || stale} onClick={() => { setLevel(item.value); setDraftDirty(true); }}
                 className={`px-3 py-2 rounded border text-xs font-mono ${level === item.value ? 'border-white' : 'border-slate-700'}`}
                 style={{ color: item.color }}>
                 {item.value} — {item.label}

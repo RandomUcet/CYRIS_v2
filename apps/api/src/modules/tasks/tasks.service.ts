@@ -44,6 +44,7 @@ import type {
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { isActionableMyWorkItem, isMyWorkViewAllowed, sortAndPaginateMyWork } from './my-work.js';
+import { DisruptionsService } from '../disruptions/disruptions.service.js';
 
 @Injectable()
 export class TasksService {
@@ -56,7 +57,8 @@ export class TasksService {
     private readonly activityService: ActivityService,
     private readonly searchIndexer: SearchIndexerService,
     private readonly notificationsService: NotificationsService,
-    private readonly authorizationService: AuthorizationService
+    private readonly authorizationService: AuthorizationService,
+    private readonly disruptionsService: DisruptionsService
   ) {}
 
   private get db() {
@@ -208,6 +210,7 @@ export class TasksService {
     if (!existing) {
       throw new NotFoundException(`Task '${taskId}' not found`);
     }
+    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
 
     const updates: Record<string, unknown> = {
       updatedAt: new Date(),

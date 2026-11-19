@@ -104,6 +104,9 @@ import type {
   ScenarioDataBatchResponse,
   CommandDefconSnapshot,
   ChangeCommandDefconRequest,
+  DisruptionSnapshot,
+  CreateDisruptionRequest,
+  RestoreDisruptionRequest,
 } from '@cyris/contracts';
 
 export class CyrisApiClient {
@@ -1289,6 +1292,25 @@ export class CyrisApiClient {
     payload: ChangeCommandDefconRequest
   ): Promise<{ ok: boolean; data?: CommandDefconSnapshot; error?: string }> {
     return this.postJson<CommandDefconSnapshot>(`/events/${eventId}/command/defcon`, payload);
+  }
+
+  async listDisruptions(eventId: string): Promise<{ ok: boolean; data?: DisruptionSnapshot[]; error?: string }> {
+    return this.fetchJson<DisruptionSnapshot[]>(`/events/${eventId}/disruptions`);
+  }
+
+  async startDisruption(
+    eventId: string,
+    payload: CreateDisruptionRequest
+  ): Promise<{ ok: boolean; data?: DisruptionSnapshot; error?: string }> {
+    return this.postJson<DisruptionSnapshot>(`/events/${eventId}/disruptions`, payload);
+  }
+
+  async restoreDisruption(
+    eventId: string,
+    disruptionId: string,
+    payload: RestoreDisruptionRequest
+  ): Promise<{ ok: boolean; data?: DisruptionSnapshot; error?: string }> {
+    return this.postJson<DisruptionSnapshot>(`/events/${eventId}/disruptions/${disruptionId}/restore`, payload);
   }
 
   // ============================================================================
