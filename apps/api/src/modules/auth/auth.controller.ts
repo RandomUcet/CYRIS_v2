@@ -136,7 +136,7 @@ export class AuthController {
     const preview = req.cookies?.[PREVIEW_COOKIE];
     const original = preview ? await this.sessionService.validateSession(sessionToken) : null;
     if (original && sessionToken && preview) await this.viewAsService.stop(original.user, sessionToken, preview);
-    res.clearCookie(PREVIEW_COOKIE, {path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'strict'});
+    res.clearCookie(PREVIEW_COOKIE, {path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'lax'});
     const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || '127.0.0.1';
     const userAgent = (req.headers['user-agent'] as string) || null;
     const requestId = (req.headers['x-request-id'] as string) || req.id || null;
@@ -240,7 +240,7 @@ export class AuthController {
     const parsed=StartViewAsRequestSchema.safeParse(body);
     if (!parsed.success || !req.cookies?.[COOKIE_NAME] || !req.sessionToken) throw new BadRequestException('Invalid preview request');
     const {token,info}=await this.viewAsService.start(actor,req.sessionToken,parsed.data);
-    res.setCookie(PREVIEW_COOKIE,token,{path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'strict',maxAge:COOKIE_MAX_AGE_SECONDS});
+    res.setCookie(PREVIEW_COOKIE,token,{path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'lax',maxAge:COOKIE_MAX_AGE_SECONDS});
     return info;
   }
 
@@ -256,7 +256,7 @@ export class AuthController {
     const preview=req.cookies?.[PREVIEW_COOKIE];
     const original=await this.sessionService.validateSession(token);
     if (original && token && preview) await this.viewAsService.stop(original.user,token,preview);
-    res.clearCookie(PREVIEW_COOKIE,{path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'strict'});
+    res.clearCookie(PREVIEW_COOKIE,{path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'lax'});
     return {success:true};
   }
 

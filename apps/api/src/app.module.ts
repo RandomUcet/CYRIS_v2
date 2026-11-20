@@ -31,6 +31,8 @@ import { PreferencesModule } from './modules/preferences/preferences.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { ScenarioDataModule } from './modules/scenario-data/scenario-data.module.js';
 
+import { SupportModule } from './modules/support/support.module.js';
+
 @Module({
   imports: [
     ConfigModule,
@@ -61,6 +63,7 @@ import { ScenarioDataModule } from './modules/scenario-data/scenario-data.module
     EvaluationModule,
     CommandModule,
     DisruptionsModule,
+    SupportModule,
     PreferencesModule,
     NotificationsModule,
     ScenarioDataModule,

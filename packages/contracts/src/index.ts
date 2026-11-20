@@ -28,3 +28,5 @@ export * from './preferences.js';
 export * from './notifications.js';
 export * from './service-status.js';
 export * from './identity.js';
+
+export * from './support.js';
