@@ -5,12 +5,12 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvent } from '@/contexts/EventContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import { Search, ChevronDown, User, LogOut, Calendar, Shield, Activity } from 'lucide-react';
+import { Menu, Search, ChevronDown, User, LogOut, Calendar, Shield, Activity } from 'lucide-react';
 import { StatusBadge } from '../common/Badges';
 import { EventSwitcherModal } from './EventSwitcherModal';
 import { NotificationCenter } from './NotificationCenter';
 import { SUPPORTED_LOCALES, COMMON_TIMEZONES } from '@/lib/i18n';
-import { useDefconReadiness } from '@/hooks/useDefconReadiness';
+import { useReadiness } from '@/contexts/ReadinessContext';
 import { workspaceLabel } from '@/lib/workspace-navigation';
 
 const DEFCON_COLORS: Record<number, string> = {
@@ -22,21 +22,21 @@ const DEFCON_COLORS: Record<number, string> = {
 };
 
 interface TopBarProps {
+  menuOpen: boolean;
+  menuButton: React.RefObject<HTMLButtonElement>;
+  onOpenMenu: () => void;
   onOpenSearch: () => void;
   breadcrumbs?: { label: string; href?: string }[];
 }
 
-export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
+export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcrumbs = [] }: TopBarProps) {
   const { currentUser, isPlatformAdmin, hasPermission, logout } = useAuth();
   const { selectedEvent } = useEvent();
   const { locale, timezone, setLocale, setTimezone, t } = usePreferences();
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [logoutError, setLogoutError] = useState(false);
-  const { snapshot: readiness, stale: readinessStale } = useDefconReadiness(
-    selectedEvent?.id ?? '',
-    Boolean(selectedEvent && hasPermission('command.read', selectedEvent.id)),
-  );
+  const { snapshot: readiness, stale: readinessStale } = useReadiness();
 
   return (
     <>
@@ -56,6 +56,8 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
       >
         {/* Left: Event Banner & Breadcrumbs */}
         <div className="workspace-topbar-context">
+          <button ref={menuButton} type="button" className="mobile-nav-trigger" aria-expanded={menuOpen}
+            aria-label={locale === 'cs' ? 'Otevřít navigaci' : 'Open navigation'} aria-controls="workspace-nav" onClick={onOpenMenu}><Menu size={19}/></button>
           {selectedEvent ? (
             <React.Fragment>
             <button
@@ -83,9 +85,9 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
               <ChevronDown size={11} style={{ color: 'var(--text-muted)' }} />
             </button>
 
-            {readiness && (
+            {readiness && readiness.eventId === selectedEvent.id && (
               <Link
-                href={`/events/${readiness.eventId}/command`}
+                href={`/events/${readiness.eventId}/command${hasPermission('command.read', readiness.eventId) ? '' : '/wallboard'}`}
                 className="workspace-defcon-indicator"
                 title={locale === 'cs' ? 'Stupeň připravenosti cvičení' : 'Exercise readiness'}
                 style={{

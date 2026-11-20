@@ -69,6 +69,7 @@ const cs: Record<string,string> = {
   "Expand Sidebar": "Rozbalit navigaci",
   "Collapse Sidebar": "Sbalit navigaci",
   "Exercise workspace": "Pracovní prostředí cvičení",
+  "Team displays": "Týmové obrazovky",
   "Laboratory queue": "Laboratorní požadavky",
   "Forensics queue": "Forenzní požadavky",
   "New Task": "Nový úkol",

@@ -44,10 +44,12 @@ import type { WorkspaceNavSection, WorkspaceNavItem } from '@cyris/contracts';
 
 interface SideNavProps {
   collapsed: boolean;
+  mobile: boolean;
+  onNavigate: () => void;
   onToggleCollapse: () => void;
 }
 
-export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
+export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: SideNavProps) {
   const pathname = usePathname();
   const { isPlatformAdmin, currentUser, viewAs } = useAuth();
   const { selectedEventId, workspace, loadingWorkspace } = useEvent();
@@ -148,12 +150,23 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
     if (item.href.startsWith('/admin') !== adminMode || seen.has(item.href)) return false;
     seen.add(item.href); return true;
   })})).filter(section => section.items.length > 0);
-  if (!adminMode && selectedEventId && workspace && !seen.has(`/events/${selectedEventId}/my-work`)) {
-    sectionsToRender.unshift({id:'personal-work',title:'My Work',items:[{id:'nav-my-work',label:'My Work',href:`/events/${selectedEventId}/my-work`,iconKey:'briefcase'}]});
-  }
-  if(!adminMode&&selectedEventId&&(isPlatformAdmin||currentUser?.memberships.some(m=>m.eventId===selectedEventId&&m.status==='ACTIVE'))){
-    const href=`/events/${selectedEventId}/service-status`;
-    if(!seen.has(href))sectionsToRender.push({id:'exercise-services',title:'Exercise support',items:[{id:'nav-service-status',label:'Service status',href,iconKey:'activity'},{id:'nav-exercise-help',label:'Help & support',href:`/events/${selectedEventId}/support`,iconKey:'mail'}]});
+  if (!adminMode && selectedEventId && (isPlatformAdmin ||
+    currentUser?.memberships.some(member => member.eventId === selectedEventId && member.status === 'ACTIVE'))) {
+    const root = `/events/${selectedEventId}`;
+    const workHref = `${root}/my-work`;
+    const personal = sectionsToRender.find(section => section.items.some(item => item.href === workHref));
+    const displayItem = { id: 'nav-team-displays', label: 'Team displays', href: `${root}/boards`, iconKey: 'activity' };
+    if (personal) {
+      if (!seen.has(displayItem.href)) personal.items.push(displayItem);
+    } else {
+      sectionsToRender.unshift({ id: 'personal-work', title: 'My Work', items: [
+        { id: 'nav-my-work', label: 'My Work', href: workHref, iconKey: 'briefcase' }, displayItem,
+      ] });
+    }
+    if (!seen.has(`${root}/service-status`)) sectionsToRender.push({ id: 'exercise-services', title: 'Exercise support', items: [
+      { id: 'nav-service-status', label: 'Service status', href: `${root}/service-status`, iconKey: 'activity' },
+      { id: 'nav-exercise-help', label: 'Help & support', href: `${root}/support`, iconKey: 'mail' },
+    ] });
   }
   const activeHref = activeWorkspaceHref(sectionsToRender.flatMap(section => section.items.map(item => item.href)), pathname, query.toString());
   const getSectionTitle = (title: string) => workspaceLabel(locale, title);
@@ -161,7 +174,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
   const renderSection = (section: WorkspaceNavSection) => {
     if (!section.items || section.items.length === 0) return null;
     const sectionHasActiveRoute = section.items.some((item) => item.href === activeHref);
-    const isSectionCollapsed = !collapsed && !sectionHasActiveRoute && (collapsedSections[section.id] ?? (section.id !== 'personal-work' && section.title !== 'Overview' && section.title !== 'Operations' && section.title !== 'Administration'));
+    const isSectionCollapsed = !collapsed && (collapsedSections[section.id] ?? (!sectionHasActiveRoute && section.id !== 'personal-work' && !['Overview', 'Operations', 'Administration'].includes(section.title)));
 
     return (
       <div key={section.id} style={{ marginBottom: '14px' }}>
@@ -204,6 +217,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
                 prefetch={false}
                 aria-current={isActive ? 'page' : undefined}
                 title={collapsed ? labelText : undefined}
+                aria-label={collapsed ? labelText : undefined}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -260,7 +274,9 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
 
   return (
     <nav
-      className="app-sidebar"
+      id="workspace-nav" aria-label={locale === 'cs' ? 'Navigace' : 'Navigation'}
+      onClick={e => { if ((e.target as HTMLElement).closest('a')) onNavigate(); }}
+      className={`app-sidebar${collapsed ? ' is-rail' : ''}`}
       style={{
         width: collapsed ? 'var(--nav-collapsed-width)' : 'var(--nav-width)',
         background: 'var(--bg-sidebar)',
@@ -285,26 +301,15 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
             justifyContent: collapsed ? 'center' : 'space-between',
             padding: collapsed ? '0' : '0 14px',
             borderBottom: '1px solid var(--border-default)',
-            background: collapsed ? 'var(--bg-sidebar-elevated)' : '#f5f8fa',
+            background: 'var(--bg-sidebar)',
           }}
         >
           {!collapsed && <CyrisWordmark />}
-          <button
-            type="button"
+          <button type="button" className="nav-toggle" aria-controls="workspace-nav" aria-expanded={!collapsed}
             onClick={onToggleCollapse}
-            className="btn-ghost"
-            style={{
-              padding: '3px 4px',
-              height: 'auto',
-              minWidth: 'auto',
-              color: 'var(--text-muted)',
-              border: 'none',
-              background: 'transparent',
-              cursor: 'pointer',
-            }}
-            title={workspaceLabel(locale, collapsed ? 'Expand Sidebar' : 'Collapse Sidebar')}
-          >
-            {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+            aria-label={mobile ? (locale === 'cs' ? 'Zavřít navigaci' : 'Close navigation') : workspaceLabel(locale, collapsed ? 'Expand Sidebar' : 'Collapse Sidebar')}
+            title={workspaceLabel(locale, collapsed ? 'Expand Sidebar' : 'Collapse Sidebar')}>
+            {collapsed ? <><CyrisWordmark compact /><ChevronRight className="nav-expand-hint" aria-hidden size={19} /></> : <ChevronLeft size={17} />}
           </button>
         </div>
 

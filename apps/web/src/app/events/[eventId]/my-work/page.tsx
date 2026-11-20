@@ -7,6 +7,7 @@ import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateV
 import { StatusBadge } from '@/components/common/Badges';
 import { apiClient } from '@/lib/api-client';
 import Link from 'next/link';
+import { useAuth } from '@/contexts/AuthContext';
 import { useServiceStatus } from '@/hooks/useServiceStatus';
 import { useEvent } from '@/contexts/EventContext';
 import { workspaceItemLabel } from '@/lib/workspace-navigation';
@@ -19,6 +20,7 @@ export default function MyWorkPage() {
 }
 
 function WorkQueue({ eventId }: { eventId: string }) {
+  const { viewAs } = useAuth();
   const { data: serviceStatus, error: serviceStatusError } = useServiceStatus(eventId);
   const [guideOpen, setGuideOpen] = useState(false);
   const { formatDate, t, locale } = usePreferences();
@@ -96,8 +98,10 @@ function WorkQueue({ eventId }: { eventId: string }) {
             {t('myWork.subtitle')}
           </p>
         </div>
-        {team && team.unitNames.length > 0 && shortcuts.length > 0 && (
+        {team && team.unitNames.length > 0 && (
           <nav className="work-shortcuts" aria-label={cs ? 'Pracoviště týmu' : 'Team workspaces'}>
+            <Link target={viewAs ? undefined : "_blank"} rel="noopener" href={`/events/${eventId}/boards${team.unitIds.length === 1 ? '/' + team.unitIds[0] : ''}`}>
+              {cs ? 'Otevřít týmovou obrazovku' : 'Open team display'} ↗</Link>
             {shortcuts.map(item =>
               <Link key={item.href} href={item.href}>{workspaceItemLabel(locale, item)} <span aria-hidden="true">→</span></Link>)}
           </nav>

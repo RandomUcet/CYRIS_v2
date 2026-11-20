@@ -162,6 +162,11 @@ export class CyrisApiClient {
     return { ok: response.ok, code: body.code as string | undefined, error: body.message as string | undefined };
   }
 
+  getPreviewAccess() { return this.fetchJson<{ enabled: boolean }>('/auth/team-preview'); }
+  setPreviewAccess(enabled: boolean) { return this.patchJson<{ enabled: boolean }>('/auth/team-preview', { enabled }); }
+  getTeamDisplays(eventId: string) { return this.fetchJson<Array<{ id: string; name: string; slug: string }>>(
+    `/events/${eventId}/command/team-displays`); }
+
   listSupport(eventId:string){return this.fetchJson<SupportInbox>(`/events/${eventId}/support`);}
   createSupport(eventId:string,input:CreateSupportRequest){return this.postJson<{id:string}>(`/events/${eventId}/support`,input);}
   replySupport(eventId:string,id:string,input:SupportMessageInput){return this.postJson<{id:string}>(`/events/${eventId}/support/${id}/reply`,input);}
@@ -575,11 +580,14 @@ export class CyrisApiClient {
   async updateEventRole(eventId: string, roleId: string, data: any) {
     return this.patchJson<any>(`/events/${eventId}/roles/${roleId}`, data);
   }
+  revokeRole(eventId: string, assignmentId: string) {
+    return this.deleteJson<{ success: boolean }>(`/events/${eventId}/roles/assignments/${assignmentId}`);
+  }
   async assignRole(eventId: string, data: any) {
     return this.postJson<any>(`/events/${eventId}/roles/assign`, data);
   }
 
-  private async fetchJson<T>(path: string): Promise<{ ok: boolean; data?: T; error?: string }> {
+  private async fetchJson<T>(path: string): Promise<{ ok: boolean; data?: T; error?: string; status?: number }> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const res = await this.request(`${this.baseUrl}${path}`, {
@@ -588,7 +596,7 @@ export class CyrisApiClient {
         });
         if (!res.ok) {
           const errJson = (await res.json().catch(() => ({}))) as { message?: string };
-          return { ok: false, error: errJson.message || `HTTP ${res.status}` };
+          return { ok: false, status: res.status, error: errJson.message || `HTTP ${res.status}` };
         }
         const data = (await res.json()) as T;
         return { ok: true, data };
@@ -1335,7 +1343,7 @@ export class CyrisApiClient {
   async getDefcon(eventId: string): Promise<{ ok: boolean; data?: CommandDefconSnapshot; error?: string }> {
     return this.fetchJson<CommandDefconSnapshot>(`/events/${eventId}/command/defcon`);
   }
-  async getCommandReadiness(eventId: string): Promise<{ ok: boolean; data?: CommandReadinessSnapshot; error?: string }> {
+  async getCommandReadiness(eventId: string): Promise<{ ok: boolean; data?: CommandReadinessSnapshot; error?: string; status?: number }> {
     return this.fetchJson<CommandReadinessSnapshot>(`/events/${eventId}/command/readiness`);
   }
 

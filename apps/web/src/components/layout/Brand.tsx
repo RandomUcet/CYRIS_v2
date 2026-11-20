@@ -1,6 +1,10 @@
-export function CyrisWordmark() {
-  // The original transparent artwork includes a generous right-hand margin.
-  return <span className="cyris-wordmark"><img src="/brand/cyris.png" alt="CYRIS" /></span>;
+export function CyrisWordmark({ compact = false }: { compact?: boolean }) {
+  return (
+    <svg className={compact ? 'cyris-signature compact' : 'cyris-signature'} viewBox={compact ? '0 0 32 32' : '0 0 140 32'} role="img" aria-label="CYRIS">
+      <use href="/brand/cyris.svg#signal" className="cyris-signal" />
+      {!compact && <use href="/brand/cyris.svg#letters" fill="currentColor" />}
+    </svg>
+  );
 }
 
 export function CylabLogo() {

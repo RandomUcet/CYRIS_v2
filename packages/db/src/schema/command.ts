@@ -7,6 +7,9 @@ export const commandDefconStates = pgTable('command_defcon_states', {
   level: integer('level'),
   revision: integer('revision').notNull().default(0),
   reason: text('reason'),
+  publicMessage: text('public_message'),
+  publicRevision: integer('public_revision').notNull().default(0),
+  publicUpdatedAt: timestamp('public_updated_at', { withTimezone: true }),
   updatedByUserId: uuid('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   updatedAt: timestamp('updated_at', { withTimezone: true }),
 });

@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Eye, RefreshCw, Search, Shield, Users } from 'lucide-react';
 import type { MembershipResponse } from '@cyris/contracts';
+import { TeamPreviewAccess } from '@/components/admin/TeamPreviewAccess';
 import { AppShell } from '@/components/layout/AppShell';
 import { DataTable, type Column } from '@/components/common/DataTable';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/StateViews';
@@ -13,7 +14,7 @@ import { useEvent } from '@/contexts/EventContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 
 export default function AdminUsersPage() {
-  const { currentUser, isPlatformAdmin } = useAuth();
+  const { currentUser, isPlatformAdmin, hasPermission } = useAuth();
   const { currentEvent, events, selectEvent, loadingEvents } = useEvent();
   const { formatDate, locale } = usePreferences();
   const cs = locale === 'cs';
@@ -42,6 +43,41 @@ export default function AdminUsersPage() {
     return () => { cancelled = true; };
   }, [currentEvent?.id, revision]);
 
+  const [commandRole, setCommandRole] = useState<{ id: string; eventId: string } | null>(null);
+  const [changingRole, setChangingRole] = useState(false);
+  const eventId = currentEvent?.id;
+  const canManageCommand = Boolean(eventId && currentEvent?.slug !== 'cyris-team-preview' &&
+    hasPermission('role.manage', eventId) && hasPermission('role.read', eventId));
+  useEffect(() => {
+    let active = true;
+    setCommandRole(null);
+    if (eventId && canManageCommand) void apiClient.getRoles(eventId).then(response => {
+      const role = response.data?.find(role => role.slug === 'exercise-command');
+      if (active && role) setCommandRole({ id: role.id, eventId });
+    });
+    return () => { active = false; };
+  }, [canManageCommand, eventId]);
+
+  function commandControl(member: MembershipResponse) {
+    if (!canManageCommand || !commandRole || commandRole.eventId !== member.eventId) return null;
+    const grant = member.roles.find(role => role.id === commandRole.id && !role.unitId);
+    if (!grant && (!member.units.some(unit => unit.slug === 'juniorsky-krizovy-stab') ||
+      member.status !== 'ACTIVE' || member.user?.status !== 'ACTIVE')) return null;
+    const label = grant ? tr('Odebrat roli štábu', 'Remove command role') : tr('Pověřit řízením cvičení', 'Grant exercise command');
+    async function changeRole() {
+      if (changingRole || !commandRole) return;
+      setChangingRole(true);
+      setActionError(null);
+      try {
+        const result = grant?.assignmentId ? await apiClient.revokeRole(member.eventId, grant.assignmentId) :
+          await apiClient.assignRole(member.eventId, { roleId: commandRole.id, membershipId: member.id });
+        if (result.ok) setRevision(value => value + 1);
+        else setActionError(result.error || tr('Změna role se nezdařila.', 'Unable to change the role.'));
+      } finally { setChangingRole(false); }
+    }
+    return <button className="btn btn-secondary" disabled={changingRole || Boolean(grant && !grant.assignmentId)} onClick={changeRole}>{label}</button>;
+  }
+
   const visible = useMemo(() => {
     const text = query.trim().toLocaleLowerCase();
     return memberships.filter((member) => {
@@ -68,7 +104,7 @@ export default function AdminUsersPage() {
   const columns: Column<MembershipResponse>[] = [
     { header: cs ? 'Účastník' : 'Participant', accessor: (member) => <div className="roster-identity"><strong>{member.user?.displayName || member.user?.email || member.userId}</strong><span>{member.user?.email}</span></div> },
     { header: cs ? 'Týmy' : 'Teams', accessor: (member) => member.units.length ? <div className="roster-tags">{member.units.map((unit) => <span key={unit.id}>{unit.name}</span>)}</div> : <span className="roster-muted">{cs ? 'Bez týmu' : 'No team'}</span> },
-    { header: cs ? 'Role ve cvičení' : 'Exercise roles', accessor: (member) => member.roles.length ? <div className="roster-tags">{member.roles.map((role) => <span key={`${role.id}:${role.unitId ?? ''}`}>{role.name}{role.unitId ? ` · ${member.units.find((unit) => unit.id === role.unitId)?.name ?? (cs ? 'vymezený tým' : 'scoped team')}` : ''}</span>)}</div> : <span className="roster-muted">{cs ? 'Bez přidělené role' : 'No assigned role'}</span> },
+    { header: cs ? 'Role ve cvičení' : 'Exercise roles', accessor: (member) => <div>{member.roles.length ? <div className="roster-tags">{member.roles.map((role) => <span key={`${role.id}:${role.unitId ?? ''}`}>{role.name}{role.unitId ? ` · ${member.units.find((unit) => unit.id === role.unitId)?.name ?? (cs ? 'vymezený tým' : 'scoped team')}` : ''}</span>)}</div> : <span className="roster-muted">{cs ? 'Bez přidělené role' : 'No assigned role'}</span>}{commandControl(member)}</div> },
     ...(isPlatformAdmin ? [{ header: cs ? 'Role platformy' : 'Platform roles', accessor: (member: MembershipResponse) => member.platformRoles.map(role => role.name).join(', ') || '—' }] : []),
     { header: cs ? 'Stav' : 'Status', accessor: (member) => <span className={`roster-status ${member.status === 'ACTIVE' && member.user?.status === 'ACTIVE' ? 'is-active' : ''}`}>{member.user?.status === 'DISABLED' ? (cs ? 'Účet zakázán' : 'Account disabled') : member.status === 'ACTIVE' ? (cs ? 'Aktivní' : 'Active') : (cs ? 'Neaktivní členství' : 'Inactive membership')}</span> },
     { header: cs ? 'Přidán' : 'Joined', accessor: (member) => formatDate(member.joinedAt), sortKey: 'joinedAt' },
@@ -77,6 +113,7 @@ export default function AdminUsersPage() {
 
   return <AppShell title={cs ? 'Uživatelé a přístupy' : 'Users & access'} breadcrumbs={[{ label: 'Administration' }, { label: 'Users & Access' }]}>
     <div className="roster-page">
+      {isPlatformAdmin && <TeamPreviewAccess />}
       <div className="roster-toolbar">
         <label className="roster-event-label">{cs ? 'Cvičení' : 'Exercise'}
           <select aria-label={cs ? 'Vybrat cvičení' : 'Select exercise'} value={currentEvent?.id ?? ''} onChange={(event) => selectEvent(event.target.value)} disabled={loadingEvents || Boolean(starting)}>

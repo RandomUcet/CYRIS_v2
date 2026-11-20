@@ -6,8 +6,9 @@ document or by CYRIS task 003.
 
 ## DEFCON and Exercise Readiness
 
-The future CYRIS Command module shall integrate exercise-scoped authoritative
-readiness without replacing the scenario engine or operational health model.
+The active exercise has one authoritative DEFCON. Active members can read its level, public instruction and last public change. Command staff can read its audit history. The exercise command role can set the level and publish an instruction.
+
+Each public change creates a persistent notification for each active exercise member. Open workspaces and displays refresh every five seconds and on focus. Each assigned unit has its own display with an opt-in audible alert. Command staff can open every unit display. Boards keep the last confirmed level on a transient disconnection.
 
 The established DEFCON semantics are:
 

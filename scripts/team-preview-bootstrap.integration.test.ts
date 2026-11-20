@@ -33,9 +33,22 @@ test('seven local team accounts are exercise-scoped and a second setup preserves
         assert.equal(row?.id, accounts[team.login]!.id);
         assert.match(String(row?.password_hash), /^\$argon2id\$/);
       }
+      const markers = await tx.execute(sql`SELECT user_id, enabled, generation FROM preview_team_accounts ORDER BY user_id`);
+      assert.equal(markers.length, previewTeams.length);
+      assert(markers.every(marker => marker.enabled === false && marker.generation));
+      const staff = await tx.execute(sql`
+        SELECT p.permission_key FROM role_permissions p JOIN role_assignments a ON a.role_id=p.role_id
+        JOIN event_memberships m ON a.membership_id=m.id WHERE m.event_id=${eventId} AND m.user_id=${accounts.stab!.id}`);
+      const keys = staff.map(permission => permission.permission_key);
+      for (const permission of ['command.read', 'command.defcon.change', 'document.create', 'task.assign']) assert(keys.includes(permission));
+      assert(!keys.includes('registry.read'));
+      await tx.execute(sql`UPDATE preview_team_accounts SET enabled=true WHERE user_id=${accounts.stab!.id}`);
       const id = rows[0]!.task_id as string;
       await tx.execute(sql`UPDATE operational_tasks SET status='COMPLETED' WHERE id=${id}`);
       await provisionTeamPreview(tx, { eventId, accounts });
+      const [retained] = await tx.execute(sql`SELECT enabled, generation FROM preview_team_accounts WHERE user_id=${accounts.stab!.id}`);
+      assert.equal(retained!.enabled, true);
+      assert.equal(retained!.generation, markers.find(marker => marker.user_id === accounts.stab!.id)!.generation);
       const [state] = await tx.execute(sql`SELECT status FROM operational_tasks WHERE id=${id}`);
       assert.equal(state!.status, 'COMPLETED');
       const forbidden = await tx.execute(sql`

@@ -28,6 +28,11 @@ export class CommandController {
     return this.commandService.getDefcon(eventId, user);
   }
 
+  @Get('team-displays')
+  async teamDisplays(@Param('eventId') eventId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.commandService.getTeamDisplays(eventId, user);
+  }
+
   @Get('readiness')
   async getReadiness(@Param('eventId') eventId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.commandService.getReadiness(eventId, user);

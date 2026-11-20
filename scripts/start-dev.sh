@@ -44,7 +44,6 @@ fi
 
 if [[ "${CYRIS_TEAM_PREVIEW:-0}" == "1" ]]; then
   pnpm teams:setup
-  export NEXT_PUBLIC_CYRIS_TEAM_PREVIEW=1
 fi
 
 log "Starting application processes. Existing exercise data and accounts are preserved."

@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, isNull } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { TasksService } from '../tasks/tasks.service.js';
 import { MedicalService } from '../medical/medical.service.js';
@@ -15,6 +15,7 @@ import {
   operationalTasks,
   events,
   commandDefconStates,
+  eventMemberships, membershipUnitAssignments, organizationalUnits,
   auditEvents,
 } from '@cyris/db';
 import { Permissions } from '@cyris/shared';
@@ -67,6 +68,7 @@ export class CommandService {
       initialized: Boolean(state),
       revision: state?.revision ?? 0,
       reason: state?.reason ?? null,
+      publicMessage: state?.publicMessage ?? null,
       updatedByUserId: state?.updatedByUserId ?? null,
       updatedAt: state?.updatedAt?.toISOString() ?? null,
       history: historyRows.filter((row) => row.level >= 1 && row.level <= 5 && typeof row.reason === 'string').map((row) => ({
@@ -79,20 +81,41 @@ export class CommandService {
     };
   }
 
-  async getReadiness(eventId: string, user: AuthenticatedUser): Promise<{
-    eventId: string; level: CommandDefconSnapshot['level']; initialized: boolean; revision: number; updatedAt: string | null;
-  }> {
-    await this.assertEventPermission(eventId, user, Permissions.COMMAND_READ);
+  private async assertAudience(eventId: string, user: AuthenticatedUser) {
+    if (await this.authorizationService.authorize({ user, permission: Permissions.PLATFORM_MANAGE })) return;
+    const [member] = await this.db.select({ id: eventMemberships.id }).from(eventMemberships)
+      .where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, user.id), eq(eventMemberships.status, 'ACTIVE'))).limit(1);
+    if (!member) throw new ForbiddenException('Active exercise membership required');
+  }
+
+  async getTeamDisplays(eventId: string, user: AuthenticatedUser) {
+    await this.assertAudience(eventId, user);
+    const fields = { id: organizationalUnits.id, slug: organizationalUnits.slug, name: organizationalUnits.name };
+    const active = and(eq(organizationalUnits.eventId, eventId), isNull(organizationalUnits.archivedAt));
+    const query = this.db.select(fields).from(organizationalUnits);
+    if (await this.authorizationService.authorize({ user, permission: Permissions.COMMAND_READ, context: { eventId } })) {
+      return query.where(active).orderBy(organizationalUnits.name);
+    }
+    return query.innerJoin(membershipUnitAssignments, eq(membershipUnitAssignments.unitId, organizationalUnits.id))
+      .innerJoin(eventMemberships, eq(eventMemberships.id, membershipUnitAssignments.membershipId))
+      .where(and(active, eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, user.id), eq(eventMemberships.status, 'ACTIVE')))
+      .orderBy(organizationalUnits.name);
+  }
+
+  async getReadiness(eventId: string, user: AuthenticatedUser) {
+    await this.assertAudience(eventId, user);
     const [state] = await this.db.select({
       eventId: commandDefconStates.eventId,
       level: commandDefconStates.level,
-      revision: commandDefconStates.revision,
-      updatedAt: commandDefconStates.updatedAt,
+      publicMessage: commandDefconStates.publicMessage,
+      revision: commandDefconStates.publicRevision,
+      updatedAt: commandDefconStates.publicUpdatedAt,
     }).from(commandDefconStates).where(eq(commandDefconStates.eventId, eventId)).limit(1);
     return {
       eventId,
       level: state?.level && state.level >= 1 && state.level <= 5 ? state.level as CommandDefconSnapshot['level'] : null,
       initialized: Boolean(state),
+      publicMessage: state?.publicMessage ?? null,
       revision: state?.revision ?? 0,
       updatedAt: state?.updatedAt?.toISOString() ?? null,
     };
@@ -100,15 +123,20 @@ export class CommandService {
 
   async changeDefcon(eventId: string, dto: ChangeCommandDefconRequest, user: AuthenticatedUser): Promise<CommandDefconSnapshot> {
     await this.assertEventPermission(eventId, user, Permissions.COMMAND_DEFCON_CHANGE);
+    // This operation returns command history. Reject an incomplete custom role before any write.
+    await this.assertEventPermission(eventId, user, Permissions.COMMAND_READ);
     const changedAt = new Date();
     await this.databaseService.client.transaction(async (tx) => {
-      const [current] = await tx.select({ revision: commandDefconStates.revision })
+      const [current] = await tx.select({ revision: commandDefconStates.revision, level: commandDefconStates.level, publicMessage: commandDefconStates.publicMessage })
         .from(commandDefconStates).where(eq(commandDefconStates.eventId, eventId)).limit(1);
       const revision = current?.revision ?? 0;
       assertExpectedRevision(dto.expectedRevision, revision);
+      const publicMessage = dto.publicMessage === undefined ? current?.publicMessage ?? null : dto.publicMessage || null;
+      const broadcast = !current || current.level !== dto.level || current.publicMessage !== publicMessage;
+      const publicState = broadcast ? { publicRevision: revision + 1, publicUpdatedAt: changedAt } : {};
       if (current) {
         const updated = await tx.update(commandDefconStates).set({
-          level: dto.level, revision: revision + 1, reason: dto.reason,
+          level: dto.level, revision: revision + 1, reason: dto.reason, publicMessage, ...publicState,
           updatedByUserId: user.id, updatedAt: changedAt,
         }).where(and(
           eq(commandDefconStates.eventId, eventId),
@@ -118,7 +146,7 @@ export class CommandService {
       } else {
         try {
           await tx.insert(commandDefconStates).values({
-            eventId, level: dto.level, revision: 1, reason: dto.reason,
+            eventId, level: dto.level, revision: 1, reason: dto.reason, publicMessage, ...publicState,
             updatedByUserId: user.id, updatedAt: changedAt,
           });
         } catch (error) {
@@ -127,6 +155,17 @@ export class CommandService {
           }
           throw error;
         }
+      }
+      if (broadcast) {
+        // Commit the mandatory in-app notice with the state, including for members who are offline.
+        await tx.execute(sql`
+          INSERT INTO notifications (id, user_id, event_id, type, severity, template_key, template_params, action_url, source_event_id)
+          SELECT gen_random_uuid(), m.user_id, m.event_id, 'DEFCON_CHANGED', 'URGENT', 'command.defcon',
+            jsonb_build_object('level', ${dto.level}::int, 'description', ${publicMessage}::text),
+            ${`/events/${eventId}/command/wallboard`}, ${`defcon:${eventId}:${revision + 1}`}
+          FROM event_memberships m JOIN users u ON u.id=m.user_id
+          WHERE m.event_id=${eventId} AND m.status='ACTIVE' AND u.status='ACTIVE'
+        `);
       }
       await this.auditService.record({
         action: 'command.defcon.changed', category: 'command', eventId,

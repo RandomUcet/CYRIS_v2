@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { ReadinessProvider } from '@/contexts/ReadinessContext';
 import { EventProvider } from '@/contexts/EventContext';
 import { PreferencesProvider } from '@/contexts/PreferencesContext';
 
@@ -20,7 +21,7 @@ export default function RootLayout({
         <AuthProvider>
           <PreferencesProvider>
             <EventProvider>
-              {children}
+              <ReadinessProvider>{children}</ReadinessProvider>
             </EventProvider>
           </PreferencesProvider>
         </AuthProvider>

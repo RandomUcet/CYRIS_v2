@@ -84,6 +84,7 @@ export async function bootstrapSystem(db: Pick<CyrisDatabase, 'transaction'>, op
         description: 'Exercise-scoped coordination, support and corrective authority; no platform administration',
         permissions: exerciseOrganizerPermissions,
       },
+      { slug: 'exercise-command', name: 'Krizový štáb', description: 'Řízení připravenosti, úkolů a situačních zpráv cvičení', permissions: crisisCommandPermissions },
       ...laboratoryRoles,
     ];
     for (const template of templates) {
@@ -169,6 +170,13 @@ export const teamMemberPermissions = [
     { key: Permissions.TASK_WORK, scope: PermissionScopes.ASSIGNED },
     { key: Permissions.TASK_COMPLETE, scope: PermissionScopes.ASSIGNED },
   ];
+
+export const crisisCommandPermissions = [
+  ...teamMemberPermissions.filter(({ key }) => key !== Permissions.REGISTRY_READ && key !== Permissions.TASK_READ),
+  ...[Permissions.COMMAND_READ, Permissions.COMMAND_DEFCON_CHANGE, Permissions.TASK_CREATE,
+    Permissions.TASK_ASSIGN, Permissions.TASK_READ, Permissions.INCIDENT_READ,
+    Permissions.DOCUMENT_READ, Permissions.DOCUMENT_CREATE].map(key => ({ key, scope: PermissionScopes.EVENT })),
+];
 
 export const laboratoryRoles = [
     {

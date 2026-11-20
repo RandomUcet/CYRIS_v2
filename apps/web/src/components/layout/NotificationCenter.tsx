@@ -68,6 +68,7 @@ export function NotificationCenter() {
       itemTitle = t('notification.briefingAck');
     }
 
+    if (item.templateKey === 'command.defcon') itemTitle = `DEFCON ${params.level}`;
     const detailText = params.title || params.description || '';
 
     const severityColor =

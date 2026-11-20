@@ -3,10 +3,10 @@ import { hash, argon2id } from 'argon2';
 import { previewTeams, previewTeamEmail } from '@cyris/contracts';
 import {
   type CyrisDatabase, eq, events, eventMemberships, membershipUnitAssignments,
-  evidence, operationalTasks, outboxEvents, resources, roleAssignments, rolePermissions, roles, sql, userIdentities, userPreferences, users,
+  previewTeamAccounts, evidence, operationalTasks, outboxEvents, resources, roleAssignments, rolePermissions, roles, sql, userIdentities, userPreferences, users,
 } from '@cyris/db';
 import { Permissions as P } from '@cyris/shared';
-import { bootstrapSystem } from './system-bootstrap.js';
+import { bootstrapSystem, crisisCommandPermissions } from './system-bootstrap.js';
 
 const eventSlug = 'cyris-team-preview';
 type TeamLogin = typeof previewTeams[number]['login'];
@@ -33,7 +33,7 @@ const profiles = {
     instruction: 'Hlídka A uvádí odjezd v 09:20, hlídka B v 09:25. Sepište, co oba zdroje potvrzují a kterou informaci potřebujete ověřit.',
   },
   stab: {
-    rights: [P.COMMAND_READ, P.INCIDENT_READ, P.DOCUMENT_READ],
+    rights: [],
     title: 'Připravit hlášení pro poradu štábu',
     instruction: 'Cvičná hlídka hlásí uzavření vstupu A. Do výsledku uveďte dopad, tým odpovědný za ověření a čas další aktualizace.',
   },
@@ -74,15 +74,17 @@ export async function provisionTeamPreview(db: Pick<CyrisDatabase, 'transaction'
       // A conflicting email fails the entire transaction. Existing users are never enrolled.
       await tx.insert(users).values({ id: userId, email, displayName: team.name, status: 'ACTIVE' });
       await tx.insert(userIdentities).values({ userId, providerType: 'LOCAL', providerSubject: email, passwordHash: await hash(account.password, { type: argon2id }) });
+      await tx.insert(previewTeamAccounts).values({ userId });
       await tx.insert(userPreferences).values({ userId, locale: 'cs', timezone: 'Europe/Prague' });
       const membershipId = randomUUID();
       await tx.insert(eventMemberships).values({ id: membershipId, eventId, userId, status: 'ACTIVE' });
       await tx.insert(membershipUnitAssignments).values({ membershipId, unitId });
       const roleId = randomUUID();
       await tx.insert(roles).values({ id: roleId, eventId, slug: team.slug, name: team.name });
-      await tx.insert(rolePermissions).values(profile.rights.map(permissionKey => ({ roleId, permissionKey, scope: 'EVENT' })));
+      const grants = team.login === 'stab' ? crisisCommandPermissions : profile.rights.map(key => ({ key, scope: 'EVENT' }));
+      await tx.insert(rolePermissions).values(grants.map(({key, scope}) => ({ roleId, permissionKey: key, scope })));
       await tx.insert(roleAssignments).values({ roleId, membershipId });
-      const roleSlugs = ['team-member'];
+      const roleSlugs = team.login === 'stab' ? [] : ['team-member'];
       if (team.login === 'levandule' || team.login === 'chemie') roleSlugs.push('laboratory-worker');
       if (team.login === 'bps') roleSlugs.push('laboratory-requester');
       for (const slug of roleSlugs) {

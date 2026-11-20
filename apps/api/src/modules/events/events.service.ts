@@ -409,10 +409,10 @@ export class EventsService {
       .where(and(inArray(roleAssignments.userId, rows.map(row => row.userId)), isNull(roles.eventId), isNull(roleAssignments.membershipId), isNull(roleAssignments.unitId))) : [];
     const membershipIds = rows.map((row) => row.id);
     const [unitRows, roleRows] = await Promise.all([
-      this.db.select({ membershipId: membershipUnitAssignments.membershipId, id: organizationalUnits.id, name: organizationalUnits.name })
+      this.db.select({ membershipId: membershipUnitAssignments.membershipId, id: organizationalUnits.id, name: organizationalUnits.name, slug: organizationalUnits.slug })
         .from(membershipUnitAssignments).innerJoin(organizationalUnits, eq(organizationalUnits.id, membershipUnitAssignments.unitId))
         .where(and(inArray(membershipUnitAssignments.membershipId, membershipIds), eq(organizationalUnits.eventId, eventId), isNull(organizationalUnits.archivedAt))),
-      this.db.select({ membershipId: roleAssignments.membershipId, id: roles.id, name: roles.name, unitId: roleAssignments.unitId })
+      this.db.select({ membershipId: roleAssignments.membershipId, id: roles.id, name: roles.name, assignmentId: roleAssignments.id, unitId: roleAssignments.unitId })
         .from(roleAssignments).innerJoin(roles, eq(roles.id, roleAssignments.roleId))
         .where(and(inArray(roleAssignments.membershipId, membershipIds), eq(roles.eventId, eventId), isNull(roleAssignments.userId))),
     ]);
@@ -429,8 +429,8 @@ export class EventsService {
         status: r.userStatus,
       },
       platformRoles: platformRoles.filter(role => role.userId === r.userId).map(({ id, name }) => ({ id, name })),
-      units: unitRows.filter((row) => row.membershipId === r.id).map(({ id, name }) => ({ id, name })),
-      roles: roleRows.filter((row) => row.membershipId === r.id).map(({ id, name, unitId }) => ({ id, name, unitId })),
+      units: unitRows.filter((row) => row.membershipId === r.id).map(({ id, name, slug }) => ({ id, name, slug })),
+      roles: roleRows.filter((row) => row.membershipId === r.id).map(({ id, name, unitId, assignmentId }) => ({ id, name, unitId, assignmentId })),
     }));
   }
 

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, boolean, uuid, varchar, text, timestamp, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { generateId } from '@cyris/shared';
 
@@ -90,3 +90,10 @@ export const userPreferencesRelations = relations(userPreferences, ({ one }) => 
     references: [users.id],
   }),
 }));
+
+/** Only generated local exercise accounts participate in the preview switch. */
+export const previewTeamAccounts = pgTable('preview_team_accounts', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  enabled: boolean('enabled').notNull().default(false),
+  generation: uuid('generation').notNull().defaultRandom(),
+});

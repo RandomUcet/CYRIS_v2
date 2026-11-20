@@ -5,7 +5,7 @@ import { CyrisWordmark, CylabLogo } from '@/components/layout/Brand';
 import { previewTeams, previewTeamEmail } from '@cyris/contracts';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvent } from '@/contexts/EventContext';
 import { Shield, ArrowRight, Calendar, AlertCircle } from 'lucide-react';
@@ -15,7 +15,19 @@ import { apiClient } from '@/lib/api-client';
 export default function RootPage() {
   const router = useRouter();
   const { locale } = usePreferences();
-  const preview = process.env.NEXT_PUBLIC_CYRIS_TEAM_PREVIEW === '1';
+  const teamPage = usePathname() === '/login/teams';
+  const [previewEnabled, setPreviewEnabled] = useState(false);
+  const preview = teamPage && previewEnabled;
+  useEffect(() => {
+    if (!teamPage) return;
+    let active = true;
+    apiClient.getPreviewAccess().then(result => {
+      if (!active) return;
+      if (result.ok && result.data?.enabled) setPreviewEnabled(true);
+      else router.replace('/');
+    });
+    return () => { active = false; };
+  }, [teamPage, router]);
   const cs = locale === 'cs' || (preview && locale === 'en' && typeof window !== 'undefined' && !window.localStorage.getItem('cyris_locale'));
 
   const { currentUser, loading, login, isPlatformAdmin, logout } = useAuth();

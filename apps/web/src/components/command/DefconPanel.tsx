@@ -20,6 +20,7 @@ export function DefconPanel({ eventId }: { eventId: string }) {
   const canChange = !currentUser?.viewAs && hasPermission('command.defcon.change', eventId);
   const [snapshot, setSnapshot] = useState<CommandDefconSnapshot | null>(null);
   const [level, setLevel] = useState<CommandDefconLevel | null>(null);
+  const [message, setMessage] = useState('');
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -40,7 +41,10 @@ export function DefconPanel({ eventId }: { eventId: string }) {
     const supersededDraft = previous !== null && next.revision > previous.revision;
     snapshotRef.current = accepted;
     setSnapshot(accepted);
-    if (!draftDirtyRef.current || supersededDraft) setLevel(next.level);
+    if (!draftDirtyRef.current || supersededDraft) {
+      setLevel(next.level);
+      setMessage(next.publicMessage ?? '');
+    }
     if (supersededDraft) {
       setReason('');
       setDraftDirty(false);
@@ -113,11 +117,13 @@ export function DefconPanel({ eventId }: { eventId: string }) {
       const result = await apiClient.changeDefcon(eventId, {
         level,
         expectedRevision: snapshot.revision,
+        publicMessage: message.trim(),
         reason: reason.trim(),
       });
       if (id !== requestId.current) return;
       if (result.ok && result.data) {
         acceptSnapshot(result.data, id);
+        window.dispatchEvent(new Event('cyris:defcon-updated'));
         setReason('');
         setDraftDirty(false);
         draftDirtyRef.current = false;
@@ -168,7 +174,11 @@ export function DefconPanel({ eventId }: { eventId: string }) {
           </div>
           {!snapshot.initialized && <p className="command-defcon-warning">Stav nebyl inicializován. Nejprve proveďte explicitní inicializaci.</p>}
           {canChange && ((snapshot.initialized && !stale) || !snapshot.initialized) && <div className="command-defcon-mutation">
-            <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Důvod změny (povinný)"
+            <label>Pokyn pro všechny týmy
+              <input className="command-defcon-reason" maxLength={400} value={message}
+                onChange={e => { draftDirtyRef.current = true; setMessage(e.target.value); }} placeholder="Volitelné sdělení na týmové obrazovky" />
+            </label>
+            <input aria-label="Interní důvod změny" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Interní důvod změny (povinný)"
               className="command-defcon-reason" />
             <button onClick={() => void submit()} disabled={saving || loading || stale || level === null || reason.trim().length < 3}
               className="command-defcon-submit">

@@ -54,7 +54,7 @@ async function main() {
   const db = getDbClient();
   if (process.env.NODE_ENV === 'production') throw new Error('Zkušební účty jsou určeny pro místní vývoj.');
   await provisionTeamPreview(db, await createCredentials());
-  console.log('[CYRIS] Zkouška sedmi týmů je připravena. Místní přihlašovací údaje zobrazíte příkazem pnpm teams:list.');
+  console.log('[CYRIS] Sedm týmů je připraveno. Přístup spravuje administrátor v části Uživatelé a přístupy → Testovací přihlášení týmů. Hesla zobrazí pnpm teams:list.');
 }
 
 main().catch(error => {

@@ -45,8 +45,13 @@ git diff --check
 
 ### Místní zkouška sedmi týmů
 
-Spusťte `CYRIS_TEAM_PREVIEW=1 pnpm dev`. Po migracích vznikne samostatné cvičení **CzechCybertron · Zkouška týmů**, sedm místních účtů a po jednom úkolu pro každý tým. Na přihlašovací stránce vyberte tým. Hesla zobrazí `pnpm teams:list` ve druhém terminálu ve stejném adresáři. Při změně týmu se odhlaste přes uživatelskou nabídku. Pro současnou práci dvou týmů použijte dva samostatné profily prohlížeče.
+Spusťte `CYRIS_TEAM_PREVIEW=1 pnpm dev`. Vznikne cvičení **CzechCybertron · Zkouška týmů**, sedm místních účtů a jeden výchozí úkol pro každý tým. Přístup je po první instalaci i po aktualizaci starší verze vypnutý.
 
-Údaje zůstávají v souboru `.cyris-preview/teams.json`. Při přenosu databáze zkušebního cvičení si uchovejte i tento soubor. Opakované spuštění zachová hesla i průběh úkolů. Běžné `pnpm dev` nové účty nezakládá, již založené účty zůstávají aktivní.
+1. Jako administrátor otevřete **Uživatelé a přístupy → Testovací přihlášení týmů** a zapněte přístup.
+2. Otevřete odkaz `/login/teams` v soukromém okně, vyberte tým a zadejte jeho heslo. Příkaz `pnpm teams:list` ve druhém terminálu vypíše místní přihlašovací údaje.
+3. V **Moje práce** otevřete týmovou obrazovku. Na monitoru lze zapnout celou obrazovku a tlačítkem **Zapnout a vyzkoušet zvuk** povolit původní signál DEFCON. Pro souběžnou zkoušku více účtů použijte samostatné profily prohlížeče.
+4. V druhém profilu se přihlaste za **Juniorský krizový štáb**. Ve **Velení** změňte DEFCON a vyplňte pokyn účastníkům. Na týmové obrazovce se po aktualizaci objeví stupeň a pokyn, v otevřené aplikaci upozornění a ve zvonku záznam. Interní důvod je součástí historie velení.
+
+Vypnutí přístupu ukončí platnost týmových relací. Opětovné spuštění zachová nastavení, hesla i průběh úkolů. Při přenosu zkušební databáze si uchovejte i místní soubor `.cyris-preview/teams.json`. Ve skutečném cvičení může správce v přehledu **Uživatelé a přístupy** u člena Juniorského krizového štábu zvolit **Pověřit řízením cvičení**. Na stejném místě může roli odebrat.
 
 Pro vyzkoušení předání mezi týmy otevřete jako **Bezpečnostně právní služby** v evidenci vzorek **CV-L01**, zvolte **Zadat laboratorní rozbor** a vyberte **Laboratoř levandulového oleje**. Po přihlášení za laboratoř požadavek převezměte, zapište závěr a uzavřete rozbor. Žadatel pak u stejného požadavku uvidí výsledek.

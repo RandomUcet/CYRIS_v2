@@ -9,6 +9,7 @@ export const CommandDefconSnapshotSchema = z.object({
   eventId: z.string().uuid(),
   level: CommandDefconLevelSchema.nullable(),
   initialized: z.boolean(),
+  publicMessage: z.string().nullable().optional(),
   revision: z.number().int().nonnegative(),
   reason: z.string().nullable(),
   updatedByUserId: z.string().uuid().nullable(),
@@ -27,6 +28,7 @@ export const CommandReadinessSnapshotSchema = z.object({
   eventId: z.string().uuid(),
   level: CommandDefconLevelSchema.nullable(),
   initialized: z.boolean(),
+  publicMessage: z.string().nullable().optional(),
   revision: z.number().int().nonnegative(),
   updatedAt: z.string().nullable(),
 });
@@ -34,6 +36,7 @@ export type CommandReadinessSnapshot = z.infer<typeof CommandReadinessSnapshotSc
 
 export const ChangeCommandDefconRequestSchema = z.object({
   level: CommandDefconLevelSchema,
+  publicMessage: z.string().trim().max(400).optional(),
   expectedRevision: z.number().int().nonnegative(),
   reason: z.string().trim().min(3).max(2000),
 });
