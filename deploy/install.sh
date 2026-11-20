@@ -146,7 +146,7 @@ fi
 # ------------------------------------------------------------------------------
 log_info "Checking required utilities (curl, tar, gzip, openssl, python3, ca-certificates)..."
 MISSING_PKGS=()
-for bin in curl tar gzip openssl python3; do
+for bin in curl tar gzip openssl python3 gpg; do
   if ! command -v "$bin" >/dev/null 2>&1; then
     MISSING_PKGS+=("$bin")
   fi

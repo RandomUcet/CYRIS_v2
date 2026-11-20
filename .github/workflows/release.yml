@@ -2,45 +2,27 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths: [deploy/VERSION]
+  workflow_dispatch:
+
+concurrency:
+  group: cyris-stable-release
+  cancel-in-progress: false
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 12.14.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        run: pnpm build
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Check diff
-        run: git diff --check
+    uses: ./.github/workflows/ci.yml
 
   publish:
+    if: github.ref == 'refs/heads/main'
     needs: validate
+    permissions:
+      contents: write
+      packages: write
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -61,13 +43,22 @@ jobs:
 
       - name: Extract release version
         id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION=$(cat deploy/VERSION)
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$ ]]
+          git fetch --tags
+          if git show-ref --verify --quiet "refs/tags/v$VERSION"; then
+            echo "Version v$VERSION already tagged. Select a new version." >&2
+            exit 1
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          REPO_OWNER_LOWER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          REPO_OWNER_LOWER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
           echo "owner_lower=${REPO_OWNER_LOWER}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push CYRIS API image
+        id: api
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -76,9 +67,10 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-api:${{ steps.meta.outputs.version }}
-            ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-api:latest
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
       - name: Build and push CYRIS Worker image
+        id: worker
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -87,9 +79,10 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-worker:${{ steps.meta.outputs.version }}
-            ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-worker:latest
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
       - name: Build and push CYRIS Web image
+        id: web
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -98,7 +91,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-web:${{ steps.meta.outputs.version }}
-            ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-web:latest
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
       - name: Generate Release Manifest
         run: |
@@ -111,7 +104,8 @@ jobs:
 
           manifest = {
               "version": version,
-              "minCyrisctlVersion": "0.1.0",
+              "minCyrisctlVersion": "2.0.1",
+              "commit": "${{ github.sha }}",
               "supportedOs": ["ubuntu-24.04"],
               "releaseDate": datetime.now(timezone.utc).isoformat(),
               "migrationsRequired": True,
@@ -124,9 +118,9 @@ jobs:
                   "S3_SECRET_KEY"
               ],
               "images": {
-                  "api": f"ghcr.io/{owner}/cyris-api:{version}",
-                  "worker": f"ghcr.io/{owner}/cyris-worker:{version}",
-                  "web": f"ghcr.io/{owner}/cyris-web:{version}"
+                  "api": f"ghcr.io/{owner}/cyris-api@${{ steps.api.outputs.digest }}",
+                  "worker": f"ghcr.io/{owner}/cyris-worker@${{ steps.worker.outputs.digest }}",
+                  "web": f"ghcr.io/{owner}/cyris-web@${{ steps.web.outputs.digest }}"
               }
           }
 
@@ -137,6 +131,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.meta.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          fail_on_unmatched_files: true
           files: |
             release-manifest.json
             deploy/cyrisctl

@@ -1,5 +1,8 @@
 # CYRIS
 
+[Provoz serveru, vydání z GitHubu, zálohy a obnova](deploy/Provoz.md).
+
+
 Cybertron Registry & Intelligence System
 
 CYRIS is an operational information and exercise-management platform for
