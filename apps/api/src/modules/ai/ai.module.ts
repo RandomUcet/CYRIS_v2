@@ -7,6 +7,7 @@ import { ResourcesModule } from '../resources/resources.module.js';
 import { AuthorizationModule } from '../authorization/authorization.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 
+import { AIAdmissionService } from './ai-admission.service.js';
 import { AIGatewayService } from './ai-gateway.service.js';
 import { AIContextService } from './ai-context.service.js';
 import { WritingAssistService } from './services/writing-assist.service.js';
@@ -28,6 +29,7 @@ import { IntelligenceController } from './intelligence.controller.js';
     AuthModule,
   ],
   providers: [
+    AIAdmissionService,
     AIGatewayService,
     AIContextService,
     WritingAssistService,

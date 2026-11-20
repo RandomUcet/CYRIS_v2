@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  ForbiddenException,
   BadRequestException,
   Logger,
   Inject,
@@ -14,6 +15,8 @@ import {
   scenarioPhases,
   events,
   validateScenarioReferences,
+  assertScenarioDesignWritable,
+  isPlatformScenarioCondition,
   scenarioInjects,
   scenarioInjectDependencies,
   scenarioInjectConditions,
@@ -58,7 +61,7 @@ export class ScenarioInjectsService {
     return this.databaseService.client;
   }
 
-  async getControlRunSheet(eventId: string): Promise<ScenarioControlRunSheet> {
+  async getControlRunSheet(eventId: string, allowPlatformConditions = false): Promise<ScenarioControlRunSheet> {
     const clock = await this.clockService.getState(eventId);
     // 1. Fetch phases
     const phases = await this.db
@@ -107,7 +110,7 @@ export class ScenarioInjectsService {
     }));
 
     // 2. Fetch all injects
-    const injects = (await this.listInjects(eventId))
+    const injects = (await this.listInjects(eventId, undefined, allowPlatformConditions))
       .sort((a, b) => {
         if (a.scheduledAt && b.scheduledAt) {
           return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
@@ -144,7 +147,7 @@ export class ScenarioInjectsService {
     };
   }
 
-  async listInjects(eventId: string, phaseId?: string): Promise<ScenarioInjectResponse[]> {
+  async listInjects(eventId: string, phaseId?: string, allowPlatformConditions = false): Promise<ScenarioInjectResponse[]> {
     const whereConditions = [eq(scenarioInjects.eventId, eventId)];
     if (phaseId) {
       whereConditions.push(eq(scenarioInjects.phaseId, phaseId));
@@ -163,14 +166,14 @@ export class ScenarioInjectsService {
 
     const result: ScenarioInjectResponse[] = [];
     for (const r of rows) {
-      const detailed = await this.enrichInject(r.inject, r.phaseTitle ? `${r.phaseCode} — ${r.phaseTitle}` : null);
+      const detailed = await this.enrichInject(r.inject, r.phaseTitle ? `${r.phaseCode} — ${r.phaseTitle}` : null, allowPlatformConditions);
       result.push(detailed);
     }
 
     return result;
   }
 
-  async getInject(eventId: string, injectId: string): Promise<ScenarioInjectResponse> {
+  async getInject(eventId: string, injectId: string, allowPlatformConditions = false): Promise<ScenarioInjectResponse> {
     const [row] = await this.db
       .select({
         inject: scenarioInjects,
@@ -186,14 +189,16 @@ export class ScenarioInjectsService {
       throw new NotFoundException(`Scenario inject '${injectId}' not found in event '${eventId}'`);
     }
 
-    return await this.enrichInject(row.inject, row.phaseTitle ? `${row.phaseCode} — ${row.phaseTitle}` : null);
+    return await this.enrichInject(row.inject, row.phaseTitle ? `${row.phaseCode} — ${row.phaseTitle}` : null, allowPlatformConditions);
   }
 
   async createInject(
     eventId: string,
     input: CreateScenarioInjectInput,
-    userId: string
+    userId: string,
+    allowPlatformConditions = false,
   ): Promise<ScenarioInjectResponse> {
+    this.checkConditionInput(input, allowPlatformConditions);
     const injectId = generateId();
     const injectNumber = await this.identifierAllocator.allocate(eventId, 'scenario_inject', 'INJ');
 
@@ -316,16 +321,18 @@ export class ScenarioInjectsService {
     // Run initial condition evaluation
     await this.conditionEvaluator.evaluateInject(injectId);
 
-    return this.getInject(eventId, injectId);
+    return this.getInject(eventId, injectId, allowPlatformConditions);
   }
 
   async updateInject(
     eventId: string,
     injectId: string,
     input: UpdateScenarioInjectInput,
-    userId: string
+    userId: string,
+    allowPlatformConditions = false,
   ): Promise<ScenarioInjectResponse> {
-    const current = await this.getInject(eventId, injectId);
+    this.checkConditionInput(input, allowPlatformConditions);
+    const current = await this.getInject(eventId, injectId, allowPlatformConditions);
 
     if (current.status === 'RELEASED') {
       throw new BadRequestException(`Cannot modify released inject ${current.injectNumber}. Release snapshot is immutable.`);
@@ -336,6 +343,7 @@ export class ScenarioInjectsService {
       const [locked] = await tx.select().from(scenarioInjects)
         .where(and(eq(scenarioInjects.eventId, eventId), eq(scenarioInjects.id, injectId))).for('update');
       if (!locked || ['RELEASED', 'CANCELLED'].includes(locked.status)) throw new BadRequestException('Released or cancelled injects cannot be modified');
+      try { await assertScenarioDesignWritable(tx, eventId, injectId, allowPlatformConditions); } catch (error) { rethrowScenarioError(error); }
       try { await validateScenarioReferences(tx, eventId, { ...input, actions: input.actions?.map(action => ({ ...action, targetType: action.targetType ?? 'UNIT' })) }); }
       catch (error) { rethrowScenarioError(error); }
       if ((input.triggerType ?? locked.triggerType) === 'SCHEDULED_TIME' && !(input.scheduledAt === undefined ? locked.scheduledAt : input.scheduledAt)) {
@@ -452,10 +460,10 @@ export class ScenarioInjectsService {
     // Re-evaluate condition readiness
     await this.conditionEvaluator.evaluateInject(injectId);
 
-    return this.getInject(eventId, injectId);
+    return this.getInject(eventId, injectId, allowPlatformConditions);
   }
 
-  async cancelInject(eventId: string, injectId: string, userId: string): Promise<ScenarioInjectResponse> {
+  async cancelInject(eventId: string, injectId: string, userId: string, allowPlatformConditions = false): Promise<ScenarioInjectResponse> {
     const current = await this.getInject(eventId, injectId);
 
     if (current.status === 'RELEASED') {
@@ -466,6 +474,7 @@ export class ScenarioInjectsService {
       const [locked] = await tx.select({ status: scenarioInjects.status }).from(scenarioInjects)
         .where(and(eq(scenarioInjects.eventId, eventId), eq(scenarioInjects.id, injectId))).for('update');
       if (!locked || locked.status === 'RELEASED') throw new BadRequestException('A released inject cannot be cancelled');
+      try { await assertScenarioDesignWritable(tx, eventId, injectId, allowPlatformConditions); } catch (error) { rethrowScenarioError(error); }
       await tx.update(scenarioInjects).set({ status: 'CANCELLED', cancelledAt: new Date(), updatedAt: new Date() })
         .where(and(eq(scenarioInjects.eventId, eventId), eq(scenarioInjects.id, injectId)));
     });
@@ -489,7 +498,7 @@ export class ScenarioInjectsService {
       visibility: ActivityVisibility.SCENARIO,
     });
 
-    return this.getInject(eventId, injectId);
+    return this.getInject(eventId, injectId, allowPlatformConditions);
   }
 
   async getAudiencePreview(
@@ -616,9 +625,16 @@ export class ScenarioInjectsService {
     }
   }
 
+  private checkConditionInput(input: CreateScenarioInjectInput | UpdateScenarioInjectInput, allowPlatformConditions: boolean) {
+    if (!allowPlatformConditions && input.conditions?.some(isPlatformScenarioCondition)) {
+      throw new ForbiddenException('This condition is unavailable.');
+    }
+  }
+
   private async enrichInject(
     inj: typeof scenarioInjects.$inferSelect,
-    phaseName: string | null
+    phaseName: string | null,
+    allowPlatformConditions: boolean,
   ): Promise<ScenarioInjectResponse> {
     const dependencies = await this.db
       .select({
@@ -671,6 +687,9 @@ export class ScenarioInjectsService {
       .leftJoin(users, eq(scenarioInjectActions.targetUserId, users.id))
       .where(eq(scenarioInjectActions.injectId, inj.id));
 
+    const visibleConditions = allowPlatformConditions ? conditions : conditions.filter(condition => !isPlatformScenarioCondition(condition));
+    const designReadOnly = visibleConditions.length < conditions.length;
+
     // Compute blocked reasons
     const blockedReasons: string[] = [];
     for (const dep of dependencies) {
@@ -678,7 +697,7 @@ export class ScenarioInjectsService {
         blockedReasons.push(`Prerequisite ${dep.injectNumber} (${dep.status})`);
       }
     }
-    for (const cond of conditions) {
+    for (const cond of visibleConditions) {
       if (!cond.isSatisfied) {
         blockedReasons.push(`${cond.conditionType}: ${cond.targetIdentifier ?? cond.activityType ?? 'unmet'}`);
       }
@@ -730,7 +749,8 @@ export class ScenarioInjectsService {
         title: d.title,
         status: d.status,
       })),
-      conditions: conditions.map((c) => ({
+      ...(designReadOnly ? { designReadOnly: true } : {}),
+      conditions: visibleConditions.map((c) => ({
         id: c.id,
         injectId: c.injectId,
         conditionType: c.conditionType as any,
@@ -775,13 +795,15 @@ export class ScenarioInjectsService {
     eventId: string,
     injectId: string,
     input: ScenarioInjectTranslationInput,
-    userId: string
+    userId: string,
+    allowPlatformConditions = false,
   ): Promise<ScenarioInjectTranslationResponse> {
     const [saved] = await this.db.transaction(async tx => {
       const [inject] = await tx.select({ id: scenarioInjects.id, status: scenarioInjects.status }).from(scenarioInjects)
         .where(and(eq(scenarioInjects.eventId, eventId), eq(scenarioInjects.id, injectId))).for('update');
       if (!inject) throw new NotFoundException('Scenario inject not found in this exercise');
       if (['RELEASED', 'CANCELLED'].includes(inject.status)) throw new BadRequestException('Released or cancelled translations cannot be changed');
+      try { await assertScenarioDesignWritable(tx, eventId, injectId, allowPlatformConditions); } catch (error) { rethrowScenarioError(error); }
       const now = new Date();
       return tx.insert(scenarioInjectTranslations).values({ id: generateId(), injectId, locale: input.locale.toLowerCase(),
         participantTitle: input.participantTitle, participantContent: input.participantContent, createdAt: now, updatedAt: now })

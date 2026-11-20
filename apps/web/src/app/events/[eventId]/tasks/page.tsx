@@ -7,6 +7,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { RecordIdentifier, StatusBadge, PriorityBadge } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
+import { useServiceReadOnly } from '@/hooks/useServiceStatus';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { workspaceLabel } from '@/lib/workspace-navigation';
@@ -39,7 +40,7 @@ export default function TasksPage() {
   const [memberships, setMemberships] = useState<Array<{ userId: string; user?: { displayName: string } }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [disruptionStatus, setDisruptionStatus] = useState<{ mode: string | null; active: boolean; revision: number | null } | null>(null);
+  const readOnly = useServiceReadOnly('tasks');
 
   // Filter state
   const [quickFilter, setQuickFilter] = useState<'ALL' | 'MINE' | 'MY_TEAM' | 'MY_SUBTEAM' | 'UNASSIGNED' | 'OPEN' | 'BLOCKED' | 'COMPLETED'>('ALL');
@@ -67,7 +68,7 @@ export default function TasksPage() {
     priority: 'NORMAL',
   });
 
-  const canCreate = !viewAs && hasPermission('task.create', eventId);
+  const canCreate = !readOnly && !viewAs && hasPermission('task.create', eventId);
   const fetchTasks = async () => {
     setLoading(true);
     setError(null);
@@ -84,14 +85,6 @@ export default function TasksPage() {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    let active = true;
-    apiClient.getDisruptionStatus(eventId).then((response) => {
-      if (active && response.ok && response.data) setDisruptionStatus(response.data);
-    });
-    return () => { active = false; };
-  }, [eventId]);
 
   useEffect(() => {
     if (eventId) {
@@ -226,13 +219,6 @@ export default function TasksPage() {
       }
     >
       <div className="space-y-4">
-        {disruptionStatus?.active && disruptionStatus.mode === 'UNAVAILABLE' && (
-          <div className="rounded-lg border border-orange-800 bg-orange-950/40 p-4 text-sm text-orange-100">
-            <strong>Tasky jsou dočasně simulovaně nedostupné.</strong>
-            <p className="mt-1 text-orange-200">Pracujte podle bezpečných pokynů Commandu; stav se obnoví po ukončení simulace.</p>
-            <a className="mt-2 inline-block underline" href={`/events/${eventId}/tasks/disruption`}>Zobrazit stav a pokyny pro návrat k práci</a>
-          </div>
-        )}
         {/* Quick Filter Bar & Search */}
         <div className="bg-slate-900 border border-slate-800 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3">
           {/* Run-sheet filter tabs */}
@@ -429,7 +415,7 @@ export default function TasksPage() {
       </div>
 
       {/* New Task Modal */}
-      {showCreateModal && (
+      {canCreate && showCreateModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <form
             onSubmit={handleCreateTask}

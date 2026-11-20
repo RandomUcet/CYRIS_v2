@@ -7,6 +7,7 @@ import type { MembershipResponse, OperationalTaskDetail, TaskAction } from '@cyr
 import { AppShell } from '@/components/layout/AppShell';
 import { LoadingState, ErrorState } from '@/components/common/StateViews';
 import { StatusBadge, PriorityBadge } from '@/components/common/Badges';
+import { useServiceReadOnly } from '@/hooks/useServiceStatus';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { apiClient } from '@/lib/api-client';
@@ -33,6 +34,7 @@ export default function TaskPage() {
 
 function TaskDetail({ eventId, taskId }: { eventId: string; taskId: string }) {
   const { viewAs, previewInvalid } = useAuth();
+  const readOnly = useServiceReadOnly('tasks');
   const { locale, formatDate, formatTime } = usePreferences();
   const cs = locale === 'cs';
   const [task, setTask] = useState<OperationalTaskDetail | null>(null);
@@ -73,7 +75,7 @@ function TaskDetail({ eventId, taskId }: { eventId: string; taskId: string }) {
   }, [action, eventId]);
 
   async function apply(selected: TaskAction) {
-    if (!task?.availableActions.includes(selected) || viewAs || previewInvalid || busy) return;
+    if (!task?.availableActions.includes(selected) || readOnly || viewAs || previewInvalid || busy) return;
     setBusy(true);
     setActionError('');
     const reason = note.trim();
@@ -108,7 +110,7 @@ function TaskDetail({ eventId, taskId }: { eventId: string; taskId: string }) {
     setPerson(task?.assignedUserId || '');
     setAction(key);
   }
-  const allowed = viewAs || previewInvalid ? [] : task?.availableActions ?? [];
+  const allowed = readOnly || viewAs || previewInvalid ? [] : task?.availableActions ?? [];
   const source = task?.sourceResource;
   return <AppShell title={task?.taskNumber || (cs ? 'Úkol' : 'Task')} breadcrumbs={[{ label: cs ? 'Moje práce' : 'My work', href: root + '/my-work' }]}>
     <article className="task-record">

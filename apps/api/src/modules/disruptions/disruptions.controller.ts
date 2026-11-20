@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, Param, Post, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -13,25 +13,19 @@ import {
   CreateRecoveryArtifactRequestSchema,
 } from '@cyris/contracts';
 import { DisruptionsService } from './disruptions.service.js';
+import { Permissions, PermissionScopes } from '@cyris/shared';
+import { PermissionsGuard } from '../authorization/guards/permissions.guard.js';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator.js';
 
 @Controller('events/:eventId/disruptions')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, PermissionsGuard)
+@RequirePermission(Permissions.PLATFORM_MANAGE, PermissionScopes.PLATFORM)
 export class DisruptionsController {
   constructor(private readonly disruptionsService: DisruptionsService) {}
 
   @Get()
   list(@Param('eventId') eventId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.disruptionsService.listOperator(eventId, user);
-  }
-
-  @Get('status')
-  status(@Param('eventId') eventId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.disruptionsService.getParticipantStatus(eventId, user);
-  }
-
-  @Get('service-status')
-  serviceStatus(@Param('eventId') eventId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.disruptionsService.getServiceStatus(eventId, user);
   }
 
   @Post()
@@ -111,17 +105,36 @@ export class DisruptionsController {
   }
 
   @Post('recovery-objectives/:objectiveId/artifacts/:artifactId/publish')
-  async publishRecoveryArtifact(@Param('eventId') eventId: string, @Param('artifactId') artifactId: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+  async publishRecoveryArtifact(@Param('eventId') eventId: string, @Param('objectiveId') objectiveId: string, @Param('artifactId') artifactId: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     const parsed = RecoveryObjectiveRestoreRequestSchema.pick({ expectedRevision: true }).safeParse(body);
     if (!parsed.success) throw new BadRequestException('A valid expectedRevision is required');
-    return this.disruptionsService.publishRecoveryArtifact(eventId, artifactId, parsed.data.expectedRevision, user);
+    return this.disruptionsService.publishRecoveryArtifact(eventId, objectiveId, artifactId, parsed.data.expectedRevision, user);
   }
 
   @Get('recovery-objectives/:objectiveId/artifacts/:artifactId/download')
-  async downloadRecoveryArtifact(@Param('eventId') eventId: string, @Param('artifactId') artifactId: string, @CurrentUser() user: AuthenticatedUser, @Res() reply: FastifyReply) {
-    const file = await this.disruptionsService.downloadRecoveryArtifact(eventId, artifactId, user);
+  async downloadRecoveryArtifact(@Param('eventId') eventId: string, @Param('objectiveId') objectiveId: string, @Param('artifactId') artifactId: string, @CurrentUser() user: AuthenticatedUser, @Res() reply: FastifyReply) {
+    const file = await this.disruptionsService.downloadRecoveryArtifact(eventId, objectiveId, artifactId, user);
     reply.header('Content-Type', 'text/plain; charset=utf-8');
     reply.header('Content-Disposition', `attachment; filename="${file.filename}"`);
     return reply.send(file.body);
+  }
+}
+
+
+@Controller('events/:eventId')
+@UseGuards(AuthGuard)
+export class ServiceStatusController {
+  constructor(private readonly service: DisruptionsService) {}
+
+  @Get(['service-status', 'disruptions/service-status'])
+  @Header('Cache-Control', 'private, no-store')
+  status(@Param('eventId') eventId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.getServiceStatus(eventId, user);
+  }
+
+  @Get('disruptions/status')
+  @Header('Cache-Control', 'private, no-store')
+  taskStatus(@Param('eventId') eventId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.getParticipantStatus(eventId, user);
   }
 }

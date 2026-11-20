@@ -1,8 +1,8 @@
 import {Injectable,ForbiddenException,NotFoundException,ConflictException} from '@nestjs/common';
-import {and,eq,desc,asc,inArray} from 'drizzle-orm';
+import {and,eq,desc,asc,inArray,sql} from 'drizzle-orm';
 import {events,eventMemberships,MembershipStatus,users,supportRequests,supportMessages} from '@cyris/db';
 import {Permissions} from '@cyris/shared';
-import type {CreateSupportRequest,SupportInbox,SupportThread,SupportMessageInput} from '@cyris/contracts';
+import type {CreateSupportRequest,SupportInbox,SupportInboxQuery,SupportThread,SupportMessageInput} from '@cyris/contracts';
 import {DatabaseService} from '../database/database.service.js';
 import {AuthorizationService} from '../authorization/authorization.service.js';
 import {AuditService} from '../audit/audit.service.js';
@@ -13,25 +13,66 @@ import type {AuthenticatedUser} from '../auth/session.service.js';
 export class SupportService {
   constructor(private readonly database:DatabaseService,private readonly authz:AuthorizationService,private readonly audit:AuditService){}
   private get db(){return this.database.client;}
+  canManage(eventId:string,user:AuthenticatedUser){
+    return this.authz.authorize({user,permission:Permissions.SCENARIO_MANAGE,context:{eventId}});
+  }
   private async access(eventId:string,user:AuthenticatedUser){
     const [event]=await this.db.select({id:events.id}).from(events).where(eq(events.id,eventId)).limit(1);
     if(!event)throw new NotFoundException('Exercise not found');
-    const canManage=await this.authz.authorize({user,permission:Permissions.SCENARIO_MANAGE,context:{eventId}});
+    const canManage=await this.canManage(eventId,user);
     if(!canManage){
       const [member]=await this.db.select({id:eventMemberships.id}).from(eventMemberships).where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,user.id),eq(eventMemberships.status,MembershipStatus.ACTIVE))).limit(1);
       if(!member)throw new ForbiddenException('Support requires active exercise membership');
     }
     return canManage;
   }
-  async list(eventId:string,user:AuthenticatedUser):Promise<SupportInbox>{
-    const canManage=await this.access(eventId,user);
-    const rows=await this.db.select({thread:supportRequests,name:users.displayName}).from(supportRequests).innerJoin(users,eq(users.id,supportRequests.requesterId))
-      .where(and(eq(supportRequests.eventId,eventId),canManage?undefined:eq(supportRequests.requesterId,user.id))).orderBy(desc(supportRequests.updatedAt)).limit(100);
-    const messages=rows.length?await this.db.select().from(supportMessages).where(inArray(supportMessages.requestId,rows.map(r=>r.thread.id))).orderBy(asc(supportMessages.createdAt)):[];
-    return {canManage,threads:rows.map(({thread:r,name})=>({
-      ...r,requesterName:name,category:r.category as SupportThread['category'],status:r.status as SupportThread['status'],createdAt:r.createdAt.toISOString(),updatedAt:r.updatedAt.toISOString(),
-      messages:messages.filter(m=>m.requestId===r.id).map(m=>({id:m.id,authorKind:m.authorKind as 'PARTICIPANT'|'EXCON',body:m.body,createdAt:m.createdAt.toISOString()})),
-    }))};
+  async list(eventId: string, user: AuthenticatedUser, query: SupportInboxQuery = {}): Promise<SupportInbox> {
+    const canManage = await this.access(eventId, user);
+    const audience = and(eq(supportRequests.eventId, eventId), canManage ? undefined : eq(supportRequests.requesterId, user.id));
+    const filter = and(audience, query.status ? eq(supportRequests.status, query.status) : undefined);
+    const order = canManage ? [
+      desc(sql`${supportRequests.status} = 'OPEN'`),
+      asc(sql`case when ${supportRequests.status} = 'OPEN' then ${supportRequests.updatedAt} end`),
+      desc(supportRequests.updatedAt), asc(supportRequests.id),
+    ] : [desc(supportRequests.updatedAt), asc(supportRequests.id)];
+    const selectRows = () => this.db.select({ thread: supportRequests, name: users.displayName }).from(supportRequests)
+      .innerJoin(users, eq(users.id, supportRequests.requesterId));
+    // Older clients expect the latest 100 threads with full conversations.
+    // The operator console pages summaries and loads messages only for its open thread.
+    const paged = query.page !== undefined;
+    const pageSize = paged ? 25 : 100;
+    const page = query.page ?? 1;
+    const [rows, selectedRows, totals] = await Promise.all([
+      selectRows().where(filter).orderBy(...order).limit(pageSize).offset((page - 1) * pageSize),
+      query.threadId ? selectRows().where(and(audience, eq(supportRequests.id, query.threadId))).limit(1) : [],
+      paged ? this.db.select({
+        status: supportRequests.status, count: sql<number>`count(*)::integer`,
+        latest: sql<string>`max(${supportRequests.updatedAt})::text`,
+      }).from(supportRequests).where(audience).groupBy(supportRequests.status) : [],
+    ]);
+    const messageIds = paged ? selectedRows.map(r => r.thread.id) : rows.map(r => r.thread.id);
+    const groups = new Map<string, SupportThread['messages']>();
+    if (messageIds.length) {
+      const messages = await this.db.select().from(supportMessages).where(inArray(supportMessages.requestId, messageIds))
+        .orderBy(asc(supportMessages.createdAt), asc(supportMessages.id));
+      for (const message of messages) {
+        const items = groups.get(message.requestId) ?? [];
+        items.push({ id: message.id, authorKind: message.authorKind as 'EXCON' | 'PARTICIPANT', body: message.body, createdAt: message.createdAt.toISOString() });
+        groups.set(message.requestId, items);
+      }
+    }
+    const serialize = ({thread, name}: typeof rows[number]): SupportThread => ({
+      ...thread, requesterName: name, category: thread.category as SupportThread['category'], status: thread.status as SupportThread['status'],
+      createdAt: thread.createdAt.toISOString(), updatedAt: thread.updatedAt.toISOString(), messages: groups.get(thread.id) ?? [],
+    });
+    const result = { canManage, threads: rows.map(row => paged ? { ...serialize(row), messages: [] } : serialize(row)) };
+    if (!paged) return result;
+    const open = totals.find(item => item.status === 'OPEN');
+    return {
+      ...result, page, pageSize, waiting: open?.count ?? 0, queueRevision: (open?.latest ?? '') + '/' + (open?.count ?? 0),
+      total: totals.reduce((sum, item) => sum + (!query.status || item.status === query.status ? item.count : 0), 0),
+      selectedThread: selectedRows[0] ? serialize(selectedRows[0]) : null,
+    };
   }
   async create(eventId:string,user:AuthenticatedUser,input:CreateSupportRequest){
     await this.access(eventId,user);

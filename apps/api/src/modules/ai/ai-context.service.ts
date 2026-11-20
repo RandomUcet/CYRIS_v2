@@ -107,7 +107,8 @@ export class AIContextService {
    */
   async buildCaseContext(
     user: AuthenticatedUser,
-    caseId: string
+    caseId: string,
+    expectedEventId?: string
   ): Promise<PermittedCaseContext> {
     const db = this.databaseService.client;
 
@@ -137,13 +138,14 @@ export class AIContextService {
 
     const [caseResource] = await db.select({ eventId: resources.eventId }).from(resources)
       .where(eq(resources.id, caseId)).limit(1);
-    if (!caseResource) throw new NotFoundException(`Case '${caseId}' not found`);
+    if (!caseResource || (expectedEventId && caseResource.eventId !== expectedEventId)) throw new NotFoundException('Case not found in this exercise');
     const eventId = caseResource.eventId;
 
     const accessibleResourceIds: string[] = [caseId];
 
     // 2. Fetch relationships connected to this case
-    const rawRelationships = await db
+    const impacts = await this.resourceAccessService.getModuleImpacts(eventId, user);
+    const rawRelationships = impacts.get('relationships') === 'UNAVAILABLE' ? [] : await db
       .select({
         relationshipType: resourceRelationships.relationshipType,
         targetId: resourceRelationships.targetResourceId,

@@ -19,7 +19,7 @@ export class CaseSummarizationService {
     eventId: string
   ): Promise<SummarizeCaseResponse> {
     // 1. Retrieve authorized context only
-    const context = await this.aiContext.buildCaseContext(user, caseId);
+    const context = await this.aiContext.buildCaseContext(user, caseId, eventId);
 
     const referencedCodes: string[] = [context.caseNumber];
     for (const item of context.evidenceItems) {

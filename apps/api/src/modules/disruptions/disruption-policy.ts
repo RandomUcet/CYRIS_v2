@@ -1,54 +1,44 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
+import { isServiceModule, type RestrictedServiceMode, type ServiceModule } from '@cyris/contracts';
 import type { ExerciseDisruption } from '@cyris/db';
 
-export const ENFORCED_DISRUPTION_MODULE = 'tasks' as const;
-export const ENFORCED_DISRUPTION_MODES = ['UNAVAILABLE', 'READ_ONLY', 'DEGRADED'] as const;
+export type ServiceOperation = 'read' | 'write';
 
 export function assertSupportedDisruption(module: string, mode: string): void {
-  if (module !== ENFORCED_DISRUPTION_MODULE || mode === 'DEGRADED' ||
-    !ENFORCED_DISRUPTION_MODES.includes(mode as typeof ENFORCED_DISRUPTION_MODES[number])) {
-    throw new ForbiddenException('Only tasks UNAVAILABLE and READ_ONLY disruption modes are allowed');
+  if (!isServiceModule(module) || (mode !== 'UNAVAILABLE' && mode !== 'READ_ONLY')) {
+    throw new BadRequestException('Select an available module and restriction mode');
   }
-}
-
-export function isTargetApplicable(row: ExerciseDisruption, userId: string, unitId?: string | null): boolean {
-  return row.targetType === 'EVENT' ||
-    (row.targetType === 'USER' && row.targetId === userId) ||
-    (row.targetType === 'UNIT' && Boolean(unitId) && row.targetId === unitId);
 }
 
 export function isActiveDisruption(row: ExerciseDisruption, now = new Date()): boolean {
   return !row.restoredAt && row.startsAt <= now && (!row.expiresAt || row.expiresAt > now);
 }
 
-export function resolveDisruption(
-  rows: ExerciseDisruption[],
-  now: Date,
-  userId: string,
-  unitId?: string | null,
-): ExerciseDisruption | null {
-  const applicable = rows
-    .filter((row) => isActiveDisruption(row, now))
-    .filter((row) => isTargetApplicable(row, userId, unitId))
-    .sort((left, right) => {
-      const restriction = { UNAVAILABLE: 3, READ_ONLY: 2, DEGRADED: 1 } as const;
-      const specificity = { USER: 3, UNIT: 2, EVENT: 1 } as const;
-      return restriction[right.mode as keyof typeof restriction] - restriction[left.mode as keyof typeof restriction]
-        || specificity[right.targetType as keyof typeof specificity] - specificity[left.targetType as keyof typeof specificity]
-        || right.startsAt.getTime() - left.startsAt.getTime()
-        || right.id.localeCompare(left.id);
-    });
-  return applicable[0] ?? null;
+/** Only mode and module leave the recipient-scoped, currently active query. */
+export function resolveModuleImpacts(
+  rows: ReadonlyArray<{ module: string; mode: string }>,
+): ReadonlyMap<ServiceModule, RestrictedServiceMode> {
+  const impacts = new Map<ServiceModule, RestrictedServiceMode>();
+  for (const { module, mode } of rows) {
+    if (isServiceModule(module) && (mode === 'READ_ONLY' || mode === 'UNAVAILABLE') &&
+        impacts.get(module) !== 'UNAVAILABLE') {
+      impacts.set(module, mode);
+    }
+  }
+  return impacts;
+}
+
+export function assertServiceOperation(impact: RestrictedServiceMode | undefined, operation: ServiceOperation): void {
+  if (impact === 'UNAVAILABLE') {
+    throw new ServiceUnavailableException({ code: 'SERVICE_UNAVAILABLE', message: 'This service is temporarily unavailable.' });
+  }
+  if (impact === 'READ_ONLY' && operation === 'write') {
+    throw new ForbiddenException({ code: 'SERVICE_READ_ONLY', message: 'This service is currently read-only.' });
+  }
 }
 
 export function assertRevision(expected: number, actual: number): void {
   if (expected !== actual) {
-    throw new ConflictException(`Disruption revision conflict: expected ${expected}, current ${actual}`);
-  }
-}
-
-export function assertParticipantWriteAllowed(disruption: ExerciseDisruption | null): void {
-  if (disruption?.mode === 'UNAVAILABLE' || disruption?.mode === 'READ_ONLY') {
-    throw new ForbiddenException(`Module is simulated as ${disruption.mode.toLowerCase()}`);
+    throw new ConflictException(`Revision conflict: expected ${expected}, current ${actual}`);
   }
 }

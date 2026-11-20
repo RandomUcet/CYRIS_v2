@@ -453,7 +453,8 @@ export class InvestigationService {
       user: AuthenticatedUser
     ): Promise<CaseWorkspaceResponse> {
       const caseData = await this.getCase(eventId, caseId, user);
-      const relationships = await this.db
+      const impacts = await this.resourceAccessService.getModuleImpacts(eventId, user);
+      const relationships = impacts.get('relationships') === 'UNAVAILABLE' ? [] : await this.db
         .select()
         .from(resourceRelationships)
         .where(
@@ -466,30 +467,22 @@ export class InvestigationService {
         .limit(100);
 
       const relatedIds = relationships.map((relationship) => relationship.targetResourceId);
-      const visibleRelationships: typeof relationships = [];
-      for (const relationship of relationships) {
-        if (
-          await this.resourceAccessService.canAccessResource(
-            user,
-            relationship.targetResourceId,
-            Permissions.EVENT_READ
-          )
-        ) {
-          visibleRelationships.push(relationship);
-        }
-      }
-
-      const ids = visibleRelationships.map((relationship) => relationship.targetResourceId);
-      const relatedResources = ids.length
-        ? await this.db.select().from(resources).where(inArray(resources.id, ids))
+      const candidates = relatedIds.length
+        ? await this.db.select({ id: resources.id, resourceType: resources.resourceType }).from(resources)
+          .where(and(eq(resources.eventId, eventId), inArray(resources.id, relatedIds)))
         : [];
-      const resourceById = new Map(relatedResources.map((resource) => [resource.id, resource]));
-      const typeIds = (type: string) =>
-        visibleRelationships
-          .filter((relationship) => resourceById.get(relationship.targetResourceId)?.resourceType === type)
-          .map((relationship) => relationship.targetResourceId);
+      const readable = new Map<string, string[]>();
+      for (const resource of candidates) {
+        const permission = resource.resourceType === 'incident' ? Permissions.INCIDENT_READ :
+          resource.resourceType === 'evidence' ? Permissions.EVIDENCE_READ : Permissions.REGISTRY_READ;
+        if (!await this.resourceAccessService.canAccessResource(user, resource.id, permission)) continue;
+        const ids = readable.get(resource.resourceType) ?? [];
+        ids.push(resource.id);
+        readable.set(resource.resourceType, ids);
+      }
+      const typeIds = (type: string) => readable.get(type) ?? [];
 
-      const [incidentRows, evidenceRows, personRows, organisationRows, locationRows, vehicleRows, deviceRows, taskRows] =
+      const [incidentRows, evidenceRows, personRows, organisationRows, locationRows, vehicleRows, deviceRows, taskCandidates] =
         await Promise.all([
           this.db.select().from(incidents).where(inArray(incidents.id, typeIds('incident'))),
           this.db.select().from(evidence).where(inArray(evidence.id, typeIds('evidence'))),
@@ -498,9 +491,14 @@ export class InvestigationService {
           this.db.select().from(locations).where(inArray(locations.id, typeIds('location'))),
           this.db.select().from(vehicles).where(inArray(vehicles.id, typeIds('vehicle'))),
           this.db.select().from(devices).where(inArray(devices.id, typeIds('device'))),
-          this.db.select().from(operationalTasks).where(eq(operationalTasks.sourceResourceId, caseId)).limit(100),
+          impacts.get('tasks') === 'UNAVAILABLE' ? [] : this.db.select().from(operationalTasks)
+            .where(and(eq(operationalTasks.eventId, eventId), eq(operationalTasks.sourceResourceId, caseId))).limit(100),
         ]);
 
+      const taskRows: (typeof operationalTasks.$inferSelect)[] = [];
+      for (const task of taskCandidates) {
+        if (await this.resourceAccessService.canAccessResource(user, task.id, Permissions.TASK_READ)) taskRows.push(task);
+      }
       const entities = [
         ...personRows.map((row) => ({ id: row.id, resourceType: 'person', title: row.displayName })),
         ...organisationRows.map((row) => ({ id: row.id, resourceType: 'organisation', title: row.name })),
@@ -509,7 +507,7 @@ export class InvestigationService {
         ...deviceRows.map((row) => ({ id: row.id, resourceType: 'device', title: row.label })),
       ];
 
-      const recentActivity = await this.activityService.getActivityFeed({
+      const recentActivity = impacts.get('timeline') === 'UNAVAILABLE' ? [] : await this.activityService.getActivityFeed({
         eventId,
         resourceId: caseId,
         limit: 25,
@@ -518,13 +516,13 @@ export class InvestigationService {
       return {
         case: caseData,
         allowedActions: {
-          update: await this.resourceAccessService.canAccessResource(user, caseId, Permissions.CASE_UPDATE),
-          assign: await this.resourceAccessService.canAccessResource(user, caseId, Permissions.CASE_ASSIGN),
-          close: await this.resourceAccessService.canAccessResource(user, caseId, Permissions.CASE_CLOSE),
-          createEvidence: await this.resourceAccessService.canAccessResource(user, caseId, Permissions.EVIDENCE_CREATE),
-          createTask: await this.resourceAccessService.canAccessResource(user, caseId, Permissions.TASK_CREATE),
+          update: !impacts.has('cases') && await this.resourceAccessService.canAccessResource(user, caseId, Permissions.CASE_UPDATE),
+          assign: !impacts.has('cases') && await this.resourceAccessService.canAccessResource(user, caseId, Permissions.CASE_ASSIGN),
+          close: !impacts.has('cases') && await this.resourceAccessService.canAccessResource(user, caseId, Permissions.CASE_CLOSE),
+          createEvidence: !impacts.has('evidence') && await this.resourceAccessService.canAccessResource(user, caseId, Permissions.EVIDENCE_CREATE),
+          createTask: !impacts.has('tasks') && await this.resourceAccessService.canAccessResource(user, caseId, Permissions.TASK_CREATE),
         },
-        allowedTransitions: [...(CASE_STATUS_TRANSITIONS[caseData.status as keyof typeof CASE_STATUS_TRANSITIONS] ?? [])],
+        allowedTransitions: impacts.has('cases') ? [] : [...(CASE_STATUS_TRANSITIONS[caseData.status as keyof typeof CASE_STATUS_TRANSITIONS] ?? [])],
         related: {
           incidents: incidentRows.map((row) => ({
             id: row.id,

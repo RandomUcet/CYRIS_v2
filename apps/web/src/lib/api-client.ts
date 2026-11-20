@@ -3,7 +3,7 @@ import type {
   LabAnalysisDetail,
   ReadinessResponse,
   CurrentUserResponse,
-  CreateSupportRequest, SupportInbox, SupportMessageInput,
+  CreateSupportRequest, SupportInbox, SupportInboxQuery, SupportMessageInput, SupportAssistInput, SupportAssistResult,
   EventResponse,
   LoginRequest,
   SearchResponse,
@@ -167,8 +167,17 @@ export class CyrisApiClient {
   getTeamDisplays(eventId: string) { return this.fetchJson<Array<{ id: string; name: string; slug: string }>>(
     `/events/${eventId}/command/team-displays`); }
 
-  listSupport(eventId:string){return this.fetchJson<SupportInbox>(`/events/${eventId}/support`);}
+  listSupport(eventId: string, query: SupportInboxQuery = {}) {
+    const params = new URLSearchParams();
+    if (query.page) params.set('page', String(query.page));
+    if (query.status) params.set('status', query.status);
+    if (query.threadId) params.set('threadId', query.threadId);
+    return this.fetchJson<SupportInbox>(`/events/${eventId}/support${params.size ? '?' + params : ''}`);
+  }
   createSupport(eventId:string,input:CreateSupportRequest){return this.postJson<{id:string}>(`/events/${eventId}/support`,input);}
+  assistSupport(eventId: string, input: SupportAssistInput) {
+    return this.postJson<SupportAssistResult>(`/events/${eventId}/support/assist`, input);
+  }
   replySupport(eventId:string,id:string,input:SupportMessageInput){return this.postJson<{id:string}>(`/events/${eventId}/support/${id}/reply`,input);}
   resolveSupport(eventId:string,id:string,expectedRevision:number){return this.postJson<{id:string}>(`/events/${eventId}/support/${id}/resolve`,{expectedRevision});}
 
@@ -612,7 +621,7 @@ export class CyrisApiClient {
     return { ok: false, error: 'Failed to fetch' };
   }
 
-  private async postJson<T>(path: string, payload: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
+  private async postJson<T>(path: string, payload: unknown): Promise<{ ok: boolean; data?: T; error?: string; status?: number }> {
     try {
       const res = await this.request(`${this.baseUrl}${path}`, {
         method: 'POST',
@@ -622,7 +631,7 @@ export class CyrisApiClient {
       });
       if (!res.ok) {
         const errJson = (await res.json().catch(() => ({}))) as { message?: string };
-        return { ok: false, error: errJson.message || `HTTP ${res.status}` };
+        return { ok: false, status: res.status, error: errJson.message || `HTTP ${res.status}` };
       }
       const data = (await res.json()) as T;
       return { ok: true, data };
@@ -1363,7 +1372,7 @@ export class CyrisApiClient {
   }
 
   async getServiceStatus(eventId: string): Promise<{ ok: boolean; data?: ServiceStatusResponse; error?: string }> {
-    return this.fetchJson<ServiceStatusResponse>(`/events/${eventId}/disruptions/service-status`);
+    return this.fetchJson<ServiceStatusResponse>(`/events/${eventId}/service-status`);
   }
 
   async startDisruption(

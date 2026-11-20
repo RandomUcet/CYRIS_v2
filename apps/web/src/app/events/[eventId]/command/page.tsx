@@ -26,13 +26,14 @@ import {
 } from 'lucide-react';
 import type { OperationalPictureResponse } from '@cyris/contracts';
 import { DefconPanel } from '@/components/command/DefconPanel';
-import { DisruptionPanel } from '@/components/command/DisruptionPanel';
+import { useServiceReadOnly } from '@/hooks/useServiceStatus';
 
 export default function CommandPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
   const { user, hasPermission } = useAuth();
+  const readOnly = useServiceReadOnly('command');
   const { formatTime, locale } = usePreferences();
   const tr = (label: string) => workspaceLabel(locale, label);
 
@@ -110,10 +111,7 @@ export default function CommandPage() {
   return (
     <AppShell breadcrumbs={[{ label: 'Command', href: `/events/${eventId}/command` }]}>
       <div className="command-workspace">
-        <div className="command-workspace__readiness">
-          <DefconPanel eventId={eventId} />
-          <DisruptionPanel eventId={eventId} />
-        </div>
+        <DefconPanel eventId={eventId} />
         {/* Command Header Banner */}
         <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -139,6 +137,7 @@ export default function CommandPage() {
               {tr("Refresh")}
             </button>
             <button
+              disabled={readOnly}
               onClick={() => {
                 setSitrepTitle(`SITREP — ${formatTime(new Date())}`);
                 setShowSitrepModal(true);
@@ -353,7 +352,7 @@ export default function CommandPage() {
       </div>
 
       {/* Produce SITREP Modal */}
-      {showSitrepModal && (
+      {!readOnly && showSitrepModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <form
             onSubmit={handleCreateSitrep}

@@ -5,7 +5,7 @@
 const eventReads = new Set([
   '', '/workspace', '/units', '/tasks', '/tasks/my-work', '/tasks/:taskId',
   '/command/team-displays', '/command/readiness', '/command/defcon', '/command/operational-picture',
-  '/disruptions/status', '/disruptions/service-status', '/disruptions/recovery-objectives',
+  '/service-status', '/disruptions/status', '/disruptions/service-status',
   '/timeline', '/support', '/documents', '/briefings', '/incidents', '/cases', '/evidence',
   '/evaluation/objectives', '/evaluation/observations', '/evaluation/after-action',
   '/medical', '/medical/operational-summary', '/lab', '/lab/units',

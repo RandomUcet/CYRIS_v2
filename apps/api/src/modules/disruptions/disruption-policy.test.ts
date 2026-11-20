@@ -1,84 +1,72 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { assertParticipantWriteAllowed, assertSupportedDisruption, isActiveDisruption, isTargetApplicable, resolveDisruption } from './disruption-policy.js';
-import { CreateDisruptionRequestSchema, ParticipantDisruptionStatusSchema } from '@cyris/contracts';
-import type { ExerciseDisruption } from '@cyris/db';
+import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
+import { CreateDisruptionRequestSchema, ParticipantDisruptionStatusSchema, serviceModuleLabels } from '@cyris/contracts';
+import { assertServiceOperation, assertSupportedDisruption, resolveModuleImpacts } from './disruption-policy.js';
+import { serviceRouteChecks } from './service-routes.js';
 
-const row = (values: Partial<ExerciseDisruption>): ExerciseDisruption => ({
-  id: '00000000-0000-0000-0000-000000000001',
-  eventId: '00000000-0000-0000-0000-000000000010',
-  targetType: 'EVENT',
-  targetId: null,
-  module: 'tasks',
-  mode: 'READ_ONLY',
-  startsAt: new Date('2026-01-01T00:00:00Z'),
-  expiresAt: null,
-  reason: 'exercise',
-  revision: 1,
-  restoredAt: null,
-  restoredByUserId: null,
-  createdByUserId: '00000000-0000-0000-0000-000000000020',
-  createdAt: new Date('2026-01-01T00:00:00Z'),
-  ...values,
-});
-
-describe('disruption policy', () => {
-  it('resolves specificity, then newest start, then stable id', () => {
-    const event = row({ id: '00000000-0000-0000-0000-000000000001' });
-    const unit = row({ id: '00000000-0000-0000-0000-000000000002', targetType: 'UNIT', targetId: '00000000-0000-0000-0000-000000000030' });
-    const user = row({ id: '00000000-0000-0000-0000-000000000003', targetType: 'USER', targetId: '00000000-0000-0000-0000-000000000040' });
-    assert.equal(resolveDisruption([event, unit, user], new Date('2026-02-01T00:00:00Z'), user.targetId!, unit.targetId)?.id, user.id);
-    assert.equal(resolveDisruption([event, unit], new Date('2026-02-01T00:00:00Z'), user.targetId!, unit.targetId)?.id, unit.id);
-  });
-
-  it('chooses the most restrictive overlapping mode before target specificity', () => {
-    const event = row({ mode: 'UNAVAILABLE' });
-    const user = row({ id: '00000000-0000-0000-0000-000000000003', targetType: 'USER', targetId: '00000000-0000-0000-0000-000000000040', mode: 'DEGRADED' });
-    assert.equal(resolveDisruption([user, event], new Date('2026-02-01T00:00:00Z'), user.targetId!, null)?.mode, 'UNAVAILABLE');
-  });
-
-  it('does not resolve expired or restored rows', () => {
-    assert.equal(isActiveDisruption(row({ expiresAt: new Date('2026-01-02T00:00:00Z') }), new Date('2026-01-01T12:00:00Z')), true);
-    assert.equal(isActiveDisruption(row({ expiresAt: new Date('2026-01-02T00:00:00Z') }), new Date('2026-02-03T00:00:00Z')), false);
-    assert.equal(isActiveDisruption(row({ restoredAt: new Date('2026-01-01T12:00:00Z') }), new Date('2026-02-01T00:00:00Z')), false);
-  });
-
-  it('blocks unavailable and read-only writes but permits degraded mode', () => {
-    assert.throws(() => assertParticipantWriteAllowed(row({ mode: 'UNAVAILABLE' })));
-    assert.throws(() => assertParticipantWriteAllowed(row({ mode: 'READ_ONLY' })));
-    assert.doesNotThrow(() => assertParticipantWriteAllowed(row({ mode: 'DEGRADED' })));
-    assert.doesNotThrow(() => assertParticipantWriteAllowed(null));
-  });
-
-  it('enforces the tasks module allowlist and event-bound target semantics', () => {
-    assert.doesNotThrow(() => assertSupportedDisruption('tasks', 'READ_ONLY'));
+describe('service availability policy', () => {
+  it('uses the same allowlist for configuration and primary endpoints', () => {
+    for (const module of Object.keys(serviceModuleLabels)) {
+      const path = module === 'command' ? 'command/operational-picture' : module;
+      assert.deepEqual(serviceRouteChecks('/events/:eventId/' + path, 'GET'), [{ module, operation: 'read' }]);
+      assert.doesNotThrow(() => assertSupportedDisruption(module, 'READ_ONLY'));
+      assert.equal(CreateDisruptionRequestSchema.safeParse({ targetType: 'EVENT', mode: 'UNAVAILABLE', reason: 'For review', module }).success, true);
+    }
+    for (const module of ['support', 'readiness', 'disruptions', 'service-status', 'constructor', '__proto__']) {
+      assert.throws(() => assertSupportedDisruption(module, 'UNAVAILABLE'));
+    }
     assert.throws(() => assertSupportedDisruption('tasks', 'DEGRADED'));
-    assert.throws(() => assertSupportedDisruption('documents', 'READ_ONLY'));
-    assert.equal(isTargetApplicable(row({ targetType: 'EVENT' }), 'user', null), true);
-    assert.equal(isTargetApplicable(row({ targetType: 'UNIT', targetId: 'unit' }), 'user', 'unit'), true);
-    assert.equal(isTargetApplicable(row({ targetType: 'UNIT', targetId: 'other' }), 'user', 'unit'), false);
   });
 
-  it('validates start and expiry windows and target requirements', () => {
-    assert.equal(CreateDisruptionRequestSchema.safeParse({
-      targetType: 'EVENT', module: 'tasks', mode: 'READ_ONLY',
-      startsAt: '2026-01-02T00:00:00.000Z', expiresAt: '2026-01-01T00:00:00.000Z', reason: 'bad window',
-    }).success, false);
-    assert.equal(CreateDisruptionRequestSchema.safeParse({
-      targetType: 'UNIT', module: 'tasks', mode: 'READ_ONLY', reason: 'missing target',
-    }).success, false);
+  it('preserves the strongest current impact per module and ignores legacy advisory modes', () => {
+    const entries = [
+      { module: 'lab', mode: 'READ_ONLY' }, { module: 'tasks', mode: 'READ_ONLY' },
+      { module: 'lab', mode: 'UNAVAILABLE' }, { module: 'registry', mode: 'DEGRADED' },
+      { module: 'support', mode: 'UNAVAILABLE' },
+    ];
+    for (const rows of [entries, [...entries].reverse()]) {
+      const impacts = resolveModuleImpacts(rows);
+      assert.equal(impacts.size, 2);
+      assert.equal(impacts.get('lab'), 'UNAVAILABLE');
+      assert.equal(impacts.get('tasks'), 'READ_ONLY');
+    }
+    assert.doesNotThrow(() => assertServiceOperation('READ_ONLY', 'read'));
+    assert.doesNotThrow(() => assertServiceOperation(undefined, 'write'));
+    assert.throws(() => assertServiceOperation('READ_ONLY', 'write'), ForbiddenException);
+    for (const operation of ['read', 'write'] as const) {
+      assert.throws(() => assertServiceOperation('UNAVAILABLE', operation), ServiceUnavailableException);
+    }
   });
 
-  it('keeps participant status free of operator-only metadata', () => {
-    const status = ParticipantDisruptionStatusSchema.parse({
-      eventId: '00000000-0000-0000-0000-000000000001', module: 'tasks', mode: 'READ_ONLY', active: true, revision: 3,
-      reason: 'operator secret', targetType: 'USER', targetId: '00000000-0000-0000-0000-000000000002',
-    });
-    assert.deepEqual(status, { eventId: '00000000-0000-0000-0000-000000000001', module: 'tasks', mode: 'READ_ONLY', active: true, revision: 3 });
+  it('classifies secondary routes independently of raw HTTP input and preserves recovery/readiness access', () => {
+    const prefix = '/events/:eventId/';
+    for (const [path, module] of [
+      ['resources/:sourceResourceId/relationships', 'relationships'], ['activity', 'timeline'],
+      ['indicators', 'forensics'], ['registry/:resourceId/primary-media', 'registry'],
+    ]) {
+      assert.deepEqual(serviceRouteChecks(prefix + path, 'POST'), [{ module, operation: 'write' }]);
+    }
+    assert.deepEqual(serviceRouteChecks('/resources/:resourceId/relationships', 'GET'), [{ module: 'relationships', operation: 'read' }]);
+    assert.deepEqual(serviceRouteChecks('/resources/:resourceId/timeline', 'GET'), [{ module: 'timeline', operation: 'read' }]);
+    assert.deepEqual(serviceRouteChecks('/cases/:caseId/timeline', 'HEAD'), [{ module: 'cases', operation: 'read' }, { module: 'timeline', operation: 'read' }]);
+    assert.deepEqual(serviceRouteChecks(prefix + 'command/sitrep', 'POST'), [{ module: 'command', operation: 'write' }, { module: 'documents', operation: 'write' }]);
+    assert.deepEqual(serviceRouteChecks(prefix + 'support/assist', 'POST'), [{ module: 'intelligence', operation: 'write' }]);
+    assert.deepEqual(serviceRouteChecks(prefix + 'scenario-data/generate', 'POST'), [{ module: 'scenario', operation: 'write' }, { module: 'registry', operation: 'write' }]);
+    for (const route of [
+      '/auth/login', '/auth/view-as', '/health/ready', '/admin/settings/identity',
+      ...['support', 'workspace', 'service-status', 'disruptions', 'disruptions/:id/restore', 'command/readiness',
+        'command/defcon', 'command/team-displays', 'tasks/my-work'].map(path => prefix + path),
+    ]) assert.deepEqual(serviceRouteChecks(route, 'POST'), []);
   });
 
-  it('treats persisted DEGRADED records as non-enforced input', () => {
-    assert.doesNotThrow(() => resolveDisruption([row({ mode: 'DEGRADED' })], new Date(), 'user'));
-    assert.doesNotThrow(() => assertParticipantWriteAllowed(row({ mode: 'DEGRADED' })));
+  it('validates administrative target/windows and strips private properties from the legacy status DTO', () => {
+    for (const invalid of [
+      { targetType: 'UNIT' },
+      { targetType: 'EVENT', targetId: '00000000-0000-4000-8000-000000000001' },
+      { targetType: 'EVENT', startsAt: '2026-01-01T12:00:00Z', expiresAt: '2026-01-01T11:00:00Z' },
+    ]) assert.equal(CreateDisruptionRequestSchema.safeParse({ module: 'tasks', mode: 'READ_ONLY', reason: 'For review', ...invalid }).success, false);
+    const publicStatus = { eventId: '00000000-0000-4000-8000-000000000001', module: 'tasks', mode: 'READ_ONLY', active: true };
+    assert.deepEqual(ParticipantDisruptionStatusSchema.parse({ ...publicStatus, revision: 3, reason: 'private', targetType: 'USER' }), publicStatus);
   });
 });

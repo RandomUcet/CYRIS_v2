@@ -17,10 +17,22 @@ type Condition = Pick<typeof scenarioInjectConditions.$inferSelect,
   'conditionType' | 'targetResourceId' | 'targetIdentifier' | 'targetStatus' | 'activityType'>;
 
 export class ScenarioRuntimeError extends Error {
-  constructor(readonly code: 'NOT_FOUND' | 'INVALID' | 'CONFLICT', message: string) {
+  constructor(readonly code: 'NOT_FOUND' | 'INVALID' | 'CONFLICT' | 'FORBIDDEN', message: string) {
     super(message);
     this.name = 'ScenarioRuntimeError';
   }
+}
+
+export function isPlatformScenarioCondition(condition: { conditionType: string; activityType?: string | null }): boolean {
+  return condition.conditionType === 'RECOVERY_OBJECTIVE_STATUS' ||
+    (condition.conditionType === 'ACTIVITY_OCCURRED' && /^exercise\.(disruption|recovery_objective|recovery_report|recovery_artifact)\./.test(condition.activityType ?? ''));
+}
+
+export async function assertScenarioDesignWritable(db: Executor, eventId: string, injectId: string, allowPlatformConditions: boolean) {
+  if (allowPlatformConditions) return;
+  const conditions = await db.select({ conditionType: scenarioInjectConditions.conditionType, activityType: scenarioInjectConditions.activityType })
+    .from(scenarioInjectConditions).where(and(eq(scenarioInjectConditions.eventId, eventId), eq(scenarioInjectConditions.injectId, injectId)));
+  if (conditions.some(isPlatformScenarioCondition)) throw new ScenarioRuntimeError('FORBIDDEN', 'This design is read-only.');
 }
 
 export function calculateScenarioTime(clock: Partial<typeof scenarioClocks.$inferSelect> | null | undefined, now = new Date()): Date {
@@ -297,10 +309,11 @@ async function executeLockedRelease(tx: Transaction, inject: Inject, releaseType
   return { alreadyReleased: false, releaseId, injectNumber: inject.injectNumber, releasedAt: now.toISOString(), deliveriesCount: recipients.length, disclosedResourcesCount, createdIncidentNumber };
 }
 
-export async function releaseScenarioInject(db: CyrisDatabase, eventId: string, injectId: string, releaseType: 'MANUAL' | 'AUTO' | 'OVERRIDE', userId?: string, reason?: string): Promise<ScenarioReleaseResult> {
+export async function releaseScenarioInject(db: CyrisDatabase, eventId: string, injectId: string, releaseType: 'MANUAL' | 'AUTO' | 'OVERRIDE', userId?: string, reason?: string, allowPlatformConditions = false): Promise<ScenarioReleaseResult> {
   return db.transaction(async tx => {
     const [inject] = await tx.select().from(scenarioInjects).where(and(eq(scenarioInjects.eventId, eventId), eq(scenarioInjects.id, injectId))).for('update');
     if (!inject) throw new ScenarioRuntimeError('NOT_FOUND', 'Scenario inject not found in this exercise');
+    if (releaseType === 'OVERRIDE') await assertScenarioDesignWritable(tx, eventId, injectId, allowPlatformConditions);
     return executeLockedRelease(tx, inject, releaseType, userId, reason);
   });
 }

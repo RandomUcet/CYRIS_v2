@@ -606,12 +606,13 @@ export class TasksService {
           await this.authorizationService.authorize({ user, permission: Permissions.LAB_READ, context: { eventId, unitId: unit.id } })) availableUnits.push(unit);
     }
 
+    const impacts = await this.disruptionsService.getModuleImpacts(eventId, user);
     const [taskRows, labRows] = await Promise.all([
-      this.db.select({ task: operationalTasks, resource: resources })
+      !canReadTasks || impacts.get('tasks') === 'UNAVAILABLE' ? [] : this.db.select({ task: operationalTasks, resource: resources })
         .from(operationalTasks)
         .innerJoin(resources, eq(operationalTasks.id, resources.id))
         .where(eq(operationalTasks.eventId, eventId)),
-      this.db.select({ analysis: labAnalyses, resource: resources })
+      !canReadLaboratory || impacts.get('lab') === 'UNAVAILABLE' ? [] : this.db.select({ analysis: labAnalyses, resource: resources })
         .from(labAnalyses)
         .innerJoin(resources, eq(labAnalyses.id, resources.id))
         .where(eq(resources.eventId, eventId)),
@@ -625,12 +626,6 @@ export class TasksService {
         (query.view === 'unit' && !unitMatch) ||
         (query.view === 'event' && !canViewEvent) ||
         !isActionableMyWorkItem({ kind: 'TASK', status: row.task.status })) continue;
-      try {
-        await this.disruptionsService.assertTaskReadAllowed(eventId, user, row.task.assignedUnitId);
-      } catch (error) {
-        if (error instanceof ForbiddenException) continue;
-        throw error;
-      }
       if (!await this.resourceAccessService.canAccessResource(user, row.task.id, Permissions.TASK_READ)) continue;
       items.push({
         id: row.task.id,

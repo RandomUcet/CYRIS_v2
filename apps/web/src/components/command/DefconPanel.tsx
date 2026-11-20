@@ -7,15 +7,16 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { CommandDefconLevel, CommandDefconSnapshot } from '@cyris/contracts';
 import { acceptDefconSnapshot } from './defcon-live';
 
-const LEVELS: Array<{ value: CommandDefconLevel; label: string; color: string }> = [
-  { value: 5, label: 'Klid/Mír', color: '#29c76f' },
-  { value: 4, label: 'Zvýšená bdělost', color: '#3b82f6' },
-  { value: 3, label: 'Pohotovost', color: '#f3c53b' },
-  { value: 2, label: 'Krize', color: '#ff7a18' },
-  { value: 1, label: 'Katastrofa', color: '#d62d2d' },
-];
+import { usePreferences } from '@/contexts/PreferencesContext';
+import { levels } from './team-displays';
+import styles from './DefconPanel.module.css';
+
+const descendingLevels = [5, 4, 3, 2, 1] as const;
 
 export function DefconPanel({ eventId }: { eventId: string }) {
+  const { locale, formatTime } = usePreferences();
+  const cs = locale === 'cs';
+  const tr = (czech: string, english: string) => cs ? czech : english;
   const { hasPermission, currentUser } = useAuth();
   const canChange = !currentUser?.viewAs && hasPermission('command.defcon.change', eventId);
   const [snapshot, setSnapshot] = useState<CommandDefconSnapshot | null>(null);
@@ -27,7 +28,6 @@ export function DefconPanel({ eventId }: { eventId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [lastConfirmedAt, setLastConfirmedAt] = useState<string | null>(null);
-  const [, setDraftDirty] = useState(false);
   const draftDirtyRef = useRef(false);
   const requestId = useRef(0);
   const snapshotRef = useRef<CommandDefconSnapshot | null>(null);
@@ -47,7 +47,6 @@ export function DefconPanel({ eventId }: { eventId: string }) {
     }
     if (supersededDraft) {
       setReason('');
-      setDraftDirty(false);
       draftDirtyRef.current = false;
     }
     setLastConfirmedAt(new Date().toISOString());
@@ -87,7 +86,6 @@ export function DefconPanel({ eventId }: { eventId: string }) {
     setReason('');
     setSaving(false);
     setLastConfirmedAt(null);
-    setDraftDirty(false);
     draftDirtyRef.current = false;
     setStale(false);
     void load();
@@ -108,7 +106,7 @@ export function DefconPanel({ eventId }: { eventId: string }) {
       return;
     }
     if (!snapshot || stale || (!initializing && snapshot.level === null) || level === null || reason.trim().length < 3 || saving) return;
-    if (!window.confirm(`${initializing ? 'Inicializovat' : 'Potvrdit změnu'} na DEFCON ${level}?`)) return;
+    if (!window.confirm(tr(`Zveřejnit DEFCON ${level} pro všechny týmy?`, `Publish DEFCON ${level} for every team?`))) return;
     savingRef.current = true;
     const id = ++requestId.current;
     setSaving(true);
@@ -125,10 +123,9 @@ export function DefconPanel({ eventId }: { eventId: string }) {
         acceptSnapshot(result.data, id);
         window.dispatchEvent(new Event('cyris:defcon-updated'));
         setReason('');
-        setDraftDirty(false);
         draftDirtyRef.current = false;
       } else {
-        setError(result.error || 'Změna DEFCON selhala; stav mohl být mezitím změněn.');
+        setError(result.error || tr('Změna se neuložila. Obnovte aktuální stav.', 'The change was not saved. Refresh the current level.'));
         setStale(true);
       }
     } catch (cause) {
@@ -148,47 +145,50 @@ export function DefconPanel({ eventId }: { eventId: string }) {
       <div className="command-defcon-header">
         <div className="command-defcon-title">
           <Shield size={17} className="command-defcon-icon" />
-          <h3 className="command-defcon-heading">Exercise readiness / DEFCON</h3>
+          <h3 className="command-defcon-heading">{tr('Připravenost cvičení', 'Exercise readiness')} / DEFCON</h3>
         </div>
-        <button onClick={() => void load()} disabled={loading} className="command-defcon-refresh" aria-label="Obnovit DEFCON">
+        <button onClick={() => void load()} disabled={loading} className="command-defcon-refresh" aria-label={tr('Obnovit DEFCON','Refresh DEFCON')}>
           <RefreshCw size={14} className={loading ? 'command-defcon-spin' : ''} />
         </button>
       </div>
       {error && <div className="command-defcon-error"><AlertTriangle size={14} />{error}</div>}
-      {loading ? <p className="command-defcon-loading">Načítám autoritativní stav…</p> : snapshot ? (
+      {loading ? <p className="command-defcon-loading">{tr('Načítám stupeň připravenosti…', 'Loading readiness…')}</p> : snapshot ? (
         <div className="command-defcon-content">
-          <div className="command-defcon-levels">
-            {LEVELS.map((item) => (
-              <button key={item.value} disabled={!canChange || saving || loading || stale} onClick={() => { setLevel(item.value); setDraftDirty(true); draftDirtyRef.current = true; }}
-                className={`command-defcon-level ${level === item.value ? 'command-defcon-level-selected' : ''}`}
-                style={{ color: item.color }}>
-                {item.value} — {item.label}
-              </button>
-            ))}
-          </div>
+          <section className={styles.signal} aria-label={tr('Aktuální DEFCON', 'Current DEFCON')}>
+            <div className={styles.liveNumber} style={{ color: snapshot.level ? levels[snapshot.level].color : undefined }}>{snapshot.level ?? '—'}</div>
+            <div className={styles.signalText}>
+              <span>Current DEFCON</span>
+              <strong>{snapshot.level ? levels[snapshot.level][cs ? 'cs' : 'en'] : tr('Stupeň neurčen', 'Level not set')}</strong>
+              {snapshot.publicMessage && <p>{snapshot.publicMessage}</p>}
+            </div>
+            <div className={styles.scale} aria-hidden>{descendingLevels.map(n => <i key={n} style={{ borderColor: levels[n].color }} data-active={snapshot.level === n}>{n}</i>)}</div>
+          </section>
           <div className="command-defcon-meta">
-            Aktuální: <strong>{snapshot.level ? `DEFCON ${snapshot.level}` : 'NEZNÁMÝ / NEINICIALIZOVANÝ'}</strong>
-            <span>Revize {snapshot.revision}</span>
-            {stale && <span className="command-defcon-stale">STALE — potvrďte obnovení</span>}
-            {lastConfirmedAt && <span>Poslední potvrzení {new Date(lastConfirmedAt).toLocaleTimeString()}</span>}
+            {stale && <span className="command-defcon-stale">{tr('Spojení přerušeno. Zobrazuji poslední potvrzený stav.', 'Disconnected. Showing the last confirmed state.')}</span>}
+            {lastConfirmedAt && <span>{tr('Naposledy ověřeno', 'Last checked')} {formatTime(lastConfirmedAt)}</span>}
           </div>
-          {!snapshot.initialized && <p className="command-defcon-warning">Stav nebyl inicializován. Nejprve proveďte explicitní inicializaci.</p>}
+          {canChange && <div role="group" aria-label={tr('Stupeň ke zveřejnění', 'Level to publish')} className={styles.picker}>
+            {descendingLevels.map(n => <button type="button" key={n} disabled={saving || loading || stale}
+              aria-pressed={level === n} onClick={() => { setLevel(n); draftDirtyRef.current = true; }}>
+              <i style={{ background: levels[n].color }} aria-hidden/>{n} · {levels[n][cs ? 'cs' : 'en']}
+            </button>)}
+          </div>}
           {canChange && ((snapshot.initialized && !stale) || !snapshot.initialized) && <div className="command-defcon-mutation">
-            <label>Pokyn pro všechny týmy
+            <label>{tr('Pokyn pro všechny týmy','Message for every team')}
               <input className="command-defcon-reason" maxLength={400} value={message}
-                onChange={e => { draftDirtyRef.current = true; setMessage(e.target.value); }} placeholder="Volitelné sdělení na týmové obrazovky" />
+                onChange={e => { draftDirtyRef.current = true; setMessage(e.target.value); }} placeholder={tr('Volitelné sdělení na týmové obrazovky','Optional message for team displays')} />
             </label>
-            <input aria-label="Interní důvod změny" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Interní důvod změny (povinný)"
+            <input aria-label={tr('Interní důvod změny','Internal reason for the change')} value={reason} onChange={(event) => setReason(event.target.value)} placeholder={tr('Interní důvod změny (povinný)','Internal reason (required)')}
               className="command-defcon-reason" />
             <button onClick={() => void submit()} disabled={saving || loading || stale || level === null || reason.trim().length < 3}
               className="command-defcon-submit">
-              {saving ? 'Ukládám…' : snapshot.initialized ? 'Potvrdit' : 'Inicializovat'}
+              {saving ? tr('Ukládám…','Saving…') : tr('Zveřejnit DEFCON','Publish DEFCON')}
             </button>
           </div>}
           {snapshot.history.length > 0 && (
             <details className="command-defcon-history">
               <summary>
-                Historie změn ({snapshot.history.length})
+                {tr('Historie změn','History')} ({snapshot.history.length})
               </summary>
               <div className="command-defcon-history-list">
                 {snapshot.history.map((entry) => (

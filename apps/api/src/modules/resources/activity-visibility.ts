@@ -50,6 +50,7 @@ export async function canReadActivity(row: VisibleActivity, reader: ActivityRead
   // Event boundaries also apply to administrators and to causal/related rows.
   if (row.eventId !== reader.eventId) return false;
   if (reader.platformAdmin) return true;
+  if (row.activityType.startsWith('exercise.disruption.') || row.activityType.startsWith('exercise.recovery')) return false;
   if (!['EVENT', 'UNIT', 'RESTRICTED', 'SCENARIO'].includes(row.visibility)) return false;
   if (row.visibility === 'SCENARIO' && !reader.scenarioReader) return false;
 

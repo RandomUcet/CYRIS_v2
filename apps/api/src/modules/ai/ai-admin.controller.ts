@@ -36,6 +36,8 @@ import {
 } from '@cyris/contracts';
 import { OpenAICompatibleProvider } from './providers/openai-compatible.provider.js';
 
+import { AIAdmissionService } from './ai-admission.service.js';
+
 @Controller('admin/integrations/ai')
 @UseGuards(AuthGuard, PermissionsGuard)
 @RequirePermission(Permissions.PLATFORM_MANAGE, PermissionScopes.PLATFORM)
@@ -43,7 +45,8 @@ export class AIAdminController {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly integrationSecretService: IntegrationSecretService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly admission: AIAdmissionService
   ) {}
 
   @Get()
@@ -352,7 +355,8 @@ export class AIAdminController {
 
   @Post('test-connection')
   async testConnection(
-    @Body() body: unknown
+    @Body() body: unknown,
+    @CurrentUser() user?: AuthenticatedUser
   ): Promise<TestConnectionResponse> {
     const parsed = TestConnectionRequestSchema.safeParse(body);
     if (!parsed.success) {
@@ -414,7 +418,7 @@ export class AIAdminController {
       tlsVerify,
     });
 
-    const result = await provider.testConnection();
+    const result = await this.admission.run('regular', user?.id, 30_000, () => provider.testConnection());
 
     // If testing an existing provider, update its health status in database
     if (req.providerId) {

@@ -22,6 +22,8 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     // Navigation
     'nav.operations': 'Operations',
     'nav.adminOverview': 'Platform overview',
+    'nav.modules': 'Module availability',
+    'admin.overview.modules': 'Set and restore service availability for events, teams and participants.',
     'admin.overview.events': 'Manage exercise editions, lifecycle, dates and locale.',
     'admin.overview.subtitle': 'Configure the CYRIS platform without entering an operational event workspace.',
     'admin.overview.eventsTitle': 'Exercise editions',
@@ -67,19 +69,19 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'myWork.next': 'Next',
     'myWork.page': 'Page',
     'serviceStatus.title': 'Service status',
-    'serviceStatus.subtitle': 'Exercise service status, separate from platform health and DEFCON.',
+    'serviceStatus.subtitle': 'Current availability of services in your workspace.',
     'serviceStatus.loading': 'Resolving service status…',
     'serviceStatus.state.operational': 'Operational',
     'serviceStatus.state.planned': 'Planned maintenance',
-    'serviceStatus.state.active': 'Active disruption',
+    'serviceStatus.state.active': 'Limited service',
     'serviceStatus.state.expired': 'Expired',
     'serviceStatus.state.restored': 'Restored',
-    'serviceStatus.impact.none': 'No participant impact',
+    'serviceStatus.impact.none': 'Operational',
     'serviceStatus.impact.read_only': 'Read-only',
     'serviceStatus.impact.degraded': 'Degraded',
     'serviceStatus.impact.unavailable': 'Unavailable',
     'workspace.help': 'Workspace help',
-    'workspace.helpCopy': 'Start in My Work. Command and DEFCON changes appear only when permitted for the active event.',
+    'workspace.helpCopy': 'Open My Work for current assignments. Help and service status are available in Support.',
 
     // Statuses & Lifecycle
     'status.open': 'Open',
@@ -323,6 +325,8 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     // Navigation
     'nav.operations': 'Operace',
     'nav.adminOverview': 'Přehled platformy',
+    'nav.modules': 'Dostupnost modulů',
+    'admin.overview.modules': 'Nastavení a obnovení dostupnosti služeb pro události, týmy a účastníky.',
     'admin.overview.events': 'Správa edic cvičení, životního cyklu, termínů a lokalizace.',
     'admin.overview.subtitle': 'Konfigurace platformy CYRIS bez vstupu do operačního prostoru cvičení.',
     'admin.overview.eventsTitle': 'Edice cvičení',
@@ -342,7 +346,7 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'nav.court': 'Soud a obžaloba',
     'nav.medical': 'Zdravotnický zásah',
     'nav.scenario': 'Řízení scénáře',
-    'nav.briefings': 'Brífinky',
+    'nav.briefings': 'Briefingy',
     'nav.evaluation': 'Pozorovatel / Hodnocení',
     'nav.documents': 'Dokumenty',
     'nav.search': 'Globální vyhledávání',
@@ -368,19 +372,19 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'myWork.next': 'Další',
     'myWork.page': 'Stránka',
     'serviceStatus.title': 'Stav služeb',
-    'serviceStatus.subtitle': 'Stav služeb cvičení oddělený od zdraví platformy a DEFCON.',
+    'serviceStatus.subtitle': 'Aktuální dostupnost služeb ve vašem pracovním prostoru.',
     'serviceStatus.loading': 'Zjišťuji stav služeb…',
     'serviceStatus.state.operational': 'V provozu',
     'serviceStatus.state.planned': 'Plánovaná údržba',
     'serviceStatus.state.active': 'Aktivní omezení',
     'serviceStatus.state.expired': 'Expirované',
     'serviceStatus.state.restored': 'Obnoveno',
-    'serviceStatus.impact.none': 'Bez dopadu na účastníka',
+    'serviceStatus.impact.none': 'V provozu',
     'serviceStatus.impact.read_only': 'Pouze pro čtení',
     'serviceStatus.impact.degraded': 'Omezený režim',
     'serviceStatus.impact.unavailable': 'Nedostupné',
     'workspace.help': 'Nápověda k pracovnímu prostoru',
-    'workspace.helpCopy': 'Začněte v My Work. Command a změny DEFCON se zobrazí jen podle oprávnění aktivního eventu.',
+    'workspace.helpCopy': 'Přidělené úkoly najdete v části Moje práce. V části Podpora najdete nápovědu a stav služeb.',
 
     // Statuses & Lifecycle
     'status.open': 'Otevřeno',
@@ -621,6 +625,8 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
   },
 
   de: {
+    'nav.modules': 'Modulverfügbarkeit',
+    'admin.overview.modules': 'Verfügbarkeit von Diensten für Übungen, Teams und Teilnehmende verwalten.',
     // Navigation
     'nav.operations': 'Operationen',
     'nav.adminOverview': 'Plattformübersicht',
@@ -901,6 +907,8 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
   },
 
   pl: {
+    'nav.modules': 'Dostępność modułów',
+    'admin.overview.modules': 'Zarządzanie dostępnością usług dla ćwiczeń, zespołów i uczestników.',
     // Navigation
     'nav.operations': 'Operacje',
     'nav.adminOverview': 'Przegląd platformy',

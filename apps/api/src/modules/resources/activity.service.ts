@@ -35,6 +35,9 @@ export interface ActivityFeedFilter extends TimelineQueryFilters {
   causationId?: string;
 }
 
+import { serviceModuleForAction } from '../disruptions/module-resources.js';
+import { requestModuleImpacts } from '../disruptions/request-impacts.js';
+
 @Injectable()
 export class ActivityService {
   constructor(
@@ -147,7 +150,12 @@ export class ActivityService {
         return resourceCache.get(id)!;
       },
     };
-    return (row) => canReadActivity(row, reader);
+    const impacts = platformAdmin ? new Map() : await requestModuleImpacts(db, eventId, user);
+    return async (row) => {
+      const module = serviceModuleForAction(row.activityType);
+      if (impacts.get('timeline') === 'UNAVAILABLE' || (module && impacts.get(module) === 'UNAVAILABLE')) return false;
+      return canReadActivity(row, reader);
+    };
   }
 
   async getActivityFeed(filter: ActivityFeedFilter, user: AuthenticatedUser): Promise<ActivityEventItem[]> {

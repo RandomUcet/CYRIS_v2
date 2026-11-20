@@ -23,6 +23,9 @@ import {
 } from '@cyris/shared';
 import { assignmentMatchesPrincipal } from './resource-assignment-predicate.js';
 
+import { privateControlTypes, serviceModuleForResourceType } from '../disruptions/module-resources.js';
+import { requestModuleImpacts } from '../disruptions/request-impacts.js';
+
 @Injectable()
 export class ResourceAccessService {
   private readonly logger = new Logger(ResourceAccessService.name);
@@ -31,6 +34,14 @@ export class ResourceAccessService {
     private readonly databaseService: DatabaseService,
     private readonly authzService: AuthorizationService
   ) {}
+
+  async getModuleImpacts(eventId: string, user: AuthenticatedUser) {
+    const impacts = await requestModuleImpacts(this.databaseService.client, eventId, user);
+    if (impacts.size && await this.authzService.authorize({ user, permission: Permissions.PLATFORM_MANAGE })) {
+      return new Map() as Awaited<ReturnType<typeof requestModuleImpacts>>;
+    }
+    return impacts;
+  }
 
   /**
    * Central canonical boundary for resource access and authorization.
@@ -76,6 +87,10 @@ export class ResourceAccessService {
     if (!resource) {
       return false;
     }
+
+    if (privateControlTypes.includes(resource.resourceType)) return false;
+    const module = serviceModuleForResourceType(resource.resourceType);
+    if (module && (await requestModuleImpacts(db, resource.eventId, user)).get(module) === 'UNAVAILABLE') return false;
 
     // 3. Resolve active Event Membership
     const [membership] = await db

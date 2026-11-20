@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { eq, and, desc } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { IntegrationSecretService } from '../integrations/integration-secret.service.js';
@@ -24,11 +24,13 @@ import {
 } from './providers/ai-provider.interface.js';
 import { OpenAICompatibleProvider } from './providers/openai-compatible.provider.js';
 
+import { AIAdmissionService, inferenceTimeoutMs } from './ai-admission.service.js';
+
 export interface ExecuteAIOperationParams {
   userId?: string | null;
   eventId?: string | null;
   capability?: AICapabilityValue;
-  operationType: 'WRITING_ASSIST' | 'CASE_SUMMARY' | 'CATCH_ME_UP' | 'TIMELINE_EXPLAIN';
+  operationType: 'WRITING_ASSIST' | 'CASE_SUMMARY' | 'CATCH_ME_UP' | 'TIMELINE_EXPLAIN' | 'SUPPORT_REPLY' | 'SUPPORT_HANDOVER';
   promptTemplateVersion?: string;
   contextResourceIds?: string[];
   messages: AIMessage[];
@@ -53,7 +55,8 @@ export class AIGatewayService {
 
   constructor(
     private readonly databaseService: DatabaseService,
-    private readonly integrationSecretService: IntegrationSecretService
+    private readonly integrationSecretService: IntegrationSecretService,
+    private readonly admission: AIAdmissionService
   ) {}
 
   /**
@@ -63,6 +66,7 @@ export class AIGatewayService {
   async getActiveProvider(): Promise<{
     provider: AIProvider;
     integrationId: string;
+    timeoutMs: number;
     model: string;
   } | null> {
     const db = this.databaseService.client;
@@ -102,6 +106,7 @@ export class AIGatewayService {
     return {
       provider,
       integrationId: activeRow.id,
+      timeoutMs: inferenceTimeoutMs(Number(config.timeoutSeconds || 60) * 1000),
       model: String(config.chatModel || 'default-chat-model'),
     };
   }
@@ -122,7 +127,9 @@ export class AIGatewayService {
     if (!active.provider.getCapabilities().includes(AICapability.EMBED)) {
       throw new Error('Configured AI Provider does not have embedding capability enabled.');
     }
-    return active.provider.embed(input, options);
+    const timeoutMs = inferenceTimeoutMs(options?.timeoutMs ?? active.timeoutMs);
+    const embed = active.provider.embed.bind(active.provider);
+    return this.admission.run('regular', null, timeoutMs, () => embed(input, { ...options, timeoutMs }));
   }
 
   /**
@@ -193,7 +200,10 @@ export class AIGatewayService {
     let result: AIGenerateResult | null = null;
 
     try {
-      result = await provider.generate(params.messages, params.options);
+      const support = params.operationType === 'SUPPORT_REPLY' || params.operationType === 'SUPPORT_HANDOVER';
+      const timeoutMs = inferenceTimeoutMs(params.options?.timeoutMs ?? active.timeoutMs);
+      result = await this.admission.run(support ? 'support' : 'regular', params.userId, timeoutMs,
+        () => provider.generate(params.messages, { ...params.options, timeoutMs }));
       return {
         text: result.text,
         model: result.model,
@@ -203,6 +213,10 @@ export class AIGatewayService {
       };
     } catch (err: unknown) {
       status = AIRunStatus.FAILED;
+      if (err instanceof HttpException) {
+        errorCategory = err.getStatus() === 429 ? 'CAPACITY' : 'ADMISSION_UNAVAILABLE';
+        throw err;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('timeout') || msg.includes('aborted')) {
         status = AIRunStatus.TIMED_OUT;
@@ -214,7 +228,7 @@ export class AIGatewayService {
       } else {
         errorCategory = 'PROVIDER_ERROR';
       }
-      throw new Error(`AI generation failed (${errorCategory || 'ERROR'}): ${msg}`);
+      throw new Error(`AI generation failed (${errorCategory})`);
     } finally {
       const completedAt = new Date();
       const durationMs = completedAt.getTime() - startedAt.getTime();

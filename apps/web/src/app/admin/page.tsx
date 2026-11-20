@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Activity, Calendar, ClipboardCheck, KeyRound, Users, Building2 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useEvent } from '@/contexts/EventContext';
 import { StatusBadge } from '@/components/common/Badges';
 
@@ -12,12 +13,14 @@ const adminLinks = [
   { href: '/admin/units', icon: Building2, titleKey: 'nav.units', descriptionKey: 'admin.overview.units' },
   { href: '/admin/users', icon: Users, titleKey: 'nav.users', descriptionKey: 'admin.overview.users' },
   { href: '/admin/roles', icon: KeyRound, titleKey: 'nav.roles', descriptionKey: 'admin.overview.roles' },
+  { href: '/admin/settings/modules', icon: Activity, titleKey: 'nav.modules', descriptionKey: 'admin.overview.modules' },
   { href: '/admin/audit', icon: ClipboardCheck, titleKey: 'nav.audit', descriptionKey: 'admin.overview.audit' },
 ];
 
 export default function AdminOverviewPage() {
   const { t } = usePreferences();
   const { events } = useEvent();
+  const { isPlatformAdmin } = useAuth();
 
   return (
     <AppShell breadcrumbs={[{ label: t('nav.administration') }, { label: t('nav.adminOverview') }]}>
@@ -51,7 +54,7 @@ export default function AdminOverviewPage() {
         <section className="admin-overview-section">
           <h2>{t('admin.overview.administrationTitle')}</h2>
         <div className="admin-overview-list">
-          {adminLinks.map(({ href, icon: Icon, titleKey, descriptionKey }) => (
+          {adminLinks.filter(link => link.href !== '/admin/settings/modules' || isPlatformAdmin).map(({ href, icon: Icon, titleKey, descriptionKey }) => (
             <Link className="admin-overview-row" href={href} key={href}>
               <span className="admin-overview-row-icon"><Icon size={18} /></span>
               <span>

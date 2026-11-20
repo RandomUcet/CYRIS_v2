@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException, BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
 import {
   getDbClient, closeDatabaseConnection, users, events, eventMemberships,
   organizationalUnits, membershipUnitAssignments, roles, roleAssignments, rolePermissions,
@@ -224,22 +224,69 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       const audits = await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId, row.id), eq(auditEvents.action, 'task.started')));
       assert.equal(audits.length, 0);
     });
-    await t.test('ASSIGNED task readers see scoped status and recovery while module writes remain disrupted', async () => {
-      const disruption = await disruptions.start(eventA, { targetType: 'UNIT', targetId: unitA, module: 'tasks', mode: 'READ_ONLY', startsAt: new Date(Date.now() - 1000).toISOString(), reason: 'Private EXCON reason' }, organizer);
+    await t.test('only platform administrators can schedule, inspect and restore recipient-specific module restrictions', async () => {
+      const admin: AuthenticatedUser = { ...organizer, id: generateId(), email: `admin-${eventA}@example.invalid` };
+      const roleId = generateId();
+      await db.insert(users).values(admin);
+      await db.insert(eventMemberships).values({ eventId: eventA, userId: admin.id, status: 'ACTIVE' });
+      await db.insert(roles).values({ id: roleId, name: 'Availability administrator', slug: `admin-${roleId}` });
+      await db.insert(rolePermissions).values({ roleId, permissionKey: Permissions.PLATFORM_MANAGE, scope: 'PLATFORM' });
+      await db.insert(roleAssignments).values({ roleId, userId: admin.id });
+      const reason = 'Private availability control note';
+      const now = Date.now();
+      const rule = { targetType: 'UNIT', targetId: unitA, module: 'tasks', mode: 'READ_ONLY', reason } as const;
+      await assert.rejects(disruptions.start(eventA, rule, organizer), ForbiddenException);
+      await assert.rejects(disruptions.listOperator(eventA, organizer), ForbiddenException);
+      await assert.rejects(disruptions.start(eventA, { ...rule, targetId: foreignUnit }, admin), NotFoundException);
+
+      const disruption = await disruptions.start(eventA, rule, admin);
+      const planned = await disruptions.start(eventA, {
+        ...rule, module: 'lab', mode: 'UNAVAILABLE', startsAt: new Date(now + 3600000).toISOString(),
+      }, admin);
+      await disruptions.start(eventA, {
+        ...rule, module: 'lab', startsAt: new Date(now - 7200000).toISOString(), expiresAt: new Date(now - 3600000).toISOString(),
+      }, admin);
+      await disruptions.start(eventA, { ...rule, module: 'court' }, admin); // Worker cannot access court.
+      await disruptions.start(eventA, { ...rule, module: 'lab', targetType: 'USER', targetId: secondWorker.id }, admin);
       assert.equal((await disruptions.getParticipantStatus(eventA, worker)).active, true);
-      const status = await disruptions.getServiceStatus(eventA, worker);
-      assert.equal(status.items[0]?.reason, null);
-      assert.equal(status.items[0]?.impact, 'READ_ONLY');
+      assert.deepEqual((await disruptions.getServiceStatus(eventA, worker)).items, [{ service: 'tasks', impact: 'READ_ONLY' }]);
+      assert.deepEqual((await disruptions.getServiceStatus(eventA, secondWorker)).items, [
+        { service: 'lab', impact: 'READ_ONLY' }, { service: 'tasks', impact: 'READ_ONLY' },
+      ]);
       assert.deepEqual((await tasks.getTaskDetail(taskId, worker, eventA)).availableActions, []);
       await assert.rejects(tasks.startTask(taskId, {}, worker, eventA), ForbiddenException);
       await assert.rejects(disruptions.getParticipantStatus(eventA, outsider), ForbiddenException);
-      await assert.rejects(disruptions.getParticipantStatus(eventB, worker), ForbiddenException);
-      const objective = await disruptions.createRecoveryObjective(eventA, { disruptionId: disruption.id, title: 'Restore tasks', instructions: 'Validate service', audienceType: 'UNIT', audienceId: unitA }, organizer);
-      await disruptions.publishRecoveryObjective(eventA, objective.id, objective.revision, organizer);
-      assert.equal((await disruptions.listRecoveryObjectives(eventA, worker))[0]?.id, objective.id);
-      const report = await disruptions.submitRecoveryReport(eventA, objective.id, { body: 'Service validation complete' }, worker);
-      assert.equal(report.authorUserId, worker.id);
-      await assert.rejects(disruptions.submitRecoveryReport(eventB, objective.id, { body: 'Cross-event report' }, worker), ForbiddenException);
+      await assert.rejects(disruptions.getServiceStatus(eventB, worker), ForbiddenException);
+      await assert.rejects(disruptions.restore(eventA, planned.id, { expectedRevision: 1, reason }, organizer), ForbiddenException);
+      assert.ok((await disruptions.restore(eventA, planned.id, { expectedRevision: 1, reason }, admin)).restoredAt);
+
+      const outage = await disruptions.start(eventA, {
+        ...rule, targetId: null, targetType: 'EVENT', mode: 'UNAVAILABLE',
+      }, admin);
+      assert.deepEqual((await disruptions.getServiceStatus(eventA, worker)).items, [{ service: 'tasks', impact: 'UNAVAILABLE' }]);
+      assert.deepEqual((await disruptions.getServiceStatus(eventA, admin)).items, []);
+      const unavailable = (error: unknown) => error instanceof ServiceUnavailableException &&
+        !/simulat|disrupt|private|exercise/i.test(JSON.stringify(error.getResponse()));
+      await assert.rejects(disruptions.assertModuleAccess(eventA, organizer, 'tasks', 'read'), unavailable);
+      await assert.rejects(disruptions.assertModuleAccess(eventA, worker, 'tasks', 'write'), unavailable);
+      await disruptions.assertModuleAccess(eventA, admin, 'tasks', 'write');
+      assert.ok((await disruptions.listOperator(eventA, admin)).some(item => item.reason === reason));
+      const [auditEvent] = await db.select().from(auditEvents).where(and(eq(auditEvents.action, 'exercise.disruption.started'), eq(auditEvents.resourceId, outage.id)));
+      assert.equal((await audit.getById(auditEvent!.id, true))?.actorUserId, admin.id);
+      assert.equal(await audit.getById(auditEvent!.id), null);
+      assert.equal((await audit.list({ eventId: eventA, action: 'exercise.disruption.started', page: 1, limit: 5 })).total, 0);
+      await disruptions.restore(eventA, outage.id, { expectedRevision: 1, reason }, admin);
+      await assert.rejects(disruptions.restore(eventA, outage.id, { expectedRevision: 1, reason }, admin), ConflictException);
+      assert.deepEqual((await disruptions.getServiceStatus(eventA, worker)).items, [{ service: 'tasks', impact: 'READ_ONLY' }]);
+
+      const objective = await disruptions.createRecoveryObjective(eventA, { disruptionId: disruption.id, title: 'Restore tasks', instructions: 'Validate service', audienceType: 'UNIT', audienceId: unitA }, admin);
+      const published = await disruptions.publishRecoveryObjective(eventA, objective.id, objective.revision, admin);
+      await assert.rejects(disruptions.listRecoveryObjectives(eventA, organizer), ForbiddenException);
+      await assert.rejects(disruptions.submitRecoveryReport(eventA, objective.id, { body: 'Service validation complete' }, worker), ForbiddenException);
+      assert.equal((await disruptions.submitRecoveryReport(eventA, objective.id, { body: 'Service validation complete' }, admin)).authorUserId, admin.id);
+      const approved = await disruptions.reviewRecoveryObjective(eventA, objective.id, { expectedRevision: published.revision, decision: 'APPROVE' }, admin);
+      await disruptions.restoreFromRecoveryObjective(eventA, objective.id, { expectedRevision: approved.revision, reason }, admin);
+      assert.deepEqual((await disruptions.getServiceStatus(eventA, worker)).items, []);
     });
   } finally {
     // Audit is append-only. These uniquely named fixtures belong to the verified

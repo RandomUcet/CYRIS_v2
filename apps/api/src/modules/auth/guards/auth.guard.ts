@@ -9,6 +9,8 @@ import { SessionService, type AuthenticatedUser } from '../session.service.js';
 import type { ViewAsContext } from '@cyris/contracts';
 import { ViewAsService } from '../view-as.service.js';
 
+import { beginAvailabilityRequest } from '../../disruptions/request-impacts.js';
+
 export interface CyrisRequest extends FastifyRequest {
   user?: AuthenticatedUser;
   sessionToken?: string;
@@ -45,6 +47,7 @@ export class AuthGuard implements CanActivate {
     req.user = validated.user;
     req.sessionToken = token;
     await this.viewAsService.apply(req, validated.user, token);
+    if (req.user) beginAvailabilityRequest(req.user);
     return true;
   }
 }

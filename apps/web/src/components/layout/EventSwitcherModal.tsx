@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { usePreferences } from '@/contexts/PreferencesContext';
 import { useEvent } from '@/contexts/EventContext';
 import { Calendar, Check, X } from 'lucide-react';
 import { StatusBadge } from '../common/Badges';
@@ -13,6 +14,8 @@ interface EventSwitcherModalProps {
 
 export function EventSwitcherModal({ isOpen, onClose }: EventSwitcherModalProps) {
   const router = useRouter();
+  const { locale } = usePreferences();
+  const cs = locale === 'cs';
   const pathname = usePathname();
   const { events, selectedEventId, selectEvent } = useEvent();
 
@@ -60,15 +63,15 @@ export function EventSwitcherModal({ isOpen, onClose }: EventSwitcherModalProps)
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Calendar size={16} style={{ color: 'var(--accent-active)' }} />
-            <span style={{ fontWeight: 600, fontSize: '14px' }}>Switch Exercise / Event</span>
+            <span style={{ fontWeight: 600, fontSize: '14px' }}>{cs ? 'Vybrat událost' : 'Select an event'}</span>
           </div>
-          <button type="button" onClick={onClose} className="btn-ghost" style={{ padding: '4px' }}>
+          <button type="button" onClick={onClose} aria-label={cs ? 'Zavřít' : 'Close'} className="btn-ghost" style={{ padding: '4px' }}>
             <X size={16} />
           </button>
         </div>
 
         <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-          Select the active Cybertron exercise edition or simulation context to scope operations:
+          {cs ? 'Vyberte událost, se kterou chcete pracovat.' : 'Choose the event you want to work in.'}
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '300px', overflowY: 'auto' }}>

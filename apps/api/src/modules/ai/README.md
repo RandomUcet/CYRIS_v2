@@ -6,6 +6,14 @@ this module.
 
 ---
 
+## EXCON support and shared inference capacity
+
+The participant FAQ runs in the browser. In the event helpdesk an EXCON operator can request a reply draft for one conversation or a handover covering up to the twelve longest-waiting open requests. Publishing a reply requires a separate operator action.
+
+Set `CYRIS_AI_MAX_CONCURRENT` on the API to control concurrent calls to the model across all replicas. Its default of two admits one ordinary call alongside one EXCON call, or two EXCON calls from different operators. Each signed-in user may have one active inference. A busy or offline model leaves tickets and manual replies available. Set the limit after measuring the chosen model on the exercise Spark.
+
+Support drafts use 320 output tokens for a reply and 600 for a handover, with a 45-second timeout. Redis shares an encrypted five-minute result for matching authorized inputs and suppresses duplicate model calls. Before returning a draft, CYRIS checks the session, permissions and current conversation or queue again.
+
 ## Architecture Pattern
 
 ```

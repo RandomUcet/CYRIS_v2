@@ -12,6 +12,9 @@ import {
 } from '@cyris/db';
 import { Permissions, PermissionScopes } from '@cyris/shared';
 
+import { privateControlTypes, resourceTypesForModule } from '../disruptions/module-resources.js';
+import { requestModuleImpacts } from '../disruptions/request-impacts.js';
+
 export interface SearchFilterContext {
   typeFilter?: string;
   eventFilter?: string;
@@ -97,7 +100,15 @@ export class SearchAuthzService {
         )
       );
 
+    const eventExclusions: string[] = [];
     for (const membership of activeMemberships) {
+      if (context?.eventFilter && membership.eventId !== context.eventFilter) continue;
+      const impacts = await requestModuleImpacts(db, membership.eventId, user);
+      const hiddenTypes = [...impacts].filter(([, mode]) => mode === 'UNAVAILABLE')
+        .flatMap(([module]) => resourceTypesForModule(module));
+      if (hiddenTypes.length) {
+        eventExclusions.push(`(eventId:!=${membership.eventId} || resourceType:!=[${hiddenTypes.join(',')}])`);
+      }
       // Fetch role assignments for this membership
       const roleRows = await db
         .select({
@@ -164,7 +175,7 @@ export class SearchAuthzService {
       return null;
     }
 
-    let filter = `(${accessClauses.join(' || ')})`;
+    let filter = [`(${accessClauses.join(' || ')})`, `resourceType:!=[${privateControlTypes.join(',')}]`, ...eventExclusions].join(' && ');
 
     if (context?.typeFilter) {
       filter = `${filter} && resourceType:=${context.typeFilter}`;

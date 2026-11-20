@@ -1,1816 +1,319 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import type { AudiencePreviewResponse, ScenarioControlRunSheet, ScenarioInjectResponse, ScenarioPhaseResponse } from '@cyris/contracts';
 import { AppShell } from '@/components/layout/AppShell';
-import {
-  apiClient,
-} from '@/lib/api-client';
+import { ErrorState, LoadingState } from '@/components/common/StateViews';
+import { useAuth } from '@/contexts/AuthContext';
+import { useEvent } from '@/contexts/EventContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import type {
-  ScenarioControlRunSheet,
-  ScenarioInjectResponse,
-  ScenarioPhaseResponse,
-  AudiencePreviewResponse,
-  ScenarioInjectTargetInput,
-  ScenarioInjectActionInput,
-} from '@cyris/contracts';
+import { useServiceReadOnly } from '@/hooks/useServiceStatus';
+import { apiClient } from '@/lib/api-client';
+import { InjectDesigner } from './InjectDesigner';
+import { ScenarioDialog } from './ScenarioDialog';
+import { audience, canReleaseNow, inCzech, inEnglish, term, type Translate } from './run-sheet';
+import styles from './scenario.module.css';
 
-function formatDateTime(value?: string | null) {
-  if (!value) return '—';
-  return new Intl.DateTimeFormat('cs-CZ', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
-}
-
-const compactButtonStyle: React.CSSProperties = {
-  padding: '5px 9px',
-  backgroundColor: 'var(--bg-active)',
-  border: '1px solid var(--border-subtle)',
-  color: 'var(--text-primary)',
-  borderRadius: '3px',
-  fontSize: '11px',
-  cursor: 'pointer',
-};
-
-const compactInputStyle: React.CSSProperties = {
-  padding: '5px 7px',
-  backgroundColor: 'var(--bg-card)',
-  border: '1px solid var(--border-subtle)',
-  color: 'var(--text-primary)',
-  fontSize: '11px',
-};
+type Modal = { kind: 'phase' | 'create' } | { kind: 'inspect' | 'preview' | 'edit' | 'override'; id: string };
+type ApiResult = { ok: boolean; error?: string; data?: unknown };
 
 export default function ScenarioControlPage() {
-  const params = useParams();
-  const eventId = params.eventId as string;
-
-  const [runSheet, setRunSheet] = useState<ScenarioControlRunSheet | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedInject, setSelectedInject] = useState<ScenarioInjectResponse | null>(null);
-
-  // Modals & Action States
-  const [showOverrideModal, setShowOverrideModal] = useState(false);
-  const [overrideReason, setOverrideReason] = useState('');
-  const [overrideError, setOverrideError] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState(false);
-
-  // Audience Preview Modal State
-  const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const [audiencePreview, setAudiencePreview] = useState<AudiencePreviewResponse | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-
-  // Create Inject Modal State
-  const [showCreateInjectModal, setShowCreateInjectModal] = useState(false);
-  const [showCreatePhaseModal, setShowCreatePhaseModal] = useState(false);
-  const [newPhaseCode, setNewPhaseCode] = useState('');
-  const [newPhaseTitle, setNewPhaseTitle] = useState('');
-  const [newPhaseDescription, setNewPhaseDescription] = useState('');
-  const [newTitle, setNewTitle] = useState('');
-  const [newSummary, setNewSummary] = useState('');
-  const [newParticipantTitle, setNewParticipantTitle] = useState('');
-  const [newParticipantContent, setNewParticipantContent] = useState('');
-  const [newPriority, setNewPriority] = useState<'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL'>('NORMAL');
-  const [newTriggerType, setNewTriggerType] = useState<'MANUAL' | 'SCHEDULED_TIME' | 'CONDITION'>('MANUAL');
-  const [newReleasePolicy, setNewReleasePolicy] = useState<'MANUAL_CONFIRMATION' | 'AUTO_RELEASE'>('MANUAL_CONFIRMATION');
-  const [newNotes, setNewNotes] = useState('');
-  const [newPhaseId, setNewPhaseId] = useState('');
-  const [newScheduledAt, setNewScheduledAt] = useState('');
-  const [newEffect, setNewEffect] = useState<'NONE' | 'CREATE_INCIDENT'>('NONE');
-  const [units, setUnits] = useState<Array<{ id: string; name: string }>>([]);
-  const [newTargetUnitId, setNewTargetUnitId] = useState('');
-  const [newTargetType, setNewTargetType] = useState<'UNIT' | 'USER' | 'EVENT'>('UNIT');
-  const [newTargetUserId, setNewTargetUserId] = useState('');
-  const [newConditionType, setNewConditionType] = useState<'NONE' | 'TASK_STATUS' | 'RECOVERY_OBJECTIVE_STATUS'>('NONE');
-  const [newConditionTargetId, setNewConditionTargetId] = useState('');
-  const [newConditionStatus, setNewConditionStatus] = useState('');
-  const [newConditionLogic, setNewConditionLogic] = useState<'ALL' | 'ANY'>('ALL');
-  const [newDependencies, setNewDependencies] = useState<string[]>([]);
-  const [editInjectId, setEditInjectId] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<Array<{ id: string; taskNumber?: string; title?: string; status?: string }>>([]);
-  const [objectives, setObjectives] = useState<Array<{ id: string; title: string; status: string }>>([]);
-  const [members, setMembers] = useState<Array<{ userId: string; displayName?: string; unitId?: string }>>([]);
-  const [clockTime, setClockTime] = useState('');
-
-  // Fetch Run Sheet
-  const loadRunSheet = useCallback(async (quiet = false) => {
-    if (!quiet) setLoading(true);
-    setError(null);
-    const res = await apiClient.getScenarioControlRunSheet(eventId);
-    if (res.ok && res.data) {
-      setRunSheet(res.data);
-      // Keep selected inject in sync
-      if (selectedInject) {
-        const updated = res.data.injects.find((i) => i.id === selectedInject.id);
-        if (updated) setSelectedInject(updated);
-      }
-    } else {
-      setError(res.error || 'Failed to load scenario control run sheet');
-    }
-    if (!quiet) setLoading(false);
-  }, [eventId, selectedInject]);
-
-  useEffect(() => {
-    loadRunSheet();
-    apiClient.getUnits(eventId).then((res) => {
-      if (res.ok && res.data) {
-        setUnits(res.data.map((unit: { id: string; name: string }) => ({ id: unit.id, name: unit.name })));
-      }
-    });
-    apiClient.listTasks(eventId, { limit: 100 }).then((res) => {
-      if (res.ok && res.data) setTasks(res.data as typeof tasks);
-    });
-    apiClient.listRecoveryObjectives(eventId).then((res) => {
-      if (res.ok && res.data) setObjectives(res.data as typeof objectives);
-    });
-    apiClient.getMemberships(eventId).then((res) => {
-      if (res.ok && res.data) setMembers(res.data as typeof members);
-    });
-    // Lightweight polling every 4 seconds
-    const interval = setInterval(() => {
-      loadRunSheet(true);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [eventId]);
-
-  // Actions
-  const handleRelease = async (injectId: string) => {
-    const inject = runSheet?.injects.find((item) => item.id === injectId);
-    if (!inject) return;
-    const target = inject.targets[0]?.unitName || inject.targets[0]?.userFullName || 'ALL EVENT';
-    if (!confirm(`Release ${inject.injectNumber} — ${inject.title}?\nTarget: ${target}\nScenario time: ${formatDateTime(runSheet?.clock.scenarioTime)}`)) return;
-    setActionLoading(true);
-    const res = await apiClient.releaseScenarioInject(eventId, injectId);
-    if (!res.ok) {
-      alert(`Release failed: ${res.error}`);
-    } else {
-      await loadRunSheet(true);
-    }
-    setActionLoading(false);
-  };
-
-  const handleClock = async (action: 'PAUSE' | 'RESUME' | 'ADVANCE' | 'SET_TIME') => {
-    const res = await apiClient.updateScenarioClock(eventId, {
-      action,
-      minutes: action === 'ADVANCE' ? 5 : undefined,
-      scenarioTime: action === 'SET_TIME' ? new Date(clockTime).toISOString() : undefined,
-    });
-    if (!res.ok) alert(`Clock update failed: ${res.error}`);
-    else await loadRunSheet(true);
-  };
-
-  const handleOverrideRelease = async () => {
-    if (!selectedInject) return;
-    if (!overrideReason || overrideReason.trim().length < 5) {
-      setOverrideError('Mandatory override reason required (min 5 characters)');
-      return;
-    }
-    setActionLoading(true);
-    setOverrideError(null);
-    const res = await apiClient.overrideReleaseScenarioInject(eventId, selectedInject.id, overrideReason);
-    if (!res.ok) {
-      setOverrideError(res.error || 'Override release failed');
-    } else {
-      setShowOverrideModal(false);
-      setOverrideReason('');
-      await loadRunSheet(true);
-    }
-    setActionLoading(false);
-  };
-
-  const handleCancelInject = async (injectId: string) => {
-    if (!confirm('Are you sure you want to cancel this inject?')) return;
-    setActionLoading(true);
-    const res = await apiClient.cancelScenarioInject(eventId, injectId);
-    if (!res.ok) {
-      alert(`Cancel failed: ${res.error}`);
-    } else {
-      await loadRunSheet(true);
-    }
-    setActionLoading(false);
-  };
-
-  const openInjectDesigner = (inject?: ScenarioInjectResponse) => {
-    if (inject && (inject.conditions.length > 1 || inject.targets.length > 1 || (inject.conditions[0] && !['TASK_STATUS', 'RECOVERY_OBJECTIVE_STATUS'].includes(inject.conditions[0].conditionType)))) {
-      window.alert('This inject has a complex design that cannot be safely edited in this form.'); return;
-    }
-    setEditInjectId(inject?.id ?? null);
-    setNewTitle(inject?.title ?? '');
-    setNewSummary(inject?.controllerSummary ?? '');
-    setNewParticipantTitle(inject?.participantTitle ?? '');
-    setNewParticipantContent(inject?.participantContent ?? '');
-    setNewPriority((inject?.priority as typeof newPriority) ?? 'NORMAL');
-    setNewTriggerType((inject?.triggerType as typeof newTriggerType) ?? 'MANUAL');
-    setNewReleasePolicy((inject?.releasePolicy as typeof newReleasePolicy) ?? 'MANUAL_CONFIRMATION');
-    setNewConditionLogic((inject?.conditionLogic as typeof newConditionLogic) ?? 'ALL');
-    setNewPhaseId(inject?.phaseId ?? '');
-    setNewScheduledAt(inject?.scheduledAt ? new Date(inject.scheduledAt).toISOString().slice(0, 16) : '');
-    const target = inject?.targets[0];
-    setNewTargetType((target?.targetType as typeof newTargetType) ?? 'UNIT');
-    setNewTargetUnitId(target?.targetUnitId ?? '');
-    setNewTargetUserId(target?.targetUserId ?? '');
-    const condition = inject?.conditions[0];
-    setNewConditionType((condition?.conditionType as typeof newConditionType) ?? 'NONE');
-    setNewConditionTargetId(condition?.targetResourceId ?? '');
-    setNewConditionStatus(condition?.targetStatus ?? '');
-    setNewDependencies(inject?.dependencies.map((dependency) => dependency.dependsOnInjectId) ?? []);
-    setShowCreateInjectModal(true);
-  };
-
-  const handleOpenPreview = async (injectId: string) => {
-    setShowPreviewModal(true);
-    setPreviewLoading(true);
-    setAudiencePreview(null);
-    const res = await apiClient.previewScenarioAudience(eventId, injectId);
-    if (res.ok && res.data) {
-      setAudiencePreview(res.data);
-    } else {
-      alert(`Preview failed: ${res.error}`);
-      setShowPreviewModal(false);
-    }
-    setPreviewLoading(false);
-  };
-
-  const handleActivatePhase = async (phase: ScenarioPhaseResponse) => {
-    if (!confirm(`Activate phase ${phase.code} — ${phase.title}?`)) return;
-    const res = await apiClient.updateScenarioPhase(eventId, phase.id, {
-      status: 'ACTIVE',
-      forceActive: true,
-    });
-    if (!res.ok) {
-      alert(`Phase activation failed: ${res.error}`);
-    } else {
-      await loadRunSheet(true);
-    }
-  };
-
-  const handleCompletePhase = async (phase: ScenarioPhaseResponse) => {
-    const res = await apiClient.updateScenarioPhase(eventId, phase.id, {
-      status: 'COMPLETED',
-    });
-    if (!res.ok) {
-      alert(`Phase completion failed: ${res.error}`);
-    } else {
-      await loadRunSheet(true);
-    }
-  };
-
-  const handleCreatePhase = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!newPhaseCode.trim() || !newPhaseTitle.trim()) {
-      alert('Phase code and name are required.');
-      return;
-    }
-    setActionLoading(true);
-    const res = await apiClient.createScenarioPhase(eventId, {
-      code: newPhaseCode.trim(),
-      title: newPhaseTitle.trim(),
-      description: newPhaseDescription.trim() || undefined,
-      sequence: (runSheet?.phases.length ?? 0) + 1,
-      status: 'PLANNED',
-    });
-    if (!res.ok) {
-      alert(`Create phase failed: ${res.error}`);
-    } else {
-      setShowCreatePhaseModal(false);
-      setNewPhaseCode('');
-      setNewPhaseTitle('');
-      setNewPhaseDescription('');
-      await loadRunSheet(true);
-    }
-    setActionLoading(false);
-  };
-
-  const handleCreateInject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim() || !newSummary.trim()) {
-      alert('Title and Controller Summary are required.');
-      return;
-    }
-    setActionLoading(true);
-    if (newTargetType === 'UNIT' && !newTargetUnitId) {
-      alert('Select an explicit recipient unit.');
-      setActionLoading(false);
-      return;
-    }
-    if (newTargetType === 'USER' && !newTargetUserId) {
-      alert('Select an explicit recipient user.');
-      setActionLoading(false);
-      return;
-    }
-    if (newTriggerType === 'CONDITION' && newConditionType === 'NONE') {
-      alert('Condition trigger requires a typed condition.');
-      setActionLoading(false);
-      return;
-    }
-    const conditions = newConditionType === 'NONE' ? [] : [{
-      conditionType: newConditionType,
-      targetResourceId: newConditionTargetId || undefined,
-      targetStatus: newConditionStatus || undefined,
-    }];
-    const targets: ScenarioInjectTargetInput[] = newTargetType === 'UNIT'
-      ? [{ targetType: 'UNIT', targetUnitId: newTargetUnitId }]
-      : newTargetType === 'USER'
-        ? [{ targetType: 'USER', targetUserId: newTargetUserId }]
-        : [{ targetType: 'EVENT' }];
-    const actions: ScenarioInjectActionInput[] = newEffect === 'CREATE_INCIDENT'
-      ? [{ actionType: 'CREATE_INCIDENT', targetType: 'EVENT', parameters: { title: newTitle.trim(), description: newSummary.trim(), priority: newPriority === 'CRITICAL' ? 'CRITICAL' : newPriority === 'HIGH' ? 'HIGH' : newPriority === 'LOW' ? 'LOW' : 'MEDIUM' } }]
-      : [];
-    const payload = {
-      phaseId: newPhaseId || undefined,
-      title: newTitle.trim(),
-      controllerSummary: newSummary.trim(),
-      participantTitle: newParticipantTitle.trim() || undefined,
-      participantContent: newParticipantContent.trim() || undefined,
-      priority: newPriority,
-      triggerType: newTriggerType,
-      releasePolicy: newReleasePolicy,
-      conditionLogic: newConditionLogic,
-      controllerNotes: newNotes.trim() || undefined,
-      scheduledAt: newScheduledAt ? new Date(newScheduledAt).toISOString() : undefined,
-      conditions,
-      dependencies: newDependencies,
-      targets,
-      actions,
-    };
-    const res = editInjectId
-      ? await apiClient.updateScenarioInject(eventId, editInjectId, payload)
-      : await apiClient.createScenarioInject(eventId, payload);
-    if (!res.ok) {
-      alert(`Create inject failed: ${res.error}`);
-    } else {
-      setShowCreateInjectModal(false);
-      setEditInjectId(null);
-      setNewTitle('');
-      setNewSummary('');
-      setNewParticipantTitle('');
-      setNewParticipantContent('');
-      setNewNotes('');
-      setNewScheduledAt('');
-      setNewEffect('NONE');
-      setNewTargetUnitId('');
-      await loadRunSheet(true);
-    }
-    setActionLoading(false);
-  };
-
-  if (loading && !runSheet) {
-    return (
-      <AppShell breadcrumbs={[{ label: 'Operations', href: `/events/${eventId}/overview` }, { label: 'Scenario Control' }]}>
-        <div style={{ padding: '32px 40px', color: 'var(--text-muted)' }}>Loading scenario control run sheet...</div>
-      </AppShell>
-    );
-  }
-
-  if (error && !runSheet) {
-    return (
-      <AppShell breadcrumbs={[{ label: 'Operations', href: `/events/${eventId}/overview` }, { label: 'Scenario Control' }]}>
-        <div style={{ padding: '32px 40px', color: 'var(--accent-danger)' }}>Error: {error}</div>
-      </AppShell>
-    );
-  }
-
-  const injects = runSheet?.injects ?? [];
-  const releasedList = injects.filter((i) => i.status === 'RELEASED');
-  const readyList = injects.filter((i) => i.status === 'READY');
-  const blockedList = injects.filter((i) => i.status === 'BLOCKED');
-  const scheduledList = injects.filter((i) => i.status === 'SCHEDULED');
-  const dueList = scheduledList.filter((i) => i.isDue);
-  const upcomingScheduledList = scheduledList.filter((i) => !i.isDue);
-  const draftList = injects.filter((i) => i.status === 'DRAFT');
-
-  return (
-    <AppShell breadcrumbs={[{ label: 'Operations', href: `/events/${eventId}/overview` }, { label: 'Scenario Control' }]}>
-    <div style={{ display: 'flex', height: '100%', minHeight: 0, overflow: 'hidden' }}>
-      {/* MAIN WORKSPACE SHEET */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '28px 40px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '24px',
-        }}
-      >
-        {/* WORKSPACE HEADER */}
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between', gap: '16px', marginBottom: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span className="cyris-signal-marker" />
-              <h1 style={{ fontSize: '18px', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)', margin: 0 }}>
-                Scenario Control
-              </h1>
-              <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-dim)' }}>
-                EXERCISE RUN SHEET
-              </span>
-            </div>
-
-            <nav aria-label="Scenario navigation" style={{ display: 'flex', gap: '12px', fontSize: '11px' }}>
-              <Link href={`/events/${eventId}/overview`} style={{ color: 'var(--accent-active)' }}>Event Overview</Link>
-              <Link href={`/events/${eventId}/scenario-data`} style={{ color: 'var(--accent-active)' }}>Scenario Data</Link>
-              <Link href={`/events/${eventId}/registry`} style={{ color: 'var(--accent-active)' }}>Registry</Link>
-            </nav>
-
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={() => openInjectDesigner(selectedInject ?? undefined)}
-                disabled={!selectedInject || selectedInject.status === 'RELEASED' || selectedInject.status === 'CANCELLED'}
-                style={{ ...compactButtonStyle, marginRight: '6px' }}
-              >
-                Edit design
-              </button>
-              <button
-                onClick={() => openInjectDesigner()}
-                style={{
-                  padding: '5px 12px',
-                  backgroundColor: 'var(--cyris-orange)',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '3px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                + New Inject
-              </button>
-              <button
-                onClick={() => setShowCreatePhaseModal(true)}
-                style={{ ...compactButtonStyle, backgroundColor: 'transparent' }}
-              >
-                + New Phase
-              </button>
-            </div>
-          </div>
-
-          <div style={{ marginTop: '12px', padding: '14px 16px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-            <div>
-              <div style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-dim)', letterSpacing: '0.08em' }}>SCENARIO CLOCK</div>
-              <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '3px' }}>
-                {formatDateTime(runSheet?.clock.scenarioTime)}
-              </div>
-              <div style={{ fontSize: '11px', color: runSheet?.clock.paused ? 'var(--accent-warning)' : 'var(--accent-success)', marginTop: '2px' }}>
-                {runSheet?.clock.mode.replace('_', ' ')} · {runSheet?.clock.paused ? 'PAUSED' : 'RUNNING'}
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <button type="button" onClick={() => handleClock(runSheet?.clock.paused ? 'RESUME' : 'PAUSE')} style={compactButtonStyle}>
-                {runSheet?.clock.paused ? 'Resume' : 'Pause'}
-              </button>
-              <button type="button" onClick={() => handleClock('ADVANCE')} style={compactButtonStyle}>+5 min</button>
-              <input
-                type="datetime-local"
-                value={clockTime}
-                onChange={(event) => setClockTime(event.target.value)}
-                style={{ ...compactInputStyle, colorScheme: 'dark' }}
-              />
-              <button type="button" onClick={() => clockTime && handleClock('SET_TIME')} style={compactButtonStyle}>Set time</button>
-            </div>
-          </div>
-
-          {/* ACTIVE PHASE BANNER */}
-          <div
-            style={{
-              padding: '12px 16px',
-              backgroundColor: 'var(--bg-card)',
-              border: '1px solid var(--border-subtle)',
-              borderLeft: '3px solid var(--cyris-orange)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: 'var(--cyris-orange)' }}>
-                  ACTIVE PHASE
-                </span>
-                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  {runSheet?.activePhase
-                    ? `${runSheet.activePhase.code} — ${runSheet.activePhase.title}`
-                    : 'NO ACTIVE PHASE CONFIGURED'}
-                </span>
-              </div>
-              {runSheet?.activePhase?.description && (
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  {runSheet.activePhase.description}
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              {runSheet?.phases.map((p) => {
-                const isActive = p.status === 'ACTIVE';
-                const isCompleted = p.status === 'COMPLETED';
-                return (
-                  <div
-                    key={p.id}
-                    style={{
-                      padding: '4px 8px',
-                      fontSize: '11px',
-                      fontFamily: 'monospace',
-                      backgroundColor: isActive ? 'rgba(225, 92, 25, 0.15)' : 'var(--bg-active)',
-                      border: isActive ? '1px solid var(--cyris-orange)' : '1px solid var(--border-subtle)',
-                      color: isActive ? 'var(--cyris-orange)' : isCompleted ? 'var(--accent-success)' : 'var(--text-dim)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                    }}
-                  >
-                    <span>{p.code}</span>
-                    <span style={{ fontSize: '9px', textTransform: 'uppercase' }}>{p.status}</span>
-                    {!isActive && p.status !== 'COMPLETED' && (
-                      <button
-                        onClick={() => handleActivatePhase(p)}
-                        title="Activate Phase"
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--text-secondary)',
-                          cursor: 'pointer',
-                          padding: 0,
-                          fontSize: '10px',
-                        }}
-                      >
-                        ▶
-                      </button>
-                    )}
-                    {isActive && (
-                      <button
-                        onClick={() => handleCompletePhase(p)}
-                        title="Complete Phase"
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--accent-success)',
-                          cursor: 'pointer',
-                          padding: 0,
-                          fontSize: '10px',
-                        }}
-                      >
-                        ✓
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* SUMMARY STATS BAR */}
-        <div style={{ display: 'flex', gap: '16px', fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
-          <span>TOTAL: <strong style={{ color: 'var(--text-primary)' }}>{runSheet?.summary.total}</strong></span>
-          <span>RELEASED: <strong style={{ color: 'var(--accent-success)' }}>{runSheet?.summary.released}</strong></span>
-          <span>READY: <strong style={{ color: 'var(--accent-active)' }}>{runSheet?.summary.ready}</strong></span>
-          <span>BLOCKED: <strong style={{ color: 'var(--accent-danger)' }}>{runSheet?.summary.blocked}</strong></span>
-          <span>SCHEDULED: <strong style={{ color: 'var(--accent-warning)' }}>{runSheet?.summary.scheduled}</strong></span>
-          <span>DRAFT: <strong style={{ color: 'var(--text-dim)' }}>{runSheet?.summary.draft}</strong></span>
-        </div>
-
-        {/* SECTION: READY (Actionable for Controllers) */}
-        {readyList.length > 0 && (
-          <div>
-            <div className="cyris-section-header" style={{ marginBottom: '8px' }}>
-              <span className="cyris-signal-marker" />
-              <span>READY FOR RELEASE</span>
-              <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--accent-active)' }}>
-                ({readyList.length})
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {readyList.map((inj) => (
-                <InjectRunSheetRow
-                  key={inj.id}
-                  inject={inj}
-                  selected={selectedInject?.id === inj.id}
-                  onSelect={() => setSelectedInject(inj)}
-                  onRelease={() => handleRelease(inj.id)}
-                  onOverride={() => { setSelectedInject(inj); setShowOverrideModal(true); }}
-                  onPreview={() => handleOpenPreview(inj.id)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* SECTION: BLOCKED (Prerequisites or Conditions pending) */}
-        {blockedList.length > 0 && (
-          <div>
-            <div className="cyris-section-header" style={{ marginBottom: '8px' }}>
-              <span className="cyris-signal-marker" />
-              <span>BLOCKED INJECTS</span>
-              <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--accent-danger)' }}>
-                ({blockedList.length})
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {blockedList.map((inj) => (
-                <InjectRunSheetRow
-                  key={inj.id}
-                  inject={inj}
-                  selected={selectedInject?.id === inj.id}
-                  onSelect={() => setSelectedInject(inj)}
-                  onRelease={() => handleRelease(inj.id)}
-                  onOverride={() => { setSelectedInject(inj); setShowOverrideModal(true); }}
-                  onPreview={() => handleOpenPreview(inj.id)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* SECTION: SCHEDULED TIME */}
-        {dueList.length > 0 && (
-          <div>
-            <div className="cyris-section-header" style={{ marginBottom: '8px' }}>
-              <span className="cyris-signal-marker" />
-              <span>DUE — RELEASE MANUALLY</span>
-              <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--accent-warning)' }}>({dueList.length})</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {dueList.map((inj) => (
-                <InjectRunSheetRow key={inj.id} inject={inj} selected={selectedInject?.id === inj.id}
-                  onSelect={() => setSelectedInject(inj)} onRelease={() => handleRelease(inj.id)}
-                  onOverride={() => { setSelectedInject(inj); setShowOverrideModal(true); }}
-                  onPreview={() => handleOpenPreview(inj.id)} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {upcomingScheduledList.length > 0 && (
-          <div>
-            <div className="cyris-section-header" style={{ marginBottom: '8px' }}>
-              <span className="cyris-signal-marker" />
-              <span>SCHEDULED RELEASES</span>
-              <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--accent-warning)' }}>
-                ({upcomingScheduledList.length})
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {upcomingScheduledList.map((inj) => (
-                <InjectRunSheetRow
-                  key={inj.id}
-                  inject={inj}
-                  selected={selectedInject?.id === inj.id}
-                  onSelect={() => setSelectedInject(inj)}
-                  onRelease={() => handleRelease(inj.id)}
-                  onOverride={() => { setSelectedInject(inj); setShowOverrideModal(true); }}
-                  onPreview={() => handleOpenPreview(inj.id)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* SECTION: RELEASED (Delivered historical) */}
-        {releasedList.length > 0 && (
-          <div>
-            <div className="cyris-section-header" style={{ marginBottom: '8px' }}>
-              <span className="cyris-signal-marker" />
-              <span>RELEASED INJECTS</span>
-              <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--accent-success)' }}>
-                ({releasedList.length})
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {releasedList.map((inj) => (
-                <InjectRunSheetRow
-                  key={inj.id}
-                  inject={inj}
-                  selected={selectedInject?.id === inj.id}
-                  onSelect={() => setSelectedInject(inj)}
-                  onRelease={() => handleRelease(inj.id)}
-                  onOverride={() => { setSelectedInject(inj); setShowOverrideModal(true); }}
-                  onPreview={() => handleOpenPreview(inj.id)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* SECTION: DRAFT */}
-        {draftList.length > 0 && (
-          <div>
-            <div className="cyris-section-header" style={{ marginBottom: '8px' }}>
-              <span className="cyris-signal-marker" />
-              <span>DRAFTS & IN PREPARATION</span>
-              <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-dim)' }}>
-                ({draftList.length})
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {draftList.map((inj) => (
-                <InjectRunSheetRow
-                  key={inj.id}
-                  inject={inj}
-                  selected={selectedInject?.id === inj.id}
-                  onSelect={() => setSelectedInject(inj)}
-                  onRelease={() => handleRelease(inj.id)}
-                  onOverride={() => { setSelectedInject(inj); setShowOverrideModal(true); }}
-                  onPreview={() => handleOpenPreview(inj.id)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* CONTEXTUAL INSPECTOR DRAWER */}
-      {selectedInject && (
-        <div
-          style={{
-            width: '420px',
-            borderLeft: '1px solid var(--border-subtle)',
-            backgroundColor: 'var(--bg-surface)',
-            display: 'flex',
-            flexDirection: 'column',
-            overflowY: 'auto',
-          }}
-        >
-          {/* INSPECTOR HEADER */}
-          <div
-            style={{
-              padding: '16px 20px',
-              borderBottom: '1px solid var(--border-subtle)',
-              display: 'flex',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                <span className="record-identifier">{selectedInject.injectNumber}</span>
-                <span
-                  style={{
-                    fontSize: '10px',
-                    fontFamily: 'monospace',
-                    fontWeight: 700,
-                    padding: '2px 6px',
-                    borderRadius: '2px',
-                    backgroundColor:
-                      selectedInject.status === 'RELEASED'
-                        ? 'rgba(34, 197, 94, 0.15)'
-                        : selectedInject.status === 'READY'
-                        ? 'rgba(56, 189, 248, 0.15)'
-                        : selectedInject.status === 'BLOCKED'
-                        ? 'rgba(239, 68, 68, 0.15)'
-                        : 'var(--bg-active)',
-                    color:
-                      selectedInject.status === 'RELEASED'
-                        ? 'var(--accent-success)'
-                        : selectedInject.status === 'READY'
-                        ? 'var(--accent-active)'
-                        : selectedInject.status === 'BLOCKED'
-                        ? 'var(--accent-danger)'
-                        : 'var(--text-dim)',
-                  }}
-                >
-                  {selectedInject.status}
-                </span>
-                <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-dim)' }}>
-                  {selectedInject.priority}
-                </span>
-              </div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                {selectedInject.title}
-              </div>
-            </div>
-
-            <button
-              onClick={() => setSelectedInject(null)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--text-dim)',
-                fontSize: '16px',
-                cursor: 'pointer',
-                padding: '2px 6px',
-              }}
-            >
-              ✕
-            </button>
-          </div>
-
-          {/* INSPECTOR CONTENT */}
-          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* ACTION TOOLBAR */}
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {selectedInject.status === 'READY' && (
-                <button
-                  disabled={actionLoading}
-                  onClick={() => handleRelease(selectedInject.id)}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: 'var(--accent-success)',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '3px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Release to Participants
-                </button>
-              )}
-
-              {selectedInject.status !== 'RELEASED' && (
-                <button
-                  disabled={actionLoading}
-                  onClick={() => setShowOverrideModal(true)}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: 'transparent',
-                    border: '1px solid var(--accent-warning)',
-                    color: 'var(--accent-warning)',
-                    borderRadius: '3px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Override & Release
-                </button>
-              )}
-
-              <button
-                onClick={() => handleOpenPreview(selectedInject.id)}
-                style={{
-                  padding: '6px 12px',
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-secondary)',
-                  borderRadius: '3px',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                }}
-              >
-                Preview as Audience
-              </button>
-
-              {selectedInject.status !== 'RELEASED' && selectedInject.status !== 'CANCELLED' && (
-                <button
-                  disabled={actionLoading}
-                  onClick={() => handleCancelInject(selectedInject.id)}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: 'transparent',
-                    border: '1px solid rgba(239, 68, 68, 0.4)',
-                    color: 'var(--accent-danger)',
-                    borderRadius: '3px',
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Cancel Inject
-                </button>
-              )}
-            </div>
-
-            {/* BLOCK REASONS IF ANY */}
-            {selectedInject.blockedReasons.length > 0 && (
-              <div
-                style={{
-                  padding: '10px 12px',
-                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  fontSize: '11px',
-                  color: 'var(--accent-danger)',
-                }}
-              >
-                <div style={{ fontWeight: 700, marginBottom: '4px' }}>BLOCKED CONDITIONS</div>
-                <ul style={{ margin: 0, paddingLeft: '16px' }}>
-                  {selectedInject.blockedReasons.map((r, i) => (
-                    <li key={i}>{r}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* PARTICIPANT CONTENT SECTION */}
-            <div>
-              <div className="cyris-section-header" style={{ marginBottom: '8px' }}>
-                <span className="cyris-signal-marker" />
-                <span>PARTICIPANT CONTENT</span>
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                DELIVERY AUDIENCE
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-primary)', marginBottom: '10px' }}>
-                {selectedInject.targets.length > 0
-                  ? selectedInject.targets.map((t) => t.unitName ?? t.userFullName ?? (t.targetType === 'EVENT' ? 'Whole Event (All Active Participants)' : t.targetType)).join(', ')
-                  : 'Whole Event (All Active Participants)'}
-              </div>
-
-              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                PARTICIPANT TITLE
-              </div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '10px' }}>
-                {selectedInject.participantTitle ?? selectedInject.title}
-              </div>
-
-              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                PARTICIPANT MESSAGE / BRIEFING BODY
-              </div>
-              <div
-                style={{
-                  padding: '10px 12px',
-                  backgroundColor: 'var(--bg-card)',
-                  border: '1px solid var(--border-subtle)',
-                  fontSize: '12px',
-                  color: 'var(--text-secondary)',
-                  lineHeight: '1.5',
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
-                {selectedInject.participantContent ?? '(No separate body prose. Title will be released as briefing update.)'}
-              </div>
-            </div>
-
-            {/* CONTROLLED DISCLOSURES */}
-            <div>
-              <div className="cyris-section-header" style={{ marginBottom: '8px' }}>
-                <span className="cyris-signal-marker" />
-                <span>CONTROLLED RESOURCE DISCLOSURES</span>
-              </div>
-              {selectedInject.actions.length === 0 ? (
-                <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-                  No secret resources will be granted or visibility changed.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {selectedInject.actions.map((act) => (
-                    <div
-                      key={act.id}
-                      style={{
-                        padding: '6px 10px',
-                        backgroundColor: 'var(--bg-card)',
-                        border: '1px solid var(--border-subtle)',
-                        fontSize: '11px',
-                      }}
-                    >
-                      <div style={{ fontWeight: 600, color: 'var(--accent-active)' }}>
-                        {act.actionType}
-                      </div>
-                      <div style={{ color: 'var(--text-secondary)', fontSize: '10px', fontFamily: 'monospace' }}>
-                        Resource: {act.resourceId}
-                      </div>
-                      <div style={{ color: 'var(--text-muted)' }}>
-                        Target: {act.unitName ?? act.userName ?? act.targetType}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* CONTROLLER ONLY (CONFIDENTIAL EXERCISE CONTROL) */}
-            <div
-              style={{
-                padding: '12px',
-                backgroundColor: 'rgba(225, 92, 25, 0.05)',
-                border: '1px solid rgba(225, 92, 25, 0.3)',
-                borderLeft: '3px solid var(--cyris-orange)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                <span style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 700, color: 'var(--cyris-orange)' }}>
-                  CONTROLLER ONLY · SECRET EXERCISE CONTEXT
-                </span>
-              </div>
-
-              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '2px' }}>
-                CONTROLLER SUMMARY
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-primary)', marginBottom: '10px', lineHeight: '1.4' }}>
-                {selectedInject.controllerSummary}
-              </div>
-
-              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '2px' }}>
-                TRIGGER & POLICY
-              </div>
-              <div style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-secondary)', marginBottom: '10px' }}>
-                Trigger: {selectedInject.triggerType} · Policy: {selectedInject.releasePolicy}
-              </div>
-
-              {selectedInject.conditions.length > 0 && (
-                <div style={{ marginBottom: '10px' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '2px' }}>
-                    CONDITIONS ({selectedInject.conditionLogic})
-                  </div>
-                  {selectedInject.conditions.map((condition) => {
-                    const labels: Record<string, string> = {
-                      TASK_STATUS: 'Operational task status',
-                      RECOVERY_OBJECTIVE_STATUS: 'Recovery objective status',
-                      INJECT_RELEASED: 'Inject released',
-                      CASE_STATUS: 'Case status',
-                      INCIDENT_STATUS: 'Incident status',
-                      EVIDENCE_STATUS: 'Evidence status',
-                      LAB_STATUS: 'Laboratory status',
-                      ACTIVITY_OCCURRED: 'Activity occurred',
-                    };
-                    return (
-                      <div key={condition.id} style={{ fontSize: '11px', color: condition.isSatisfied ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
-                        • {labels[condition.conditionType] ?? condition.conditionType}: {condition.targetStatus ?? 'configured target'}
-                        {!condition.isSatisfied && ' (unmet)'}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {selectedInject.dependencies.length > 0 && (
-                <div style={{ marginBottom: '10px' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '2px' }}>
-                    PREREQUISITE DEPENDENCIES
-                  </div>
-                  {selectedInject.dependencies.map((d) => (
-                    <div key={d.id} style={{ fontSize: '11px', fontFamily: 'monospace', color: d.status === 'RELEASED' ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
-                      • {d.injectNumber}: {d.title} ({d.status})
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {selectedInject.controllerNotes && (
-                <div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '2px' }}>
-                    CONTROLLER NOTES
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                    {selectedInject.controllerNotes}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* RELEASE AUDIT HISTORY */}
-            {selectedInject.releasedAt && (
-              <div style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-dim)' }}>
-                Released at: {selectedInject.releasedAt}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* OVERRIDE RELEASE MODAL */}
-      {showOverrideModal && selectedInject && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-        >
-          <div
-            style={{
-              width: '460px',
-              backgroundColor: 'var(--bg-surface)',
-              border: '1px solid var(--accent-warning)',
-              padding: '24px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent-warning)' }}>
-                MANUAL OVERRIDE AND RELEASE
-              </span>
-            </div>
-
-            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-              You are manually releasing <strong>{selectedInject.injectNumber}</strong> while prerequisites or conditions may not yet be met.
-              An operational justification is strictly audited.
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                MANDATORY OVERRIDE REASON (MIN 5 CHARACTERS)
-              </label>
-              <textarea
-                value={overrideReason}
-                onChange={(e) => setOverrideReason(e.target.value)}
-                placeholder="e.g. Exercise timetable shifted due to tactical drill delay"
-                style={{
-                  width: '100%',
-                  height: '80px',
-                  backgroundColor: 'var(--bg-card)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12px',
-                  padding: '8px',
-                }}
-              />
-            </div>
-
-            {overrideError && (
-              <div style={{ fontSize: '11px', color: 'var(--accent-danger)' }}>
-                {overrideError}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button
-                onClick={() => { setShowOverrideModal(false); setOverrideError(null); }}
-                style={{
-                  padding: '6px 12px',
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-secondary)',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                disabled={actionLoading}
-                onClick={handleOverrideRelease}
-                style={{
-                  padding: '6px 14px',
-                  backgroundColor: 'var(--accent-warning)',
-                  color: '#000000',
-                  border: 'none',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                {actionLoading ? 'Overriding...' : 'Confirm Override Release'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AUDIENCE PREVIEW MODAL */}
-      {showPreviewModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-        >
-          <div
-            style={{
-              width: '560px',
-              backgroundColor: 'var(--bg-surface)',
-              border: '1px solid var(--border-subtle)',
-              padding: '24px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="cyris-signal-marker" />
-                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  AUDIENCE VIEW PREVIEW
-                </span>
-                <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-dim)' }}>
-                  {audiencePreview?.injectNumber}
-                </span>
-              </div>
-              <button
-                onClick={() => setShowPreviewModal(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
-
-            {previewLoading ? (
-              <div style={{ padding: '20px', color: 'var(--text-muted)' }}>Computing target preview...</div>
-            ) : audiencePreview ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '2px' }}>
-                    INTENDED TARGET AUDIENCE
-                  </div>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                    {audiencePreview.targetAudienceDescription}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    padding: '12px',
-                    backgroundColor: 'var(--bg-card)',
-                    border: '1px solid var(--border-subtle)',
-                  }}
-                >
-                  <div style={{ fontSize: '11px', color: 'var(--accent-active)', fontWeight: 700, marginBottom: '4px' }}>
-                    PARTICIPANT BRIEFING PROSE
-                  </div>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
-                    {audiencePreview.participantTitle}
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                    {audiencePreview.participantContent ?? '(No extra body prose)'}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                    RESOURCES BECOMING ACCESSIBLE UPON RELEASE
-                  </div>
-                  {audiencePreview.disclosedResources.length === 0 ? (
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                      No hidden resources granted.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      {audiencePreview.disclosedResources.map((r) => (
-                        <div key={r.resourceId} style={{ fontSize: '11px', color: 'var(--accent-success)' }}>
-                          ✓ {r.visibilityAction} ({r.resourceId})
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div
-                  style={{
-                    padding: '10px 12px',
-                    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                    border: '1px solid var(--border-subtle)',
-                  }}
-                >
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700, marginBottom: '4px' }}>
-                    CONFIDENTIALITY GUARANTEE — REMAINS STRICTLY HIDDEN
-                  </div>
-                  <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                    {audiencePreview.hiddenControllerMetadata.map((h, i) => (
-                      <li key={i}>{h}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            ) : null}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowPreviewModal(false)}
-                style={{
-                  padding: '6px 14px',
-                  backgroundColor: 'var(--bg-active)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                }}
-              >
-                Close Preview
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showCreatePhaseModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <form onSubmit={handleCreatePhase} style={{ width: 'min(460px, calc(100vw - 32px))', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <strong style={{ color: 'var(--text-primary)' }}>CREATE SCENARIO PHASE</strong>
-              <button type="button" onClick={() => setShowCreatePhaseModal(false)} style={{ background: 'none', border: 0, color: 'var(--text-dim)', cursor: 'pointer' }}>✕</button>
-            </div>
-            <label style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-              CODE *
-              <input value={newPhaseCode} onChange={(e) => setNewPhaseCode(e.target.value)} placeholder="PHASE-01" style={{ ...compactInputStyle, width: '100%', marginTop: '4px' }} />
-            </label>
-            <label style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-              NAME *
-              <input value={newPhaseTitle} onChange={(e) => setNewPhaseTitle(e.target.value)} placeholder="Investigation" style={{ ...compactInputStyle, width: '100%', marginTop: '4px' }} />
-            </label>
-            <label style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-              DESCRIPTION
-              <textarea value={newPhaseDescription} onChange={(e) => setNewPhaseDescription(e.target.value)} style={{ ...compactInputStyle, width: '100%', minHeight: '70px', marginTop: '4px' }} />
-            </label>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button type="button" onClick={() => setShowCreatePhaseModal(false)} style={compactButtonStyle}>Cancel</button>
-              <button type="submit" disabled={actionLoading} style={{ ...compactButtonStyle, backgroundColor: 'var(--cyris-orange)', color: '#fff' }}>Create phase</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* CREATE INJECT MODAL */}
-      {showCreateInjectModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-        >
-          <form
-            onSubmit={handleCreateInject}
-            style={{
-              width: 'min(720px, 94vw)',
-              maxHeight: '90vh', overflowY: 'auto',
-              backgroundColor: 'var(--bg-surface)',
-              border: '1px solid var(--border-subtle)',
-              padding: '24px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '14px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="cyris-signal-marker" />
-                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  PREPARE SCENARIO INJECT
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCreateInjectModal(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <fieldset className="workspace-condition-fields"><legend>Release conditions and prerequisites</legend>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>CONDITION TYPE</label>
-                <select value={newConditionType} onChange={(e) => setNewConditionType(e.target.value as typeof newConditionType)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                  <option value="NONE">No condition</option><option value="TASK_STATUS">Task status</option><option value="RECOVERY_OBJECTIVE_STATUS">Recovery objective status</option>
-                </select>
-              </div>
-              {newConditionType !== 'NONE' ? (
-                <>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>TARGET</label>
-                    <select value={newConditionTargetId} onChange={(e) => {
-                      const id = e.target.value;
-                      setNewConditionTargetId(id);
-                    }} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                      <option value="">Select event-scoped target</option>
-                      {(newConditionType === 'TASK_STATUS' ? tasks : objectives).map((item) => <option key={item.id} value={item.id}>{'taskNumber' in item ? `${item.taskNumber ?? item.id} — ${item.title ?? ''}` : item.title}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>EXPECTED STATUS</label>
-                    <select value={newConditionStatus} onChange={(e) => setNewConditionStatus(e.target.value)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                      <option value="">Select valid status</option>
-                      {(newConditionType === 'TASK_STATUS'
-                        ? ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS', 'BLOCKED', 'COMPLETED', 'CANCELLED']
-                        : ['PUBLISHED', 'APPROVED', 'RESTORED', 'REJECTED']).map((status) => <option key={status} value={status}>{status}</option>)}
-                    </select>
-                  </div>
-                </>
-              ) : null}
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>CONDITION LOGIC</label>
-              <select value={newConditionLogic} onChange={(e) => setNewConditionLogic(e.target.value as typeof newConditionLogic)} style={{ width: '160px', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                <option value="ALL">ALL conditions</option><option value="ANY">ANY condition</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>PREREQUISITE INJECTS</label>
-              <select multiple value={newDependencies} onChange={(e) => setNewDependencies(Array.from(e.target.selectedOptions, (option) => option.value))} style={{ width: '100%', minHeight: '54px', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                {runSheet?.injects.filter((inject) => inject.id !== editInjectId && inject.status !== 'CANCELLED').map((inject) => (
-                  <option key={inject.id} value={inject.id}>{inject.injectNumber} — {inject.title}</option>
-                ))}
-              </select>
-              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '3px' }}>Select prerequisite injects in this exercise.</div>
-            </div>
-            </fieldset>
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                INJECT TITLE *
-              </label>
-              <input
-                required
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="e.g. Threat actor announces leaked credentials"
-                style={{
-                  width: '100%',
-                  padding: '6px 8px',
-                  backgroundColor: 'var(--bg-card)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12px',
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                CONTROLLER SUMMARY (INTERNAL CONTEXT) *
-              </label>
-              <textarea
-                required
-                value={newSummary}
-                onChange={(e) => setNewSummary(e.target.value)}
-                placeholder="Explain the exercise stimulus, truth, and intended training objective"
-                style={{
-                  width: '100%',
-                  height: '60px',
-                  padding: '6px 8px',
-                  backgroundColor: 'var(--bg-card)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12px',
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                  PHASE
-                </label>
-                <select
-                  value={newPhaseId}
-                  onChange={(e) => setNewPhaseId(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '6px 8px',
-                    backgroundColor: 'var(--bg-card)',
-                    border: '1px solid var(--border-subtle)',
-                    color: 'var(--text-primary)',
-                    fontSize: '12px',
-                  }}
-                >
-                  <option value="">Unassigned</option>
-                  {runSheet?.phases.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.code} — {p.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                    SCENARIO TIME (OPTIONAL)
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={newScheduledAt}
-                    onChange={(e) => setNewScheduledAt(e.target.value)}
-                    style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px', colorScheme: 'dark' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                    RELEASE EFFECT
-                  </label>
-                  <select
-                    value={newEffect}
-                    onChange={(e) => setNewEffect(e.target.value as 'NONE' | 'CREATE_INCIDENT')}
-                    style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
-                  >
-                    <option value="NONE">NONE / INFORMATION ONLY</option>
-                    <option value="CREATE_INCIDENT">CREATE INCIDENT</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>RECIPIENT TYPE *</label>
-                  <select value={newTargetType} onChange={(e) => setNewTargetType(e.target.value as typeof newTargetType)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                    <option value="UNIT">Unit</option><option value="USER">User</option><option value="EVENT">Whole event</option>
-                  </select>
-                </div>
-                {newTargetType === 'USER' ? (
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>RECIPIENT USER *</label>
-                    <select value={newTargetUserId} onChange={(e) => setNewTargetUserId(e.target.value)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                      <option value="">Select active event member</option>
-                      {members.map((member) => <option key={member.userId} value={member.userId}>{member.displayName ?? member.userId}</option>)}
-                    </select>
-                  </div>
-                ) : null}
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                  PRIORITY
-                </label>
-                <select
-                  value={newPriority}
-                  onChange={(e) => setNewPriority(e.target.value as any)}
-                  style={{
-                    width: '100%',
-                    padding: '6px 8px',
-                    backgroundColor: 'var(--bg-card)',
-                    border: '1px solid var(--border-subtle)',
-                    color: 'var(--text-primary)',
-                    fontSize: '12px',
-                  }}
-                >
-                  <option value="LOW">LOW</option>
-                  <option value="NORMAL">NORMAL</option>
-                  <option value="HIGH">HIGH</option>
-                  <option value="CRITICAL">CRITICAL</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                DELIVERY TARGET
-              </label>
-              <select
-                value={newTargetUnitId}
-                onChange={(e) => setNewTargetUnitId(e.target.value)}
-                style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: '12px' }}
-              >
-                <option value="">Whole Event — All Active Participants</option>
-                {units.map((unit) => (
-                  <option key={unit.id} value={unit.id}>{unit.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                  TRIGGER TYPE
-                </label>
-                <select
-                  value={newTriggerType}
-                  onChange={(e) => setNewTriggerType(e.target.value as any)}
-                  style={{
-                    width: '100%',
-                    padding: '6px 8px',
-                    backgroundColor: 'var(--bg-card)',
-                    border: '1px solid var(--border-subtle)',
-                    color: 'var(--text-primary)',
-                    fontSize: '12px',
-                  }}
-                >
-                  <option value="MANUAL">MANUAL</option>
-                  <option value="SCHEDULED_TIME">SCHEDULED_TIME</option>
-                  <option value="CONDITION">CONDITION</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                  RELEASE POLICY
-                </label>
-                <select
-                  value={newReleasePolicy}
-                  onChange={(e) => setNewReleasePolicy(e.target.value as any)}
-                  style={{
-                    width: '100%',
-                    padding: '6px 8px',
-                    backgroundColor: 'var(--bg-card)',
-                    border: '1px solid var(--border-subtle)',
-                    color: 'var(--text-primary)',
-                    fontSize: '12px',
-                  }}
-                >
-                  <option value="MANUAL_CONFIRMATION">MANUAL_CONFIRMATION</option>
-                  <option value="AUTO_RELEASE">AUTO_RELEASE</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                PARTICIPANT BRIEFING TITLE (OPTIONAL)
-              </label>
-              <input
-                value={newParticipantTitle}
-                onChange={(e) => setNewParticipantTitle(e.target.value)}
-                placeholder="Leave blank to use inject title"
-                style={{
-                  width: '100%',
-                  padding: '6px 8px',
-                  backgroundColor: 'var(--bg-card)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12px',
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                PARTICIPANT BRIEFING CONTENT (OPTIONAL)
-              </label>
-              <textarea
-                value={newParticipantContent}
-                onChange={(e) => setNewParticipantContent(e.target.value)}
-                placeholder="Exact text delivered to participants"
-                style={{
-                  width: '100%',
-                  height: '50px',
-                  padding: '6px 8px',
-                  backgroundColor: 'var(--bg-card)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12px',
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button
-                type="button"
-                onClick={() => setShowCreateInjectModal(false)}
-                style={{
-                  padding: '6px 12px',
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-secondary)',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={actionLoading}
-                style={{
-                  padding: '6px 14px',
-                  backgroundColor: 'var(--cyris-orange)',
-                  color: '#ffffff',
-                  border: 'none',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                {actionLoading ? 'Creating...' : 'Create Inject'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-    </div>
-    </AppShell>
-  );
+  const { eventId } = useParams<{ eventId: string }>();
+  const { currentUser, isPlatformAdmin, viewAs } = useAuth();
+  return <RunSheet key={[eventId, currentUser?.user.id, isPlatformAdmin, viewAs?.targetUserId].join('/')} eventId={eventId} />;
 }
 
-// Subcomponent: Run Sheet Row
-function InjectRunSheetRow({
-  inject,
-  selected,
-  onSelect,
-  onRelease,
-  onOverride,
-  onPreview,
-}: {
-  inject: ScenarioInjectResponse;
-  selected: boolean;
-  onSelect: () => void;
-  onRelease: () => void;
-  onOverride: () => void;
-  onPreview: () => void;
-}) {
-  const { formatTime } = usePreferences();
-  const isReleased = inject.status === 'RELEASED';
-  const isReady = inject.status === 'READY';
-  const isBlocked = inject.status === 'BLOCKED';
+function RunSheet({ eventId }: { eventId: string }) {
+  const { locale, timezone, formatTime } = usePreferences();
+  const { currentUser, hasPermission, loading, viewAs } = useAuth();
+  const { currentEvent } = useEvent();
+  const readOnly = useServiceReadOnly('scenario');
+  const tr = locale === 'cs' ? inCzech : inEnglish;
+  const event = currentEvent?.id === eventId ? currentEvent : null;
+  const closed = event?.status === 'CLOSED' || event?.status === 'ARCHIVED';
+  const canRead = hasPermission('scenario.read', eventId);
+  const writable = !closed && !viewAs && !readOnly;
+  const canManage = writable && hasPermission('scenario.manage', eventId);
+  const canRelease = writable && hasPermission('scenario.release', eventId);
+  const canOverride = writable && hasPermission('scenario.override', eventId);
+  const canOpenBriefings = hasPermission('briefing.read', eventId) && currentUser?.memberships.some(m => m.eventId === eventId && m.status === 'ACTIVE');
+  const [sheet, setSheet] = useState<ScenarioControlRunSheet | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [clockInput, setClockInput] = useState('');
+  const [modal, setModal] = useState<Modal | null>(null);
+  const [reason, setReason] = useState('');
+  const request = useRef(0);
+  const load = useCallback(async () => {
+    const version = ++request.current;
+    const result = await apiClient.getScenarioControlRunSheet(eventId);
+    if (request.current !== version) return;
+    if (result.ok && result.data) { setSheet(result.data); setLoadError(''); }
+    else { setSheet(null); setModal(null); setLoadError(result.error || tr('Režijní plán se nepodařilo načíst.', 'Could not load the run sheet.')); }
+  }, [eventId, tr]);
+  useEffect(() => {
+    if (!canRead) return;
+    let polling = false;
+    const refreshVisible = async () => {
+      if (polling || document.hidden) return;
+      polling = true;
+      try { await load(); } finally { polling = false; }
+    };
+    void refreshVisible();
+    const interval = window.setInterval(refreshVisible, 10000);
+    document.addEventListener('visibilitychange', refreshVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshVisible);
+      request.current++;
+    };
+  }, [canRead, load]);
 
-  return (
-    <div
-      onClick={onSelect}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        padding: '8px 12px',
-        borderBottom: '1px solid var(--border-subtle)',
-        backgroundColor: selected ? 'var(--bg-active)' : 'transparent',
-        borderLeft: selected ? '2px solid var(--cyris-orange)' : '2px solid transparent',
-        cursor: 'pointer',
-        gap: '14px',
-        fontSize: '12px',
-      }}
-    >
-      {/* TIMESTAMP OR TRIGGER */}
-      <div style={{ width: '130px', fontFamily: 'monospace', fontSize: '11px', color: 'var(--text-dim)' }}>
-        {inject.releasedAt
-          ? formatTime(inject.releasedAt)
-          : inject.scheduledAt
-          ? formatTime(inject.scheduledAt)
-          : inject.triggerType}
-      </div>
+  const close = () => { if (!busy) { setModal(null); setActionError(''); } };
+  const open = (dialog: Modal) => { setActionError(''); setReason(''); setModal(dialog); };
+  const act = async (call: () => Promise<ApiResult>, success: string, dismiss = false) => {
+    if (busy) return;
+    setBusy(true); setActionError(''); setNotice('');
+    try {
+      const res = await call();
+      if (!res.ok) { setActionError(res.error || tr('Změnu se nepodařilo provést.', 'Could not apply the change.')); return; }
+      const count = res.data && typeof res.data === 'object' && 'deliveriesCount' in res.data ? res.data.deliveriesCount : undefined;
+      setNotice(success + (typeof count === 'number' ? ' ' + tr('Počet doručení', 'Deliveries') + ' · ' + count : ''));
+      if (dismiss) setModal(null);
+      await load();
+    } finally { setBusy(false); }
+  };
 
-      {/* IDENTIFIER */}
-      <div style={{ width: '75px' }}>
-        <span className="record-identifier">{inject.injectNumber}</span>
-      </div>
+  const changePhase = (phase: ScenarioPhaseResponse, status: 'ACTIVE' | 'COMPLETED') => {
+    const label = phase.code + ' · ' + phase.title;
+    const previous = sheet?.activePhase;
+    const question = status === 'COMPLETED' ? tr('Ukončit fázi ', 'Complete phase ') + label + '?'
+      : tr('Zahájit fázi ', 'Start phase ') + label + '?' + (previous ? ' ' + tr('Tím se ukončí fáze ', 'This completes phase ') + previous.code + '.' : '');
+    if (window.confirm(question)) void act(() => apiClient.updateScenarioPhase(eventId, phase.id, {
+      status, forceActive: status === 'ACTIVE' && Boolean(previous),
+    }), label + ' · ' + term(status, tr));
+  };
+  const changeClock = (action: 'PAUSE' | 'RESUME' | 'ADVANCE' | 'SET_TIME') => {
+    if (action === 'SET_TIME' && !clockInput) return;
+    void act(() => apiClient.updateScenarioClock(eventId, { action,
+      minutes: action === 'ADVANCE' ? 5 : undefined, scenarioTime: action === 'SET_TIME' ? new Date(clockInput).toISOString() : undefined,
+    }), tr('Scénářové hodiny byly aktualizovány.', 'Scenario clock updated.'));
+  };
 
-      {/* TITLE & SUMMARY */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {inject.title}
+  const selected = modal && 'id' in modal ? sheet?.injects.find(inject => inject.id === modal.id) : undefined;
+  const injects = sheet?.injects ?? [];
+  const ready = injects.filter(canReleaseNow);
+  const manual = ready.find(i => i.releasePolicy !== 'AUTO_RELEASE' || i.triggerType === 'MANUAL' || i.triggerType === 'EXTERNAL');
+  const upcoming = injects.filter(i => i.status === 'SCHEDULED' && !i.isDue);
+  const waiting = injects.filter(i => i.status === 'BLOCKED');
+  const released = injects.filter(i => i.status === 'RELEASED').sort((a, b) => (b.releasedAt ?? '').localeCompare(a.releasedAt ?? ''));
+  const phaseToStart = sheet?.phases.find(p => p.status === 'PLANNED' || p.status === 'DRAFT');
+  const groups = [
+    { label: tr('Připravené k vydání', 'Ready for release'), rows: ready },
+    { label: tr('Čekají na podmínky', 'Waiting on requirements'), rows: waiting },
+    { label: tr('Naplánované na později', 'Scheduled for later'), rows: upcoming },
+    { label: tr('Koncepty', 'Drafts'), rows: injects.filter(i => i.status === 'DRAFT') },
+    { label: tr('Vydané', 'Released'), rows: released },
+    { label: tr('Zrušené', 'Cancelled'), rows: injects.filter(i => i.status === 'CANCELLED') },
+  ];
+
+  let nextText = tr('Režie připravuje scénářové vstupy pro toto cvičení.', 'Exercise control prepares the injects for this exercise.');
+  let nextAction: { label: string; run: () => void } | undefined;
+  if (closed) nextText = tr('Cvičení je uzavřené. V režijním plánu si můžete projít průběh a vydané briefingy.', 'This exercise is closed. Review its phases and released briefings in the run sheet.');
+  else if (sheet && !sheet.phases.length && !injects.length && canManage) {
+    nextText = tr('Založte první fázi a pojmenujte část cvičení, kterou má režie řídit.', 'Create the first phase and name the part of the exercise it covers.');
+    nextAction = { label: tr('Vytvořit fázi', 'Create phase'), run: () => open({ kind: 'phase' }) };
+  } else if (!injects.length && canManage) {
+    nextText = tr('Připravte první vstup. Zadejte zprávu, vyberte příjemce a zvolte způsob vydání.', 'Prepare the first inject. Write the briefing, choose its audience and select how to release it.');
+    nextAction = { label: tr('Připravit vstup', 'Prepare inject'), run: () => open({ kind: 'create' }) };
+  } else if (canManage && phaseToStart && !sheet?.activePhase) {
+    nextText = tr('Pokud tato část cvičení začíná, označte ji jako aktivní.', 'If this part of the exercise is beginning, mark its phase active.');
+    nextAction = { label: tr('Zahájit ', 'Start ') + phaseToStart.code + ' · ' + phaseToStart.title, run: () => changePhase(phaseToStart, 'ACTIVE') };
+  } else if (manual) {
+    nextText = manual.injectNumber + ' · ' + manual.title + '. ' + (canRelease
+      ? tr('Zkontrolujte příjemce a znění briefingu. V náhledu potvrďte vydání.', 'Review recipients and briefing text. Confirm release in the preview.')
+      : tr('Vstup čeká na potvrzení režie. Můžete si prohlédnout zprávu pro účastníky.', 'This inject is awaiting controller confirmation. You can preview the participant message.'));
+    nextAction = { label: tr('Náhled briefingu', 'Preview briefing'), run: () => open({ kind: 'preview', id: manual.id }) };
+  } else if (sheet?.clock.paused && (upcoming.length || ready.length) && canManage) {
+    nextText = tr('Scénářové hodiny stojí. Až má čas znovu běžet a automatické vydávání pokračovat, spusťte hodiny.', 'The scenario clock is paused. Resume it when scenario time and automatic releases should continue.');
+    nextAction = { label: tr('Pokračovat v čase', 'Resume clock'), run: () => changeClock('RESUME') };
+  } else if (ready[0] || waiting[0] || upcoming[0]) {
+    const item = ready[0] ?? waiting[0] ?? upcoming[0]!;
+    nextText = item.injectNumber + ' · ' + item.title + '. ' + (item.status === 'BLOCKED'
+      ? tr('V detailu zkontrolujte, které podmínky nebo předchozí vstupy dosud chybí.', 'Open the details to check outstanding conditions or prerequisite injects.')
+      : item.status === 'SCHEDULED' ? tr('Plánovaný scénářový čas', 'Scheduled scenario time') + ' · ' + formatTime(item.scheduledAt)
+      : tr('Vstup je připraven pro automatické vydání při dalším vyhodnocení.', 'The inject is ready for automatic release at the next eligible evaluation.'));
+    nextAction = { label: tr('Otevřít detail', 'View details'), run: () => open({ kind: 'inspect', id: item.id }) };
+  } else if (canManage && sheet?.activePhase && released.length) {
+    const phase = sheet.activePhase;
+    nextText = tr('Projděte vydané vstupy. Pokud je tato část cvičení hotová, ukončete aktivní fázi.', 'Review the released injects. If this part of the exercise is finished, complete its active phase.');
+    nextAction = { label: tr('Ukončit ', 'Complete ') + phase.code, run: () => changePhase(phase, 'COMPLETED') };
+  } else if (injects.length && canManage) {
+    nextText = tr('Připravte další vstup, až budou účastníci potřebovat nové informace.', 'Prepare the next inject when participants need new information.');
+    nextAction = { label: tr('Připravit vstup', 'Prepare inject'), run: () => open({ kind: 'create' }) };
+  } else if (released[0]) {
+    nextText = tr('Poslední vydaný vstup', 'Most recent release') + ' · ' + released[0].injectNumber;
+    nextAction = { label: tr('Otevřít detail', 'View details'), run: () => open({ kind: 'inspect', id: released[0]!.id }) };
+  }
+  const errorMessage = actionError && <p className={styles.error} role="alert">{actionError}</p>;
+  const title = tr('Řízení scénáře', 'Scenario Control');
+  return <AppShell title={title} breadcrumbs={[{ label: tr('Přehled cvičení','Exercise overview'), href: '/events/' + eventId + '/overview' }, { label: title }]}>
+    <div className={styles.sheet}>
+      {loading ? <LoadingState /> : !canRead ? <ErrorState message={tr('K režijnímu plánu nemáte přístup.', 'You do not have access to the run sheet.')} /> : loadError ? <ErrorState message={loadError} onRetry={() => void load()} /> : !sheet ? <LoadingState /> : <>
+        <div className={styles.heading}>
+          <p className={styles.lead}>{tr('Režijní plán cvičení', 'Exercise director’s run sheet')}{event ? ' · ' + event.name : ''}</p>
+          <nav className={styles.links} aria-label={tr('Související stránky', 'Related pages')}>
+            {canOpenBriefings && <Link href={'/events/' + eventId + '/briefings'}>{tr('Moje briefingy', 'My briefings')}</Link>}
+            {hasPermission('scenario.manage', eventId) && <Link href={'/events/' + eventId + '/scenario-data'}>{tr('Scénářová data', 'Scenario data')}</Link>}
+            {hasPermission('registry.read', eventId) && <Link href={'/events/' + eventId + '/registry'}>{tr('Registr', 'Registry')}</Link>}
+          </nav>
         </div>
-        <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {isBlocked && inject.blockedReasons.length > 0
-            ? `Waiting for: ${inject.blockedReasons.join(' · ')}`
-            : inject.controllerSummary}
+        {notice && <p role="status" className={styles.message}>{notice}</p>}
+        {!modal && errorMessage}
+        <section className={styles.next}>
+          <h2>{tr('Další krok režie', 'Next controller action')}</h2>
+          <p className={styles.prose}>{nextText}</p>
+          {nextAction && <div className={styles.controls}><button type="button" className="btn btn-primary" disabled={busy} onClick={nextAction.run}>{nextAction.label}</button></div>}
+        </section>
+        <details className={styles.details}><summary>{tr('Jak vést cvičení', 'How to run the exercise')}</summary>
+          <ol><li>{tr('Fází označte část cvičení. Když zahájíte další fázi, dosud aktivní fáze se ukončí.', 'Use phases to mark the parts of the exercise. Starting a phase completes the previous active phase.')}</li>
+            <li>{tr('Vstupem připravte zprávu a určete příjemce. Interní záměr a poznámky vidí režie.', 'Prepare the inject, write its briefing and select the recipients. The purpose and notes are for controllers.')}</li>
+            <li>{tr('Scénářové hodiny a podmínky určují, kdy je možné vstup vydat. Ruční vydání potvrďte v náhledu. Automatické vydání provede systém.', 'The scenario clock and conditions determine eligibility. Confirm manual release in the preview. The system handles automatic releases.')}</li>
+            <li>{tr('Po vydání najde každý oslovený účastník zprávu ve svých Briefinzích. Může označit přečtení a na vyžádání potvrdit přijetí.', 'After release, each addressed participant finds the message in Briefings. They can mark it read and acknowledge receipt when requested.')}</li></ol>
+        </details>
+        <div className={styles.columns}>
+          <section className={styles.panel}><div className={styles.heading}><h2>{tr('Fáze cvičení', 'Exercise phases')}</h2>
+            {canManage && <button type="button" className="btn btn-secondary" onClick={() => open({ kind: 'phase' })}>{tr('Nová fáze', 'New phase')}</button>}</div>
+            <p className={styles.help}>{sheet.activePhase ? tr('Aktivní fáze', 'Active phase') + ' · ' + sheet.activePhase.title : tr('Žádná fáze právě neprobíhá.', 'There is no active phase.')}</p>
+            {sheet.phases.map(p => <div className={styles.phase} key={p.id}><div className={styles.heading}><h3>{p.code} · {p.title}</h3><span className={styles.status}>{term(p.status,tr)}</span></div>
+              {p.description && <p className={styles.help}>{p.description}</p>}
+              {canManage && ['DRAFT','PLANNED','ACTIVE'].includes(p.status) && <div className={styles.controls}><button type="button" className="btn btn-secondary" disabled={busy}
+                onClick={() => changePhase(p, p.status === 'ACTIVE' ? 'COMPLETED' : 'ACTIVE')}>{p.status === 'ACTIVE' ? tr('Ukončit fázi', 'Complete phase') : tr('Zahájit fázi', 'Start phase')}</button></div>}
+            </div>)}
+          </section>
+          <section className={styles.panel}><h2>{tr('Scénářové hodiny', 'Scenario clock')}</h2>
+            <div><div className={styles.clock}>{formatTime(sheet.clock.scenarioTime)}</div><div className={styles.data}>{timezone} · {sheet.clock.paused ? tr('Pozastaveno', 'Paused') : tr('Běží', 'Running')} · {sheet.clock.mode === 'REAL_TIME' ? tr('Reálný čas', 'Real time') : tr('Scénářový čas', 'Scenario time')}</div></div>
+            <p className={styles.help}>{tr('Plánované vstupy se řídí tímto časem. Pauza zastaví automatické vydávání. Připravený briefing může režie stále vydat ručně.', 'Scheduled injects use this clock. Pausing holds automatic releases. A controller can still release an eligible briefing manually.')}</p>
+            {canManage && <><div className={styles.controls}><button type="button" className="btn btn-secondary" disabled={busy} onClick={() => changeClock(sheet.clock.paused ? 'RESUME' : 'PAUSE')}>{sheet.clock.paused ? tr('Pokračovat v čase','Resume clock') : tr('Pozastavit','Pause clock')}</button>
+              <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => changeClock('ADVANCE')}>+5 min</button></div>
+              <form className={styles.clockControls} onSubmit={e => { e.preventDefault(); changeClock('SET_TIME'); }}>
+                <label>{tr('Nový čas', 'New time')} ({Intl.DateTimeFormat().resolvedOptions().timeZone})<input required type="datetime-local" value={clockInput} onChange={e => setClockInput(e.target.value)} /></label>
+                <button className="btn btn-secondary" disabled={busy || !clockInput}>{tr('Nastavit a spustit', 'Set and run')}</button>
+              </form></>}
+          </section>
         </div>
-      </div>
-
-      {/* PRIORITY & STATUS PILL */}
-      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-        <span
-          style={{
-            fontSize: '9px',
-            fontFamily: 'monospace',
-            fontWeight: 700,
-            padding: '1px 5px',
-            borderRadius: '2px',
-            backgroundColor:
-              isReleased
-                ? 'rgba(34, 197, 94, 0.15)'
-                : isReady
-                ? 'rgba(56, 189, 248, 0.15)'
-                : isBlocked
-                ? 'rgba(239, 68, 68, 0.15)'
-                : 'var(--bg-card)',
-            color:
-              isReleased
-                ? 'var(--accent-success)'
-                : isReady
-                ? 'var(--accent-active)'
-                : isBlocked
-                ? 'var(--accent-danger)'
-                : 'var(--text-dim)',
-          }}
-        >
-          {inject.status}
-        </span>
-      </div>
-
-      {/* ROW ACTIONS */}
-      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
-        {isReady && (
-          <button
-            onClick={onRelease}
-            style={{
-              padding: '3px 8px',
-              backgroundColor: 'var(--accent-success)',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '2px',
-              fontSize: '10px',
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-          >
-            Release
-          </button>
-        )}
-        {isBlocked && (
-          <button
-            onClick={onOverride}
-            style={{
-              padding: '3px 8px',
-              backgroundColor: 'transparent',
-              border: '1px solid var(--accent-warning)',
-              color: 'var(--accent-warning)',
-              borderRadius: '2px',
-              fontSize: '10px',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            Override
-          </button>
-        )}
-      </div>
+        <section className={styles.list}><div className={styles.heading}><h2>{tr('Scénářové vstupy', 'Scenario injects')} <span className={styles.data}>({injects.length})</span></h2>
+          {canManage && <button className="btn btn-secondary" type="button" onClick={() => open({ kind: 'create' })}>{tr('Nový vstup', 'New inject')}</button>}</div>
+          {!injects.length && <p className={styles.help}>{tr('Režijní plán tohoto cvičení zatím neobsahuje žádné vstupy.', 'This exercise has no injects yet.')}</p>}
+          {groups.filter(g => g.rows.length).map(group => <section key={group.label} className={styles.group}><h3>{group.label} ({group.rows.length})</h3>
+            {group.rows.map(i => <article key={i.id} className={styles.entry}><div className={styles.heading}>
+              <strong>{i.injectNumber} · {i.title}</strong>
+              <div className={styles.controls}><button type="button" className="btn btn-secondary" onClick={() => open({ kind: 'inspect', id: i.id })}>{tr('Detail vstupu','Inject details')}</button>
+                {canReleaseNow(i) && <button type="button" className="btn btn-secondary" onClick={() => open({ kind: 'preview', id: i.id })}>{tr('Náhled briefingu','Preview briefing')}</button>}</div></div>
+              <p className={styles.subtle}>{[i.phaseName, audience(i,tr), i.releasedAt ? tr('Vydáno','Released') + ' ' + formatTime(i.releasedAt) : i.scheduledAt ? tr('Scénářový čas','Scenario time') + ' ' + formatTime(i.scheduledAt) : term(i.triggerType,tr), i.status === 'RELEASED' ? null : term(i.releasePolicy,tr)].filter(Boolean).join(' · ')}</p>
+            </article>)}</section>)}
+        </section>
+        {modal?.kind === 'phase' && canManage && <PhaseForm tr={tr} busy={busy} error={actionError} onClose={close} onSave={(code, name, description) =>
+          void act(() => apiClient.createScenarioPhase(eventId, { code, title: name, description, sequence: Math.max(0, ...sheet.phases.map(p => p.sequence)) + 1, status: 'PLANNED' }), tr('Fáze byla přidána do plánu.', 'Phase added to the run sheet.'), true)} />}
+        {(modal?.kind === 'create' || (modal?.kind === 'edit' && selected && !selected.designReadOnly)) && canManage &&
+          <InjectDesigner eventId={eventId} tr={tr} sheet={sheet} inject={selected} onClose={close} onSaved={record => {
+            setNotice(record.injectNumber + ' · ' + term(record.status,tr)); setModal({ kind: 'inspect', id: record.id }); void load();
+          }} />}
+        {modal?.kind === 'inspect' && selected && <ScenarioDialog title={selected.injectNumber + ' · ' + selected.title} closeLabel={tr('Zavřít','Close')} onClose={close}>
+          <div className={styles.inspection}>
+            <div className={styles.data}>{[term(selected.status,tr), selected.phaseName, tr('Priorita','Priority') + ' · ' + term(selected.priority,tr)].filter(Boolean).join(' / ')}</div>
+            <section><h3>{tr('Interní záměr režie', 'Controller purpose')}</h3><p className={styles.prose}>{selected.controllerSummary}</p>
+              {selected.controllerNotes && <p className={styles.prose}>{selected.controllerNotes}</p>}</section>
+            <section><h3>{tr('Příjemci briefingu','Briefing audience')}</h3><p>{audience(selected,tr)}</p></section>
+            <section><h3>{tr('Podmínky vydání','Release requirements')}</h3><p className={styles.help}>{term(selected.triggerType,tr)} · {term(selected.releasePolicy,tr)}{selected.scheduledAt && ' · ' + formatTime(selected.scheduledAt)}</p>
+              {selected.designReadOnly && <p className={styles.help}>{tr('Nastavení tohoto vstupu je jen pro čtení.', 'This inject’s design is read-only.')}</p>}
+              {selected.dependencies.length > 0 && <><p className={styles.help}>{tr('Nejdříve vydat', 'Release first')}</p><ul>{selected.dependencies.map(d => <li key={d.id}>{d.injectNumber} · {d.title} · {term(d.status,tr)}</li>)}</ul></>}
+              {selected.conditions.length > 0 && <><p className={styles.help}>{tr('Podmínky', 'Conditions')} · {term(selected.conditionLogic,tr)}</p><ul>{selected.conditions.map(c => <li key={c.id}>
+                {[term(c.conditionType,tr), c.targetIdentifier || c.activityType || c.targetResourceId, c.targetStatus && term(c.targetStatus,tr), c.isSatisfied ? tr('Splněno','Met') : tr('Čeká','Pending')].filter(Boolean).join(' · ')}</li>)}</ul></>}
+            </section>
+            {selected.actions.length > 0 && <section><h3>{tr('Akce při vydání','Actions on release')}</h3><ul>{selected.actions.map(a => <li key={a.id}>{[term(a.actionType,tr), a.resourceTitle || a.resourceIdentifier || a.resourceId, a.unitName || a.userName || term(a.targetType,tr), a.newVisibility].filter(Boolean).join(' · ')}</li>)}</ul></section>}
+            {selected.releasedAt && <p className={styles.help}>{tr('Vydáno ve skutečném čase', 'Released at actual time')} · {formatTime(selected.releasedAt)} ({timezone})</p>}
+            {errorMessage}
+            <footer><button type="button" className="btn btn-primary" onClick={() => open({ kind:'preview',id:selected.id })}>{tr('Náhled briefingu','Preview briefing')}</button>
+              {!['CANCELLED','RELEASED'].includes(selected.status) && !selected.designReadOnly && <>
+                {canManage && <button type="button" className="btn btn-secondary" onClick={() => open({ kind:'edit', id:selected.id })}>{tr('Upravit vstup','Edit inject')}</button>}
+                {canOverride && <button type="button" className="btn btn-secondary" onClick={() => open({ kind:'override',id:selected.id })}>{tr('Vydat výjimkou','Override release')}</button>}
+                {canManage && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => {
+                  if (window.confirm(tr('Zrušit tento vstup?','Cancel this inject?') + ' ' + selected.injectNumber)) void act(() => apiClient.cancelScenarioInject(eventId,selected.id), selected.injectNumber + ' · ' + term('CANCELLED',tr), true);
+                }}>{tr('Zrušit vstup','Cancel inject')}</button>}
+              </>}
+            </footer>
+          </div>
+        </ScenarioDialog>}
+        {modal?.kind === 'preview' && selected && <BriefingPreview key={selected.id + selected.updatedAt} eventId={eventId} inject={selected} tr={tr} onClose={close}
+          onRelease={canRelease && canReleaseNow(selected) ? () => void act(() => apiClient.releaseScenarioInject(eventId,selected.id), selected.injectNumber + ' · ' + term('RELEASED',tr), true) : undefined}
+          busy={busy} actionError={actionError} />}
+        {modal?.kind === 'override' && selected && canOverride && !selected.designReadOnly && !['RELEASED','CANCELLED'].includes(selected.status) &&
+          <ScenarioDialog title={tr('Vydat výjimkou', 'Override release')} closeLabel={tr('Zavřít','Close')} onClose={close}>
+            <form className={styles.form} onSubmit={e => { e.preventDefault(); if (reason.trim().length >= 5) void act(() => apiClient.overrideReleaseScenarioInject(eventId, selected.id, reason.trim()), selected.injectNumber + ' · ' + term('RELEASED',tr), true); }}>
+              <p className={styles.prose}>{selected.injectNumber} · {audience(selected,tr)}. {tr('Potvrzením vydáte briefing ihned i s nesplněnými podmínkami. Důvod se zapíše do auditu.', 'Confirming releases the briefing immediately, including when requirements are pending. The reason is recorded in the audit log.')}</p>
+              <label>{tr('Důvod výjimky (alespoň 5 znaků)', 'Reason for override (at least 5 characters)')}<textarea required minLength={5} value={reason} onChange={e => setReason(e.target.value)} /></label>
+              {errorMessage}<footer><button type="button" className="btn btn-secondary" onClick={close}>{tr('Zpět','Back')}</button><button type="submit" className="btn btn-primary" disabled={busy || reason.trim().length < 5}>{tr('Potvrdit vydání výjimkou','Confirm override release')}</button></footer>
+            </form>
+          </ScenarioDialog>}
+      </>}
     </div>
-  );
+  </AppShell>;
+}
+
+function PhaseForm({ tr, busy, error, onSave, onClose }: { tr: Translate; busy: boolean; error: string; onSave: (code: string, name: string, description: string) => void; onClose: () => void }) {
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const code = String(form.get('code')).trim(), title = String(form.get('title')).trim();
+    if (code && title) onSave(code, title, String(form.get('description')).trim());
+  };
+  return <ScenarioDialog title={tr('Nová fáze', 'New phase')} closeLabel={tr('Zavřít','Close')} onClose={onClose}><form className={styles.form} onSubmit={submit}>
+    <p className={styles.help}>{tr('Novou fázi přidáte do plánu. Až začne, zvolte u ní Zahájit fázi.', 'The new phase is added to the plan. Choose Start phase when it begins.')}</p>
+    <label>{tr('Kód fáze','Phase code')}<input required pattern=".*\S.*" name="code" maxLength={64} /></label>
+    <label>{tr('Název fáze','Phase name')}<input required pattern=".*\S.*" name="title" maxLength={255} /></label>
+    <label>{tr('Popis','Description')}<textarea name="description" /></label>
+    {error && <p role="alert" className={styles.error}>{error}</p>}
+    <footer><button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Zrušit','Cancel')}</button><button className="btn btn-primary" disabled={busy}>{tr('Vytvořit fázi','Create phase')}</button></footer>
+  </form></ScenarioDialog>;
+}
+
+function BriefingPreview({ eventId, inject, tr, onClose, onRelease, busy, actionError }: {
+  eventId: string; inject: ScenarioInjectResponse; tr: Translate; onClose: () => void; onRelease?: () => void; busy: boolean; actionError: string;
+}) {
+  const [preview, setPreview] = useState<AudiencePreviewResponse | null>(null);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setError('');
+    void apiClient.previewScenarioAudience(eventId, inject.id).then(res => {
+      if (!active) return;
+      if (res.ok && res.data) setPreview(res.data);
+      else setError(res.error || tr('Náhled se nepodařilo načíst.', 'Could not load the preview.'));
+    });
+    return () => { active = false; };
+  }, [eventId, inject.id, attempt, tr]);
+  const targetText = preview?.targetAudienceDescription.replace('Entire Event (All verified participants)', term('EVENT',tr))
+    .replace(/All participants/g, term('EVENT',tr)).replace(/Unit: /g, term('UNIT',tr) + ' · ').replace(/User: /g, term('USER',tr) + ' · ');
+  return <ScenarioDialog title={tr('Náhled briefingu','Briefing preview') + ' · ' + inject.injectNumber} closeLabel={tr('Zavřít','Close')} onClose={onClose}>
+    {error ? <ErrorState message={error} onRetry={() => setAttempt(n => n + 1)} /> : !preview ? <LoadingState /> : <div className={styles.inspection}>
+      <section><h3>{tr('Příjemci','Recipients')}</h3><p>{targetText}</p></section>
+      <section className={styles.briefing}><h3>{preview.participantTitle}</h3>
+        {preview.participantContent && <p className={styles.prose}>{preview.participantContent}</p>}
+        {preview.requiresAcknowledgement && <p className={styles.help}>{tr('Vyžaduje potvrzení přijetí.', 'Acknowledgement requested.')}</p>}
+      </section>
+      {inject.translations.length > 0 && <p className={styles.help}>{tr('K dispozici jsou také jazykové verze pro příjemce', 'Additional recipient language versions')} · {inject.translations.map(t => t.locale).join(', ')}</p>}
+      {preview.disclosedResources.length > 0 && <section><h3>{tr('Zpřístupněné záznamy','Records disclosed on release')}</h3><ul>{preview.disclosedResources.map((r,i) => <li key={r.resourceId + i}>{r.title || r.identifier || r.resourceId} · {r.visibilityAction}</li>)}</ul></section>}
+      {inject.actions.some(a => a.actionType === 'CREATE_INCIDENT') && <p className={styles.help}>{tr('Vydáním vznikne také incident viditelný pro celé cvičení.', 'Release also creates an incident visible to the whole exercise.')}</p>}
+      {actionError && <p role="alert" className={styles.error}>{actionError}</p>}
+      {onRelease && <p className={styles.help}>{tr('Potvrzením se uloží konečná verze a zpráva se zpřístupní vybraným příjemcům v jejich Briefinzích.', 'Confirming saves the final version and delivers the message to the selected recipients in Briefings.')}</p>}
+      <footer><button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>{tr('Zavřít náhled','Close preview')}</button>
+        {onRelease && <button type="button" className="btn btn-primary" disabled={busy} onClick={onRelease}>{tr('Potvrdit vydání','Confirm release')}</button>}</footer>
+    </div>}
+  </ScenarioDialog>;
 }

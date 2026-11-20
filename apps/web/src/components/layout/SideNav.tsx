@@ -131,6 +131,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
       { id: 'nav-admin-users', label: 'Users & Access', href: '/admin/users', iconKey: 'users' },
       { id: 'nav-admin-roles', label: 'Roles & Perms', href: '/admin/roles', iconKey: 'key' },
       { id: 'nav-admin-audit', label: 'Audit Log', href: '/admin/audit', iconKey: 'shield' },
+      { id: 'nav-admin-modules', label: 'Module availability', href: '/admin/settings/modules', iconKey: 'activity' },
       { id: 'nav-admin-identity', label: 'Identity Providers', href: '/admin/settings/identity', iconKey: 'users' },
       { id: 'nav-admin-integrations', label: 'Integrations & AI', href: '/admin/settings/integrations/ai', iconKey: 'sliders' },
       { id: 'nav-admin-settings', label: 'Settings', href: '/admin/settings/identity', iconKey: 'sliders' },
@@ -148,6 +149,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
   const seen = new Set<string>();
   const sectionsToRender = source.map(section => ({...section, items: section.items.filter(item => {
     if (item.href.startsWith('/admin') !== adminMode || seen.has(item.href)) return false;
+    if (item.href === '/admin/settings/modules' && !isPlatformAdmin) return false;
     seen.add(item.href); return true;
   })})).filter(section => section.items.length > 0);
   if (!adminMode && selectedEventId && (isPlatformAdmin ||
@@ -163,7 +165,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
         { id: 'nav-my-work', label: 'My Work', href: workHref, iconKey: 'briefcase' }, displayItem,
       ] });
     }
-    if (!seen.has(`${root}/service-status`)) sectionsToRender.push({ id: 'exercise-services', title: 'Exercise support', items: [
+    if (!seen.has(`${root}/service-status`)) sectionsToRender.push({ id: 'exercise-services', title: 'Support', items: [
       { id: 'nav-service-status', label: 'Service status', href: `${root}/service-status`, iconKey: 'activity' },
       { id: 'nav-exercise-help', label: 'Help & support', href: `${root}/support`, iconKey: 'mail' },
     ] });

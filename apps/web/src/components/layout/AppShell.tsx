@@ -2,6 +2,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { SideNav } from './SideNav';
+import Link from 'next/link';
+import { useServiceStatus } from '@/hooks/useServiceStatus';
+import { serviceModuleForPath } from '@/lib/service-module-route';
+import availabilityStyles from './ServiceAvailability.module.css';
 import { TopBar } from './TopBar';
 import { CommandPalette } from '../common/CommandPalette';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,6 +37,9 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
   const { currentUser, loading, isPlatformAdmin, previewInvalid, viewAs } = useAuth();
   const { t, locale } = usePreferences();
   const pathname = usePathname();
+  const { data: services } = useServiceStatus();
+  const module = serviceModuleForPath(pathname);
+  const readOnly = services?.items.some(item => item.service === module && item.impact === 'READ_ONLY');
   const paddedRoute = /\/(tasks|medical|documents|forensics|court)(\/[^/]+)?$/.test(pathname);
   const localBreadcrumbs = breadcrumbs?.map(item => ({...item, label: workspaceLabel(locale, item.label)}));
   const [collapsed, setCollapsed] = useState(() => typeof window !== 'undefined' && desktopCollapsed(window.matchMedia(narrowQuery).matches));
@@ -140,6 +147,11 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
               )}
             </div>
           )}
+          {readOnly && services && <div className={availabilityStyles.notice} role="status">
+            <strong>{t('serviceStatus.impact.read_only')}</strong>
+            <span>{locale === 'cs' ? 'Záznamy můžete prohlížet. Ukládání změn je dočasně nedostupné.' : 'You can view records. Saving changes is temporarily unavailable.'}</span>
+            <Link href={`/events/${services.eventId}/service-status`}>{t('serviceStatus.title')}</Link>
+          </div>}
           {(title || actions) && <div className="workspace-page-header"><div className="workspace-page-title">{title && <h1>{typeof title === 'string' ? workspaceLabel(locale, title) : title}</h1>}</div>{actions && <div className="workspace-page-actions">{actions}</div>}</div>}
           <div className={paddedRoute ? 'workspace-content workspace-content-padded' : 'workspace-content'}>{children}</div>
         </main>

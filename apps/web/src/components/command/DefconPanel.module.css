@@ -1,0 +1,15 @@
+.signal { display: flex; align-items: center; gap: clamp(.7rem, 2vw, 1.5rem); padding: 1rem 1.25rem; border: 1px solid #534426; background: #080808; color: #ede9de; }
+.liveNumber { font: 700 clamp(3.2rem, 5vw, 5.25rem)/1 var(--font-mono, monospace); }
+.signalText { min-width: 0; display: grid; gap: .25rem; }
+.signalText span { color: #e2c06a; text-transform: uppercase; font: 600 .66rem/1.2 var(--font-mono, monospace); letter-spacing: .16em; }
+.signalText strong { font-size: clamp(1.2rem, 2vw, 1.8rem); }
+.signalText p { margin: 0; overflow-wrap: anywhere; }
+.scale { display: flex; align-self: end; gap: 3px; margin-left: auto; }
+.scale i { min-width: 22px; border-bottom: 3px solid; text-align: center; padding-bottom: 3px; font: 600 .7rem var(--font-mono, monospace); color: #aaa49a; }
+.scale i[data-active="true"] { color: #fff; background: #302b20; }
+.picker { display: flex; flex-wrap: wrap; gap: .4rem; }
+.picker button { display: inline-flex; align-items: center; gap: .4rem; padding: .45rem .65rem; border: 1px solid var(--border-subtle); background: var(--bg-surface); color: var(--text-primary); font: inherit; font-size: .8rem; cursor: pointer; }
+.picker button[aria-pressed="true"] { border-color: var(--text-primary); font-weight: 700; }
+.picker button:disabled { opacity: .6; cursor: default; }
+.picker i { width: .55rem; height: .55rem; }
+@media (max-width: 550px) { .signal { flex-wrap: wrap; } .scale { flex-basis: 100%; margin-left: 0; } }

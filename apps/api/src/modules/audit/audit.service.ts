@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { eq, and, gte, lte, desc, sql, count } from 'drizzle-orm';
+import { eq, and, gte, lte, desc, isNull, notInArray, notLike, or, count } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import {
   auditEvents,
@@ -11,8 +11,18 @@ import {
   type AuditOutcomeValue,
 } from '@cyris/db';
 import { generateId } from '@cyris/shared';
+import { privateControlTypes } from '../disruptions/module-resources.js';
 import { redactSensitiveData } from '../../common/redaction.js';
 import type { AuditQueryFilters, AuditListResponse, AuditEventItem } from '@cyris/contracts';
+
+function visibleAuditActions(isPlatformAdmin: boolean) {
+  if (isPlatformAdmin) return undefined;
+  return and(
+    notLike(auditEvents.action, 'exercise.disruption.%'),
+    notLike(auditEvents.action, 'exercise.recovery%'),
+    or(isNull(auditEvents.resourceType), notInArray(auditEvents.resourceType, privateControlTypes)),
+  );
+}
 
 export interface RecordAuditParams {
   action: string;
@@ -103,13 +113,13 @@ export class AuditService {
    * Read-only query method for the Admin Audit API.
    * Paginated, structured filtering.
    */
-  async list(filters: AuditQueryFilters): Promise<AuditListResponse> {
+  async list(filters: AuditQueryFilters, isPlatformAdmin = false): Promise<AuditListResponse> {
     const db = this.databaseService.client;
     const page = Math.max(1, filters.page ?? 1);
     const limit = Math.min(100, Math.max(1, filters.limit ?? 20));
     const offset = (page - 1) * limit;
 
-    const conditions = [];
+    const conditions = [visibleAuditActions(isPlatformAdmin)];
 
     if (filters.eventId) {
       conditions.push(eq(auditEvents.eventId, filters.eventId));
@@ -185,12 +195,12 @@ export class AuditService {
   /**
    * Retrieves a single audit event by ID.
    */
-  async getById(id: string): Promise<AuditEventItem | null> {
+  async getById(id: string, isPlatformAdmin = false): Promise<AuditEventItem | null> {
     const db = this.databaseService.client;
     const [row] = await db
       .select()
       .from(auditEvents)
-      .where(eq(auditEvents.id, id))
+      .where(and(eq(auditEvents.id, id), visibleAuditActions(isPlatformAdmin)))
       .limit(1);
 
     if (!row) {

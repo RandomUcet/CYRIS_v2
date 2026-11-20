@@ -131,10 +131,8 @@ export class OpenAICompatibleProvider implements AIProvider {
       } as any);
 
       if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        throw new Error(
-          `AI Provider returned HTTP ${response.status}: ${errorText.substring(0, 200)}`
-        );
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error(`AI Provider returned HTTP ${response.status}`);
       }
 
       const data = (await response.json()) as {
@@ -198,10 +196,8 @@ export class OpenAICompatibleProvider implements AIProvider {
       } as any);
 
       if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        throw new Error(
-          `AI embedding provider returned HTTP ${response.status}: ${errorText.substring(0, 200)}`
-        );
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error(`AI embedding provider returned HTTP ${response.status}`);
       }
 
       const data = (await response.json()) as {
@@ -445,6 +441,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     ) {
       return 'TLS verification failed (untrusted or invalid SSL/TLS certificate)';
     }
-    return `Connection error: ${msg.replace(/https?:\/\/[^@\s]+@/g, '***@').substring(0, 120)}`;
+    const httpStatus = msg.match(/returned HTTP (\d{3})$/)?.[1];
+    return httpStatus ? this.categorizeHttpStatus(Number(httpStatus)) : 'Provider request failed';
   }
 }

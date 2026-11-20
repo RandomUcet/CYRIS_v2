@@ -338,6 +338,7 @@ export const ScenarioInjectResponseSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   isDue: z.boolean().optional(),
+  designReadOnly: z.boolean().optional(),
   translations: z.array(ScenarioInjectTranslationResponseSchema).optional().default([]),
   dependencies: z.array(z.object({
     id: z.string().uuid(),

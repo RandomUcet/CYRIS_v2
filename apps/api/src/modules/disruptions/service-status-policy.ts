@@ -1,42 +1,31 @@
-import type { ServiceImpact, ServiceStatusState } from '@cyris/contracts';
+import { type ServiceModule, type ServiceStatusItem, type ServiceStatusResponse } from '@cyris/contracts';
+import { Permissions, type PermissionKey } from '@cyris/shared';
 
-export interface ServiceStatusSource {
-  module: string;
-  mode: string;
-  startsAt: Date;
-  expiresAt: Date | null;
-  restoredAt: Date | null;
-  revision: number;
-  reason: string;
-}
+/** A personal status item is disclosed only to members who can use that service. */
+export const serviceReadPermissions: Record<ServiceModule, readonly PermissionKey[]> = {
+  tasks: [Permissions.TASK_READ],
+  cases: [Permissions.CASE_READ],
+  incidents: [Permissions.INCIDENT_READ],
+  registry: [Permissions.REGISTRY_READ],
+  relationships: [Permissions.REGISTRY_READ],
+  evidence: [Permissions.EVIDENCE_READ],
+  documents: [Permissions.DOCUMENT_READ],
+  lab: [Permissions.LAB_READ],
+  forensics: [Permissions.FORENSICS_READ, Permissions.INDICATOR_READ],
+  court: [Permissions.COURT_READ],
+  medical: [Permissions.MEDICAL_READ],
+  briefings: [Permissions.BRIEFING_READ],
+  timeline: [Permissions.TIMELINE_READ],
+  intelligence: [Permissions.INTELLIGENCE_USE],
+  evaluation: [Permissions.EVALUATION_READ],
+  command: [Permissions.COMMAND_READ],
+  scenario: [Permissions.SCENARIO_READ],
+};
 
-export function resolveServiceStatusState(source: ServiceStatusSource, now: Date): ServiceStatusState {
-  if (source.restoredAt) return 'RESTORED';
-  if (source.startsAt.getTime() > now.getTime()) return 'PLANNED';
-  if (source.expiresAt && source.expiresAt.getTime() <= now.getTime()) return 'EXPIRED';
-  return 'ACTIVE';
-}
-
-export function projectServiceImpact(source: ServiceStatusSource | null): ServiceImpact {
-  if (!source) return 'NONE';
-  if (source.mode === 'READ_ONLY' || source.mode === 'DEGRADED' || source.mode === 'UNAVAILABLE') return source.mode;
-  return 'NONE';
-}
-
-export function isVisibleToParticipant(
-  targetType: string,
-  targetId: string | null,
-  userId: string,
-  unitIds: ReadonlySet<string>,
-): boolean {
-  return targetType === 'EVENT'
-    || (targetType === 'USER' && targetId === userId)
-    || (targetType === 'UNIT' && targetId !== null && unitIds.has(targetId));
-}
-
-export function summarizeServiceStatus(items: ReadonlyArray<{state:ServiceStatusState;impact:ServiceImpact}>) {
-  const active=items.filter(i=>i.state==='ACTIVE');
-  const rank:Record<ServiceImpact,number>={NONE:0,DEGRADED:1,READ_ONLY:2,UNAVAILABLE:3};
-  const impact=active.reduce<ServiceImpact>((worst,item)=>rank[item.impact]>rank[worst]?item.impact:worst,'NONE');
-  return {impact,activeCount:active.length,plannedCount:items.filter(i=>i.state==='PLANNED').length};
+export function summarizeServiceStatus(items: ServiceStatusItem[]): ServiceStatusResponse['current'] {
+  return {
+    impact: items.some(({ impact }) => impact === 'UNAVAILABLE')
+      ? 'UNAVAILABLE' : items.length ? 'READ_ONLY' : 'NONE',
+    activeCount: items.length,
+  };
 }

@@ -1,6 +1,8 @@
 import {translate,type SupportedLocale} from './i18n';
 const cs: Record<string,string> = {
   "Help & support": "Pomoc a podpora",
+  "Support": "Podpora",
+  "Module availability": "Dostupnost modulů",
   "Service status": "Stav služeb",
   "Exercise support": "Podpora cvičení",
   "Overview": "Přehled",
@@ -10,7 +12,7 @@ const cs: Record<string,string> = {
   "Tasking": "Úkoly",
   "Tasks": "Úkoly",
   "My Work": "Moje práce",
-  "Briefings": "Brífinky",
+  "Briefings": "Briefingy",
   "Timeline": "Časová osa",
   "Documents": "Dokumenty",
   "Documents & Files": "Dokumenty a soubory",
@@ -62,7 +64,7 @@ const cs: Record<string,string> = {
   "Event": "Událost",
   "Platform Administration": "Správa platformy",
   "Operational Tasking": "Úkoly",
-  "Operational Briefings": "Brífinky",
+  "Operational Briefings": "Briefingy",
   "Exercise Evaluation": "Evaluace cvičení",
   "Work Queue": "Fronta práce",
   "No operational event context selected.": "Pro zahájení práce vyberte událost.",

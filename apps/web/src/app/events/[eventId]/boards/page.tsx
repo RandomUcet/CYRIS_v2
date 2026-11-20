@@ -15,6 +15,10 @@ export default function TeamDisplaysPage() {
   const cs = usePreferences().locale === 'cs';
   return <AppShell title={cs ? 'Týmové obrazovky' : 'Team displays'}>
     <section className="display-directory">
+      {result && !result.error && <Link target={viewAs ? undefined : '_blank'} rel="noopener" href={`/events/${eventId}/command/wallboard`}>
+        <span className="team-code"><Monitor size={16} />CCT</span>
+        <strong>{cs ? 'Společná obrazovka cvičení' : 'Exercise display'}</strong><ExternalLink size={16} />
+      </Link>}
       {result?.teams.map(team => {
         const [code, color] = teamIdentity(team);
         return <Link target={viewAs ? undefined : "_blank"} rel="noopener" key={team.id} href={`/events/${eventId}/boards/${team.id}`}>

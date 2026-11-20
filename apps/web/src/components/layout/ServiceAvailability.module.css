@@ -1,0 +1,9 @@
+.fallback { width: min(100%, 60rem); padding: clamp(1rem, 3vw, 2rem); display: grid; gap: 1rem; }
+.message { display: flex; align-items: flex-start; gap: .9rem; padding: 1.25rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-panel); }
+.message > svg { flex-shrink: 0; color: var(--accent-active); }
+.message h2 { margin: 0; font-size: 1.05rem; }
+.message p { margin: .5rem 0 1rem; color: var(--text-secondary); font-size: .875rem; line-height: 1.5; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem 1rem; font-size: .8125rem; }
+.actions a, .notice a { color: var(--accent-active); }
+.notice { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem .75rem; padding: .75rem 1rem; background: var(--bg-panel); border-inline-start: 3px solid var(--cylab-orange); color: var(--text-secondary); font-size: .8125rem; }
+.notice strong { color: var(--text-primary); }

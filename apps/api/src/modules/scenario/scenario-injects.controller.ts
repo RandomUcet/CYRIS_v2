@@ -9,6 +9,7 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
+import { AuthorizationService } from '../authorization/authorization.service.js';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
 import { PermissionsGuard } from '../authorization/guards/permissions.guard.js';
 import { RequirePermission } from '../authorization/decorators/require-permission.decorator.js';
@@ -32,31 +33,38 @@ import {
 export class ScenarioInjectsController {
   constructor(
     private readonly injectsService: ScenarioInjectsService,
-    private readonly releaseService: ScenarioReleaseService
+    private readonly releaseService: ScenarioReleaseService,
+    private readonly authz: AuthorizationService,
   ) {}
+
+  private allowPlatformConditions(user: AuthenticatedUser) {
+    return this.authz.authorize({ user, permission: Permissions.PLATFORM_MANAGE });
+  }
 
   @Get('control')
   @RequirePermission(Permissions.SCENARIO_READ, PermissionScopes.EVENT)
-  async getControlRunSheet(@Param('eventId') eventId: string): Promise<ScenarioControlRunSheet> {
-    return this.injectsService.getControlRunSheet(eventId);
+  async getControlRunSheet(@Param('eventId') eventId: string, @CurrentUser() user: AuthenticatedUser): Promise<ScenarioControlRunSheet> {
+    return this.injectsService.getControlRunSheet(eventId, await this.allowPlatformConditions(user));
   }
 
   @Get('injects')
   @RequirePermission(Permissions.SCENARIO_READ, PermissionScopes.EVENT)
   async listInjects(
     @Param('eventId') eventId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('phaseId') phaseId?: string
   ): Promise<ScenarioInjectResponse[]> {
-    return this.injectsService.listInjects(eventId, phaseId);
+    return this.injectsService.listInjects(eventId, phaseId, await this.allowPlatformConditions(user));
   }
 
   @Get('injects/:injectId')
   @RequirePermission(Permissions.SCENARIO_READ, PermissionScopes.EVENT)
   async getInject(
     @Param('eventId') eventId: string,
-    @Param('injectId') injectId: string
+    @Param('injectId') injectId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ScenarioInjectResponse> {
-    return this.injectsService.getInject(eventId, injectId);
+    return this.injectsService.getInject(eventId, injectId, await this.allowPlatformConditions(user));
   }
 
   @Post('injects')
@@ -70,7 +78,7 @@ export class ScenarioInjectsController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.flatten());
     }
-    return this.injectsService.createInject(eventId, parse.data, user.id);
+    return this.injectsService.createInject(eventId, parse.data, user.id, await this.allowPlatformConditions(user));
   }
 
   @Patch('injects/:injectId')
@@ -85,7 +93,7 @@ export class ScenarioInjectsController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.flatten());
     }
-    return this.injectsService.updateInject(eventId, injectId, parse.data, user.id);
+    return this.injectsService.updateInject(eventId, injectId, parse.data, user.id, await this.allowPlatformConditions(user));
   }
 
   @Post('injects/:injectId/release')
@@ -115,7 +123,8 @@ export class ScenarioInjectsController {
       injectId,
       'OVERRIDE',
       user.id,
-      parse.data.overrideReason
+      parse.data.overrideReason,
+      await this.allowPlatformConditions(user),
     );
   }
 
@@ -126,7 +135,7 @@ export class ScenarioInjectsController {
     @Param('injectId') injectId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<ScenarioInjectResponse> {
-    return this.injectsService.cancelInject(eventId, injectId, user.id);
+    return this.injectsService.cancelInject(eventId, injectId, user.id, await this.allowPlatformConditions(user));
   }
 
   @Get('injects/:injectId/audience-preview')
@@ -159,6 +168,6 @@ export class ScenarioInjectsController {
   ) {
     const parse = ScenarioInjectTranslationInputSchema.safeParse(body);
     if (!parse.success) throw new BadRequestException(parse.error.flatten());
-    return this.injectsService.addOrUpdateTranslation(eventId, injectId, parse.data, user.id);
+    return this.injectsService.addOrUpdateTranslation(eventId, injectId, parse.data, user.id, await this.allowPlatformConditions(user));
   }
 }

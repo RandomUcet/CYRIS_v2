@@ -1,13 +1,40 @@
 import { z } from 'zod';
 
+export const serviceModuleLabels = {
+  tasks: { cs: 'Úkoly', en: 'Tasks' },
+  cases: { cs: 'Případy', en: 'Cases' },
+  incidents: { cs: 'Incidenty', en: 'Incidents' },
+  registry: { cs: 'Registry', en: 'Registry' },
+  relationships: { cs: 'Vazby', en: 'Relationships' },
+  evidence: { cs: 'Důkazy', en: 'Evidence' },
+  documents: { cs: 'Dokumenty', en: 'Documents' },
+  lab: { cs: 'Laboratoř', en: 'Laboratory' },
+  forensics: { cs: 'Digitální forenzika', en: 'Digital forensics' },
+  court: { cs: 'Soud', en: 'Court' },
+  medical: { cs: 'Zdravotnické operace', en: 'Medical operations' },
+  briefings: { cs: 'Briefingy', en: 'Briefings' },
+  timeline: { cs: 'Časová osa', en: 'Timeline' },
+  intelligence: { cs: 'Asistent AI', en: 'AI assistance' },
+  evaluation: { cs: 'Hodnocení', en: 'Evaluation' },
+  command: { cs: 'Velitelský přehled', en: 'Command overview' },
+  scenario: { cs: 'Řízení scénáře', en: 'Scenario control' },
+} as const;
+export type ServiceModule = keyof typeof serviceModuleLabels;
+export function isServiceModule(value: string): value is ServiceModule {
+  return Object.hasOwn(serviceModuleLabels, value);
+}
+export const ServiceModuleSchema = z.enum(Object.keys(serviceModuleLabels) as [ServiceModule, ...ServiceModule[]]);
+export const RestrictedServiceModeSchema = z.enum(['UNAVAILABLE', 'READ_ONLY']);
+export type RestrictedServiceMode = z.infer<typeof RestrictedServiceModeSchema>;
 export const DisruptionTargetTypeSchema = z.enum(['EVENT', 'UNIT', 'USER']);
+// Older records may contain DEGRADED. They remain visible to administrators.
 export const DisruptionModeSchema = z.enum(['UNAVAILABLE', 'READ_ONLY', 'DEGRADED']);
 
 export const CreateDisruptionRequestSchema = z.object({
   targetType: DisruptionTargetTypeSchema,
   targetId: z.string().uuid().nullable().optional(),
-  module: z.string().trim().min(1).max(64),
-  mode: DisruptionModeSchema,
+  module: ServiceModuleSchema,
+  mode: RestrictedServiceModeSchema,
   startsAt: z.string().datetime().optional(),
   expiresAt: z.string().datetime().nullable().optional(),
   reason: z.string().trim().min(3).max(2000),
@@ -46,9 +73,8 @@ export const DisruptionSnapshotSchema = z.object({
 export const ParticipantDisruptionStatusSchema = z.object({
   eventId: z.string().uuid(),
   module: z.literal('tasks'),
-  mode: DisruptionModeSchema.nullable(),
+  mode: RestrictedServiceModeSchema.nullable(),
   active: z.boolean(),
-  revision: z.number().int().nonnegative().nullable(),
 });
 
 export type CreateDisruptionRequest = z.infer<typeof CreateDisruptionRequestSchema>;

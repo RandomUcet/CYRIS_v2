@@ -198,8 +198,9 @@ export class CommandService {
     user: AuthenticatedUser
   ): Promise<OperationalPictureResponse> {
     await this.assertEventPermission(eventId, user, Permissions.COMMAND_READ);
+    const impacts = await this.resourceAccessService.getModuleImpacts(eventId, user);
     // 1. Fetch High/Critical active incidents accessible to user
-    const allIncidents = await this.investigationService.listIncidents(eventId, user);
+    const allIncidents = impacts.get('incidents') === 'UNAVAILABLE' ? [] : await this.investigationService.listIncidents(eventId, user);
     const criticalIncidents = allIncidents.filter(
       (inc) =>
         (inc.priority === 'HIGH' || inc.priority === 'CRITICAL') &&
@@ -208,7 +209,7 @@ export class CommandService {
     );
 
     // 2. Fetch Priority operational tasks (In Progress, Blocked, or High/Urgent)
-    const allTasks = await this.tasksService.listTasks(eventId, { page: 1, limit: 100 }, user);
+    const allTasks = impacts.get('tasks') === 'UNAVAILABLE' ? [] : await this.tasksService.listTasks(eventId, { page: 1, limit: 100 }, user);
     const priorityTasks = allTasks.filter(
       (t) =>
         t.status === 'IN_PROGRESS' ||
@@ -218,7 +219,7 @@ export class CommandService {
     );
 
     // Reuse the same visibility boundary as all other timeline consumers.
-    const recentActivitiesRows = await this.activityService.getActivityFeed({ eventId, limit: 15 }, user);
+    const recentActivitiesRows = impacts.get('timeline') === 'UNAVAILABLE' ? [] : await this.activityService.getActivityFeed({ eventId, limit: 15 }, user);
     const recentActivities = recentActivitiesRows.map((a) => ({
       id: a.id, activityType: a.activityType, occurredAt: a.occurredAt,
       title: a.title, summary: a.summary || undefined, actorUserId: a.actorUserId ?? null,
@@ -227,7 +228,7 @@ export class CommandService {
     // 4. Fetch Operational Medical Summary (Sanitized counts, zero patient identities)
     let medicalSummary = null;
     try {
-      medicalSummary = await this.medicalService.getOperationalSummary(eventId, user);
+      if (impacts.get('medical') !== 'UNAVAILABLE') medicalSummary = await this.medicalService.getOperationalSummary(eventId, user);
     } catch {
       // If medical service is unavailable or event has no medical data, default to null
       medicalSummary = null;
@@ -262,6 +263,7 @@ export class CommandService {
       throw new NotFoundException(`Event '${eventId}' not found`);
     }
 
+    const impacts = await this.resourceAccessService.getModuleImpacts(eventId, user);
     // Compose Markdown Content
     const now = new Date();
     const timestampStr = now.toISOString().replace(/[:.]/g, '-');
@@ -273,7 +275,7 @@ export class CommandService {
       `\n## Executive Summary\n${dto.summary}`,
     ];
 
-    if (dto.incidentIds && dto.incidentIds.length > 0) {
+    if (impacts.get('incidents') !== 'UNAVAILABLE' && dto.incidentIds && dto.incidentIds.length > 0) {
       lines.push('\n## Associated Key Incidents');
       for (const incId of dto.incidentIds) {
         try {
@@ -285,7 +287,7 @@ export class CommandService {
       }
     }
 
-    if (dto.taskIds && dto.taskIds.length > 0) {
+    if (impacts.get('tasks') !== 'UNAVAILABLE' && dto.taskIds && dto.taskIds.length > 0) {
       lines.push('\n## Active Operational Tasks');
       for (const taskId of dto.taskIds) {
         try {
@@ -297,7 +299,7 @@ export class CommandService {
       }
     }
 
-    if (dto.includeMedicalSummary) {
+    if (dto.includeMedicalSummary && impacts.get('medical') !== 'UNAVAILABLE') {
       try {
         const med = await this.medicalService.getOperationalSummary(eventId, user);
         lines.push('\n## Casualty & Medical Status');

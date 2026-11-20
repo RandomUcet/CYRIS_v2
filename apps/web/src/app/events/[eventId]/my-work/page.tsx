@@ -12,7 +12,7 @@ import { useServiceStatus } from '@/hooks/useServiceStatus';
 import { useEvent } from '@/contexts/EventContext';
 import { workspaceItemLabel } from '@/lib/workspace-navigation';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import type { MyWorkResponse, MyWorkView } from '@cyris/contracts';
+import { serviceModuleLabels, type MyWorkResponse, type MyWorkView } from '@cyris/contracts';
 
 export default function MyWorkPage() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -21,7 +21,7 @@ export default function MyWorkPage() {
 
 function WorkQueue({ eventId }: { eventId: string }) {
   const { viewAs } = useAuth();
-  const { data: serviceStatus, error: serviceStatusError } = useServiceStatus(eventId);
+  const { data: serviceStatus, error: serviceStatusError } = useServiceStatus();
   const [guideOpen, setGuideOpen] = useState(false);
   const { formatDate, t, locale } = usePreferences();
   const { workspace } = useEvent();
@@ -108,8 +108,8 @@ function WorkQueue({ eventId }: { eventId: string }) {
         )}
         <details className="work-guide" open={guideOpen} onToggle={e=>setGuideOpen(e.currentTarget.open)}>
           <summary>{cs?'Jak začít pracovat':'How to get started'}</summary>
-          <div><p>{cs?'Zde najdete úkoly a požadavky, které jsou vám přiděleny. Otevřete záznam, přečtěte si zadání a pracujte podle jeho dostupných akcí. Než začnete, zkontrolujte brífinky a případná omezení služeb.':'Open your assigned tasks and requests, read their instructions and use the actions available on each record. Check briefings and service restrictions before starting.'}</p>
-          <Link href={`/events/${eventId}/support`}>{cs?'Nevíte si rady? Napište EXCONu.':'Need help? Ask EXCON.'}</Link></div>
+          <div><p>{cs?'Zde najdete úkoly a požadavky, které jsou vám přiděleny. Otevřete záznam, přečtěte si zadání a pracujte podle jeho dostupných akcí. Nové pokyny najdete v části Briefingy.':'Open your assigned tasks and requests, read their instructions and use the actions available on each record. Open Briefings for new instructions.'}</p>
+          <Link href={`/events/${eventId}/support`}>{cs?'Potřebujete pomoc? Obraťte se na podporu.':'Need help? Contact support.'}</Link></div>
         </details>
         <div className="my-work-toolbar">
           {(availableViews as MyWorkView[]).map((option) => (
@@ -144,7 +144,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
           <button type="button" disabled={loading || needsUnitSelection} onClick={() => setRefreshNonce(n => n + 1)}>{t('action.refresh')}</button>
         </div>
         <Link className="service-mini" href={`/events/${eventId}/service-status`}>
-          <span><strong>{t('serviceStatus.title')}</strong><small>{serviceStatusError?(cs?'Stav není dostupný':'Status unavailable'):serviceStatus?(serviceStatus.current.activeCount?(cs?'Probíhá simulované omezení':'Exercise disruption active'):(cs?'Bez aktivního omezení':'No active disruption')):t('serviceStatus.loading')}</small></span>
+          <span><strong>{t('serviceStatus.title')}</strong><small>{serviceStatusError?(cs?'Stav není dostupný':'Status unavailable'):serviceStatus?(serviceStatus.items.length ? serviceStatus.items.map(item => serviceModuleLabels[item.service][cs ? 'cs' : 'en']).join(' · ') : (cs ? 'Všechny vaše služby jsou dostupné' : 'All your services are available')):t('serviceStatus.loading')}</small></span>
           <span className={'service-pill '+(serviceStatusError?'unknown':serviceStatus?.current.activeCount?'restricted':serviceStatus?'normal':'unknown')}>{serviceStatus&&!serviceStatusError?t('serviceStatus.impact.'+serviceStatus.current.impact.toLowerCase()):'—'}</span>
           <span aria-hidden="true">›</span>
         </Link>

@@ -5,7 +5,10 @@ import { PreferencesService } from '../preferences/preferences.service.js';
 import { InAppNotificationProvider } from './providers/in-app-notification.provider.js';
 import { EmailNotificationProvider } from './providers/email-notification.provider.js';
 import { notifications, users } from '@cyris/db';
-import { generateId } from '@cyris/shared';
+import { generateId, Permissions } from '@cyris/shared';
+import { AuthorizationService } from '../authorization/authorization.service.js';
+import { readModuleImpacts } from '../disruptions/read-module-impacts.js';
+import { serviceModuleForAction } from '../disruptions/module-resources.js';
 import type {
   CreateNotificationInput,
   NotificationItem,
@@ -21,7 +24,8 @@ export class NotificationsService {
     private readonly databaseService: DatabaseService,
     private readonly preferencesService: PreferencesService,
     private readonly inAppProvider: InAppNotificationProvider,
-    private readonly emailProvider: EmailNotificationProvider
+    private readonly emailProvider: EmailNotificationProvider,
+    private readonly authorization: AuthorizationService
   ) {}
 
   /**
@@ -97,8 +101,9 @@ export class NotificationsService {
       });
     }
 
-    // 5. Email delivery (asynchronous, safe execution)
-    if (canDeliverEmail) {
+    // Save the in-app row so it reappears after restoration. Do not mail details
+    // to a recipient while the originating module is unavailable to them.
+    if (canDeliverEmail && await this.canShowModule(input.eventId, input.templateKey, input.userId)) {
       this.emailProvider
         .deliver(notificationItem, {
           userEmail: recipient.email,
@@ -138,7 +143,14 @@ export class NotificationsService {
     const newItems: NotificationItem[] = [];
     const earlierItems: NotificationItem[] = [];
 
+    const visibility = new Map<string, Promise<boolean>>();
     for (const row of rows) {
+      const module = serviceModuleForAction(row.templateKey);
+      if (row.eventId && module) {
+        const key = row.eventId + '/' + module;
+        if (!visibility.has(key)) visibility.set(key, this.canShowModule(row.eventId, row.templateKey, userId));
+        if (!await visibility.get(key)) continue;
+      }
       const item = this.mapToItem(row);
       if (!row.readAt) {
         newItems.push(item);
@@ -172,6 +184,10 @@ export class NotificationsService {
 
     if (existing.userId !== userId) {
       throw new ForbiddenException('Cannot modify notifications of other users');
+    }
+
+    if (!await this.canShowModule(existing.eventId, existing.templateKey, userId)) {
+      throw new NotFoundException('Notification not found');
     }
 
     const [updated] = await db
@@ -236,6 +252,16 @@ export class NotificationsService {
         dismissedAt: new Date(),
       })
       .where(eq(notifications.id, notificationId));
+  }
+
+  private async canShowModule(eventId: string | null | undefined, templateKey: string, userId: string): Promise<boolean> {
+    const module = serviceModuleForAction(templateKey);
+    if (!eventId || !module) return true;
+    const db = this.databaseService.client;
+    if ((await readModuleImpacts(db, eventId, userId)).get(module) !== 'UNAVAILABLE') return true;
+    const [user] = await db.select({ id: users.id, email: users.email, displayName: users.displayName, status: users.status })
+      .from(users).where(eq(users.id, userId)).limit(1);
+    return Boolean(user && await this.authorization.authorize({ user, permission: Permissions.PLATFORM_MANAGE }));
   }
 
   private mapToItem(row: typeof notifications.$inferSelect): NotificationItem {
