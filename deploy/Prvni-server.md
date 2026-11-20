@@ -39,3 +39,9 @@ Na VM použij podle potřeby:
     sudo cyrisctl backup
 
 Trvalá data jsou ve /var/lib/cyris, nastavení a hlavní šifrovací klíč v /etc/cyris/cyris.env. Před ostrým cvičením pořiď zálohu mimo VM, včetně chráněné kopie konfigurace a TLS autority z /var/lib/cyris/caddy, a ověř obnovu na odděleném stroji. Služby jsou nastavené pro automatické spuštění s Dockerem po restartu.
+
+## Přidání interního DNS jména po instalaci na IP
+
+V interním DNS nastav A záznam jména webu na IPv4 serveru. Připoj Mac ke školní síti nebo VPN. V kopii repozitáře spusť `bash deploy/configure-web-dns.sh uživatel@IPv4-serveru` a zadej celé DNS jméno. Skript ověří adresu na Macu, přidá HTTPS jméno do Caddy a nastaví ho v CYRIS jako hlavní adresu. Při změně hlavní adresy se krátce restartují aplikační služby. Na konci prověří HTTPS i z Macu a vypíše adresu pro přihlášení.
+
+Certifikát webu vydá stávající místní autorita CYRIS. Zařízení, která jí dosud nedůvěřují, potřebují její veřejný kořenový certifikát. Mac jej v takovém případě stáhne přes SSH a vypíše příkaz k nastavení důvěry pro SSL. Ve školních učebnách lze tentýž veřejný certifikát distribuovat centrálně. Přes nové jméno se přihlas znovu. Používáš-li také OIDC, přidej před přechodem odpovídající callback URL u poskytovatele identity.
