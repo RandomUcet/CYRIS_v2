@@ -65,23 +65,6 @@ compose=(docker compose --env-file "$envfile" -f /opt/cyris/docker-compose.yml)
 "${compose[@]}" run --rm -T api node dist/scripts/db-migrate.js
 "${compose[@]}" run --rm -T api node dist/scripts/search-setup.js
 "${compose[@]}" up -d --wait --wait-timeout 240 api worker web gateway
-ca=/var/lib/cyris/caddy/caddy/pki/authorities/local/root.crt
-for attempt in {1..30}; do
-  if [[ -s $ca ]] && curl -fsS --cacert "$ca" --resolve "$host:443:127.0.0.1" --max-time 5 "https://$host/" >/dev/null &&
-    curl -fsS --cacert "$ca" --resolve "$host:443:127.0.0.1" --max-time 5 "https://$host/api/health/ready" >/dev/null; then break; fi
-  if [[ $attempt == 30 ]]; then echo "HTTPS nebo API není připravené."; exit 1; fi
-  sleep 2
-done
-install -m 644 "$ca" /opt/cyris/CYRIS-root.crt
-if [[ ! -e /etc/cyris/first-server-complete ]]; then
-  read -rp 'E-mail prvního správce CYRIS: ' CYRIS_ADMIN_EMAIL
-  read -rp 'Jméno správce: ' CYRIS_ADMIN_NAME
-  read -rsp 'Nové heslo CYRIS (alespoň 8 znaků): ' CYRIS_ADMIN_PASSWORD; echo
-  read -rsp 'Zopakuj heslo: ' confirmation; echo
-  [[ -n $CYRIS_ADMIN_NAME && $CYRIS_ADMIN_PASSWORD == "$confirmation" && ${#CYRIS_ADMIN_PASSWORD} -ge 8 ]] || { echo "Zkontroluj jméno a heslo."; exit 1; }
-  export CYRIS_ADMIN_EMAIL CYRIS_ADMIN_NAME CYRIS_ADMIN_PASSWORD
-  "${compose[@]}" run --rm -T -e CYRIS_ADMIN_EMAIL -e CYRIS_ADMIN_NAME -e CYRIS_ADMIN_PASSWORD api node dist/scripts/create-admin.js
-  unset CYRIS_ADMIN_PASSWORD confirmation
-  touch /etc/cyris/first-server-complete
-fi
-echo "CYRIS je dostupný na https://$host/login"
+# The parent retains the installation lock during the final checks.
+source deploy/finish-server.sh
+finish_server
