@@ -5,7 +5,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull, ne } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { QueueService } from '../queue/queue.service.js';
 import { LocalIdentityProvider } from './providers/local-identity.provider.js';
@@ -213,7 +213,7 @@ export class AuthService {
       })
       .from(roleAssignments)
       .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
-      .where(eq(roleAssignments.userId, userId));
+      .where(and(eq(roleAssignments.userId, userId),isNull(roles.eventId),isNull(roleAssignments.membershipId),isNull(roleAssignments.unitId)));
 
     const platformRoles = platformRoleAssignments.map((r) => r.roleSlug);
     const platformPermissionRows = await db
@@ -222,7 +222,8 @@ export class AuthService {
       })
       .from(roleAssignments)
       .innerJoin(rolePermissions, eq(roleAssignments.roleId, rolePermissions.roleId))
-      .where(eq(roleAssignments.userId, userId));
+      .innerJoin(roles,eq(roleAssignments.roleId,roles.id))
+      .where(and(eq(roleAssignments.userId,userId),isNull(roles.eventId),isNull(roleAssignments.membershipId),isNull(roleAssignments.unitId),eq(rolePermissions.scope,'PLATFORM')));
     const platformPermissions = [...new Set(platformPermissionRows.map((p) => p.permissionKey))];
 
     // 3. Event Memberships
@@ -247,7 +248,7 @@ export class AuthService {
           })
           .from(roleAssignments)
           .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
-          .where(eq(roleAssignments.membershipId, m.membershipId));
+          .where(and(eq(roleAssignments.membershipId,m.membershipId),eq(roles.eventId,m.eventId),isNull(roleAssignments.userId)));
 
         const eventPermissionRows = await db
           .select({
@@ -255,7 +256,8 @@ export class AuthService {
           })
           .from(roleAssignments)
           .innerJoin(rolePermissions, eq(roleAssignments.roleId, rolePermissions.roleId))
-          .where(eq(roleAssignments.membershipId, m.membershipId));
+          .innerJoin(roles,eq(roleAssignments.roleId,roles.id))
+          .where(and(eq(roleAssignments.membershipId,m.membershipId),eq(roles.eventId,m.eventId),isNull(roleAssignments.userId),ne(rolePermissions.scope,'PLATFORM'),ne(rolePermissions.permissionKey,'platform.manage')));
 
         // Assigned units
         const unitRows = await db

@@ -71,7 +71,7 @@ export class RolesController {
   @Post('assign')
   @RequirePermission(Permissions.ROLE_MANAGE, PermissionScopes.EVENT)
   async assignRole(
-    @Param('eventId') _eventId: string,
+    @Param('eventId') eventId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: CyrisRequest
@@ -81,6 +81,6 @@ export class RolesController {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid assignment payload');
     }
     const requestId = (req.headers['x-request-id'] as string) || req.id;
-    return this.eventsService.assignRole(parse.data, user.id, requestId);
+    return this.eventsService.assignRole(eventId, parse.data, user.id, requestId);
   }
 }

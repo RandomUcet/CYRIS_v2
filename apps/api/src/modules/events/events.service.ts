@@ -4,7 +4,7 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { eq, and, desc, inArray, isNull } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -65,7 +65,7 @@ export class EventsService {
     const userMemberships = await this.db
       .select({ eventId: eventMemberships.eventId })
       .from(eventMemberships)
-      .where(eq(eventMemberships.userId, user.id));
+      .where(and(eq(eventMemberships.userId, user.id), eq(eventMemberships.status, 'ACTIVE')));
 
     if (userMemberships.length === 0) {
       return [];
@@ -408,7 +408,7 @@ export class EventsService {
     const units=ids.length ? await this.db.select({membershipId:membershipUnitAssignments.membershipId,id:organizationalUnits.id,name:organizationalUnits.name,slug:organizationalUnits.slug})
       .from(membershipUnitAssignments).innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId)).where(and(inArray(membershipUnitAssignments.membershipId,ids),eq(organizationalUnits.eventId,eventId))) : [];
     const platform=isAdmin && rows.length ? await this.db.select({userId:roleAssignments.userId,id:roles.id,name:roles.name,slug:roles.slug})
-      .from(roleAssignments).innerJoin(roles,eq(roles.id,roleAssignments.roleId)).where(inArray(roleAssignments.userId,rows.map(r=>r.userId))) : [];
+      .from(roleAssignments).innerJoin(roles,eq(roles.id,roleAssignments.roleId)).where(and(inArray(roleAssignments.userId,rows.map(r=>r.userId)),isNull(roles.eventId),isNull(roleAssignments.membershipId),isNull(roleAssignments.unitId))) : [];
     return rows.map(r=>({id:r.id,eventId:r.eventId,userId:r.userId,status:r.status,joinedAt:r.joinedAt.toISOString(),
       user:{id:r.userId,email:r.userEmail,displayName:r.userDisplayName,status:r.userStatus},
       roles:assignments.filter(a=>a.membershipId===r.id).map(({id,name,slug})=>({id,name,slug})),
@@ -871,6 +871,12 @@ export class EventsService {
     );
   }
 
+  private validateEventGrants(grants: CreateRoleRequest['permissions'] | undefined) {
+    if (grants?.some(p => p.scope === PermissionScopes.PLATFORM || p.permissionKey === Permissions.PLATFORM_MANAGE)) {
+      throw new BadRequestException('Event roles cannot grant platform authority');
+    }
+  }
+
   async createRole(
     eventId: string,
     data: CreateRoleRequest,
@@ -879,6 +885,7 @@ export class EventsService {
   ) {
     await this.getEvent(eventId);
 
+    this.validateEventGrants(data.permissions);
     const [createdRole] = await this.db
       .insert(roles)
       .values({
@@ -926,6 +933,7 @@ export class EventsService {
     actorUserId?: string,
     requestId?: string
   ) {
+    this.validateEventGrants(data.permissions);
     const [role] = await this.db
       .select()
       .from(roles)
@@ -988,17 +996,26 @@ export class EventsService {
     return this.db.select().from(roles).where(eq(roles.id, roleId)).limit(1);
   }
 
-  async assignRole(data: AssignRoleRequest, actorUserId?: string, requestId?: string) {
+  async assignRole(eventId: string, data: AssignRoleRequest, actorUserId?: string, requestId?: string) {
     const [role] = await this.db
       .select()
       .from(roles)
-      .where(eq(roles.id, data.roleId))
+      .where(and(eq(roles.id, data.roleId), eq(roles.eventId, eventId)))
       .limit(1);
 
     if (!role) {
       throw new NotFoundException(`Role '${data.roleId}' not found`);
     }
 
+    if (!data.membershipId || data.userId) {
+      throw new BadRequestException('Event role must be assigned to an event membership, not a platform user');
+    }
+    const [member] = await this.db.select({id:eventMemberships.id}).from(eventMemberships).where(and(eq(eventMemberships.id,data.membershipId),eq(eventMemberships.eventId,eventId),eq(eventMemberships.status,'ACTIVE'))).limit(1);
+    if (!member) throw new BadRequestException('Active membership in this event is required');
+    if (data.unitId) {
+      const [unit] = await this.db.select({id:organizationalUnits.id}).from(organizationalUnits).where(and(eq(organizationalUnits.id,data.unitId),eq(organizationalUnits.eventId,eventId))).limit(1);
+      if (!unit) throw new BadRequestException('Assignment unit must belong to this event');
+    }
     const [assignment] = await this.db
       .insert(roleAssignments)
       .values({

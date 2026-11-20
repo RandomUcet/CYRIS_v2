@@ -45,10 +45,11 @@ export default function RootPage() {
   }, []);
 
   useEffect(() => {
-    if (!loading && currentUser && selectedEventId) {
-      router.push(`/events/${selectedEventId}/my-work`);
+    if (!loading && currentUser) {
+      if (isPlatformAdmin) router.replace('/admin');
+      else if (selectedEventId) router.replace(`/events/${selectedEventId}/my-work`);
     }
-  }, [loading, currentUser, selectedEventId, router]);
+  }, [loading, currentUser, selectedEventId, isPlatformAdmin, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,7 +127,7 @@ export default function RootPage() {
               events.map((ev) => (
                 <Link
                   key={ev.id}
-                  href={`/events/${ev.id}/overview`}
+                  href={`/events/${ev.id}/my-work`}
                   onClick={() => selectEvent(ev.id)}
                   style={{
                     display: 'flex',

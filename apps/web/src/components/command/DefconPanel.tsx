@@ -16,8 +16,8 @@ const LEVELS: Array<{ value: CommandDefconLevel; label: string; color: string }>
 ];
 
 export function DefconPanel({ eventId }: { eventId: string }) {
-  const { hasPermission } = useAuth();
-  const canChange = hasPermission('command.defcon.change', eventId);
+  const { hasPermission, currentUser } = useAuth();
+  const canChange = !currentUser?.viewAs && hasPermission('command.defcon.change', eventId);
   const [snapshot, setSnapshot] = useState<CommandDefconSnapshot | null>(null);
   const [level, setLevel] = useState<CommandDefconLevel | null>(null);
   const [reason, setReason] = useState('');
@@ -29,40 +29,43 @@ export function DefconPanel({ eventId }: { eventId: string }) {
   const [, setDraftDirty] = useState(false);
   const draftDirtyRef = useRef(false);
   const requestId = useRef(0);
+  const snapshotRef = useRef<CommandDefconSnapshot | null>(null);
+  const savingRef = useRef(false);
 
   const acceptSnapshot = useCallback((next: CommandDefconSnapshot, id: number) => {
     if (id !== requestId.current || next.eventId !== eventId) return false;
-    setSnapshot((previous) => {
-      const accepted = acceptDefconSnapshot(previous, next, eventId);
-      if (!accepted) return previous;
-      const supersededDraft = previous !== null && next.revision > previous.revision;
-      if (next.level !== null && (!draftDirtyRef.current || supersededDraft)) setLevel(next.level);
-      if (supersededDraft) {
-        setReason('');
-        setDraftDirty(false);
-        draftDirtyRef.current = false;
-      }
-      setLastConfirmedAt(next.updatedAt ?? new Date().toISOString());
-      return accepted;
-    });
+    const previous = snapshotRef.current;
+    const accepted = acceptDefconSnapshot(previous, next, eventId);
+    if (!accepted || accepted !== next) return false;
+    const supersededDraft = previous !== null && next.revision > previous.revision;
+    snapshotRef.current = accepted;
+    setSnapshot(accepted);
+    if (!draftDirtyRef.current || supersededDraft) setLevel(next.level);
+    if (supersededDraft) {
+      setReason('');
+      setDraftDirty(false);
+      draftDirtyRef.current = false;
+    }
+    setLastConfirmedAt(new Date().toISOString());
     setStale(false);
     return true;
   }, [eventId]);
 
   const load = useCallback(async (showError = true) => {
+    if (savingRef.current) return;
     const id = ++requestId.current;
-    setLoading(true);
+    if (!snapshotRef.current) setLoading(true);
     if (showError) setError(null);
     try {
       const result = await apiClient.getDefcon(eventId);
       if (result.ok && result.data && acceptSnapshot(result.data, id)) {
-        if (!result.data.initialized) setLevel(null);
-      } else if (showError && id === requestId.current) {
+        setError(null);
+      } else if (id === requestId.current) {
         setError(result.error || 'DEFCON stav není dostupný');
         setStale(true);
       }
     } catch (cause) {
-      if (id === requestId.current && showError) {
+      if (id === requestId.current) {
         setError(cause instanceof Error ? cause.message : 'DEFCON stav není dostupný');
         setStale(true);
       }
@@ -73,8 +76,13 @@ export function DefconPanel({ eventId }: { eventId: string }) {
 
   useEffect(() => {
     requestId.current += 1;
+    snapshotRef.current = null;
+    savingRef.current = false;
     setSnapshot(null);
     setLevel(null);
+    setReason('');
+    setSaving(false);
+    setLastConfirmedAt(null);
     setDraftDirty(false);
     draftDirtyRef.current = false;
     setStale(false);
@@ -95,8 +103,10 @@ export function DefconPanel({ eventId }: { eventId: string }) {
       setError('Nemáte oprávnění měnit DEFCON v tomto cvičení.');
       return;
     }
-    if (!snapshot || (!initializing && (snapshot.level === null || stale)) || level === null || reason.trim().length < 3 || saving) return;
+    if (!snapshot || stale || (!initializing && snapshot.level === null) || level === null || reason.trim().length < 3 || saving) return;
     if (!window.confirm(`${initializing ? 'Inicializovat' : 'Potvrdit změnu'} na DEFCON ${level}?`)) return;
+    savingRef.current = true;
+    const id = ++requestId.current;
     setSaving(true);
     setError(null);
     try {
@@ -105,21 +115,25 @@ export function DefconPanel({ eventId }: { eventId: string }) {
         expectedRevision: snapshot.revision,
         reason: reason.trim(),
       });
+      if (id !== requestId.current) return;
       if (result.ok && result.data) {
-        acceptSnapshot(result.data, requestId.current);
+        acceptSnapshot(result.data, id);
         setReason('');
         setDraftDirty(false);
         draftDirtyRef.current = false;
       } else {
-        await load(false);
         setError(result.error || 'Změna DEFCON selhala; stav mohl být mezitím změněn.');
         setStale(true);
       }
     } catch (cause) {
+      if (id !== requestId.current) return;
       setError(cause instanceof Error ? cause.message : 'Změna DEFCON selhala');
       setStale(true);
     } finally {
-      setSaving(false);
+      if (id === requestId.current) {
+        savingRef.current = false;
+        setSaving(false);
+      }
     }
   };
 

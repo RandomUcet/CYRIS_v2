@@ -1,5 +1,5 @@
 import { Injectable, ForbiddenException, Logger } from '@nestjs/common';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
@@ -57,7 +57,7 @@ export class AuthorizationService {
       .from(roleAssignments)
       .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
       .innerJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
-      .where(eq(roleAssignments.userId, user.id));
+      .where(and(eq(roleAssignments.userId, user.id), isNull(roles.eventId), isNull(roleAssignments.membershipId), isNull(roleAssignments.unitId)));
 
     for (const assignment of platformAssignments) {
       // Universal platform administrative power
@@ -109,18 +109,15 @@ export class AuthorizationService {
         .from(roleAssignments)
         .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
         .innerJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
-        .where(eq(roleAssignments.membershipId, membership.id));
+        .where(and(eq(roleAssignments.membershipId, membership.id), eq(roles.eventId, context.eventId), isNull(roleAssignments.userId)));
 
       for (const ra of eventRoleAssignments) {
-        if (ra.permissionKey !== permission) {
+        if (ra.permissionKey !== permission || ra.permissionKey === Permissions.PLATFORM_MANAGE || ra.scope === PermissionScopes.PLATFORM) {
           continue;
         }
 
-        // Scope: EVENT or PLATFORM applies across the entire event
-        if (
-          ra.scope === PermissionScopes.EVENT ||
-          ra.scope === PermissionScopes.PLATFORM
-        ) {
+        // Event assignments cannot confer platform authority.
+        if (ra.scope === PermissionScopes.EVENT) {
           return true;
         }
 
