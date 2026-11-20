@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Upgrade a first-server installation in place when the DB schema is unchanged.
 set -Eeuo pipefail
+step='ověření instalace'
+trap 'echo "[CYRIS] Krok «$step» selhal na řádku $LINENO (kód $?)." >&2' ERR
+echo "[CYRIS] Sudo potvrzeno. Kontroluji instalaci a zámek."
 cd "$(dirname "$0")/.."
 release=${1:?}
 old=${2:?}
 directory=${3:?}
-[[ $EUID == 0 && $release =~ ^[a-f0-9]{40}$ && $old =~ ^[a-f0-9]{12}$ && $directory =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || exit 2
+[[ $EUID == 0 && $release =~ ^[a-f0-9]{40}$ && $old =~ ^[a-f0-9]{12}$ && $directory =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || { echo "[CYRIS] Neplatné parametry nebo oprávnění aktualizátoru." >&2; exit 2; }
 envfile=/etc/cyris/cyris.env
 manifest=/opt/cyris/release-manifest.json
 cfg=/opt/cyris/docker-compose.yml
@@ -15,10 +18,15 @@ exec 9>/run/cyris-first-install.lock
 flock -n 9 || { echo "Probíhá jiná změna instalace."; exit 1; }
 grep -Fxq "CYRIS_VERSION=$old" "$envfile" || { echo "Verze serveru se změnila. Spusť aktualizaci znovu."; exit 1; }
 read -r _ host < /etc/cyris/first-server
-[[ $host =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || exit 2
+[[ $host =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || { echo "[CYRIS] Neplatná adresa instalace v /etc/cyris/first-server." >&2; exit 2; }
 services=(api worker web)
 for svc in "${services[@]}"; do
-  grep -Fxq "CYRIS_${svc^^}_IMAGE=cyris-local/$svc:$old" "$envfile"
+  step="kontrola původního obrazu $svc"
+  echo "[CYRIS] Ověřuji cyris-local/$svc:$old."
+  grep -Fxq "CYRIS_${svc^^}_IMAGE=cyris-local/$svc:$old" "$envfile" || {
+    echo "[CYRIS] CYRIS_${svc^^}_IMAGE neodpovídá očekávanému obrazu cyris-local/$svc:$old." >&2
+    exit 1
+  }
   docker image inspect "cyris-local/$svc:$old" >/dev/null
 done
 compose=(docker compose -f "$cfg")
@@ -30,6 +38,8 @@ check_https() {
   done
 }
 if [[ $old == "$tag" ]]; then check_https; echo "Verze $tag je nasazená."; exit 0; fi
+step="příprava konfigurace pro $tag"
+echo "[CYRIS] $step"
 umask 077
 stage=$(mktemp -d /etc/cyris/.update.XXXXXXXX)
 manifest_tmp=$(mktemp /opt/cyris/.manifest.XXXXXXXX)
@@ -54,8 +64,12 @@ PY
 chmod --reference="$manifest" "$manifest_tmp"
 "${compose[@]}" --env-file "$stage/next.env" config --quiet
 for svc in "${services[@]}"; do
-  docker build -f "docker/$svc.Dockerfile" -t "cyris-local/$svc:$tag" .
+  step="sestavení $svc"
+  echo "[CYRIS] Sestavuji $svc pro verzi $tag."
+  BUILDKIT_PROGRESS=plain docker build -f "docker/$svc.Dockerfile" -t "cyris-local/$svc:$tag" .
 done
+step="kontrola LDAPS"
+echo "[CYRIS] Ověřuji LDAPS na $directory z nového API."
 # Use the new API image with the installed DNS, CA volume and environment before switching.
 "${compose[@]}" --env-file "$stage/next.env" run --rm --no-deps -T api node -e '
 const tls = require("node:tls");
@@ -69,6 +83,7 @@ activate() {
 }
 rollback() {
   trap - ERR INT TERM HUP
+  echo "[CYRIS] Přerušení při kroku «$step»." >&2
   echo "Vracím obrazy na verzi $old." >&2
   mv -f "$stage/previous.env" "$envfile"
   install -m "$(stat -c %a "$manifest")" "$stage/previous.json" "$manifest_tmp"
@@ -76,10 +91,15 @@ rollback() {
   activate && check_https || echo "Ověř stav pomocí sudo cyrisctl status." >&2
   exit 1
 }
+step="spuštění aplikačních služeb"
+echo "[CYRIS] Přepínám služby na $tag."
 trap rollback ERR INT TERM HUP
 mv -f "$stage/next.env" "$envfile"
 activate
+step="ověření HTTPS a připravenosti API"
+echo "[CYRIS] $step"
 check_https
+step="uložení verze instalace"
 mv -f "$manifest_tmp" "$manifest"
 trap - ERR INT TERM HUP
 echo "CYRIS $tag je připravený na https://$host/admin/users"
