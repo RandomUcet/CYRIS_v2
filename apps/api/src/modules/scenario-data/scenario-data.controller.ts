@@ -3,12 +3,12 @@ import { AuthGuard } from '../auth/guards/auth.guard.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { ScenarioDataService } from './scenario-data.service.js';
-import { ScenarioDataRequestSchema } from '@cyris/contracts';
+import { ScenarioDraftPosition, ScenarioDataRequestSchema, SparkDraftRequestSchema } from '@cyris/contracts';
 
 @Controller('events/:eventId/scenario-data')
 @UseGuards(AuthGuard)
 export class ScenarioDataController {
-  constructor(private readonly service: ScenarioDataService) {}
+  constructor(private readonly service: ScenarioDataService) { }
 
   @Post('preview')
   preview(@Param('eventId') eventId: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -25,6 +25,25 @@ export class ScenarioDataController {
   @Get('batches/:batchId')
   get(@Param('eventId') eventId: string, @Param('batchId') batchId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.service.get(eventId, batchId, user);
+  }
+
+  @Post('spark-drafts')
+  startDraft(@Param('eventId') eventId: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    const request = SparkDraftRequestSchema.safeParse(body);
+    if (!request.success) throw new BadRequestException('Enter a scenario brief and valid counts.');
+    return this.service.startDraft(eventId, request.data, user);
+  }
+
+  @Post('batches/:batchId/advance')
+  advance(@Param('eventId') eventId: string, @Param('batchId') batchId: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    const request = ScenarioDraftPosition.safeParse(body);
+    if (!request.success) throw new BadRequestException('Invalid draft position');
+    return this.service.advance(eventId, batchId, request.data.prepared, user);
+  }
+
+  @Post('batches/:batchId/publish')
+  publish(@Param('eventId') eventId: string, @Param('batchId') batchId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.publish(eventId, batchId, user);
   }
 
   @Post('generate')

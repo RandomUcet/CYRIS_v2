@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
-import { identifierCounters } from '@cyris/db';
+import { identifierCounters, persons, organisations, locations, vehicles, devices, weapons } from '@cyris/db';
 
+const registryTables = { person:persons, organisation:organisations, location:locations, vehicle:vehicles, device:devices, weapon:weapons };
+type RegistryType = keyof typeof registryTables;
+type Transaction = Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0];
 @Injectable()
 export class IdentifierAllocatorService {
   constructor(private readonly databaseService: DatabaseService) {}
@@ -43,24 +46,6 @@ export class IdentifierAllocatorService {
         case 'FORENSIC_ANALYSIS':
           query = sql`SELECT COALESCE(MAX(CAST(SUBSTRING(analysis_number FROM '[0-9]+$') AS INTEGER)), 0) as m FROM forensic_analyses WHERE event_id = ${eventId}`;
           break;
-        case 'person':
-          query = sql`SELECT COALESCE(MAX(CAST(SUBSTRING(p.identifier FROM '[0-9]+$') AS INTEGER)), 0) as m FROM persons p JOIN resources r ON r.id = p.id WHERE r.event_id = ${eventId}`;
-          break;
-        case 'organisation':
-          query = sql`SELECT COALESCE(MAX(CAST(SUBSTRING(o.identifier FROM '[0-9]+$') AS INTEGER)), 0) as m FROM organisations o JOIN resources r ON r.id = o.id WHERE r.event_id = ${eventId}`;
-          break;
-        case 'location':
-          query = sql`SELECT COALESCE(MAX(CAST(SUBSTRING(l.identifier FROM '[0-9]+$') AS INTEGER)), 0) as m FROM locations l JOIN resources r ON r.id = l.id WHERE r.event_id = ${eventId}`;
-          break;
-        case 'vehicle':
-          query = sql`SELECT COALESCE(MAX(CAST(SUBSTRING(v.identifier FROM '[0-9]+$') AS INTEGER)), 0) as m FROM vehicles v JOIN resources r ON r.id = v.id WHERE r.event_id = ${eventId}`;
-          break;
-        case 'device':
-          query = sql`SELECT COALESCE(MAX(CAST(SUBSTRING(d.identifier FROM '[0-9]+$') AS INTEGER)), 0) as m FROM devices d JOIN resources r ON r.id = d.id WHERE r.event_id = ${eventId}`;
-          break;
-        case 'weapon':
-          query = sql`SELECT COALESCE(MAX(CAST(SUBSTRING(w.identifier FROM '[0-9]+$') AS INTEGER)), 0) as m FROM weapons w JOIN resources r ON r.id = w.id WHERE r.event_id = ${eventId}`;
-          break;
         default:
           return 0;
       }
@@ -69,6 +54,21 @@ export class IdentifierAllocatorService {
     } catch {
       return 0;
     }
+  }
+
+  // Registry identifiers have global unique indexes; the old counters are per event.
+  // Serialize reservations by registry and include legacy counter values even after a cleanup.
+  async reserveRegistry(eventId:string, type:RegistryType, prefix:string, count:number, tx:Transaction):Promise<number> {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${'registry-id:'+type}, 0))`);
+    const table=registryTables[type];
+    const [row]=await tx.execute(sql`select greatest(
+      coalesce((select max(substring(${table.identifier} from '[0-9]+$')::bigint) from ${table} where ${table.identifier} ~ ${'^'+prefix+'-[0-9]{1,9}$'}),0),
+      coalesce((select max(${identifierCounters.lastValue}) from ${identifierCounters} where ${identifierCounters.entityType}=${type}),0)) as previous`);
+    const first=Number(row!.previous)+1;
+    await tx.insert(identifierCounters).values({eventId,entityType:type,lastValue:first+count-1}).onConflictDoUpdate({
+      target:[identifierCounters.eventId,identifierCounters.entityType],set:{lastValue:first+count-1}
+    });
+    return first;
   }
 
   /**
@@ -85,6 +85,11 @@ export class IdentifierAllocatorService {
     txClient?: any,
     width = 4
   ): Promise<string> {
+    if (Object.hasOwn(registryTables,entityType)) {
+      const reserve=(tx:Transaction)=>this.reserveRegistry(eventId,entityType as RegistryType,prefix,1,tx);
+      const next=txClient ? await reserve(txClient) : await this.databaseService.client.transaction(reserve);
+      return `${prefix}-${String(next).padStart(width,'0')}`;
+    }
     const db = txClient || this.databaseService.client;
 
     const maxExisting = await this.getMaxExisting(db, eventId, entityType);

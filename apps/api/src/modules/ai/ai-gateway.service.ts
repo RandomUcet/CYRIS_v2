@@ -30,7 +30,7 @@ export interface ExecuteAIOperationParams {
   userId?: string | null;
   eventId?: string | null;
   capability?: AICapabilityValue;
-  operationType: 'WRITING_ASSIST' | 'CASE_SUMMARY' | 'CATCH_ME_UP' | 'TIMELINE_EXPLAIN' | 'SUPPORT_REPLY' | 'SUPPORT_HANDOVER';
+  operationType: 'WRITING_ASSIST' | 'CASE_SUMMARY' | 'CATCH_ME_UP' | 'TIMELINE_EXPLAIN' | 'SUPPORT_REPLY' | 'SUPPORT_HANDOVER' | 'SCENARIO_DATA';
   promptTemplateVersion?: string;
   contextResourceIds?: string[];
   messages: AIMessage[];
@@ -63,7 +63,7 @@ export class AIGatewayService {
    * Retrieves the currently active and enabled AI provider instance.
    * Returns null if no active provider is configured.
    */
-  async getActiveProvider(): Promise<{
+  async getActiveProvider(systemProfile?: 'DGX_SPARK'): Promise<{
     provider: AIProvider;
     integrationId: string;
     timeoutMs: number;
@@ -76,7 +76,8 @@ export class AIGatewayService {
       .where(
         and(
           eq(integrations.category, IntegrationCategory.AI_PROVIDER),
-          eq(integrations.enabled, true)
+          eq(integrations.enabled, true),
+          systemProfile ? eq(integrations.systemProfile, systemProfile) : undefined
         )
       )
       .orderBy(desc(integrations.updatedAt))
@@ -135,12 +136,13 @@ export class AIGatewayService {
   /**
    * Returns high-level Intelligence readiness and configuration status.
    */
-  async getStatus(): Promise<IntelligenceStatusResponse> {
+  async getStatus(systemProfile?: 'DGX_SPARK'): Promise<IntelligenceStatusResponse> {
     const db = this.databaseService.client;
     const [activeRow] = await db
       .select()
       .from(integrations)
-      .where(eq(integrations.category, IntegrationCategory.AI_PROVIDER))
+      .where(and(eq(integrations.category, IntegrationCategory.AI_PROVIDER),
+        systemProfile ? eq(integrations.systemProfile, systemProfile) : undefined))
       .orderBy(desc(integrations.enabled), desc(integrations.updatedAt))
       .limit(1);
 
@@ -177,7 +179,7 @@ export class AIGatewayService {
   async execute(params: ExecuteAIOperationParams): Promise<ExecuteAIOperationResult> {
     const startedAt = new Date();
     const runId = generateId();
-    const active = await this.getActiveProvider();
+    const active = await this.getActiveProvider(params.operationType === 'SCENARIO_DATA' ? 'DGX_SPARK' : undefined);
 
     if (!active) {
       throw new Error(
