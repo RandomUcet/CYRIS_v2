@@ -35,7 +35,7 @@ export default function TaskDisruptionPage() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([apiClient.getDisruptionStatus(eventId), apiClient.listRecoveryObjectives(eventId)]).then(([statusResponse, objectivesResponse]) => {
+    void Promise.all([apiClient.getDisruptionStatus(eventId), apiClient.listRecoveryObjectives(eventId)]).then(async ([statusResponse, objectivesResponse]) => {
       if (!active) return;
       if (statusResponse.ok && statusResponse.data) setStatus(statusResponse.data);
       else setError(statusResponse.error || 'Stav simulace není dostupný');
