@@ -202,7 +202,7 @@ export default function DocumentsPage() {
       render: (d) => (
         <div>
           <span style={{ fontWeight: 600, color: '#f3f4f6' }}>{d.title}</span>
-          <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>{d.originalFilename}</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{d.originalFilename}</div>
         </div>
       ),
     },
@@ -230,7 +230,7 @@ export default function DocumentsPage() {
       key: 'byteSize',
       header: 'Size',
       width: '100px',
-      render: (d) => <span style={{ fontSize: '12px', color: '#9ca3af' }}>{formatBytes(d.byteSize)}</span>,
+      render: (d) => <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{formatBytes(d.byteSize)}</span>,
     },
     {
       key: 'sha256',
@@ -295,7 +295,7 @@ export default function DocumentsPage() {
             gap: '4px',
             padding: '4px 8px',
             borderRadius: '4px',
-            background: '#1f2937',
+            background: 'var(--bg-surface)',
             color: '#60a5fa',
             fontSize: '11px',
             textDecoration: 'none',
@@ -316,10 +316,10 @@ export default function DocumentsPage() {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <div>
-          <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#f9fafb', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h1 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <FileText size={20} style={{ color: '#60a5fa' }} /> Documents & Files
           </h1>
-          <p style={{ fontSize: '13px', color: '#9ca3af', margin: '4px 0 0 0' }}>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
             Central object storage for forensic artifacts, legal filings, briefings, and case reports
           </p>
         </div>
@@ -332,10 +332,10 @@ export default function DocumentsPage() {
               alignItems: 'center',
               gap: '6px',
               padding: '6px 12px',
-              background: '#1f2937',
-              border: '1px solid #374151',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-default)',
               borderRadius: '6px',
-              color: '#d1d5db',
+              color: 'var(--text-secondary)',
               fontSize: '12px',
               cursor: 'pointer',
             }}
@@ -424,59 +424,59 @@ export default function DocumentsPage() {
                 <span style={{ fontSize: '11px', color: '#60a5fa', fontWeight: 600, textTransform: 'uppercase' }}>
                   {selectedDoc.documentNumber || selectedDoc.id}
                 </span>
-                <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#f9fafb', margin: '4px 0 0 0' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '4px 0 0 0' }}>
                   {selectedDoc.title}
                 </h2>
-                <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '4px' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   {selectedDoc.originalFilename} · {formatBytes(selectedDoc.byteSize)}
                 </div>
               </div>
               <button
                 onClick={() => setSelectedDoc(null)}
-                style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
               >
                 <X size={18} />
               </button>
             </div>
 
             {selectedDoc.description && (
-              <div style={{ fontSize: '13px', color: '#d1d5db', background: '#1f2937', padding: '12px', borderRadius: '6px' }}>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', background: 'var(--bg-surface)', padding: '12px', borderRadius: '6px' }}>
                 {selectedDoc.description}
               </div>
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div style={{ background: '#1f2937', padding: '10px', borderRadius: '6px' }}>
-                <span style={{ fontSize: '11px', color: '#9ca3af' }}>Category</span>
+              <div style={{ background: 'var(--bg-surface)', padding: '10px', borderRadius: '6px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Category</span>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6', marginTop: '2px' }}>
                   {selectedDoc.documentType}
                 </div>
               </div>
-              <div style={{ background: '#1f2937', padding: '10px', borderRadius: '6px' }}>
-                <span style={{ fontSize: '11px', color: '#9ca3af' }}>Text Extraction</span>
+              <div style={{ background: 'var(--bg-surface)', padding: '10px', borderRadius: '6px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Text Extraction</span>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6', marginTop: '2px' }}>
                   {selectedDoc.textExtractionStatus}
                 </div>
               </div>
             </div>
 
-            <div style={{ background: '#1f2937', padding: '12px', borderRadius: '6px' }}>
-              <span style={{ fontSize: '11px', color: '#9ca3af' }}>Cryptographic SHA-256 Hash</span>
+            <div style={{ background: 'var(--bg-surface)', padding: '12px', borderRadius: '6px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Cryptographic SHA-256 Hash</span>
               <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#4ade80', wordBreak: 'break-all', marginTop: '4px' }}>
                 {selectedDoc.sha256}
               </div>
             </div>
 
             {selectedDoc.extractedText && (
-              <div style={{ background: '#1f2937', padding: '12px', borderRadius: '6px' }}>
-                <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' }}>
+              <div style={{ background: 'var(--bg-surface)', padding: '12px', borderRadius: '6px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
                   Extracted Normalized Text
                 </span>
                 <pre
                   style={{
                     fontFamily: 'monospace',
                     fontSize: '11px',
-                    color: '#d1d5db',
+                    color: 'var(--text-secondary)',
                     maxHeight: '180px',
                     overflowY: 'auto',
                     whiteSpace: 'pre-wrap',
@@ -494,7 +494,7 @@ export default function DocumentsPage() {
             {/* VERSION HISTORY */}
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#f9fafb', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <History size={15} /> Version History ({selectedDoc.versions.length})
                 </span>
                 {canVersion && (
@@ -521,7 +521,7 @@ export default function DocumentsPage() {
                     key={v.id}
                     style={{
                       padding: '10px',
-                      background: '#1f2937',
+                      background: 'var(--bg-surface)',
                       borderRadius: '6px',
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -532,7 +532,7 @@ export default function DocumentsPage() {
                       <div style={{ fontSize: '12px', fontWeight: 600, color: '#f3f4f6' }}>
                         Version {v.versionNumber} · {v.filename}
                       </div>
-                      <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
                         {v.changeNote || 'Standard revision'} · {formatTime(v.uploadedAt)}
                       </div>
                     </div>
@@ -542,7 +542,7 @@ export default function DocumentsPage() {
                       style={{
                         padding: '4px 8px',
                         background: '#111827',
-                        border: '1px solid #374151',
+                        border: '1px solid var(--border-default)',
                         borderRadius: '4px',
                         color: '#60a5fa',
                         fontSize: '11px',
@@ -605,7 +605,7 @@ export default function DocumentsPage() {
               width: '460px',
               maxWidth: '90vw',
               background: '#111827',
-              border: '1px solid #374151',
+              border: '1px solid var(--border-default)',
               borderRadius: '8px',
               padding: '24px',
               boxSizing: 'border-box',
@@ -613,8 +613,8 @@ export default function DocumentsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#f9fafb', margin: 0 }}>Upload Document</h3>
-              <button onClick={() => setShowUploadModal(false)} style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Upload Document</h3>
+              <button onClick={() => setShowUploadModal(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                 <X size={18} />
               </button>
             </div>
@@ -627,7 +627,7 @@ export default function DocumentsPage() {
 
             <form onSubmit={handleUploadSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)', marginBottom: '4px' }}>
                   Document Title *
                 </label>
                 <input
@@ -636,18 +636,18 @@ export default function DocumentsPage() {
                   value={uploadForm.title}
                   onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
                   placeholder="e.g. Server Compromise Forensic Report"
-                  style={{ width: '100%', padding: '8px 10px', background: '#1f2937', border: '1px solid #374151', borderRadius: '6px', color: '#f9fafb', fontSize: '13px', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)', marginBottom: '4px' }}>
                   Category
                 </label>
                 <select
                   value={uploadForm.documentType}
                   onChange={(e) => setUploadForm({ ...uploadForm, documentType: e.target.value })}
-                  style={{ width: '100%', padding: '8px 10px', background: '#1f2937', border: '1px solid #374151', borderRadius: '6px', color: '#f9fafb', fontSize: '13px', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }}
                 >
                   <option value="REPORT">REPORT</option>
                   <option value="FORENSIC_REPORT">FORENSIC_REPORT</option>
@@ -662,7 +662,7 @@ export default function DocumentsPage() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)', marginBottom: '4px' }}>
                   Description (optional)
                 </label>
                 <textarea
@@ -670,12 +670,12 @@ export default function DocumentsPage() {
                   value={uploadForm.description}
                   onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })}
                   placeholder="Summary or operational notes..."
-                  style={{ width: '100%', padding: '8px 10px', background: '#1f2937', border: '1px solid #374151', borderRadius: '6px', color: '#f9fafb', fontSize: '13px', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)', marginBottom: '4px' }}>
                   Select File *
                 </label>
                 <input
@@ -689,7 +689,7 @@ export default function DocumentsPage() {
                       title: uploadForm.title || (f ? f.name.replace(/\.[^/.]+$/, '') : ''),
                     });
                   }}
-                  style={{ width: '100%', color: '#9ca3af', fontSize: '12px' }}
+                  style={{ width: '100%', color: 'var(--text-muted)', fontSize: '12px' }}
                 />
               </div>
 
@@ -697,7 +697,7 @@ export default function DocumentsPage() {
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(false)}
-                  style={{ padding: '8px 14px', background: '#374151', border: 'none', borderRadius: '6px', color: '#d1d5db', fontSize: '13px', cursor: 'pointer' }}
+                  style={{ padding: '8px 14px', background: '#374151', border: 'none', borderRadius: '6px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer' }}
                 >
                   Cancel
                 </button>
@@ -733,7 +733,7 @@ export default function DocumentsPage() {
               width: '420px',
               maxWidth: '90vw',
               background: '#111827',
-              border: '1px solid #374151',
+              border: '1px solid var(--border-default)',
               borderRadius: '8px',
               padding: '24px',
               boxSizing: 'border-box',
@@ -741,17 +741,17 @@ export default function DocumentsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#f9fafb', margin: 0 }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
                 Upload New Revision
               </h3>
-              <button onClick={() => setShowVersionModal(false)} style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}>
+              <button onClick={() => setShowVersionModal(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                 <X size={18} />
               </button>
             </div>
 
             <form onSubmit={handleVersionSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)', marginBottom: '4px' }}>
                   Revision Note
                 </label>
                 <input
@@ -759,19 +759,19 @@ export default function DocumentsPage() {
                   value={versionNote}
                   onChange={(e) => setVersionNote(e.target.value)}
                   placeholder="e.g. Added section 3 technical timeline"
-                  style={{ width: '100%', padding: '8px 10px', background: '#1f2937', border: '1px solid #374151', borderRadius: '6px', color: '#f9fafb', fontSize: '13px', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)', marginBottom: '4px' }}>
                   Select Updated File *
                 </label>
                 <input
                   type="file"
                   required
                   onChange={(e) => setVersionFile(e.target.files?.[0] || null)}
-                  style={{ width: '100%', color: '#9ca3af', fontSize: '12px' }}
+                  style={{ width: '100%', color: 'var(--text-muted)', fontSize: '12px' }}
                 />
               </div>
 
@@ -779,7 +779,7 @@ export default function DocumentsPage() {
                 <button
                   type="button"
                   onClick={() => setShowVersionModal(false)}
-                  style={{ padding: '8px 14px', background: '#374151', border: 'none', borderRadius: '6px', color: '#d1d5db', fontSize: '13px', cursor: 'pointer' }}
+                  style={{ padding: '8px 14px', background: '#374151', border: 'none', borderRadius: '6px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer' }}
                 >
                   Cancel
                 </button>

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, usePathname } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { RecordIdentifier } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
@@ -26,11 +26,12 @@ import type {
 export default function EvaluationPage() {
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname();
   const eventId = params.eventId as string;
   const { hasPermission } = useAuth();
   const { formatTime } = usePreferences();
 
-  const [activeTab, setActiveTab] = useState<'OBSERVATIONS' | 'OBJECTIVES'>('OBSERVATIONS');
+  const activeTab = pathname.endsWith('/observations') ? 'OBSERVATIONS' : 'OBJECTIVES';
 
   const [objectives, setObjectives] = useState<EvaluationObjectiveItem[]>([]);
   const [observations, setObservations] = useState<EvaluationObservationItem[]>([]);
@@ -223,7 +224,7 @@ export default function EvaluationPage() {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '13px' }}>
             <button
-              onClick={() => setActiveTab('OBSERVATIONS')}
+              onClick={() => router.push(`/events/${eventId}/evaluation/observations`)}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -241,7 +242,7 @@ export default function EvaluationPage() {
               Live Observations & Field Notes ({observations.length})
             </button>
             <button
-              onClick={() => setActiveTab('OBJECTIVES')}
+              onClick={() => router.push(`/events/${eventId}/evaluation`)}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',

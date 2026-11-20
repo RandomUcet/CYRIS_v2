@@ -55,7 +55,7 @@ export default function MedicalPage() {
     if (view === 'triage') setActiveTab('triage');
     else if (view === 'transfers') setActiveTab('transfers');
     else if (view === 'all') setActiveTab('all');
-    else if (view === 'active') setActiveTab('active');
+    else setActiveTab('active');
   }, [searchParams]);
 
   // Create Modal
@@ -203,7 +203,7 @@ export default function MedicalPage() {
         <div className="bg-slate-900 border border-slate-800 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-1 overflow-x-auto text-xs">
             <button
-              onClick={() => setActiveTab('active')}
+              onClick={() => router.push(`/events/${eventId}/medical`)}
               className={`px-3 py-1.5 rounded font-medium transition ${
                 activeTab === 'active'
                   ? 'bg-rose-600 text-white'
@@ -213,7 +213,7 @@ export default function MedicalPage() {
               {t('medical.active')}
             </button>
             <button
-              onClick={() => setActiveTab('triage')}
+              onClick={() => router.push(`/events/${eventId}/medical?view=triage`)}
               className={`px-3 py-1.5 rounded font-medium transition ${
                 activeTab === 'triage'
                   ? 'bg-rose-600 text-white'
@@ -223,7 +223,7 @@ export default function MedicalPage() {
               {t('medical.triageQueue')}
             </button>
             <button
-              onClick={() => setActiveTab('transfers')}
+              onClick={() => router.push(`/events/${eventId}/medical?view=transfers`)}
               className={`px-3 py-1.5 rounded font-medium transition ${
                 activeTab === 'transfers'
                   ? 'bg-rose-600 text-white'
@@ -233,7 +233,7 @@ export default function MedicalPage() {
               {t('medical.transfers')}
             </button>
             <button
-              onClick={() => setActiveTab('all')}
+              onClick={() => router.push(`/events/${eventId}/medical?view=all`)}
               className={`px-3 py-1.5 rounded font-medium transition ${
                 activeTab === 'all'
                   ? 'bg-rose-600 text-white'

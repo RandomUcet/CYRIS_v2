@@ -83,6 +83,7 @@ export default function MyWorkPage() {
     if (!eventId) return;
     let active = true;
     setServiceStatusError(null);
+    setServiceStatus(null);
     apiClient.getServiceStatus(eventId).then((response) => {
       if (!active) return;
       if (response.ok && response.data) setServiceStatus(response.data);
@@ -122,7 +123,7 @@ export default function MyWorkPage() {
                 padding: '8px 12px',
                 borderRadius: 6,
                 border: '1px solid var(--color-border-subtle)',
-                background: view === option ? 'var(--color-surface-raised)' : 'transparent',
+                background: view === option ? 'var(--bg-active)' : 'transparent',
                 color: 'var(--color-text-main)',
               }}
             >
@@ -143,7 +144,7 @@ export default function MyWorkPage() {
             </select>
           )}
         </div>
-        <section className="service-status-panel" aria-labelledby="service-status-title">
+        <details className="service-status-panel" open={Boolean(serviceStatusError || serviceStatus?.items.some(item => item.state === 'ACTIVE' || item.state === 'PLANNED'))}><summary>{t('serviceStatus.title')}</summary><section aria-labelledby="service-status-title">
           <div className="service-status-heading">
             <div>
               <h2 id="service-status-title">{t('serviceStatus.title')}</h2>
@@ -155,7 +156,7 @@ export default function MyWorkPage() {
           {!serviceStatus && !serviceStatusError && <p className="service-status-muted">{t('serviceStatus.loading')}</p>}
           {serviceStatus && (
             <div className="service-status-list">
-              {serviceStatus.items.map((item, index) => (
+              {serviceStatus.items.filter(item => item.state === 'ACTIVE' || item.state === 'PLANNED' || item.state === 'OPERATIONAL').map((item, index) => (
                 <div className="service-status-item" key={`${item.service}-${item.revision ?? 'baseline'}-${index}`}>
                   <div>
                     <strong>{item.service}</strong>
@@ -169,7 +170,7 @@ export default function MyWorkPage() {
               ))}
             </div>
           )}
-        </section>
+        </section></details>
         {loading && <LoadingState />}
         {!loading && error && <ErrorState message={error} onRetry={() => setRefreshNonce((value) => value + 1)} />}
         {!loading && !error && result && result.items.length === 0 && (

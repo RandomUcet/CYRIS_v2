@@ -12,17 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { ShieldAlert, RefreshCw, Layers, FileCode, CheckCircle, AlertOctagon } from 'lucide-react';
 
-interface AuditEntry {
-  id: string;
-  category: string;
-  action: string;
-  actorUserId?: string;
-  targetResourceId?: string;
-  ipAddress?: string;
-  userAgent?: string;
-  payload?: any;
-  createdAt: string;
-}
+import type { AuditEventItem as AuditEntry } from '@cyris/contracts';
 
 export default function AdminAuditPage() {
   const { hasPermission } = useAuth();
@@ -70,7 +60,7 @@ export default function AdminAuditPage() {
       e.action?.toLowerCase().includes(s) ||
       e.category?.toLowerCase().includes(s) ||
       e.actorUserId?.toLowerCase().includes(s) ||
-      e.targetResourceId?.toLowerCase().includes(s) ||
+      e.resourceId?.toLowerCase().includes(s) ||
       e.ipAddress?.toLowerCase().includes(s)
     );
   });
@@ -80,10 +70,10 @@ export default function AdminAuditPage() {
       header: 'Timestamp',
       accessor: (item) => (
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-dim)' }}>
-          {formatTime(item.createdAt)}
+          {formatTime(item.occurredAt)}
         </span>
       ),
-      sortKey: 'createdAt',
+      sortKey: 'occurredAt',
       width: '160px',
     },
     {
@@ -127,8 +117,8 @@ export default function AdminAuditPage() {
     {
       header: 'Target Resource',
       accessor: (item) => (
-        item.targetResourceId ? (
-          <RecordIdentifier id={item.targetResourceId} prefix="" />
+        item.resourceId ? (
+          <RecordIdentifier id={item.resourceId} prefix="" />
         ) : (
           <span style={{ color: 'var(--color-text-dim)', fontSize: '11px' }}>—</span>
         )
@@ -312,7 +302,7 @@ export default function AdminAuditPage() {
                   </div>
                   <div>
                     <span style={{ color: 'var(--color-text-dim)' }}>Timestamp: </span>
-                    <span>{new Date(selectedEntry.createdAt).toISOString()}</span>
+                    <span>{formatTime(selectedEntry.occurredAt)}</span>
                   </div>
                   <div>
                     <span style={{ color: 'var(--color-text-dim)' }}>Actor User ID: </span>
@@ -320,7 +310,7 @@ export default function AdminAuditPage() {
                   </div>
                   <div>
                     <span style={{ color: 'var(--color-text-dim)' }}>Target Resource: </span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.targetResourceId || 'N/A'}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.resourceId || 'N/A'}</span>
                   </div>
                   <div>
                     <span style={{ color: 'var(--color-text-dim)' }}>Client IP: </span>
@@ -346,7 +336,7 @@ export default function AdminAuditPage() {
                       overflow: 'auto',
                     }}
                   >
-                    {JSON.stringify(selectedEntry.payload || {}, null, 2)}
+                    {JSON.stringify(selectedEntry.metadata || {}, null, 2)}
                   </pre>
                 </div>
               </div>

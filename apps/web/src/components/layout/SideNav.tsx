@@ -2,7 +2,8 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { activeWorkspaceHref, workspaceLabel } from '@/lib/workspace-navigation';
 import {
   Activity,
   Briefcase,
@@ -49,7 +50,9 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
   const pathname = usePathname();
   const { isPlatformAdmin } = useAuth();
   const { selectedEventId, workspace, loadingWorkspace } = useEvent();
-  const { t } = usePreferences();
+  const { locale } = usePreferences();
+  const query = useSearchParams();
+  const adminMode = pathname === '/admin' || pathname.startsWith('/admin/');
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
   const renderIcon = (iconKey?: string) => {
@@ -137,104 +140,23 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
       : isPlatformAdmin
       ? [staticAdminSection]
       : [];
-  const sectionsToRender: WorkspaceNavSection[] = selectedEventId
-    ? (() => {
-        const alreadyPresent = baseSections.some((section) => section.items.some((item) => item.id === 'nav-my-work'));
-        let inserted = alreadyPresent;
-        const seen = new Set<string>();
-        return baseSections.map((section) => {
-          const filteredItems = section.items.filter((item) => {
-            if (item.id !== 'nav-my-work') return true;
-            if (seen.has(item.id)) return false;
-            seen.add(item.id);
-            return true;
-          });
-          if (inserted) return { ...section, items: filteredItems };
-          inserted = true;
-          return {
-            ...section,
-            items: [
-              {
-                id: 'nav-my-work',
-                label: 'My Work',
-                href: `/events/${selectedEventId}/my-work`,
-                iconKey: 'briefcase',
-              },
-              ...filteredItems,
-            ],
-          };
-        });
-      })()
-    : baseSections;
-
-  const getNavLabel = (item: WorkspaceNavItem): string => {
-    const idMap: Record<string, string> = {
-      'nav-admin-events': 'nav.events',
-      'nav-admin-overview': 'nav.adminOverview',
-      'nav-admin-units': 'nav.units',
-      'nav-admin-capabilities': 'nav.capabilities',
-      'nav-admin-users': 'nav.users',
-      'nav-admin-roles': 'nav.roles',
-      'nav-admin-audit': 'nav.audit',
-      'nav-admin-identity': 'nav.identity',
-      'nav-admin-integrations': 'nav.integrations',
-      'nav-admin-settings': 'nav.settings',
-      'nav-overview': 'nav.command',
-      'nav-command': 'nav.command',
-      'nav-tasks': 'nav.tasks',
-      'nav-my-work': 'nav.myWork',
-      'nav-incidents': 'nav.incidents',
-      'nav.registry': 'nav.registry',
-      'nav.cases': 'nav.cases',
-      'nav.evidence': 'nav.evidence',
-      'nav.lab': 'nav.laboratory',
-      'nav.forensics': 'nav.forensics',
-      'nav.court': 'nav.court',
-      'nav.medical': 'nav.medical',
-      'nav.scenario': 'nav.scenario',
-      'nav.briefings': 'nav.briefings',
-      'nav.evaluation': 'nav.evaluation',
-      'nav.documents': 'nav.documents',
-      'nav.search': 'nav.search',
-      'nav.timeline': 'nav.timeline',
-      'nav.administration': 'nav.administration',
-      'nav.settings': 'nav.settings',
-    };
-
-    if (idMap[item.id]) {
-      const translated = t(idMap[item.id]!);
-      if (translated && translated !== idMap[item.id]) return translated;
-    }
-
-    const labelKey = 'nav.' + item.label.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const byLabel = t(labelKey);
-    if (byLabel && byLabel !== labelKey) return byLabel;
-
-    return item.label;
-  };
-
-  const getSectionTitle = (title: string): string => {
-    const titleMap: Record<string, string> = {
-      'Operations': 'nav.operations',
-      'Incident & Investigation': 'nav.cases',
-      'Specialized Capabilities': 'nav.operations',
-      'Scenario & Exercise Control': 'nav.scenario',
-      'Intelligence & Situational Awareness': 'nav.command',
-      'Administration': 'nav.administration',
-      'Settings': 'nav.settings',
-      'Institutional Governance': 'nav.administration',
-    };
-    if (titleMap[title]) {
-      const translated = t(titleMap[title]!);
-      if (translated && translated !== titleMap[title]) return translated;
-    }
-    return title;
-  };
+  const source = adminMode && isPlatformAdmin ? [staticAdminSection] : baseSections;
+  const seen = new Set<string>();
+  const sectionsToRender = source.map(section => ({...section, items: section.items.filter(item => {
+    if (item.href.startsWith('/admin') !== adminMode || seen.has(item.href)) return false;
+    seen.add(item.href); return true;
+  })})).filter(section => section.items.length > 0);
+  if (!adminMode && selectedEventId && workspace && !seen.has(`/events/${selectedEventId}/my-work`)) {
+    sectionsToRender.unshift({id:'personal-work',title:'My Work',items:[{id:'nav-my-work',label:'My Work',href:`/events/${selectedEventId}/my-work`,iconKey:'briefcase'}]});
+  }
+  const activeHref = activeWorkspaceHref(sectionsToRender.flatMap(section => section.items.map(item => item.href)), pathname, query.toString());
+  const getNavLabel = (item: WorkspaceNavItem) => workspaceLabel(locale, item.id === 'nav-lab-queue' ? 'Laboratory queue' : item.id === 'nav-forensics-queue' ? 'Forensics queue' : item.label);
+  const getSectionTitle = (title: string) => workspaceLabel(locale, title);
 
   const renderSection = (section: WorkspaceNavSection) => {
     if (!section.items || section.items.length === 0) return null;
-    const sectionHasActiveRoute = section.items.some((item) => pathname === item.href || pathname.startsWith(item.href));
-    const isSectionCollapsed = collapsedSections[section.id] === true && !sectionHasActiveRoute;
+    const sectionHasActiveRoute = section.items.some((item) => item.href === activeHref);
+    const isSectionCollapsed = !collapsed && !sectionHasActiveRoute && (collapsedSections[section.id] ?? (section.id !== 'personal-work' && section.title !== 'Overview' && section.title !== 'Operations' && section.title !== 'Administration'));
 
     return (
       <div key={section.id} style={{ marginBottom: '14px' }}>
@@ -266,11 +188,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
         )}
         {!isSectionCollapsed && <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
           {section.items.map((item: WorkspaceNavItem) => {
-            const isActive =
-              pathname === item.href ||
-              (item.href !== `/events/${selectedEventId}/overview` &&
-                item.href !== '/admin' &&
-                pathname.startsWith(item.href));
+            const isActive = item.href === activeHref;
 
             const labelText = getNavLabel(item);
 
@@ -279,6 +197,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
                 key={item.id || item.href}
                 href={item.href}
                 prefetch={false}
+                aria-current={isActive ? 'page' : undefined}
                 title={collapsed ? labelText : undefined}
                 style={{
                   display: 'flex',
@@ -289,7 +208,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
                   color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
                   backgroundColor: isActive ? 'var(--bg-active)' : 'transparent',
                   borderLeft: isActive ? '2px solid var(--accent-active)' : '2px solid transparent',
-                  fontSize: '12px',
+                  fontSize: '13px',
                   fontWeight: isActive ? 600 : 500,
                   transition: 'background-color 0.1s ease, color 0.1s ease',
                   textDecoration: 'none',
@@ -411,7 +330,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
               background: 'transparent',
               cursor: 'pointer',
             }}
-            title={collapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            title={workspaceLabel(locale, collapsed ? 'Expand Sidebar' : 'Collapse Sidebar')}
           >
             {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
           </button>
@@ -419,11 +338,12 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
 
         {/* Dynamic Navigation Sections from Resolver */}
         <div style={{ padding: '10px 0', overflowY: 'auto', maxHeight: 'calc(100vh - 80px)' }}>
+          {isPlatformAdmin && <div className="workspace-mode-switch"><Link prefetch={false} href={adminMode ? (selectedEventId ? `/events/${selectedEventId}/my-work` : '/') : '/admin'} title={workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}><ShieldAlert size={15}/>{!collapsed && workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}</Link></div>}
           {sectionsToRender.map((section) => renderSection(section))}
 
           {!selectedEventId && !isPlatformAdmin && !collapsed && (
             <div style={{ padding: '16px 14px', fontSize: '11px', color: 'var(--text-dim)' }}>
-              No operational event context selected.
+              {workspaceLabel(locale, 'No operational event context selected.')}
             </div>
           )}
         </div>

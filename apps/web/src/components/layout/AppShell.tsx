@@ -7,6 +7,8 @@ import { CommandPalette } from '../common/CommandPalette';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingState } from '../common/StateViews';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { workspaceLabel } from '@/lib/workspace-navigation';
+import { usePathname } from 'next/navigation';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -17,7 +19,10 @@ interface AppShellProps {
 
 export function AppShell({ children, breadcrumbs, title, actions }: AppShellProps) {
   const { currentUser, loading, isPlatformAdmin } = useAuth();
-  const { t } = usePreferences();
+  const { t, locale } = usePreferences();
+  const pathname = usePathname();
+  const paddedRoute = /\/(tasks|medical|documents|forensics|court)(\/[^/]+)?$/.test(pathname);
+  const localBreadcrumbs = breadcrumbs?.map(item => ({...item, label: workspaceLabel(locale, item.label)}));
   const [collapsed, setCollapsed] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [showWorkspaceHelp, setShowWorkspaceHelp] = useState(false);
@@ -67,10 +72,10 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' }}>
-      <SideNav collapsed={collapsed} onToggleCollapse={() => setCollapsed((p) => !p)} />
+      <React.Suspense fallback={<div className="workspace-nav-placeholder" />}><SideNav collapsed={collapsed} onToggleCollapse={() => setCollapsed((p) => !p)} /></React.Suspense>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100vh' }}>
-        <TopBar onOpenSearch={() => setIsSearchOpen(true)} breadcrumbs={breadcrumbs} />
+        <TopBar onOpenSearch={() => setIsSearchOpen(true)} breadcrumbs={localBreadcrumbs} />
         <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--bg-canvas)' }}>
           {currentUser && !isPlatformAdmin && (
             <div className="workspace-help-bar">
@@ -84,7 +89,8 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
               )}
             </div>
           )}
-          {children}
+          {(title || actions) && <div className="workspace-page-header"><div className="workspace-page-title">{title && <h1>{typeof title === 'string' ? workspaceLabel(locale, title) : title}</h1>}</div>{actions && <div className="workspace-page-actions">{actions}</div>}</div>}
+          <div className={paddedRoute ? 'workspace-content workspace-content-padded' : 'workspace-content'}>{children}</div>
         </main>
       </div>
 

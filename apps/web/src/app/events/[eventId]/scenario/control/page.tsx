@@ -197,6 +197,9 @@ export default function ScenarioControlPage() {
   };
 
   const openInjectDesigner = (inject?: ScenarioInjectResponse) => {
+    if (inject && (inject.conditions.length > 1 || inject.targets.length > 1 || (inject.conditions[0] && !['TASK_STATUS', 'RECOVERY_OBJECTIVE_STATUS'].includes(inject.conditions[0].conditionType)))) {
+      window.alert('This inject has a complex design that cannot be safely edited in this form.'); return;
+    }
     setEditInjectId(inject?.id ?? null);
     setNewTitle(inject?.title ?? '');
     setNewSummary(inject?.controllerSummary ?? '');
@@ -398,7 +401,7 @@ export default function ScenarioControlPage() {
       >
         {/* WORKSPACE HEADER */}
         <div>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '16px', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between', gap: '16px', marginBottom: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span className="cyris-signal-marker" />
               <h1 style={{ fontSize: '18px', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)', margin: 0 }}>
@@ -409,52 +412,6 @@ export default function ScenarioControlPage() {
               </span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>CONDITION TYPE</label>
-                <select value={newConditionType} onChange={(e) => setNewConditionType(e.target.value as typeof newConditionType)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                  <option value="NONE">No condition</option><option value="TASK_STATUS">Task status</option><option value="RECOVERY_OBJECTIVE_STATUS">Recovery objective status</option>
-                </select>
-              </div>
-              {newConditionType !== 'NONE' ? (
-                <>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>TARGET</label>
-                    <select value={newConditionTargetId} onChange={(e) => {
-                      const id = e.target.value;
-                      setNewConditionTargetId(id);
-                    }} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                      <option value="">Select event-scoped target</option>
-                      {(newConditionType === 'TASK_STATUS' ? tasks : objectives).map((item) => <option key={item.id} value={item.id}>{'taskNumber' in item ? `${item.taskNumber ?? item.id} — ${item.title ?? ''}` : item.title}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>EXPECTED STATUS</label>
-                    <select value={newConditionStatus} onChange={(e) => setNewConditionStatus(e.target.value)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                      <option value="">Select valid status</option>
-                      {(newConditionType === 'TASK_STATUS'
-                        ? ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS', 'BLOCKED', 'COMPLETED', 'CANCELLED']
-                        : ['PUBLISHED', 'APPROVED', 'RESTORED', 'REJECTED']).map((status) => <option key={status} value={status}>{status}</option>)}
-                    </select>
-                  </div>
-                </>
-              ) : null}
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>CONDITION LOGIC</label>
-              <select value={newConditionLogic} onChange={(e) => setNewConditionLogic(e.target.value as typeof newConditionLogic)} style={{ width: '160px', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                <option value="ALL">ALL conditions</option><option value="ANY">ANY condition</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>PREREQUISITE INJECTS</label>
-              <select multiple value={newDependencies} onChange={(e) => setNewDependencies(Array.from(e.target.selectedOptions, (option) => option.value))} style={{ width: '100%', minHeight: '54px', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
-                {runSheet?.injects.filter((inject) => inject.id !== editInjectId && inject.status !== 'CANCELLED').map((inject) => (
-                  <option key={inject.id} value={inject.id}>{inject.injectNumber} — {inject.title}</option>
-                ))}
-              </select>
-              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '3px' }}>Transitive cycles and cross-event references are rejected by the API.</div>
-            </div>
             <nav aria-label="Scenario navigation" style={{ display: 'flex', gap: '12px', fontSize: '11px' }}>
               <Link href={`/events/${eventId}/overview`} style={{ color: 'var(--accent-active)' }}>Event Overview</Link>
               <Link href={`/events/${eventId}/scenario-data`} style={{ color: 'var(--accent-active)' }}>Scenario Data</Link>
@@ -1375,7 +1332,8 @@ export default function ScenarioControlPage() {
           <form
             onSubmit={handleCreateInject}
             style={{
-              width: '540px',
+              width: 'min(720px, 94vw)',
+              maxHeight: '90vh', overflowY: 'auto',
               backgroundColor: 'var(--bg-surface)',
               border: '1px solid var(--border-subtle)',
               padding: '24px',
@@ -1400,6 +1358,54 @@ export default function ScenarioControlPage() {
               </button>
             </div>
 
+            <fieldset className="workspace-condition-fields"><legend>Release conditions and prerequisites</legend>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>CONDITION TYPE</label>
+                <select value={newConditionType} onChange={(e) => setNewConditionType(e.target.value as typeof newConditionType)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                  <option value="NONE">No condition</option><option value="TASK_STATUS">Task status</option><option value="RECOVERY_OBJECTIVE_STATUS">Recovery objective status</option>
+                </select>
+              </div>
+              {newConditionType !== 'NONE' ? (
+                <>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>TARGET</label>
+                    <select value={newConditionTargetId} onChange={(e) => {
+                      const id = e.target.value;
+                      setNewConditionTargetId(id);
+                    }} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                      <option value="">Select event-scoped target</option>
+                      {(newConditionType === 'TASK_STATUS' ? tasks : objectives).map((item) => <option key={item.id} value={item.id}>{'taskNumber' in item ? `${item.taskNumber ?? item.id} — ${item.title ?? ''}` : item.title}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>EXPECTED STATUS</label>
+                    <select value={newConditionStatus} onChange={(e) => setNewConditionStatus(e.target.value)} style={{ width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                      <option value="">Select valid status</option>
+                      {(newConditionType === 'TASK_STATUS'
+                        ? ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS', 'BLOCKED', 'COMPLETED', 'CANCELLED']
+                        : ['PUBLISHED', 'APPROVED', 'RESTORED', 'REJECTED']).map((status) => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  </div>
+                </>
+              ) : null}
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>CONDITION LOGIC</label>
+              <select value={newConditionLogic} onChange={(e) => setNewConditionLogic(e.target.value as typeof newConditionLogic)} style={{ width: '160px', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                <option value="ALL">ALL conditions</option><option value="ANY">ANY condition</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>PREREQUISITE INJECTS</label>
+              <select multiple value={newDependencies} onChange={(e) => setNewDependencies(Array.from(e.target.selectedOptions, (option) => option.value))} style={{ width: '100%', minHeight: '54px', padding: '6px 8px', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                {runSheet?.injects.filter((inject) => inject.id !== editInjectId && inject.status !== 'CANCELLED').map((inject) => (
+                  <option key={inject.id} value={inject.id}>{inject.injectNumber} — {inject.title}</option>
+                ))}
+              </select>
+              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '3px' }}>Select prerequisite injects in this exercise.</div>
+            </div>
+            </fieldset>
             <div>
               <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
                 INJECT TITLE *

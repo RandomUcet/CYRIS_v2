@@ -11,6 +11,7 @@ import { EventSwitcherModal } from './EventSwitcherModal';
 import { NotificationCenter } from './NotificationCenter';
 import { SUPPORTED_LOCALES, COMMON_TIMEZONES } from '@/lib/i18n';
 import { useDefconReadiness } from '@/hooks/useDefconReadiness';
+import { workspaceLabel } from '@/lib/workspace-navigation';
 
 const DEFCON_COLORS: Record<number, string> = {
   1: '#d62d2d',
@@ -42,7 +43,7 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
         className="app-topbar"
         style={{
           height: 'var(--topbar-height)',
-          background: 'var(--bg-sidebar)',
+          background: 'var(--bg-panel)',
           borderBottom: '1px solid var(--border-default)',
           display: 'flex',
           alignItems: 'center',
@@ -53,7 +54,7 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
         }}
       >
         {/* Left: Event Banner & Breadcrumbs */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div className="workspace-topbar-context">
           {selectedEvent ? (
             <React.Fragment>
             <button
@@ -70,10 +71,11 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
                 height: '28px',
                 cursor: 'pointer',
               }}
+              className="workspace-event-button"
               title={t('topbar.switchEvent')}
             >
               <Calendar size={12} style={{ color: 'var(--accent-active)' }} />
-              <span style={{ fontWeight: 600, fontSize: '11px', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+              <span className="workspace-event-name">
                 {selectedEvent.name}
               </span>
               <StatusBadge status={selectedEvent.status} />
@@ -83,7 +85,8 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
             {readiness && (
               <Link
                 href={`/events/${readiness.eventId}/command`}
-                title="Read-only exercise readiness"
+                className="workspace-defcon-indicator"
+                title={locale === 'cs' ? 'Stupeň připravenosti cvičení' : 'Exercise readiness'}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -106,17 +109,8 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
           ) : (
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{t('topbar.noEvent')}</span>
           )}
-          {selectedEvent && currentUser && (
-            <span className="topbar-identity" title="Aktivní eventový kontext">
-              {currentUser.user.displayName}
-              {currentUser.memberships.filter((membership) => membership.eventId === selectedEvent.id && membership.status === 'ACTIVE').flatMap((membership) => membership.unitIds).length > 0
-                ? ` · ${currentUser.memberships.filter((membership) => membership.eventId === selectedEvent.id && membership.status === 'ACTIVE').flatMap((membership) => membership.unitIds).length} unit scope`
-                : ''}
-            </span>
-          )}
-
           {breadcrumbs.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+            <div className="workspace-breadcrumbs">
               <span>/</span>
               {breadcrumbs.map((b, i) => (
                 <React.Fragment key={i}>
@@ -135,7 +129,7 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
         </div>
 
         {/* Right: Search, Notifications & User Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="workspace-topbar-actions">
           <button
             type="button"
             onClick={onOpenSearch}
@@ -166,6 +160,8 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
               <button
                 type="button"
                 onClick={() => setIsUserMenuOpen((p) => !p)}
+                aria-expanded={isUserMenuOpen}
+                className="workspace-user-button"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -180,7 +176,7 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
                 }}
               >
                 <User size={12} style={{ color: 'var(--text-muted)' }} />
-                <span style={{ fontWeight: 600 }}>{currentUser.user.displayName}</span>
+                <span className="workspace-user-name">{currentUser.user.displayName || currentUser.user.email}</span>
                 <ChevronDown size={10} style={{ color: 'var(--text-muted)' }} />
               </button>
 
@@ -198,7 +194,7 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
                     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
                     zIndex: 50,
                   }}
-                  onMouseLeave={() => setIsUserMenuOpen(false)}
+                  className="workspace-user-menu"
                 >
                   <div style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)', marginBottom: '8px' }}>
                     <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)' }}>
@@ -284,7 +280,7 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
                           border: '1px solid var(--border-subtle)',
                         }}
                       >
-                        <Shield size={13} /> Platform Administration
+                        <Shield size={13} /> {workspaceLabel(locale, 'Platform Administration')}
                       </Link>
                     </div>
                   )}

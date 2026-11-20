@@ -13,8 +13,7 @@ interface RoleItem {
   name: string;
   slug: string;
   description?: string;
-  scope: string;
-  permissions?: Array<string | { permissionKey?: string; key?: string }>;
+  permissions?: Array<string | { permissionKey?: string; key?: string; scope?: string }>;
   createdAt: string;
 }
 
@@ -90,7 +89,7 @@ export default function AdminRolesPage() {
             color: 'var(--color-accent-ops)',
           }}
         >
-          {item.scope}
+          {Array.from(new Set((item.permissions ?? []).flatMap(p => typeof p === 'string' || !p.scope ? [] : [p.scope]))).join(' · ') || '—'}
         </span>
       ),
       width: '120px',
