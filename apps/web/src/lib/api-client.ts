@@ -1515,7 +1515,6 @@ export class CyrisApiClient {
     try {
       const res = await this.request(`${this.baseUrl}${path}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
       });
       if (!res.ok) {
