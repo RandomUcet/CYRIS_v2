@@ -9,6 +9,8 @@ import { LoadingState } from '../common/StateViews';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { workspaceLabel } from '@/lib/workspace-navigation';
 import { usePathname } from 'next/navigation';
+import Link from 'next/link';
+import {useEvent} from '@/contexts/EventContext';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -21,6 +23,8 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
   const { currentUser, loading, isPlatformAdmin } = useAuth();
   const { t, locale } = usePreferences();
   const pathname = usePathname();
+  const {selectedEventId}=useEvent();
+  const cs=locale==='cs';
   const paddedRoute = /\/(tasks|medical|documents|forensics|court)(\/[^/]+)?$/.test(pathname);
   const localBreadcrumbs = breadcrumbs?.map(item => ({...item, label: workspaceLabel(locale, item.label)}));
   const [collapsed, setCollapsed] = useState(false);
@@ -77,14 +81,14 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
       <div className="app-shell-main" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100vh' }}>
         <TopBar onOpenSearch={() => {if(!currentUser.viewAs)setIsSearchOpen(true)}} breadcrumbs={localBreadcrumbs} />
         <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--bg-canvas)' }}>
-          {currentUser && !isPlatformAdmin && (
+          {currentUser && !isPlatformAdmin && selectedEventId && pathname.startsWith('/events/') && (
             <div className="workspace-help-bar">
               <button type="button" onClick={() => setShowWorkspaceHelp((value) => !value)} aria-expanded={showWorkspaceHelp}>
                 {t('workspace.help')}
               </button>
               {showWorkspaceHelp && (
                 <span className="workspace-help-panel" role="note">
-                  {t('workspace.helpCopy')}
+                  {t('workspace.helpCopy')} <Link href={`/events/${selectedEventId}/support`}>{cs?'Kontaktovat EXCON':'Contact EXCON'}</Link> · <Link href={`/events/${selectedEventId}/service-status`}>{cs?'Stav služeb':'Service status'}</Link>
                 </span>
               )}
             </div>

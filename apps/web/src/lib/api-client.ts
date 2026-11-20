@@ -3,6 +3,9 @@ import type {
   ReadinessResponse,
   CurrentUserResponse,
   StartViewAsRequest,
+  CreateSupportRequest,
+  SupportInbox,
+  SupportMessageInput,
   ViewAsInfo,
   EventResponse,
   LoginRequest,
@@ -137,6 +140,10 @@ export class CyrisApiClient {
     }
     return fetch(url,{...options,headers});
   }
+  listSupport(eventId:string){return this.fetchJson<SupportInbox>(`/events/${eventId}/support`);}
+  createSupport(eventId:string,input:CreateSupportRequest){return this.postJson<{id:string}>(`/events/${eventId}/support`,input);}
+  replySupport(eventId:string,id:string,input:SupportMessageInput){return this.postJson<{id:string}>(`/events/${eventId}/support/${id}/reply`,input);}
+  resolveSupport(eventId:string,id:string,expectedRevision:number){return this.postJson<{id:string}>(`/events/${eventId}/support/${id}/resolve`,{expectedRevision});}
   startViewAs(input:StartViewAsRequest) {return this.postJson<ViewAsInfo>('/auth/view-as/start',input);}
   getViewAsStatus() {return this.fetchJson<{active:boolean}>('/auth/view-as');}
   stopViewAs() {return this.postJson<{success:boolean}>('/auth/view-as/stop',{});}

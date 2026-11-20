@@ -1,5 +1,6 @@
 import {translate,type SupportedLocale} from './i18n';
 const cs: Record<string,string> = {
+  "Help & support": "Pomoc a podpora",
   "Service status": "Stav služeb",
   "Exercise support": "Podpora cvičení",
   "Overview": "Přehled",

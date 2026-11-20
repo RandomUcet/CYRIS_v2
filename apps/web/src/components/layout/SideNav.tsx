@@ -151,7 +151,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
   }
   if(!adminMode&&selectedEventId&&(isPlatformAdmin||currentUser?.memberships.some(m=>m.eventId===selectedEventId&&m.status==='ACTIVE'))){
     const href=`/events/${selectedEventId}/service-status`;
-    if(!seen.has(href))sectionsToRender.push({id:'exercise-services',title:'Exercise support',items:[{id:'nav-service-status',label:'Service status',href,iconKey:'activity'}]});
+    if(!seen.has(href))sectionsToRender.push({id:'exercise-services',title:'Exercise support',items:[{id:'nav-service-status',label:'Service status',href,iconKey:'activity'},{id:'nav-exercise-help',label:'Help & support',href:`/events/${selectedEventId}/support`,iconKey:'mail'}]});
   }
   const activeHref = activeWorkspaceHref(sectionsToRender.flatMap(section => section.items.map(item => item.href)), pathname, query.toString());
   const getNavLabel = (item: WorkspaceNavItem) => workspaceLabel(locale, item.id === 'nav-lab-queue' ? 'Laboratory queue' : item.id === 'nav-forensics-queue' ? 'Forensics queue' : item.label);

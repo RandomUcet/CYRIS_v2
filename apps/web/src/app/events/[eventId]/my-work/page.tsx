@@ -19,6 +19,7 @@ export default function MyWorkPage() {
   const { user, hasPermission, isPlatformAdmin } = useAuth();
   const { formatDate, t,locale } = usePreferences();
   const cs=locale==='cs';
+  const [guideOpen,setGuideOpen]=useState(false);
   const [view, setView] = useState<MyWorkView>('personal');
   const [unitId, setUnitId] = useState('');
   const [units, setUnits] = useState<Array<{ id: string; name: string }>>([]);
@@ -95,6 +96,11 @@ export default function MyWorkPage() {
             {t('myWork.subtitle')}
           </p>
         </div>
+        <details className="work-guide" open={guideOpen} onToggle={e=>setGuideOpen(e.currentTarget.open)}>
+          <summary>{cs?'Jak začít pracovat':'How to get started'}</summary>
+          <div><p>{cs?'Zde najdete úkoly a požadavky, které jsou vám přiděleny. Otevřete záznam, přečtěte si zadání a pracujte podle jeho dostupných akcí. Než začnete, zkontrolujte brífinky a případná omezení služeb.':'Open your assigned tasks and requests, read their instructions and use the actions available on each record. Check briefings and service restrictions before starting.'}</p>
+          <Link href={`/events/${eventId}/support`}>{cs?'Nevíte si rady? Napište EXCONu.':'Need help? Ask EXCON.'}</Link></div>
+        </details>
         <div className="my-work-toolbar">
           {(['personal', ...(canViewUnit ? ['unit'] : []), ...(canViewEvent ? ['event'] : [])] as MyWorkView[]).map((option) => (
             <button
