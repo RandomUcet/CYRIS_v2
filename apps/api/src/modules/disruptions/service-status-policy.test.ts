@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { isVisibleToParticipant, projectServiceImpact, resolveServiceStatusState } from './service-status-policy.js';
+import { isVisibleToParticipant, projectServiceImpact, resolveServiceStatusState, summarizeServiceStatus } from './service-status-policy.js';
 
 const source = (overrides: Partial<Parameters<typeof resolveServiceStatusState>[0]> = {}) => ({
   module: 'tasks',
@@ -34,4 +34,9 @@ describe('service status policy', () => {
     assert.equal(isVisibleToParticipant('UNIT', 'unit-1', 'user-1', new Set(['unit-1'])), true);
     assert.equal(isVisibleToParticipant('UNIT', 'unit-2', 'user-1', new Set(['unit-1'])), false);
   });
+});
+
+it('summarizes active restrictions without counting history or future impact',()=>{
+  assert.deepEqual(summarizeServiceStatus([{state:'RESTORED',impact:'UNAVAILABLE'},{state:'PLANNED',impact:'UNAVAILABLE'}]),{impact:'NONE',activeCount:0,plannedCount:1});
+  assert.deepEqual(summarizeServiceStatus([{state:'ACTIVE',impact:'READ_ONLY'},{state:'ACTIVE',impact:'UNAVAILABLE'}]),{impact:'UNAVAILABLE',activeCount:2,plannedCount:0});
 });

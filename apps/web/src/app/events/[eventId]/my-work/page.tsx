@@ -8,14 +8,17 @@ import { StatusBadge } from '@/components/common/Badges';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import type { MyWorkResponse, MyWorkView, ServiceStatusResponse, ServiceStatusState } from '@cyris/contracts';
+import Link from 'next/link';
+import {useServiceStatus} from '@/hooks/useServiceStatus';
+import type { MyWorkResponse, MyWorkView } from '@cyris/contracts';
 
 export default function MyWorkPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
   const { user, hasPermission, isPlatformAdmin } = useAuth();
-  const { formatDate, t } = usePreferences();
+  const { formatDate, t,locale } = usePreferences();
+  const cs=locale==='cs';
   const [view, setView] = useState<MyWorkView>('personal');
   const [unitId, setUnitId] = useState('');
   const [units, setUnits] = useState<Array<{ id: string; name: string }>>([]);
@@ -24,8 +27,7 @@ export default function MyWorkPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [serviceStatus, setServiceStatus] = useState<ServiceStatusResponse | null>(null);
-  const [serviceStatusError, setServiceStatusError] = useState<string | null>(null);
+  const {data:serviceStatus,error:serviceStatusError}=useServiceStatus(eventId);
 
   const requestSequence = useRef(0);
   const canViewUnit = hasPermission('task.read', eventId) || hasPermission('lab.read', eventId);
@@ -79,26 +81,6 @@ export default function MyWorkPage() {
     };
   }, [eventId, canViewUnit, isPlatformAdmin, user]);
 
-  useEffect(() => {
-    if (!eventId) return;
-    let active = true;
-    setServiceStatusError(null);
-    setServiceStatus(null);
-    apiClient.getServiceStatus(eventId).then((response) => {
-      if (!active) return;
-      if (response.ok && response.data) setServiceStatus(response.data);
-      else setServiceStatusError(response.error || 'Unable to load service status');
-    }).catch((cause) => {
-      if (active) setServiceStatusError(cause instanceof Error ? cause.message : 'Unable to load service status');
-    });
-    return () => {
-      active = false;
-    };
-  }, [eventId, refreshNonce]);
-
-  const serviceStateLabel = (state: ServiceStatusState) => t(`serviceStatus.state.${state.toLowerCase()}`);
-  const serviceImpactLabel = (impact: string) => t(`serviceStatus.impact.${impact.toLowerCase()}`);
-
   const selectView = (next: MyWorkView) => {
     setView(next);
     setPage(1);
@@ -108,7 +90,7 @@ export default function MyWorkPage() {
     <AppShell breadcrumbs={[{ label: 'Operations' }, { label: 'My Work' }]}>
       <div className="my-work-page">
         <div style={{ marginBottom: 16 }}>
-          <h1 style={{ margin: 0, fontSize: '1.5rem' }}>My Work</h1>
+          <h1 style={{ margin: 0, fontSize: '1.5rem' }}>{cs?'Moje práce':'My Work'}</h1>
           <p className="my-work-subtitle">
             {t('myWork.subtitle')}
           </p>
@@ -127,7 +109,7 @@ export default function MyWorkPage() {
                 color: 'var(--color-text-main)',
               }}
             >
-              {option === 'personal' ? 'My work' : option === 'unit' ? 'Unit queue' : 'Event overview'}
+              {option === 'personal' ? (cs?'Moje práce':'My work') : option === 'unit' ? (cs?'Fronta jednotky':'Unit queue') : (cs?'Přehled cvičení':'Event overview')}
             </button>
           ))}
           {view === 'unit' && (
@@ -139,38 +121,16 @@ export default function MyWorkPage() {
               }}
               aria-label="Select unit"
             >
-              <option value="">Select unit</option>
+              <option value="">{cs?'Vyberte jednotku':'Select unit'}</option>
               {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
             </select>
           )}
         </div>
-        <details className="service-status-panel" open={Boolean(serviceStatusError || serviceStatus?.items.some(item => item.state === 'ACTIVE' || item.state === 'PLANNED'))}><summary>{t('serviceStatus.title')}</summary><section aria-labelledby="service-status-title">
-          <div className="service-status-heading">
-            <div>
-              <h2 id="service-status-title">{t('serviceStatus.title')}</h2>
-              <p>{t('serviceStatus.subtitle')}</p>
-            </div>
-            {serviceStatus && <time dateTime={serviceStatus.generatedAt}>{formatDate(serviceStatus.generatedAt)}</time>}
-          </div>
-          {serviceStatusError && <p className="service-status-error">{serviceStatusError}</p>}
-          {!serviceStatus && !serviceStatusError && <p className="service-status-muted">{t('serviceStatus.loading')}</p>}
-          {serviceStatus && (
-            <div className="service-status-list">
-              {serviceStatus.items.filter(item => item.state === 'ACTIVE' || item.state === 'PLANNED' || item.state === 'OPERATIONAL').map((item, index) => (
-                <div className="service-status-item" key={`${item.service}-${item.revision ?? 'baseline'}-${index}`}>
-                  <div>
-                    <strong>{item.service}</strong>
-                    {item.reason && <small>{item.reason}</small>}
-                  </div>
-                  <span className={`service-status-badge service-status-${item.state.toLowerCase()}`}>
-                    {serviceStateLabel(item.state)}
-                  </span>
-                  <span className="service-status-impact">{serviceImpactLabel(item.impact)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section></details>
+        <Link className="service-mini" href={`/events/${eventId}/service-status`}>
+          <span><strong>{t('serviceStatus.title')}</strong><small>{serviceStatusError?(cs?'Stav není dostupný':'Status unavailable'):serviceStatus?(serviceStatus.current.activeCount?(cs?'Probíhá simulované omezení':'Exercise disruption active'):(cs?'Bez aktivního omezení':'No active disruption')):t('serviceStatus.loading')}</small></span>
+          <span className={'service-pill '+(serviceStatusError?'unknown':serviceStatus?.current.activeCount?'restricted':serviceStatus?'normal':'unknown')}>{serviceStatus&&!serviceStatusError?t('serviceStatus.impact.'+serviceStatus.current.impact.toLowerCase()):'—'}</span>
+          <span aria-hidden="true">›</span>
+        </Link>
         {loading && <LoadingState />}
         {!loading && error && <ErrorState message={error} onRetry={() => setRefreshNonce((value) => value + 1)} />}
         {!loading && !error && result && result.items.length === 0 && (

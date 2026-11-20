@@ -48,7 +48,7 @@ interface SideNavProps {
 
 export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
   const pathname = usePathname();
-  const { isPlatformAdmin } = useAuth();
+  const { isPlatformAdmin,currentUser } = useAuth();
   const { selectedEventId, workspace, loadingWorkspace } = useEvent();
   const { locale } = usePreferences();
   const query = useSearchParams();
@@ -148,6 +148,10 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
   })})).filter(section => section.items.length > 0);
   if (!adminMode && selectedEventId && workspace && !seen.has(`/events/${selectedEventId}/my-work`)) {
     sectionsToRender.unshift({id:'personal-work',title:'My Work',items:[{id:'nav-my-work',label:'My Work',href:`/events/${selectedEventId}/my-work`,iconKey:'briefcase'}]});
+  }
+  if(!adminMode&&selectedEventId&&(isPlatformAdmin||currentUser?.memberships.some(m=>m.eventId===selectedEventId&&m.status==='ACTIVE'))){
+    const href=`/events/${selectedEventId}/service-status`;
+    if(!seen.has(href))sectionsToRender.push({id:'exercise-services',title:'Exercise support',items:[{id:'nav-service-status',label:'Service status',href,iconKey:'activity'}]});
   }
   const activeHref = activeWorkspaceHref(sectionsToRender.flatMap(section => section.items.map(item => item.href)), pathname, query.toString());
   const getNavLabel = (item: WorkspaceNavItem) => workspaceLabel(locale, item.id === 'nav-lab-queue' ? 'Laboratory queue' : item.id === 'nav-forensics-queue' ? 'Forensics queue' : item.label);

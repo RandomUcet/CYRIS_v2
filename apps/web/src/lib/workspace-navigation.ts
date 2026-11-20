@@ -1,5 +1,7 @@
-import type { SupportedLocale } from './i18n';
+import {translate,type SupportedLocale} from './i18n';
 const cs: Record<string,string> = {
+  "Service status": "Stav služeb",
+  "Exercise support": "Podpora cvičení",
   "Overview": "Přehled",
   "Command": "Velení",
   "Operational Picture": "Operační situace",
@@ -230,7 +232,12 @@ const cs: Record<string,string> = {
   "No briefings or tactical advisories have been delivered to your operational unit yet.": "Vaše jednotka zatím neobdržela žádné brífinky ani upozornění."
 };
 // Static product vocabulary; never pass user-generated content here.
-export const workspaceLabel = (locale: SupportedLocale, label: string) => locale === 'cs' ? cs[label] ?? label : label;
+const legacyKeys:Record<string,string>={Overview:'nav.adminOverview',Command:'nav.command',Operations:'nav.operations',Tasks:'nav.tasks',Incidents:'nav.incidents',Registry:'nav.registry',Cases:'nav.cases',Evidence:'nav.evidence',Medical:'nav.medical',Court:'nav.court',Scenario:'nav.scenario',Evaluation:'nav.evaluation',Briefings:'nav.briefings',Documents:'nav.documents',Timeline:'nav.timeline',Administration:'nav.administration',Settings:'nav.settings',Events:'nav.events','Platform overview':'nav.adminOverview','Units & Teams':'nav.units','Users & Access':'nav.users','Roles & Perms':'nav.roles','Audit Log':'nav.audit','Identity Providers':'nav.identity','Integrations & AI':'nav.integrations','Chemical Analysis':'nav.laboratory','Forensics / Technical':'nav.forensics'};
+export const workspaceLabel=(locale:SupportedLocale,label:string)=>{
+  if(locale==='cs')return cs[label]??label;
+  if(locale==='en')return label;
+  return legacyKeys[label]?translate(locale,legacyKeys[label]!):label;
+};
 export function activeWorkspaceHref(hrefs: readonly string[], pathname: string, search: string): string | undefined {
   const current = new URLSearchParams(search);
   return hrefs.map(href => {

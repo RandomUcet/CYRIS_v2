@@ -32,7 +32,7 @@ import type {
 import type { ServiceStatusResponse, ServiceStatusItem } from '@cyris/contracts';
 import { assertRevision, assertParticipantWriteAllowed, assertSupportedDisruption, ENFORCED_DISRUPTION_MODULE, isActiveDisruption, resolveDisruption } from './disruption-policy.js';
 import { assertApprovalHasReport, assertLinkedDisruptionActive, assertNoDuplicateReport, assertObjectiveTransition, assertPublishedAudienceAccess, assertReportAllowed } from './recovery-policy.js';
-import { isVisibleToParticipant, projectServiceImpact, resolveServiceStatusState } from './service-status-policy.js';
+import { isVisibleToParticipant, projectServiceImpact, resolveServiceStatusState, summarizeServiceStatus } from './service-status-policy.js';
 
 @Injectable()
 export class DisruptionsService {
@@ -85,7 +85,11 @@ export class DisruptionsService {
       permission: Permissions.COMMAND_READ,
       context: { eventId },
     });
-    if (!canManage && !canReadCommandStatus) await this.assertParticipantAccess(eventId, user);
+    if (!canManage && !canReadCommandStatus) {
+      const [member]=await this.db.select({id:eventMemberships.id}).from(eventMemberships)
+        .where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,user.id),eq(eventMemberships.status,MembershipStatus.ACTIVE))).limit(1);
+      if(!member)throw new ForbiddenException('Service status requires active event membership');
+    }
 
     const unitRows = await this.db
       .select({ unitId: membershipUnitAssignments.unitId })
@@ -129,7 +133,7 @@ export class DisruptionsService {
         reason: null,
       });
     }
-    return { eventId, generatedAt: now.toISOString(), items };
+    return {eventId,generatedAt:now.toISOString(),scope:canManage||canReadCommandStatus?'EVENT':'PERSONAL',current:{service:ENFORCED_DISRUPTION_MODULE,...summarizeServiceStatus(items)},items};
   }
 
   async listOperator(eventId: string, user: AuthenticatedUser): Promise<DisruptionSnapshot[]> {

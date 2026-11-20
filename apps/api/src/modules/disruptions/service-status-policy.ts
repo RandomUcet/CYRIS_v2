@@ -33,3 +33,10 @@ export function isVisibleToParticipant(
     || (targetType === 'USER' && targetId === userId)
     || (targetType === 'UNIT' && targetId !== null && unitIds.has(targetId));
 }
+
+export function summarizeServiceStatus(items: ReadonlyArray<{state:ServiceStatusState;impact:ServiceImpact}>) {
+  const active=items.filter(i=>i.state==='ACTIVE');
+  const rank:Record<ServiceImpact,number>={NONE:0,DEGRADED:1,READ_ONLY:2,UNAVAILABLE:3};
+  const impact=active.reduce<ServiceImpact>((worst,item)=>rank[item.impact]>rank[worst]?item.impact:worst,'NONE');
+  return {impact,activeCount:active.length,plannedCount:items.filter(i=>i.state==='PLANNED').length};
+}

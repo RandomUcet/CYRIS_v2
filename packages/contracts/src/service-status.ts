@@ -17,6 +17,8 @@ export const ServiceStatusItemSchema = z.object({
 export const ServiceStatusResponseSchema = z.object({
   eventId: z.string().uuid(),
   generatedAt: z.string().datetime(),
+  scope: z.enum(['PERSONAL','EVENT']),
+  current: z.object({service:z.string(),impact:ServiceImpactSchema,activeCount:z.number().int().nonnegative(),plannedCount:z.number().int().nonnegative()}),
   items: z.array(ServiceStatusItemSchema),
 });
 
