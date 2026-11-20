@@ -28,7 +28,7 @@ const STORAGE_KEY_LOCALE = 'cyris_locale';
 const STORAGE_KEY_TIMEZONE = 'cyris_timezone';
 
 export function PreferencesProvider({ children }: { children: React.ReactNode }) {
-  const { currentUser } = useAuth();
+  const { currentUser, viewAs } = useAuth();
 
   // Initialize with cached localStorage values if present
   const [locale, setLocaleState] = useState<SupportedLocale>(() => {
@@ -55,7 +55,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
 
   // Sync preferences from backend when authenticated
   useEffect(() => {
-    if (!currentUser || currentUser.viewAs) return;
+    if (!currentUser) return;
 
     let mounted = true;
     apiClient
@@ -65,13 +65,13 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
         const data = res.data;
         if (data.locale && (data.locale === 'en' || data.locale === 'cs' || data.locale === 'de' || data.locale === 'pl')) {
           setLocaleState(data.locale);
-          if (typeof window !== 'undefined') {
+          if (typeof window !== 'undefined' && !viewAs) {
             localStorage.setItem(STORAGE_KEY_LOCALE, data.locale);
           }
         }
         if (data.timezone) {
           setTimezoneState(data.timezone);
-          if (typeof window !== 'undefined') {
+          if (typeof window !== 'undefined' && !viewAs) {
             localStorage.setItem(STORAGE_KEY_TIMEZONE, data.timezone);
           }
         }
@@ -81,35 +81,33 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     return () => {
       mounted = false;
     };
-  }, [currentUser]);
+  }, [currentUser, viewAs]);
 
   const setLocale = useCallback(
     async (newLocale: SupportedLocale) => {
       setLocaleState(newLocale);
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && !viewAs) {
         localStorage.setItem(STORAGE_KEY_LOCALE, newLocale);
       }
-      if (currentUser && !currentUser.viewAs) {
+      if (currentUser && !viewAs) {
         await apiClient.updateUserPreferences({ locale: newLocale }).catch(() => {});
       }
     },
-    [currentUser]
+    [currentUser, viewAs]
   );
 
   const setTimezone = useCallback(
     async (newTz: string) => {
       setTimezoneState(newTz);
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && !viewAs) {
         localStorage.setItem(STORAGE_KEY_TIMEZONE, newTz);
       }
-      if (currentUser && !currentUser.viewAs) {
+      if (currentUser && !viewAs) {
         await apiClient.updateUserPreferences({ timezone: newTz }).catch(() => {});
       }
     },
-    [currentUser]
+    [currentUser, viewAs]
   );
-
-  useEffect(()=>{document.documentElement.lang=locale;},[locale]);
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>) => {

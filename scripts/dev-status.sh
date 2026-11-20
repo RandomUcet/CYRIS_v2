@@ -1,49 +1,34 @@
 #!/usr/bin/env bash
-
 set -u
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+source "$ROOT_DIR/scripts/dev-runtime.sh"
 
 printf 'CYRIS Development Status\n\n'
-
+api_port="$(node --input-type=module -e "import {loadConfig} from './packages/config/dist/index.js'; process.stdout.write(String(loadConfig().PORT))" 2>/dev/null)" || api_port=4000
+[[ "$api_port" =~ ^[0-9]+$ ]] || api_port=4000
 check_http() {
-  local label="$1"
-  local url="$2"
+  local label="$1" url="$2"
   if curl -fsS --max-time 3 "$url" >/dev/null 2>&1; then
-    printf '%-16s OK    %s\n' "$label" "$url"
+    printf '%-16s READY %s\n' "$label" "$url"
   else
     printf '%-16s DOWN  %s\n' "$label" "$url"
   fi
 }
-
-check_compose() {
-  local service="$1"
-  local label="$2"
-  local health
-  health="$(docker compose ps --status running --format '{{.Service}} {{.Health}}' 2>/dev/null |
-    awk -v service="$service" '$1 == service {print $2}')"
-  if [[ "$health" == "healthy" ]]; then
-    printf '%-16s OK\n' "$label"
-  else
-    printf '%-16s DOWN  (%s)\n' "$label" "${health:-not running}"
-  fi
-}
-
-check_http "Web" "http://localhost:3000/"
-check_http "API" "http://localhost:4000/health"
-check_compose "postgres" "PostgreSQL"
-check_compose "redis" "Redis"
-check_compose "typesense" "Typesense"
-check_compose "minio" "MinIO"
-
-worker_pid=""
+check_http 'Web' 'http://127.0.0.1:3000/'
+check_http 'API readiness' "http://127.0.0.1:$api_port/health/ready"
+for service in postgres redis typesense minio mailpit minio-init; do
+  state="$(compose_service_state "$service")" || state='not available'
+  printf '%-16s %s\n' "$service" "$state"
+done
+worker_pid=''
 if [[ -f .cyris-dev-pids ]]; then
   while read -r role pid; do
-    if [[ "$role" == "worker" ]] && kill -0 "$pid" 2>/dev/null; then
-      worker_pid="$pid"
-    fi
+    if [[ "$role" == 'worker' && "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then worker_pid="$pid"; fi
   done < .cyris-dev-pids
 fi
 if [[ -n "$worker_pid" ]]; then
-  printf '%-16s OK    managed process PID %s\n' "Worker" "$worker_pid"
+  printf '%-16s RUNNING PID %s (process check; job execution is not verified here)\n' 'Worker' "$worker_pid"
 else
-  printf '%-16s UNKNOWN process is not managed by pnpm dev\n' "Worker"
+  printf '%-16s UNKNOWN no live managed process\n' 'Worker'
 fi

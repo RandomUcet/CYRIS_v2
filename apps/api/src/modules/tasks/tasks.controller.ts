@@ -84,7 +84,7 @@ export class TasksController {
 
   @Patch(':taskId')
   async updateTask(
-    @Param('eventId') _eventId: string,
+    @Param('eventId') eventId: string,
     @Param('taskId') taskId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
@@ -93,12 +93,12 @@ export class TasksController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task update payload');
     }
-    return this.tasksService.updateTask(taskId, parse.data, user);
+    return this.tasksService.updateTask(taskId, parse.data, user, eventId);
   }
 
   @Post(':taskId/assign')
   async assignTask(
-    @Param('eventId') _eventId: string,
+    @Param('eventId') eventId: string,
     @Param('taskId') taskId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
@@ -107,12 +107,12 @@ export class TasksController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task assign payload');
     }
-    return this.tasksService.assignTask(taskId, parse.data, user);
+    return this.tasksService.assignTask(taskId, parse.data, user, eventId);
   }
 
   @Post(':taskId/acknowledge')
   async acknowledgeTask(
-    @Param('eventId') _eventId: string,
+    @Param('eventId') eventId: string,
     @Param('taskId') taskId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
@@ -121,12 +121,12 @@ export class TasksController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task acknowledge payload');
     }
-    return this.tasksService.acknowledgeTask(taskId, parse.data, user);
+    return this.tasksService.acknowledgeTask(taskId, parse.data, user, eventId);
   }
 
   @Post(':taskId/start')
   async startTask(
-    @Param('eventId') _eventId: string,
+    @Param('eventId') eventId: string,
     @Param('taskId') taskId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
@@ -135,12 +135,12 @@ export class TasksController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task start payload');
     }
-    return this.tasksService.startTask(taskId, parse.data, user);
+    return this.tasksService.startTask(taskId, parse.data, user, eventId);
   }
 
   @Post(':taskId/block')
   async blockTask(
-    @Param('eventId') _eventId: string,
+    @Param('eventId') eventId: string,
     @Param('taskId') taskId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
@@ -149,12 +149,12 @@ export class TasksController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task block payload');
     }
-    return this.tasksService.blockTask(taskId, parse.data, user);
+    return this.tasksService.blockTask(taskId, parse.data, user, eventId);
   }
 
   @Post(':taskId/complete')
   async completeTask(
-    @Param('eventId') _eventId: string,
+    @Param('eventId') eventId: string,
     @Param('taskId') taskId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
@@ -163,12 +163,12 @@ export class TasksController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task complete payload');
     }
-    return this.tasksService.completeTask(taskId, parse.data, user);
+    return this.tasksService.completeTask(taskId, parse.data, user, eventId);
   }
 
   @Post(':taskId/cancel')
   async cancelTask(
-    @Param('eventId') _eventId: string,
+    @Param('eventId') eventId: string,
     @Param('taskId') taskId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
@@ -177,12 +177,12 @@ export class TasksController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task cancel payload');
     }
-    return this.tasksService.cancelTask(taskId, parse.data, user);
+    return this.tasksService.cancelTask(taskId, parse.data, user, eventId);
   }
 
   @Post(':taskId/reopen')
   async reopenTask(
-    @Param('eventId') _eventId: string,
+    @Param('eventId') eventId: string,
     @Param('taskId') taskId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
@@ -191,6 +191,6 @@ export class TasksController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid task reopen payload');
     }
-    return this.tasksService.reopenTask(taskId, parse.data, user);
+    return this.tasksService.reopenTask(taskId, parse.data, user, eventId);
   }
 }

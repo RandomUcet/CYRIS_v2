@@ -1,0 +1,246 @@
+import 'reflect-metadata';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  getDbClient, closeDatabaseConnection, users, events, eventMemberships,
+  organizationalUnits, membershipUnitAssignments, roles, roleAssignments, rolePermissions,
+  unitCapabilities, resources, evidence, operationalTasks, auditEvents, outboxEvents,
+} from '@cyris/db';
+import { generateId, Permissions, type PermissionKey } from '@cyris/shared';
+import { MyWorkQuerySchema, CreateOperationalTaskRequestSchema } from '@cyris/contracts';
+import { DatabaseService } from '../modules/database/database.service.js';
+import { AuthorizationService } from '../modules/authorization/authorization.service.js';
+import { ResourceAccessService } from '../modules/resources/resource-access.service.js';
+import { ResourceService } from '../modules/resources/resource.service.js';
+import { IdentifierAllocatorService } from '../modules/resources/identifier-allocator.service.js';
+import { AuditService } from '../modules/audit/audit.service.js';
+import { ActivityService } from '../modules/resources/activity.service.js';
+import { SearchIndexerService } from '../modules/search/search-indexer.service.js';
+import { NotificationsService } from '../modules/notifications/notifications.service.js';
+import { TasksService } from '../modules/tasks/tasks.service.js';
+import { TasksController } from '../modules/tasks/tasks.controller.js';
+import { LaboratoryService } from '../modules/laboratory/laboratory.service.js';
+import { DisruptionsService } from '../modules/disruptions/disruptions.service.js';
+import type { AuthenticatedUser } from '../modules/auth/session.service.js';
+import { requireVerifiedIsolatedDatabase } from './isolated-postgres-harness.js';
+
+const databaseUrl = requireVerifiedIsolatedDatabase();
+
+test('operational permissions and workflows against real isolated PostgreSQL', {
+  skip: databaseUrl ? false : 'Requires an explicitly isolated local CYRIS_TEST_DATABASE_URL',
+}, async (t) => {
+  const db = getDbClient({ url: databaseUrl!, max: 10 });
+  const database = { client: db } as DatabaseService;
+  const auth = new AuthorizationService(database);
+  const access = new ResourceAccessService(database, auth);
+  const audit = new AuditService(database);
+  const indexer = new SearchIndexerService(database, {} as never);
+  // Notifications are kept local; the assertion checks the resource is visible
+  // outside its creation transaction (the previous implementation deadlocked on its FK).
+  let notifications = 0;
+  const notificationService = {
+    async emit(input: { resourceId: string }) {
+      const [visible] = await db.select({ id: resources.id }).from(resources).where(eq(resources.id, input.resourceId));
+      assert.ok(visible, 'notification must be dispatched after resource commit');
+      notifications += 1;
+      return null;
+    },
+  } as unknown as NotificationsService;
+  const activity = {
+    async recordActivity(input: Parameters<ActivityService['recordActivity']>[0], tx = db) {
+      // Use the production write implementation without exercising unrelated feed policy.
+      return ActivityService.prototype.recordActivity.call({ databaseService: { client: tx } }, input, tx);
+    },
+  } as unknown as ActivityService;
+  const resource = new ResourceService(database, audit, activity, indexer);
+  const allocator = new IdentifierAllocatorService(database);
+  const disruptions = new DisruptionsService(database, auth, audit);
+  const tasks = new TasksService(database, resource, access, allocator, audit, activity, indexer, notificationService, auth, disruptions);
+  const controller = new TasksController(tasks);
+  const lab = new LaboratoryService(database, resource, access, allocator, audit, activity, indexer, notificationService, auth);
+
+  const eventA = generateId();
+  const eventB = generateId();
+  const unitA = generateId();
+  const unitB = generateId();
+  const foreignUnit = generateId();
+  const evidenceId = generateId();
+  const fixtureUsers: AuthenticatedUser[] = ['organizer', 'worker', 'second-worker', 'leader', 'requester', 'outsider', 'inactive', 'disabled']
+    .map((name) => ({ id: generateId(), email: `${name}-${generateId()}@example.invalid`, displayName: name, status: name === 'disabled' ? 'DISABLED' : 'ACTIVE' }));
+  const [organizer, worker, secondWorker, leader, requester, outsider, inactive, disabled] = fixtureUsers as [AuthenticatedUser, AuthenticatedUser, AuthenticatedUser, AuthenticatedUser, AuthenticatedUser, AuthenticatedUser, AuthenticatedUser, AuthenticatedUser];
+  const memberships = new Map<string, string>();
+  const addRole = async (name: string, user: AuthenticatedUser, permissions: Array<[PermissionKey, string]>, unitId?: string) => {
+    const id = generateId();
+    await db.insert(roles).values({ id, eventId: eventA, name, slug: name });
+    await db.insert(rolePermissions).values(permissions.map(([permissionKey, scope]) => ({ roleId: id, permissionKey, scope })));
+    await db.insert(roleAssignments).values({ roleId: id, membershipId: memberships.get(user.id)!, unitId });
+  };
+  try {
+    await db.insert(events).values([
+      { id: eventA, name: 'Authorization regression A', slug: `auth-a-${eventA}` },
+      { id: eventB, name: 'Authorization regression B', slug: `auth-b-${eventB}` },
+    ]);
+    await db.insert(users).values(fixtureUsers);
+    await db.insert(organizationalUnits).values([
+      { id: unitA, eventId: eventA, name: 'Laboratory A', slug: 'lab-a' },
+      { id: unitB, eventId: eventA, name: 'Laboratory B', slug: 'lab-b' },
+      { id: foreignUnit, eventId: eventB, name: 'Other exercise laboratory', slug: 'lab-other' },
+    ]);
+    await db.insert(unitCapabilities).values([{ unitId: unitA, capabilityKey: 'chemical_analysis' }, { unitId: unitB, capabilityKey: 'chemical_analysis' }]);
+    for (const user of fixtureUsers.filter((u) => u !== outsider)) {
+      const id = generateId(); memberships.set(user.id, id);
+      await db.insert(eventMemberships).values({ id, eventId: eventA, userId: user.id, status: user === inactive ? 'INACTIVE' : 'ACTIVE' });
+      if (user !== organizer) await db.insert(membershipUnitAssignments).values({ membershipId: id, unitId: unitA });
+    }
+    await db.insert(membershipUnitAssignments).values({ membershipId: memberships.get(leader.id)!, unitId: unitB });
+    const assigned: Array<[PermissionKey, string]> = [
+      [Permissions.LAB_READ, 'ASSIGNED'], [Permissions.LAB_ACCEPT, 'ASSIGNED'],
+      [Permissions.LAB_WORK, 'ASSIGNED'], [Permissions.LAB_COMPLETE, 'ASSIGNED'],
+      [Permissions.TASK_READ, 'ASSIGNED'], [Permissions.TASK_ACKNOWLEDGE, 'ASSIGNED'],
+      [Permissions.TASK_WORK, 'ASSIGNED'], [Permissions.TASK_COMPLETE, 'ASSIGNED'],
+    ];
+    for (const user of [worker, secondWorker, inactive, disabled]) await addRole(`worker-${user.id}`, user, assigned);
+    await addRole('laboratory-leader', leader, [
+      [Permissions.LAB_READ, 'UNIT'], [Permissions.LAB_REQUEST, 'UNIT'], [Permissions.LAB_REASSIGN, 'UNIT'], [Permissions.EVIDENCE_READ, 'EVENT'],
+    ], unitA);
+    await addRole('laboratory-requester', requester, [[Permissions.LAB_REQUEST, 'EVENT'], [Permissions.LAB_READ, 'OWN'], [Permissions.EVIDENCE_READ, 'EVENT']]);
+    await addRole('exercise-control', organizer, [
+      Permissions.TASK_CREATE, Permissions.TASK_ASSIGN, Permissions.TASK_READ, Permissions.TASK_UPDATE,
+      Permissions.TASK_ACKNOWLEDGE, Permissions.TASK_WORK, Permissions.TASK_COMPLETE, Permissions.TASK_CANCEL,
+      Permissions.SCENARIO_MANAGE, Permissions.SCENARIO_OVERRIDE, Permissions.LAB_READ, Permissions.LAB_REQUEST,
+      Permissions.LAB_REASSIGN, Permissions.LAB_CORRECT, Permissions.LAB_ACCEPT, Permissions.LAB_WORK,
+      Permissions.LAB_COMPLETE, Permissions.LAB_APPROVE, Permissions.EVIDENCE_READ,
+    ].map((permission) => [permission, 'EVENT']));
+    await db.insert(resources).values({ id: evidenceId, eventId: eventA, resourceType: 'evidence', visibility: 'EVENT', ownerUserId: requester.id });
+    await db.insert(evidence).values({ id: evidenceId, evidenceNumber: 'EV-TEST', title: 'Fixture sample', evidenceType: 'sample', currentHolderId: requester.id });
+
+    await t.test('task creation denies an outsider and a member without TASK_CREATE before writes', async () => {
+      const dto = CreateOperationalTaskRequestSchema.parse({ title: 'Unauthorized task' });
+      await assert.rejects(tasks.createTask(eventA, dto, outsider), ForbiddenException);
+      await assert.rejects(tasks.createTask(eventA, dto, worker), ForbiddenException);
+      assert.equal((await db.select().from(operationalTasks).where(eq(operationalTasks.eventId, eventA))).length, 0);
+    });
+    await t.test('task assignees must be active, in the event and in the selected unit', async () => {
+      for (const target of [outsider, inactive, disabled]) {
+        await assert.rejects(tasks.createTask(eventA, CreateOperationalTaskRequestSchema.parse({ title: 'Invalid target', assignedUnitId: unitA, assignedUserId: target.id }), organizer), BadRequestException);
+      }
+      await assert.rejects(tasks.createTask(eventA, CreateOperationalTaskRequestSchema.parse({ title: 'Wrong unit', assignedUnitId: unitB, assignedUserId: worker.id }), organizer), BadRequestException);
+      await assert.rejects(tasks.createTask(eventA, CreateOperationalTaskRequestSchema.parse({ title: 'Wrong event owner', owningUnitId: foreignUnit }), organizer), BadRequestException);
+    });
+    let taskId = '';
+    await t.test('authorized task creation commits before notification and preserves assignee access', async () => {
+      const row = await tasks.createTask(eventA, CreateOperationalTaskRequestSchema.parse({ title: 'Assigned task', assignedUnitId: unitA, assignedUserId: worker.id }), organizer);
+      taskId = row.id;
+      assert.equal(notifications, 1);
+      assert.equal((await tasks.getTaskDetail(taskId, worker, eventA)).id, taskId);
+    });
+    await t.test('all controller mutations reject a task addressed through another event', async () => {
+      const calls = [
+        () => controller.updateTask(eventB, taskId, { title: 'Wrong-event edit' }, organizer),
+        () => controller.assignTask(eventB, taskId, {}, organizer),
+        () => controller.acknowledgeTask(eventB, taskId, {}, organizer),
+        () => controller.startTask(eventB, taskId, {}, organizer),
+        () => controller.blockTask(eventB, taskId, { reason: 'Wrong event' }, organizer),
+        () => controller.completeTask(eventB, taskId, {}, organizer),
+        () => controller.cancelTask(eventB, taskId, { reason: 'Wrong event' }, organizer),
+        () => controller.reopenTask(eventB, taskId, { reason: 'Wrong event' }, organizer),
+      ];
+      for (const call of calls) await assert.rejects(call(), NotFoundException);
+      const [row] = await db.select().from(operationalTasks).where(eq(operationalTasks.id, taskId));
+      assert.equal(row?.status, 'OPEN'); assert.equal(row?.title, 'Assigned task');
+    });
+    await t.test('explicit UNIT role stays within its bound unit despite membership in another unit', async () => {
+      assert.equal(await auth.authorize({ user: leader, permission: Permissions.LAB_REASSIGN, context: { eventId: eventA, unitId: unitA } }), true);
+      assert.equal(await auth.authorize({ user: leader, permission: Permissions.LAB_REASSIGN, context: { eventId: eventA, unitId: unitB } }), false);
+    });
+    await t.test('ASSIGNED lab workers are eligible without granting access to unassigned resources', async () => {
+      const capability = { permission: Permissions.LAB_WORK, eventId: eventA, unitId: unitA, resourceScopes: ['ASSIGNED'] as const, requireUnitMembership: true };
+      assert.equal(await auth.hasEventCapability({ user: worker, ...capability }), true);
+      assert.equal(await auth.authorize({ user: worker, permission: Permissions.LAB_WORK, context: { eventId: eventA, unitId: unitA } }), false);
+      assert.equal(await auth.hasEventCapability({ user: outsider, ...capability }), false);
+      assert.equal(await auth.hasEventCapability({ user: inactive, ...capability }), false);
+      assert.equal(await auth.hasEventCapability({ user: { ...disabled, status: 'ACTIVE' }, ...capability }), false);
+      assert.equal(await auth.hasEventCapability({ user: worker, ...capability, unitId: unitB }), false);
+      assert.equal(await auth.hasEventCapability({ user: worker, ...capability, eventId: eventB }), false);
+    });
+    let labId = '';
+    await t.test('concurrent lab requests assign real eligible workers with balanced workload', async () => {
+      const created = await Promise.all(Array.from({ length: 4 }, () => lab.createAnalysis(eventA, { analysisType: 'chemical', evidenceIds: [evidenceId], requestedFromUnitId: unitA, visibility: 'EVENT' }, requester)));
+      labId = created[0]!.id;
+      assert.equal(new Set(created.map((r) => r.analysisNumber)).size, 4);
+      assert.equal(created.filter((r) => r.assignedToUserId === worker.id).length, 2);
+      assert.equal(created.filter((r) => r.assignedToUserId === secondWorker.id).length, 2);
+      for (const row of created) assert.equal((await lab.getAnalysis(eventA, row.id, row.assignedToUserId === worker.id ? worker : secondWorker)).id, row.id);
+    });
+    await t.test('lab leader can request and reassign to ordinary workers in the bound unit', async () => {
+      const requested = await lab.createAnalysis(eventA, { analysisType: 'chemical', evidenceIds: [evidenceId], requestedFromUnitId: unitA, visibility: 'EVENT' }, leader);
+      const row = await lab.reassignAnalysis(eventA, requested.id, { assignedToUserId: worker.id, assignedUnitId: unitA, reason: 'Balance work' }, leader);
+      assert.equal(row.assignedToUserId, worker.id);
+      await assert.rejects(lab.reassignAnalysis(eventA, requested.id, { assignedUnitId: unitB, assignedToUserId: null, reason: 'Move outside scope' }, leader), ForbiddenException);
+    });
+    await t.test('My Work returns only assigned items and rejects broader or foreign-event queues', async () => {
+      const personal = await tasks.listMyWork(eventA, MyWorkQuerySchema.parse({ view: 'personal' }), worker);
+      assert.ok(personal.items.some((item) => item.id === taskId));
+      assert.ok(personal.items.some((item) => item.kind === 'LAB_ANALYSIS'));
+      assert.ok(personal.items.every((item) => item.assignedToUserId === worker.id));
+      assert.deepEqual(personal.availableViews, ['personal']);
+      assert.deepEqual(personal.availableUnits, []);
+      const leaderWork = await tasks.listMyWork(eventA, MyWorkQuerySchema.parse({}), leader);
+      assert.deepEqual(leaderWork.availableViews, ['personal', 'unit']);
+      assert.deepEqual(leaderWork.availableUnits.map((unit) => unit.id), [unitA]);
+      await assert.rejects(tasks.listMyWork(eventA, MyWorkQuerySchema.parse({ view: 'event' }), worker), ForbiddenException);
+      await assert.rejects(tasks.listMyWork(eventA, MyWorkQuerySchema.parse({ view: 'unit', unitId: unitA }), worker), ForbiddenException);
+      await assert.rejects(tasks.listMyWork(eventB, MyWorkQuerySchema.parse({}), worker), ForbiddenException);
+      await assert.rejects(tasks.listMyWork(eventA, MyWorkQuerySchema.parse({}), outsider), ForbiddenException);
+    });
+    await t.test('task retries preserve progress and concurrent completion records one audit transition', async () => {
+      const row = await tasks.createTask(eventA, CreateOperationalTaskRequestSchema.parse({ title: 'Transition regression', assignedUnitId: unitA, assignedUserId: worker.id }), organizer);
+      await tasks.startTask(row.id, {}, worker, eventA);
+      assert.equal((await tasks.acknowledgeTask(row.id, {}, worker, eventA)).status, 'IN_PROGRESS');
+      const results = await Promise.all([
+        tasks.completeTask(row.id, { completionNote: 'First completion' }, worker, eventA),
+        tasks.completeTask(row.id, { completionNote: 'Retried completion' }, worker, eventA),
+      ]);
+      assert.ok(results.every((result) => result.status === 'COMPLETED'));
+      const completed = await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId, row.id), eq(auditEvents.action, 'task.completed')));
+      assert.equal(completed.length, 1);
+      await assert.rejects(tasks.cancelTask(row.id, { reason: 'Already done' }, organizer, eventA), BadRequestException);
+      await tasks.reopenTask(row.id, { reason: 'Review required', newStatus: 'OPEN' }, organizer, eventA);
+      await tasks.cancelTask(row.id, { reason: 'Superseded' }, organizer, eventA);
+      await assert.rejects(tasks.completeTask(row.id, {}, worker, eventA), BadRequestException);
+      assert.equal((await tasks.getTaskDetail(row.id, organizer, eventA)).status, 'CANCELLED');
+    });
+    await t.test('audit failure rolls back a task state transition', async () => {
+      const row = await tasks.createTask(eventA, CreateOperationalTaskRequestSchema.parse({ title: 'Atomic rollback', assignedUnitId: unitA, assignedUserId: worker.id }), organizer);
+      const failedAudit = { async record() { throw new Error('Injected audit persistence failure'); } } as unknown as AuditService;
+      const failing = new TasksService(database, resource, access, allocator, failedAudit, activity, indexer, notificationService, auth, disruptions);
+      await assert.rejects(failing.startTask(row.id, {}, worker, eventA), /Injected audit persistence failure/);
+      assert.equal((await tasks.getTaskDetail(row.id, organizer, eventA)).status, 'OPEN');
+      const audits = await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId, row.id), eq(auditEvents.action, 'task.started')));
+      assert.equal(audits.length, 0);
+    });
+    await t.test('ASSIGNED task readers see scoped status and recovery while module writes remain disrupted', async () => {
+      const disruption = await disruptions.start(eventA, { targetType: 'UNIT', targetId: unitA, module: 'tasks', mode: 'READ_ONLY', startsAt: new Date(Date.now() - 1000).toISOString(), reason: 'Private EXCON reason' }, organizer);
+      assert.equal((await disruptions.getParticipantStatus(eventA, worker)).active, true);
+      const status = await disruptions.getServiceStatus(eventA, worker);
+      assert.equal(status.items[0]?.reason, null);
+      assert.equal(status.items[0]?.impact, 'READ_ONLY');
+      await assert.rejects(tasks.startTask(taskId, {}, worker, eventA), ForbiddenException);
+      await assert.rejects(disruptions.getParticipantStatus(eventA, outsider), ForbiddenException);
+      await assert.rejects(disruptions.getParticipantStatus(eventB, worker), ForbiddenException);
+      const objective = await disruptions.createRecoveryObjective(eventA, { disruptionId: disruption.id, title: 'Restore tasks', instructions: 'Validate service', audienceType: 'UNIT', audienceId: unitA }, organizer);
+      await disruptions.publishRecoveryObjective(eventA, objective.id, objective.revision, organizer);
+      assert.equal((await disruptions.listRecoveryObjectives(eventA, worker))[0]?.id, objective.id);
+      const report = await disruptions.submitRecoveryReport(eventA, objective.id, { body: 'Service validation complete' }, worker);
+      assert.equal(report.authorUserId, worker.id);
+      await assert.rejects(disruptions.submitRecoveryReport(eventB, objective.id, { body: 'Cross-event report' }, worker), ForbiddenException);
+    });
+  } finally {
+    // Audit is append-only. These uniquely named fixtures belong to the verified
+    // disposable database and are removed when its harness drops that database.
+    // Never disable audit triggers or leave the connection pool open on failure.
+    await closeDatabaseConnection();
+  }
+});

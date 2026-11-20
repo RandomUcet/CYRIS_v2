@@ -20,6 +20,8 @@ import type {
   OidcConfig,
   IdentityProviderSummary,
 } from '@cyris/contracts';
+import { resolveLdapMappings } from '../auth/providers/ldap-provisioning.js';
+import { LdapConfigSchema, OidcConfigSchema, resolveLdapTransportSecurity, validateLdapConfig } from '@cyris/contracts';
 
 @Injectable()
 export class IdentityService {
@@ -107,7 +109,7 @@ export class IdentityService {
       .where(eq(integrations.id, id))
       .limit(1);
 
-    if (!row) {
+    if (!row || ![IntegrationCategory.LDAP, IntegrationCategory.OIDC].includes(row.category as 'LDAP' | 'OIDC')) {
       throw new NotFoundException(`Identity provider '${id}' not found`);
     }
 
@@ -149,8 +151,15 @@ export class IdentityService {
     if (!name || !config) {
       throw new BadRequestException('Provider name and configuration are required');
     }
+    const configErrors = validateLdapConfig(config);
+    if (configErrors.length > 0) throw new BadRequestException(configErrors.join('; '));
+    config = LdapConfigSchema.parse(config);
+    if (typeof name !== 'string' || name.trim().length === 0 || name.length > 128) throw new BadRequestException('Invalid provider name');
+    if (bindPassword !== undefined && typeof bindPassword !== 'string') throw new BadRequestException('Invalid bind password');
 
     const db = this.databaseService.client;
+    try { await resolveLdapMappings(db, config.groupMappings ?? []); }
+    catch (error) { throw new BadRequestException((error as Error).message); }
     const providerId = id ?? generateId();
     const safeConfig = { ...config };
     delete (safeConfig as any).bindPassword;
@@ -159,8 +168,8 @@ export class IdentityService {
 
     if (id) {
       const [existing] = await db.select().from(integrations).where(eq(integrations.id, id)).limit(1);
-      if (!existing) {
-        throw new NotFoundException(`Provider '${id}' not found`);
+      if (!existing || existing.category !== IntegrationCategory.LDAP) {
+        throw new NotFoundException(`LDAP provider '${id}' not found`);
       }
 
       await db
@@ -168,7 +177,9 @@ export class IdentityService {
         .set({
           name,
           config: safeConfig,
-          status: IntegrationStatus.OPERATIONAL,
+          status: IntegrationStatus.NOT_CONFIGURED,
+        lastCheckedAt: null,
+        lastError: null,
           updatedAt: now,
         })
         .where(eq(integrations.id, id));
@@ -178,16 +189,18 @@ export class IdentityService {
         name,
         category: IntegrationCategory.LDAP,
         providerType: 'LDAP_ACTIVE_DIRECTORY',
-        enabled: true,
-        status: IntegrationStatus.OPERATIONAL,
+        enabled: false,
+        status: IntegrationStatus.NOT_CONFIGURED,
+        lastCheckedAt: null,
+        lastError: null,
         config: safeConfig,
         createdAt: now,
         updatedAt: now,
       });
     }
 
-    if (bindPassword && bindPassword.trim().length > 0) {
-      await this.secretService.setSecret(providerId, 'BIND_PASSWORD', bindPassword.trim(), actorUserId);
+    if (typeof bindPassword === 'string' && bindPassword.length > 0) {
+      await this.secretService.setSecret(providerId, 'BIND_PASSWORD', bindPassword, actorUserId);
     }
 
     await this.auditService.record({
@@ -198,6 +211,33 @@ export class IdentityService {
     });
 
     return this.getProvider(providerId);
+  }
+
+  async testLdapProvider(id: string, mode: 'CONFIGURATION' | 'MOCK' = 'CONFIGURATION'): Promise<{
+    ok: boolean;
+    mode: 'CONFIGURATION';
+    networkChecked: false;
+    providerId: string;
+    transportSecurity: 'NONE' | 'LDAPS' | 'STARTTLS';
+    message: string;
+  }> {
+    if (mode !== 'CONFIGURATION' && mode !== 'MOCK') throw new BadRequestException('Only configuration validation is supported');
+    const provider = await this.getProvider(id);
+    if (provider.category !== 'LDAP') throw new BadRequestException('Provider is not LDAP');
+    const config = provider.config as unknown as LdapConfig;
+    const configErrors = validateLdapConfig(config);
+    if (!provider.hasSecretConfigured) configErrors.push('Configure the LDAP bind password before enabling login');
+    if (configErrors.length > 0) throw new BadRequestException(configErrors.join('; '));
+    try { await resolveLdapMappings(this.databaseService.client, config.groupMappings ?? []); }
+    catch (error) { throw new BadRequestException((error as Error).message); }
+    return {
+      ok: true,
+      mode: 'CONFIGURATION',
+      networkChecked: false,
+      providerId: id,
+      transportSecurity: resolveLdapTransportSecurity(config),
+      message: 'Konfigurace je platná. Dostupnost adresáře, certifikát a přihlášení je nutné ověřit skutečným připojením.',
+    };
   }
 
   /**
@@ -215,6 +255,11 @@ export class IdentityService {
       throw new BadRequestException('Provider name and configuration are required');
     }
 
+    const parsed = OidcConfigSchema.safeParse(config);
+    if (!parsed.success) throw new BadRequestException('Invalid OpenID Connect configuration');
+    config = parsed.data;
+    if (typeof name !== 'string' || !name.trim() || name.length > 128) throw new BadRequestException('Invalid provider name');
+    if (clientSecret !== undefined && typeof clientSecret !== 'string') throw new BadRequestException('Invalid client secret');
     const db = this.databaseService.client;
     const providerId = id ?? generateId();
     const safeConfig = { ...config };
@@ -224,7 +269,7 @@ export class IdentityService {
 
     if (id) {
       const [existing] = await db.select().from(integrations).where(eq(integrations.id, id)).limit(1);
-      if (!existing) {
+      if (!existing || existing.category !== IntegrationCategory.OIDC) {
         throw new NotFoundException(`Provider '${id}' not found`);
       }
 
@@ -233,7 +278,9 @@ export class IdentityService {
         .set({
           name,
           config: safeConfig,
-          status: IntegrationStatus.OPERATIONAL,
+          status: IntegrationStatus.NOT_CONFIGURED,
+        lastCheckedAt: null,
+        lastError: null,
           updatedAt: now,
         })
         .where(eq(integrations.id, id));
@@ -244,15 +291,17 @@ export class IdentityService {
         category: IntegrationCategory.OIDC,
         providerType: 'GENERIC_OIDC',
         enabled: true,
-        status: IntegrationStatus.OPERATIONAL,
+        status: IntegrationStatus.NOT_CONFIGURED,
+        lastCheckedAt: null,
+        lastError: null,
         config: safeConfig,
         createdAt: now,
         updatedAt: now,
       });
     }
 
-    if (clientSecret && clientSecret.trim().length > 0) {
-      await this.secretService.setSecret(providerId, 'CLIENT_SECRET', clientSecret.trim(), actorUserId);
+    if (typeof clientSecret === 'string' && clientSecret.length > 0) {
+      await this.secretService.setSecret(providerId, 'CLIENT_SECRET', clientSecret, actorUserId);
     }
 
     await this.auditService.record({
@@ -271,9 +320,10 @@ export class IdentityService {
   async toggleProvider(id: string, enabled: boolean, actorUserId?: string): Promise<IdentityProviderSummary> {
     const db = this.databaseService.client;
     const [row] = await db.select().from(integrations).where(eq(integrations.id, id)).limit(1);
-    if (!row) {
-      throw new NotFoundException(`Provider '${id}' not found`);
+    if (!row || ![IntegrationCategory.LDAP, IntegrationCategory.OIDC].includes(row.category as 'LDAP' | 'OIDC')) {
+      throw new NotFoundException(`Identity provider '${id}' not found`);
     }
+    if (enabled && row.category === IntegrationCategory.LDAP) await this.testLdapProvider(id);
 
     await db
       .update(integrations)
@@ -294,6 +344,7 @@ export class IdentityService {
    * Deletes an identity provider and its encrypted secrets.
    */
   async deleteProvider(id: string, actorUserId?: string): Promise<void> {
+    await this.getProvider(id); // Reject IDs from unrelated integrations before mutation.
     const db = this.databaseService.client;
     await db.delete(integrations).where(eq(integrations.id, id));
 

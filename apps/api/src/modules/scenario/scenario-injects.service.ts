@@ -6,12 +6,14 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
-import { eq, and, desc, asc, inArray } from 'drizzle-orm';
+import { eq, and, desc, asc, inArray, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { IdentifierAllocatorService } from '../resources/identifier-allocator.service.js';
 import {
   scenarioPhases,
+  events,
+  validateScenarioReferences,
   scenarioInjects,
   scenarioInjectDependencies,
   scenarioInjectConditions,
@@ -28,6 +30,7 @@ import {
 import { generateId } from '@cyris/shared';
 import { ScenarioConditionEvaluatorService } from './scenario-condition-evaluator.service.js';
 import { ScenarioClockService } from './scenario-clock.service.js';
+import { rethrowScenarioError } from './scenario-release.service.js';
 import type {
   CreateScenarioInjectInput,
   UpdateScenarioInjectInput,
@@ -194,13 +197,9 @@ export class ScenarioInjectsService {
     const injectId = generateId();
     const injectNumber = await this.identifierAllocator.allocate(eventId, 'scenario_inject', 'INJ');
 
-    // Cycle check for initial dependencies
-    if (input.dependencies && input.dependencies.length > 0) {
-      await this.validateNoCycles(eventId, injectId, input.dependencies);
-    }
 
     let initialStatus: string = 'DRAFT';
-    if (input.triggerType === 'MANUAL') {
+    if ((input.triggerType ?? 'MANUAL') === 'MANUAL') {
       initialStatus = (input.dependencies?.length ?? 0) > 0 ? 'BLOCKED' : 'READY';
     } else if (input.triggerType === 'SCHEDULED_TIME') {
       initialStatus = 'SCHEDULED';
@@ -209,6 +208,14 @@ export class ScenarioInjectsService {
     }
 
     await this.db.transaction(async (tx) => {
+      await this.lockScenarioEvent(tx, eventId);
+      try { await validateScenarioReferences(tx, eventId, { ...input, actions: input.actions?.map(action => ({ ...action, targetType: action.targetType ?? 'UNIT' })) }); }
+      catch (error) { rethrowScenarioError(error); }
+      if (input.triggerType === 'SCHEDULED_TIME' && !input.scheduledAt) throw new BadRequestException('Scheduled inject requires a scenario time');
+      await this.validateNoCycles(eventId, injectId, [
+        ...(input.dependencies ?? []),
+        ...(input.conditions ?? []).filter(condition => condition.conditionType === 'INJECT_RELEASED' && condition.targetResourceId).map(condition => condition.targetResourceId!),
+      ], tx);
       await tx.insert(scenarioInjects).values({
         id: injectId,
         eventId,
@@ -324,11 +331,22 @@ export class ScenarioInjectsService {
       throw new BadRequestException(`Cannot modify released inject ${current.injectNumber}. Release snapshot is immutable.`);
     }
 
-    if (input.dependencies && input.dependencies.length > 0) {
-      await this.validateNoCycles(eventId, injectId, input.dependencies);
-    }
-
     await this.db.transaction(async (tx) => {
+      await this.lockScenarioEvent(tx, eventId);
+      const [locked] = await tx.select().from(scenarioInjects)
+        .where(and(eq(scenarioInjects.eventId, eventId), eq(scenarioInjects.id, injectId))).for('update');
+      if (!locked || ['RELEASED', 'CANCELLED'].includes(locked.status)) throw new BadRequestException('Released or cancelled injects cannot be modified');
+      try { await validateScenarioReferences(tx, eventId, { ...input, actions: input.actions?.map(action => ({ ...action, targetType: action.targetType ?? 'UNIT' })) }); }
+      catch (error) { rethrowScenarioError(error); }
+      if ((input.triggerType ?? locked.triggerType) === 'SCHEDULED_TIME' && !(input.scheduledAt === undefined ? locked.scheduledAt : input.scheduledAt)) {
+        throw new BadRequestException('Scheduled inject requires a scenario time');
+      }
+      const currentDependencies = await tx.select().from(scenarioInjectDependencies).where(eq(scenarioInjectDependencies.injectId, injectId));
+      const currentConditions = await tx.select().from(scenarioInjectConditions).where(eq(scenarioInjectConditions.injectId, injectId));
+      await this.validateNoCycles(eventId, injectId, [
+        ...(input.dependencies ?? currentDependencies.map(dependency => dependency.dependsOnInjectId)),
+        ...(input.conditions ?? currentConditions).filter(condition => condition.conditionType === 'INJECT_RELEASED' && condition.targetResourceId).map(condition => condition.targetResourceId!),
+      ], tx);
       const updateData: Record<string, any> = {
         updatedAt: new Date(),
       };
@@ -444,14 +462,13 @@ export class ScenarioInjectsService {
       throw new BadRequestException(`Cannot cancel already RELEASED inject ${current.injectNumber}`);
     }
 
-    await this.db
-      .update(scenarioInjects)
-      .set({
-        status: 'CANCELLED',
-        cancelledAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(and(eq(scenarioInjects.eventId, eventId), eq(scenarioInjects.id, injectId)));
+    await this.db.transaction(async tx => {
+      const [locked] = await tx.select({ status: scenarioInjects.status }).from(scenarioInjects)
+        .where(and(eq(scenarioInjects.eventId, eventId), eq(scenarioInjects.id, injectId))).for('update');
+      if (!locked || locked.status === 'RELEASED') throw new BadRequestException('A released inject cannot be cancelled');
+      await tx.update(scenarioInjects).set({ status: 'CANCELLED', cancelledAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(scenarioInjects.eventId, eventId), eq(scenarioInjects.id, injectId)));
+    });
 
     await this.auditService.record({
       action: 'scenario.inject.cancelled',
@@ -509,7 +526,7 @@ export class ScenarioInjectsService {
     return {
       injectNumber: inject.injectNumber,
       targetAudienceDescription: targetDesc,
-      participantTitle: inject.participantTitle ?? inject.title,
+      participantTitle: inject.participantTitle?.trim() || `Briefing ${inject.injectNumber}`,
       participantContent: inject.participantContent,
       requiresAcknowledgement: inject.requiresAcknowledgement,
       disclosedResources,
@@ -527,25 +544,37 @@ export class ScenarioInjectsService {
    * Validates that adding candidate prerequisite dependencies doesn't introduce a cycle.
    * Performs DFS cycle traversal.
    */
-  private async validateNoCycles(eventId: string, currentInjectId: string, candidateDepIds: string[]): Promise<void> {
+  private async lockScenarioEvent(tx: any, eventId: string): Promise<void> {
+    // Serialize graph edits without taking a parent-row lock that can deadlock release FK checks.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${eventId}, 0))`);
+    const [event] = await tx.select({ id: events.id, status: events.status }).from(events).where(eq(events.id, eventId)).limit(1);
+    if (!event) throw new NotFoundException('Exercise not found');
+    if (['CLOSED', 'ARCHIVED'].includes(event.status)) throw new BadRequestException('The exercise is closed');
+  }
+
+  private async validateNoCycles(eventId: string, currentInjectId: string, candidateDepIds: string[], db: any = this.db): Promise<void> {
     if (candidateDepIds.includes(currentInjectId)) {
       throw new BadRequestException('Inject cannot depend on itself.');
     }
-    const candidates = await this.db
+    const candidates = await db
       .select({ id: scenarioInjects.id, eventId: scenarioInjects.eventId })
       .from(scenarioInjects)
       .where(inArray(scenarioInjects.id, candidateDepIds));
-    if (candidates.length !== new Set(candidateDepIds).size || candidates.some((candidate) => candidate.eventId !== eventId)) {
+    if (candidates.length !== new Set(candidateDepIds).size || candidates.some((candidate: { eventId: string }) => candidate.eventId !== eventId)) {
       throw new BadRequestException('Dependencies must reference injects in the same event.');
     }
 
-    const allDeps = await this.db
+    const allDeps = await db
       .select({
         injectId: scenarioInjectDependencies.injectId,
         dependsOnId: scenarioInjectDependencies.dependsOnInjectId,
       })
       .from(scenarioInjectDependencies)
       .where(eq(scenarioInjectDependencies.eventId, eventId));
+
+    const conditionalEdges = await db.select({ injectId: scenarioInjectConditions.injectId, dependsOnId: scenarioInjectConditions.targetResourceId })
+      .from(scenarioInjectConditions).where(and(eq(scenarioInjectConditions.eventId, eventId), eq(scenarioInjectConditions.conditionType, 'INJECT_RELEASED')));
+    allDeps.push(...conditionalEdges.filter((edge: { dependsOnId: string | null }) => edge.dependsOnId));
 
     // Build adjacency list: node -> prerequisites
     const adj = new Map<string, string[]>();
@@ -748,37 +777,17 @@ export class ScenarioInjectsService {
     input: ScenarioInjectTranslationInput,
     userId: string
   ): Promise<ScenarioInjectTranslationResponse> {
-    const [inject] = await this.db
-      .select({ id: scenarioInjects.id, status: scenarioInjects.status })
-      .from(scenarioInjects)
-      .where(and(eq(scenarioInjects.eventId, eventId), eq(scenarioInjects.id, injectId)))
-      .limit(1);
-
-    if (!inject) {
-      throw new NotFoundException(`Scenario inject '${injectId}' not found in event '${eventId}'`);
-    }
-
-    const now = new Date();
-    const [saved] = await this.db
-      .insert(scenarioInjectTranslations)
-      .values({
-        id: generateId(),
-        injectId,
-        locale: input.locale.toLowerCase(),
-        participantTitle: input.participantTitle,
-        participantContent: input.participantContent,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [scenarioInjectTranslations.injectId, scenarioInjectTranslations.locale],
-        set: {
-          participantTitle: input.participantTitle,
-          participantContent: input.participantContent,
-          updatedAt: now,
-        },
-      })
-      .returning();
+    const [saved] = await this.db.transaction(async tx => {
+      const [inject] = await tx.select({ id: scenarioInjects.id, status: scenarioInjects.status }).from(scenarioInjects)
+        .where(and(eq(scenarioInjects.eventId, eventId), eq(scenarioInjects.id, injectId))).for('update');
+      if (!inject) throw new NotFoundException('Scenario inject not found in this exercise');
+      if (['RELEASED', 'CANCELLED'].includes(inject.status)) throw new BadRequestException('Released or cancelled translations cannot be changed');
+      const now = new Date();
+      return tx.insert(scenarioInjectTranslations).values({ id: generateId(), injectId, locale: input.locale.toLowerCase(),
+        participantTitle: input.participantTitle, participantContent: input.participantContent, createdAt: now, updatedAt: now })
+        .onConflictDoUpdate({ target: [scenarioInjectTranslations.injectId, scenarioInjectTranslations.locale],
+          set: { participantTitle: input.participantTitle, participantContent: input.participantContent, updatedAt: now } }).returning();
+    });
 
     await this.auditService.record({
       action: 'scenario.inject.translation_saved',
@@ -802,6 +811,9 @@ export class ScenarioInjectsService {
   }
 
   async getTranslations(eventId: string, injectId: string): Promise<ScenarioInjectTranslationResponse[]> {
+    const [inject] = await this.db.select({ id: scenarioInjects.id }).from(scenarioInjects)
+      .where(and(eq(scenarioInjects.id, injectId), eq(scenarioInjects.eventId, eventId))).limit(1);
+    if (!inject) throw new NotFoundException('Scenario inject not found in this exercise');
     const rows = await this.db
       .select()
       .from(scenarioInjectTranslations)

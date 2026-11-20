@@ -162,7 +162,8 @@ export const scenarioInjectConditions = pgTable(
       .notNull()
       .references(() => scenarioInjects.id, { onDelete: 'cascade' }),
     conditionType: varchar('condition_type', { length: 64 }).notNull(),
-    targetResourceId: uuid('target_resource_id').references(() => resources.id, { onDelete: 'set null' }),
+    // Polymorphic target: resources, injects and recovery objectives are validated by type/event.
+    targetResourceId: uuid('target_resource_id'),
     targetIdentifier: varchar('target_identifier', { length: 64 }),
     targetStatus: varchar('target_status', { length: 64 }),
     activityType: varchar('activity_type', { length: 64 }),
@@ -311,6 +312,17 @@ export const scenarioDeliveries = pgTable(
     releaseDeliveryIdx: index('scenario_deliveries_release_idx').on(table.eventId, table.releaseId),
   })
 );
+
+/** Read/ack state belongs to a participant, including event/unit broadcasts. */
+export const scenarioBriefingReceipts = pgTable('scenario_briefing_receipts', {
+  id: uuid('id').primaryKey().$defaultFn(() => generateId()),
+  releaseId: uuid('release_id').notNull().references(() => scenarioInjectReleases.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  readAt: timestamp('read_at', { withTimezone: true }),
+  acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
+}, (table) => ({
+  releaseUserIdx: uniqueIndex('scenario_briefing_receipts_release_user_idx').on(table.releaseId, table.userId),
+}));
 
 // Relations
 export const scenarioPhasesRelations = relations(scenarioPhases, ({ one, many }) => ({

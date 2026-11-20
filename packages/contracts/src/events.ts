@@ -81,8 +81,12 @@ export const MembershipResponseSchema = z.object({
       id: z.string().uuid(),
       email: z.string(),
       displayName: z.string(),
+      status: z.string(),
     })
     .optional(),
+  platformRoles: z.array(z.object({ id: z.string().uuid(), name: z.string() })).default([]),
+  units: z.array(z.object({ id: z.string().uuid(), name: z.string() })),
+  roles: z.array(z.object({ id: z.string().uuid(), name: z.string(), unitId: z.string().uuid().nullable() })),
 });
 
 export type MembershipResponse = z.infer<typeof MembershipResponseSchema>;

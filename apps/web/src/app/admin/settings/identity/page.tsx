@@ -16,15 +16,19 @@ import {
   ToggleLeft,
   ToggleRight,
   ExternalLink,
+  Pencil,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import type { IdentityProviderSummary, LdapConfig, OidcConfig } from '@cyris/contracts';
+import { resolveLdapTransportSecurity, type IdentityProviderSummary, type LdapConfig, type OidcConfig } from '@cyris/contracts';
 
 export default function IdentitySettingsPage() {
   const { isPlatformAdmin } = useAuth();
   const { t, formatTime } = usePreferences();
   const [providers, setProviders] = useState<IdentityProviderSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [feedback, setFeedback] = useState<{ error: boolean; message: string } | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [editingLdap, setEditingLdap] = useState<IdentityProviderSummary | null>(null);
 
   // Modal / drawer states
   const [isLdapModalOpen, setIsLdapModalOpen] = useState(false);
@@ -33,8 +37,8 @@ export default function IdentitySettingsPage() {
 
   // LDAP form state
   const [ldapName, setLdapName] = useState('Active Directory');
-  const [ldapUrl, setLdapUrl] = useState('ldap://localhost:389');
-  const [ldapTls, setLdapTls] = useState(false);
+  const [ldapUrl, setLdapUrl] = useState('ldaps://localhost:636');
+  const [ldapTransportSecurity, setLdapTransportSecurity] = useState<'NONE' | 'LDAPS' | 'STARTTLS'>('LDAPS');
   const [ldapBindDn, setLdapBindDn] = useState('cn=admin,dc=example,dc=org');
   const [ldapBindPassword, setLdapBindPassword] = useState('');
   const [ldapBaseDn, setLdapBaseDn] = useState('dc=example,dc=org');
@@ -52,37 +56,65 @@ export default function IdentitySettingsPage() {
   const [oidcJit, setOidcJit] = useState(true);
 
   const fetchProviders = async () => {
-    try {
-      const res = await apiClient.listIdentityProviders();
-      if (res.ok && res.data) {
-        setProviders(res.data);
-      }
-    } catch {}
+    const res = await apiClient.listIdentityProviders();
+    if (res.ok && res.data) setProviders(res.data);
+    else setFeedback({ error: true, message: res.error ?? 'Poskytovatele se nepodařilo načíst.' });
     setLoading(false);
   };
 
+  const handleTest = async (id: string) => {
+    setTestingId(id);
+    try {
+      const res = await apiClient.testIdentityProvider(id);
+      setFeedback({ error: !res.ok, message: res.ok ? (res.data?.message ?? 'Konfigurace je platná.') : (res.error ?? 'Konfigurace není platná.') });
+    } finally {
+      setTestingId(null);
+    }
+  };
+
   useEffect(() => {
-    fetchProviders();
-  }, []);
+    if (isPlatformAdmin) void fetchProviders();
+  }, [isPlatformAdmin]);
 
   const handleToggle = async (id: string, current: boolean) => {
-    await apiClient.toggleIdentityProvider(id, !current);
-    await fetchProviders();
+    const res = await apiClient.toggleIdentityProvider(id, !current);
+    if (!res.ok) setFeedback({ error: true, message: res.error ?? 'Změna se nezdařila.' });
+    else await fetchProviders();
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to remove this identity provider?')) return;
-    await apiClient.deleteIdentityProvider(id);
-    await fetchProviders();
+    if (!confirm('Opravdu odstranit poskytovatele přihlášení?')) return;
+    const res = await apiClient.deleteIdentityProvider(id);
+    if (!res.ok) setFeedback({ error: true, message: res.error ?? 'Odstranění se nezdařilo.' });
+    else await fetchProviders();
+  };
+
+  const editLdap = (provider: IdentityProviderSummary) => {
+    const config = provider.config as LdapConfig;
+    setEditingLdap(provider);
+    setLdapName(provider.name);
+    setLdapUrl(config.url);
+    setLdapTransportSecurity(resolveLdapTransportSecurity(config));
+    setLdapBindDn(config.bindDn);
+    setLdapBaseDn(config.baseDn);
+    setLdapUserFilter(config.userFilter ?? '(uid={username})');
+    setLdapUsernameAttr(config.usernameAttr ?? 'uid');
+    setLdapEmailAttr(config.emailAttr ?? 'mail');
+    setLdapDisplayNameAttr(config.displayNameAttr ?? 'cn');
+    setLdapJit(config.jitEnabled !== false);
+    setLdapBindPassword('');
+    setIsLdapModalOpen(true);
   };
 
   const handleSaveLdap = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     const config: LdapConfig = {
+      ...(editingLdap?.config as LdapConfig | undefined),
       displayName: ldapName,
       url: ldapUrl,
-      tls: ldapTls,
+      tls: ldapTransportSecurity !== 'NONE',
+      transportSecurity: ldapTransportSecurity,
       bindDn: ldapBindDn,
       baseDn: ldapBaseDn,
       userFilter: ldapUserFilter,
@@ -90,19 +122,28 @@ export default function IdentitySettingsPage() {
       emailAttr: ldapEmailAttr,
       displayNameAttr: ldapDisplayNameAttr,
       jitEnabled: ldapJit,
-      groupMappings: [],
+      groupMappings: (editingLdap?.config as LdapConfig | undefined)?.groupMappings ?? [],
     };
 
-    await apiClient.saveLdapProvider({
-      name: ldapName,
-      config,
-      bindPassword: ldapBindPassword || undefined,
-    });
-
-    setSubmitting(false);
-    setIsLdapModalOpen(false);
-    setLdapBindPassword('');
-    await fetchProviders();
+    try {
+      const res = await apiClient.saveLdapProvider({
+        id: editingLdap?.id,
+        name: ldapName,
+        config,
+        bindPassword: ldapBindPassword || undefined,
+      });
+      if (!res.ok) {
+        setFeedback({ error: true, message: res.error ?? 'Konfiguraci LDAP se nepodařilo uložit.' });
+        return;
+      }
+      setIsLdapModalOpen(false);
+      setLdapBindPassword('');
+      setEditingLdap(null);
+      setFeedback({ error: false, message: 'Konfigurace LDAP byla uložena. Připojení zatím nebylo ověřeno.' });
+      await fetchProviders();
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleSaveOidc = async (e: React.FormEvent) => {
@@ -118,17 +159,21 @@ export default function IdentitySettingsPage() {
       jitEnabled: oidcJit,
     };
 
-    await apiClient.saveOidcProvider({
-      name: oidcName,
-      config,
-      clientSecret: oidcClientSecret || undefined,
-    });
-
-    setSubmitting(false);
-    setIsOidcModalOpen(false);
-    setOidcClientSecret('');
-    await fetchProviders();
+    try {
+      const res = await apiClient.saveOidcProvider({ name: oidcName, config, clientSecret: oidcClientSecret || undefined });
+      if (!res.ok) {
+        setFeedback({ error: true, message: res.error ?? 'Konfiguraci OpenID Connect se nepodařilo uložit.' });
+        return;
+      }
+      setIsOidcModalOpen(false);
+      setOidcClientSecret('');
+      await fetchProviders();
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  if (!isPlatformAdmin) return <AppShell><p role="alert">Nastavení přihlášení může měnit pouze správce platformy.</p></AppShell>;
 
   return (
     <AppShell
@@ -155,7 +200,7 @@ export default function IdentitySettingsPage() {
             <button
               type="button"
               className="btn-secondary"
-              onClick={() => setIsLdapModalOpen(true)}
+              onClick={() => { setEditingLdap(null); setLdapBindPassword(''); setIsLdapModalOpen(true); }}
               style={{ fontSize: '11px', height: '30px' }}
             >
               <Plus size={12} /> {t('admin.addLdap')}
@@ -193,6 +238,8 @@ export default function IdentitySettingsPage() {
             </div>
           </div>
         </div>
+
+        {feedback && <p role={feedback.error ? 'alert' : 'status'} style={{ padding: '12px', color: feedback.error ? 'var(--status-critical)' : 'var(--text-primary)' }}>{feedback.message}</p>}
 
         {/* Provider List */}
         <div
@@ -295,6 +342,14 @@ export default function IdentitySettingsPage() {
                 </div>
 
                 <div style={{ textAlign: 'right' }}>
+                  {p.category === 'LDAP' && (
+                    <>
+                      <button type="button" className="btn-ghost" onClick={() => editLdap(p)} aria-label={`Upravit ${p.name}`}><Pencil size={14} /></button>
+                      <button type="button" className="btn-ghost" disabled={testingId === p.id} onClick={() => handleTest(p.id)} title="Ověří formát konfigurace; nepřipojuje se k adresáři">
+                        {testingId === p.id ? 'Ověřuji…' : 'Ověřit konfiguraci'}
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => handleDelete(p.id)}
@@ -340,6 +395,7 @@ export default function IdentitySettingsPage() {
               }}
             >
               <h2 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '16px' }}>Configure LDAP / Active Directory</h2>
+              {feedback?.error && <p role="alert">{feedback.message}</p>}
               <form onSubmit={handleSaveLdap} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
                   <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Display Name</label>
@@ -349,6 +405,15 @@ export default function IdentitySettingsPage() {
                 <div>
                   <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>LDAP URL</label>
                   <input value={ldapUrl} onChange={(e) => setLdapUrl(e.target.value)} placeholder="ldap://10.0.0.1:389" required />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Transport security</label>
+                  <select value={ldapTransportSecurity} onChange={(e) => setLdapTransportSecurity(e.target.value as typeof ldapTransportSecurity)}>
+                    <option value="NONE">Nešifrované LDAP (pouze localhost)</option>
+                    <option value="LDAPS">LDAPS (ověření certifikátu)</option>
+                    <option value="STARTTLS">StartTLS (ověření certifikátu)</option>
+                  </select>
                 </div>
 
                 <div>
@@ -416,6 +481,7 @@ export default function IdentitySettingsPage() {
               }}
             >
               <h2 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '16px' }}>Configure OpenID Connect SSO</h2>
+              {feedback?.error && <p role="alert">{feedback.message}</p>}
               <form onSubmit={handleSaveOidc} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
                   <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Display Name</label>

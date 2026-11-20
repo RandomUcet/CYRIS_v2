@@ -39,11 +39,11 @@ export class IntegrationSecretService implements OnModuleInit {
     plaintext: string,
     actorUserId?: string
   ): Promise<void> {
-    if (!plaintext || plaintext.trim().length === 0) {
+    if (typeof plaintext !== 'string' || plaintext.length === 0) {
       throw new Error('Secret value cannot be empty');
     }
 
-    const payload = encryptSecret(plaintext.trim(), this.masterKeyBuffer, 1);
+    const payload = encryptSecret(plaintext, this.masterKeyBuffer, 1);
     const db = this.databaseService.client;
 
     await db

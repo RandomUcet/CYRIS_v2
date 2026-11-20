@@ -21,8 +21,11 @@
     "secrets:keygen": "tsx packages/config/src/scripts/keygen.ts",
     "backup:create": "tsx scripts/backup-create.ts",
     "backup:verify": "tsx scripts/backup-verify.ts",
-    "seed:system": "tsx scripts/seed-system.ts",
-    "seed:demo": "tsx scripts/seed-demo.ts"
+    "seed:system": "node --import tsx scripts/seed-system.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "build:packages": "pnpm --filter './packages/**' -r --sort run build",
+    "test": "pnpm build:packages && node scripts/run-tests.mjs",
+    "test:run": "node scripts/run-tests.mjs"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",

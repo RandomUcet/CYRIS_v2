@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { isActionableMyWorkItem, isMyWorkViewAllowed, sortAndPaginateMyWork } from './my-work.js';
-import { skipWithoutVerifiedDatabase } from '../../regression/isolated-postgres-harness.js';
 
 const item = (id: string, updatedAt: string) => ({
   id,
@@ -60,16 +59,4 @@ test('My Work controller route is declared before the dynamic task route', () =>
   assert.ok(source.indexOf("@Get('my-work')") < source.indexOf("@Get(':taskId')"));
 });
 
-skipWithoutVerifiedDatabase(
-  'NOT IMPLEMENTED: My Work personal ACL denies unrelated assignments and accepts assigned task/lab items',
-  async () => {
-    throw new Error('Harness extension required: provision isolated task/lab resources and memberships');
-  }
-);
-
-skipWithoutVerifiedDatabase(
-  'NOT IMPLEMENTED: My Work unit and event views enforce leader and EXCON authorization',
-  async () => {
-    throw new Error('Harness extension required: provision isolated unit/event role permissions');
-  }
-);
+// Real role, assignment and event-scope checks live in regression/tasks-authorization.test.ts.

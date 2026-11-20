@@ -203,7 +203,7 @@ export class LaboratoryService {
     userId: string,
     displayName = ''
   ): Promise<boolean> {
-    const allowed = await this.authorizationService.authorize({
+    const allowed = await this.authorizationService.hasEventCapability({
       user: {
         id: userId,
         email: '',
@@ -211,7 +211,10 @@ export class LaboratoryService {
         status: 'ACTIVE',
       },
       permission: Permissions.LAB_WORK,
-      context: { eventId, unitId },
+      eventId,
+      unitId,
+      resourceScopes: ['ASSIGNED'],
+      requireUnitMembership: true,
     });
     return allowed;
   }
@@ -410,12 +413,6 @@ export class LaboratoryService {
       await this.resourceAccessService.assertCanAccessResource(user, evId, Permissions.EVIDENCE_READ);
     }
 
-    await this.authorizationService.assertAuthorized({
-      user,
-      permission: Permissions.LAB_REQUEST,
-      context: { eventId },
-    });
-
     const resolved = await this.resolveLaboratoryUnit(eventId, data.requestedFromUnitId);
     if (!resolved.unitId) {
       throw new BadRequestException(
@@ -424,6 +421,11 @@ export class LaboratoryService {
           : 'No laboratory unit is configured for this exercise'
       );
     }
+    await this.authorizationService.assertAuthorized({
+      user,
+      permission: Permissions.LAB_REQUEST,
+      context: { eventId, unitId: resolved.unitId },
+    });
     const analysisId = generateId();
     let assignedToUserId: string | null = null;
 
@@ -738,6 +740,12 @@ export class LaboratoryService {
     if (!destinationUnitId) {
       throw new BadRequestException('A destination laboratory unit is required');
     }
+    // Coordinating the destination does not authorize taking another laboratory's work.
+    await this.authorizationService.assertAuthorized({
+      user,
+      permission: Permissions.LAB_REASSIGN,
+      context: { eventId, unitId: existing.assignedUnitId ?? existing.requestedFromUnitId ?? undefined },
+    });
     await this.authorizationService.assertAuthorized({
       user,
       permission: Permissions.LAB_REASSIGN,

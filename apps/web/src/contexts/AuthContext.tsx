@@ -2,7 +2,8 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/lib/api-client';
-import type { CurrentUserResponse, LoginRequest } from '@cyris/contracts';
+import type { CurrentUserResponse, LoginRequest, ViewAsContext } from '@cyris/contracts';
+import { readViewAs, clearViewAs, VIEW_AS_INVALID_EVENT } from '@/lib/view-as';
 
 export interface AuthContextType {
   currentUser: CurrentUserResponse | null;
@@ -12,6 +13,9 @@ export interface AuthContextType {
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   isPlatformAdmin: boolean;
+  viewAs: ViewAsContext | null;
+  previewInvalid: boolean;
+  exitViewAs: () => Promise<void>;
   hasPermission: (permission: string, eventId?: string) => boolean;
 }
 
@@ -20,21 +24,13 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<CurrentUserResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [previewActive,setPreviewActive]=useState(false);
-  const [exitError,setExitError]=useState('');
-  const [exiting,setExiting]=useState(false);
+  const [viewAs, setViewAs] = useState<ViewAsContext | null>(null);
+  const [previewInvalid, setPreviewInvalid] = useState(false);
 
   const refreshSession = useCallback(async () => {
     try {
-      const status=await apiClient.getViewAsStatus();
-      const active=Boolean(status.ok && status.data?.active);
-      apiClient.setPreviewMode(active);
-      setPreviewActive(active);
       const res = await apiClient.getMe();
       if (res.ok && res.data) {
-        const preview=Boolean(res.data.viewAs);
-        apiClient.setPreviewMode(preview);
-        setPreviewActive(preview);
         setCurrentUser(res.data);
       } else {
         setCurrentUser(null);
@@ -47,8 +43,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    const invalidate = () => setPreviewInvalid(true);
+    window.addEventListener(VIEW_AS_INVALID_EVENT, invalidate);
+    try { setViewAs(readViewAs()); } catch { setPreviewInvalid(true); }
     void refreshSession();
+    return () => window.removeEventListener(VIEW_AS_INVALID_EVENT, invalidate);
   }, [refreshSession]);
+
+  const exitViewAs = async () => {
+    let validContext = false;
+    try { validContext = Boolean(readViewAs()); } catch { /* Explicit exit also clears a damaged local receipt. */ }
+    if (validContext) {
+      const result = await apiClient.stopViewAs();
+      if (!result.ok && result.code !== 'VIEW_AS_INVALID') throw new Error(result.error || 'Unable to end preview');
+    }
+    clearViewAs();
+    // Clear all target data and pending requests before returning as administrator.
+    window.location.replace('/admin/users');
+  };
 
   const login = async (credentials: LoginRequest) => {
     const res = await apiClient.login(credentials);
@@ -60,26 +72,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    try {
-      await apiClient.logout();
-    } finally {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('cyris_selected_event');
-        window.location.href = '/';
-      }
-      setCurrentUser(null);
+    await apiClient.logout();
+    if (typeof window !== 'undefined') {
+      clearViewAs();
+      localStorage.removeItem('cyris_selected_event');
+      window.location.href = '/';
     }
-  };
-
-  const exitPreview=async()=>{
-    setExiting(true);setExitError('');
-    const result=await apiClient.stopViewAs();
-    if(result.ok){apiClient.setPreviewMode(false);window.location.replace('/admin/users');}
-    else {setExitError(result.error || 'Unable to exit preview');setExiting(false);}
+    setCurrentUser(null);
   };
 
   const platformPermissions = currentUser?.platformPermissions ?? [];
-  const isPlatformAdmin = platformPermissions.includes('platform.manage');
+  const isPlatformAdmin = !viewAs && platformPermissions.includes('platform.manage');
 
   const hasPermission = useCallback(
     (permission: string, eventId?: string): boolean => {
@@ -105,16 +108,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         refreshSession,
         isPlatformAdmin,
+        viewAs,
+        previewInvalid,
+        exitViewAs,
         hasPermission,
       }}
     >
-      {previewActive ? <div className="preview-root">
-        <div className="preview-banner" role="status">
-          <div><strong>VIEW AS · READ ONLY / POUZE PRO ČTENÍ</strong><span>{currentUser?.viewAs?.displayName ?? 'Preview expired / Náhled vypršel'}{currentUser?.viewAs ? ' · '+new Date(currentUser.viewAs.expiresAt).toLocaleTimeString() : ''}</span>{exitError && <span role="alert">{exitError}</span>}</div>
-          <button type="button" onClick={exitPreview} disabled={exiting}>{exiting ? '…' : 'Exit preview / Ukončit náhled'}</button>
-        </div>
-        <div className="preview-body">{children}</div>
-      </div> : children}
+      {children}
     </AuthContext.Provider>
   );
 }

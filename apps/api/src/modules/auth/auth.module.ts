@@ -6,12 +6,13 @@ import { LocalIdentityProvider } from './providers/local-identity.provider.js';
 import { LdapIdentityProvider } from './providers/ldap-identity.provider.js';
 import { OidcIdentityProvider } from './providers/oidc-identity.provider.js';
 import { AuthGuard } from './guards/auth.guard.js';
-import { ViewAsService } from './view-as.service.js';
 import { RateLimitService } from './rate-limit.service.js';
+import { ViewAsService } from './view-as.service.js';
+import { ViewAsController } from './view-as.controller.js';
 
 @Global()
 @Module({
-  controllers: [AuthController],
+  controllers: [AuthController, ViewAsController],
   providers: [
     AuthService,
     SessionService,
@@ -22,6 +23,6 @@ import { RateLimitService } from './rate-limit.service.js';
     AuthGuard,
     ViewAsService,
   ],
-  exports: [AuthService, SessionService, RateLimitService, LocalIdentityProvider, LdapIdentityProvider, OidcIdentityProvider, AuthGuard],
+  exports: [AuthService, SessionService, ViewAsService, RateLimitService, LocalIdentityProvider, LdapIdentityProvider, OidcIdentityProvider, AuthGuard],
 })
 export class AuthModule {}

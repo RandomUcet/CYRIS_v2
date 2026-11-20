@@ -3,18 +3,16 @@ import {
   CanActivate,
   ExecutionContext,
   UnauthorizedException,
-  ForbiddenException,
 } from '@nestjs/common';
-import type { ViewAsInfo } from '@cyris/contracts';
-import { ViewAsService, PREVIEW_COOKIE } from '../view-as.service.js';
-import { isPreviewReadAllowed } from '../view-as-policy.js';
 import type { FastifyRequest } from 'fastify';
 import { SessionService, type AuthenticatedUser } from '../session.service.js';
+import type { ViewAsContext } from '@cyris/contracts';
+import { ViewAsService } from '../view-as.service.js';
 
 export interface CyrisRequest extends FastifyRequest {
   user?: AuthenticatedUser;
   sessionToken?: string;
-  viewAs?: ViewAsInfo;
+  viewAs?: ViewAsContext;
 }
 
 @Injectable()
@@ -44,21 +42,9 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('Session expired or account disabled');
     }
 
-    const preview = req.cookies?.[PREVIEW_COOKIE];
-    if (preview) {
-      const resolved = await this.viewAsService.resolve(validated.user, token, preview);
-      const eventId = (req.params as {eventId?: string} | undefined)?.eventId;
-      if (!isPreviewReadAllowed(req.method, req.routeOptions.url ?? '', eventId, resolved.info.eventId)) {
-        throw new ForbiddenException('This operation is not available in read-only preview');
-      }
-      req.viewAs = resolved.info;
-      req.user = resolved.user;
-      req.sessionToken = token;
-      return true;
-    }
-    if (req.headers['x-cyris-read-only-preview']) throw new ForbiddenException('Preview ended; reload the application');
     req.user = validated.user;
     req.sessionToken = token;
+    await this.viewAsService.apply(req, validated.user, token);
     return true;
   }
 }

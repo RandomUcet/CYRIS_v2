@@ -48,7 +48,7 @@ interface SideNavProps {
 
 export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
   const pathname = usePathname();
-  const { isPlatformAdmin,currentUser } = useAuth();
+  const { isPlatformAdmin, currentUser, viewAs } = useAuth();
   const { selectedEventId, workspace, loadingWorkspace } = useEvent();
   const { locale } = usePreferences();
   const query = useSearchParams();
@@ -140,6 +140,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
       : isPlatformAdmin
       ? [staticAdminSection]
       : [];
+  const canOpenAdministration = !viewAs && (isPlatformAdmin || baseSections.some((section) => section.items.some((item) => item.href.startsWith('/admin'))));
   const source = adminMode && isPlatformAdmin ? [staticAdminSection] : baseSections;
   const seen = new Set<string>();
   const sectionsToRender = source.map(section => ({...section, items: section.items.filter(item => {
@@ -342,7 +343,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
 
         {/* Dynamic Navigation Sections from Resolver */}
         <div style={{ padding: '10px 0', overflowY: 'auto', maxHeight: 'calc(100vh - 80px)' }}>
-          {isPlatformAdmin && <div className="workspace-mode-switch"><Link prefetch={false} href={adminMode ? (selectedEventId ? `/events/${selectedEventId}/my-work` : '/') : '/admin'} title={workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}><ShieldAlert size={15}/>{!collapsed && workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}</Link></div>}
+          {canOpenAdministration && <div className="workspace-mode-switch"><Link prefetch={false} href={adminMode ? (selectedEventId ? `/events/${selectedEventId}/my-work` : '/') : isPlatformAdmin ? '/admin' : (baseSections.flatMap((section) => section.items).find((item) => item.href.startsWith('/admin'))?.href ?? '/admin/events')} title={workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}><ShieldAlert size={15}/>{!collapsed && workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}</Link></div>}
           {sectionsToRender.map((section) => renderSection(section))}
 
           {!selectedEventId && !isPlatformAdmin && !collapsed && (

@@ -41,6 +41,8 @@ export const AssignRoleRequestSchema = z.object({
   userId: z.string().uuid().optional(),
   membershipId: z.string().uuid().optional(),
   unitId: z.string().uuid().optional(),
+}).refine((value) => Boolean(value.userId) !== Boolean(value.membershipId), {
+  message: 'Exactly one userId or membershipId is required',
 });
 
 export type AssignRoleRequest = z.infer<typeof AssignRoleRequestSchema>;

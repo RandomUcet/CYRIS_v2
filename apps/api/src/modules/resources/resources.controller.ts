@@ -243,6 +243,6 @@ export class ResourcesController {
       resourceId,
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
-    });
+    }, user);
   }
 }

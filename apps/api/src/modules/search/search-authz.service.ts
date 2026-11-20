@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
@@ -49,7 +49,7 @@ export class SearchAuthzService {
       .from(roleAssignments)
       .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
       .innerJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
-      .where(eq(roleAssignments.userId, user.id));
+      .where(and(eq(roleAssignments.userId, user.id), isNull(roleAssignments.membershipId), isNull(roleAssignments.unitId), isNull(roles.eventId)));
 
     const isPlatformAdmin = platformAssignments.some(
       (a) =>
@@ -108,7 +108,7 @@ export class SearchAuthzService {
         .from(roleAssignments)
         .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
         .innerJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
-        .where(eq(roleAssignments.membershipId, membership.id));
+        .where(and(eq(roleAssignments.membershipId, membership.id), eq(roles.eventId, membership.eventId), isNull(roleAssignments.userId)));
 
       if (roleRows.length === 0) {
         continue;
@@ -118,8 +118,7 @@ export class SearchAuthzService {
       const eventScopedPerms = roleRows
         .filter(
           (r) =>
-            r.scope === PermissionScopes.EVENT ||
-            r.scope === PermissionScopes.PLATFORM
+            r.scope === PermissionScopes.EVENT
         )
         .map((r) => r.permissionKey);
 
@@ -148,20 +147,13 @@ export class SearchAuthzService {
           .where(eq(membershipUnitAssignments.membershipId, membership.id));
 
         const explicitUnitIds = unitAssignments.map((u) => u.unitId);
-        const roleUnitIds = unitScopedPerms
-          .map((r) => r.unitId)
-          .filter((id): id is string => Boolean(id));
-
-        const accessibleUnitIds = Array.from(
-          new Set([...explicitUnitIds, ...roleUnitIds])
-        );
-
-        if (accessibleUnitIds.length > 0) {
-          const unitPermKeys = Array.from(
-            new Set(unitScopedPerms.map((r) => r.permissionKey))
-          );
+        // Keep each permission bound to its own unit. Combining all grants and
+        // all memberships would leak one team's rights into another team.
+        for (const grant of unitScopedPerms) {
+          const accessibleUnitIds = grant.unitId ? [grant.unitId] : explicitUnitIds;
+          if (!accessibleUnitIds.length) continue;
           accessClauses.push(
-            `(eventId:=${membership.eventId} && visibility:UNIT && requiredPermission:[${unitPermKeys.join(',')}] && unitIds:[${accessibleUnitIds.join(',')}])`
+            `(eventId:=${membership.eventId} && visibility:UNIT && requiredPermission:[${grant.permissionKey}] && unitIds:[${accessibleUnitIds.join(',')}])`
           );
         }
       }

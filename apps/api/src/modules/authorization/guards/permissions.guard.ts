@@ -69,10 +69,10 @@ export class PermissionsGuard implements CanActivate {
         userAgent,
         requestId,
         metadata: {
-          ...(req.viewAs ? {previewTargetUserId:req.viewAs.userId} : {}),
           permission: requirement.permission,
           scope: requirement.scope,
           context: { eventId, unitId },
+          ...(req.viewAs ? { previewId: req.viewAs.id, targetUserId: req.user.id } : {}),
         },
       });
 

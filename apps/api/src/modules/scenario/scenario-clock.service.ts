@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { AuditService } from '../audit/audit.service.js';
-import { scenarioClocks } from '@cyris/db';
+import { scenarioClocks, calculateScenarioTime } from '@cyris/db';
 import { generateId } from '@cyris/shared';
 
 export type ScenarioClockMode = 'REAL_TIME' | 'SCENARIO_TIME';
@@ -44,17 +44,20 @@ export class ScenarioClockService {
   }
 
   async getState(eventId: string): Promise<ScenarioClockState> {
-    return this.map(await this.getOrCreate(eventId));
+    const [clock] = await this.db.select().from(scenarioClocks).where(eq(scenarioClocks.eventId, eventId)).limit(1);
+    if (clock) return this.map(clock);
+    const now = new Date().toISOString();
+    return { mode: 'REAL_TIME', operationalNow: now, scenarioTime: now, paused: false, speedMultiplier: 1 };
   }
 
   async getOperationalNow(eventId: string): Promise<Date> {
-    const state = await this.getOrCreate(eventId);
-    return this.calculate(state);
+    return new Date((await this.getState(eventId)).operationalNow);
   }
 
   async setTime(eventId: string, scenarioTime: string, userId: string): Promise<ScenarioClockState> {
+    await this.getOrCreate(eventId);
     const value = new Date(scenarioTime);
-    if (Number.isNaN(value.getTime())) throw new NotFoundException('Invalid scenario time');
+    if (Number.isNaN(value.getTime())) throw new BadRequestException('Invalid scenario time');
     const now = new Date();
     await this.db.update(scenarioClocks).set({
       mode: 'SCENARIO_TIME',
@@ -98,7 +101,7 @@ export class ScenarioClockService {
 
   async advance(eventId: string, minutes: number, userId: string): Promise<ScenarioClockState> {
     if (!Number.isInteger(minutes) || minutes <= 0 || minutes > 24 * 60) {
-      throw new NotFoundException('Advance minutes must be a positive integer up to 1440');
+      throw new BadRequestException('Advance minutes must be a positive integer up to 1440');
     }
     const current = await this.getOrCreate(eventId);
     const scenarioNow = new Date(this.calculate(current).getTime() + minutes * 60_000);
@@ -116,12 +119,7 @@ export class ScenarioClockService {
   }
 
   private calculate(row: typeof scenarioClocks.$inferSelect, now = new Date()): Date {
-    if (row.pausedScenarioTime) return row.pausedScenarioTime;
-    const base = row.scenarioBaseTime ?? now;
-    if (row.mode === 'SCENARIO_TIME' && row.realBaseTime) {
-      return new Date(base.getTime() + (now.getTime() - row.realBaseTime.getTime()) * row.speedMultiplier);
-    }
-    return now;
+    return calculateScenarioTime(row, now);
   }
 
   private map(row: typeof scenarioClocks.$inferSelect): ScenarioClockState {

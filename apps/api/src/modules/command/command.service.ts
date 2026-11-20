@@ -12,7 +12,6 @@ import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
   incidents,
   resources,
-  activityEvents,
   operationalTasks,
   events,
   commandDefconStates,
@@ -159,6 +158,7 @@ export class CommandService {
     eventId: string,
     user: AuthenticatedUser
   ): Promise<OperationalPictureResponse> {
+    await this.assertEventPermission(eventId, user, Permissions.COMMAND_READ);
     // 1. Fetch High/Critical active incidents accessible to user
     const allIncidents = await this.investigationService.listIncidents(eventId, user);
     const criticalIncidents = allIncidents.filter(
@@ -178,21 +178,11 @@ export class CommandService {
         t.priority === 'URGENT'
     );
 
-    // 3. Fetch recent significant activity events
-    const recentActivitiesRows = await this.db
-      .select()
-      .from(activityEvents)
-      .where(eq(activityEvents.eventId, eventId))
-      .orderBy(desc(activityEvents.occurredAt))
-      .limit(15);
-
+    // Reuse the same visibility boundary as all other timeline consumers.
+    const recentActivitiesRows = await this.activityService.getActivityFeed({ eventId, limit: 15 }, user);
     const recentActivities = recentActivitiesRows.map((a) => ({
-      id: a.id,
-      activityType: a.activityType,
-      occurredAt: a.occurredAt.toISOString(),
-      title: a.title,
-      summary: a.summary || undefined,
-      actorUserId: a.actorUserId,
+      id: a.id, activityType: a.activityType, occurredAt: a.occurredAt,
+      title: a.title, summary: a.summary || undefined, actorUserId: a.actorUserId ?? null,
     }));
 
     // 4. Fetch Operational Medical Summary (Sanitized counts, zero patient identities)
@@ -260,7 +250,7 @@ export class CommandService {
       lines.push('\n## Active Operational Tasks');
       for (const taskId of dto.taskIds) {
         try {
-          const task = await this.tasksService.getTaskDetail(taskId, user);
+          const task = await this.tasksService.getTaskDetail(taskId, user, eventId);
           lines.push(`- **${task.taskNumber}**: ${task.title} [Status: ${task.status} | Assigned: ${task.assignedUnitName || 'Unassigned'}]`);
         } catch {
           lines.push(`- **Task ${taskId}**`);

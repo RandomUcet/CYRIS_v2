@@ -3,8 +3,9 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
-import { eq, and, desc, inArray, isNull } from 'drizzle-orm';
+import { eq, and, desc, inArray, isNull, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -401,19 +402,35 @@ export class EventsService {
       .where(eq(eventMemberships.eventId, eventId))
       .orderBy(desc(eventMemberships.joinedAt));
 
-    const isAdmin=actor && await this.authzService.authorize({user:actor,permission:Permissions.PLATFORM_MANAGE});
-    const ids=rows.map(r=>r.id);
-    const assignments=ids.length ? await this.db.select({membershipId:roleAssignments.membershipId,id:roles.id,name:roles.name,slug:roles.slug})
-      .from(roleAssignments).innerJoin(roles,eq(roles.id,roleAssignments.roleId)).where(and(inArray(roleAssignments.membershipId,ids),eq(roles.eventId,eventId))) : [];
-    const units=ids.length ? await this.db.select({membershipId:membershipUnitAssignments.membershipId,id:organizationalUnits.id,name:organizationalUnits.name,slug:organizationalUnits.slug})
-      .from(membershipUnitAssignments).innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId)).where(and(inArray(membershipUnitAssignments.membershipId,ids),eq(organizationalUnits.eventId,eventId))) : [];
-    const platform=isAdmin && rows.length ? await this.db.select({userId:roleAssignments.userId,id:roles.id,name:roles.name,slug:roles.slug})
-      .from(roleAssignments).innerJoin(roles,eq(roles.id,roleAssignments.roleId)).where(and(inArray(roleAssignments.userId,rows.map(r=>r.userId)),isNull(roles.eventId),isNull(roleAssignments.membershipId),isNull(roleAssignments.unitId))) : [];
-    return rows.map(r=>({id:r.id,eventId:r.eventId,userId:r.userId,status:r.status,joinedAt:r.joinedAt.toISOString(),
-      user:{id:r.userId,email:r.userEmail,displayName:r.userDisplayName,status:r.userStatus},
-      roles:assignments.filter(a=>a.membershipId===r.id).map(({id,name,slug})=>({id,name,slug})),
-      units:units.filter(a=>a.membershipId===r.id).map(({id,name,slug})=>({id,name,slug})),
-      platformRoles:platform.filter(a=>a.userId===r.userId).map(({id,name,slug})=>({id,name,slug})),
+    if (!rows.length) return [];
+    const showPlatformRoles = actor && await this.authzService.authorize({ user: actor, permission: Permissions.PLATFORM_MANAGE });
+    const platformRoles = showPlatformRoles ? await this.db.select({ userId: roleAssignments.userId, id: roles.id, name: roles.name })
+      .from(roleAssignments).innerJoin(roles, eq(roles.id, roleAssignments.roleId))
+      .where(and(inArray(roleAssignments.userId, rows.map(row => row.userId)), isNull(roles.eventId), isNull(roleAssignments.membershipId), isNull(roleAssignments.unitId))) : [];
+    const membershipIds = rows.map((row) => row.id);
+    const [unitRows, roleRows] = await Promise.all([
+      this.db.select({ membershipId: membershipUnitAssignments.membershipId, id: organizationalUnits.id, name: organizationalUnits.name })
+        .from(membershipUnitAssignments).innerJoin(organizationalUnits, eq(organizationalUnits.id, membershipUnitAssignments.unitId))
+        .where(and(inArray(membershipUnitAssignments.membershipId, membershipIds), eq(organizationalUnits.eventId, eventId), isNull(organizationalUnits.archivedAt))),
+      this.db.select({ membershipId: roleAssignments.membershipId, id: roles.id, name: roles.name, unitId: roleAssignments.unitId })
+        .from(roleAssignments).innerJoin(roles, eq(roles.id, roleAssignments.roleId))
+        .where(and(inArray(roleAssignments.membershipId, membershipIds), eq(roles.eventId, eventId), isNull(roleAssignments.userId))),
+    ]);
+    return rows.map((r) => ({
+      id: r.id,
+      eventId: r.eventId,
+      userId: r.userId,
+      status: r.status,
+      joinedAt: r.joinedAt.toISOString(),
+      user: {
+        id: r.userId,
+        email: r.userEmail,
+        displayName: r.userDisplayName,
+        status: r.userStatus,
+      },
+      platformRoles: platformRoles.filter(role => role.userId === r.userId).map(({ id, name }) => ({ id, name })),
+      units: unitRows.filter((row) => row.membershipId === r.id).map(({ id, name }) => ({ id, name })),
+      roles: roleRows.filter((row) => row.membershipId === r.id).map(({ id, name, unitId }) => ({ id, name, unitId })),
     }));
   }
 
@@ -871,178 +888,149 @@ export class EventsService {
     );
   }
 
-  private validateEventGrants(grants: CreateRoleRequest['permissions'] | undefined) {
-    if (grants?.some(p => p.scope === PermissionScopes.PLATFORM || p.permissionKey === Permissions.PLATFORM_MANAGE)) {
-      throw new BadRequestException('Event roles cannot grant platform authority');
-    }
-  }
-
-  async createRole(
-    eventId: string,
-    data: CreateRoleRequest,
-    actorUserId?: string,
-    requestId?: string
-  ) {
-    await this.getEvent(eventId);
-
-    this.validateEventGrants(data.permissions);
-    const [createdRole] = await this.db
-      .insert(roles)
-      .values({
-        eventId,
-        name: data.name,
-        slug: data.slug,
-        description: data.description,
-      })
-      .returning();
-
-    if (data.permissions && data.permissions.length > 0) {
-      await this.db.insert(rolePermissions).values(
-        data.permissions.map((p) => ({
-          roleId: createdRole!.id,
-          permissionKey: p.permissionKey,
-          scope: p.scope,
-        }))
-      );
-    }
-
-    await this.auditService.record({
-      action: 'role.created',
-      category: 'role',
-      eventId,
-      resourceType: 'role',
-      resourceId: createdRole!.id,
-      actorUserId,
-      requestId,
-      metadata: {
-        name: createdRole!.name,
-        slug: createdRole!.slug,
-        permissionCount: data.permissions?.length ?? 0,
-      },
-    });
-
-    await this.searchIndexerService.emitSearchUpsert('role', createdRole!.id);
-
-    return createdRole;
-  }
-
-  async updateRole(
-    eventId: string,
-    roleId: string,
-    data: UpdateRoleRequest,
-    actorUserId?: string,
-    requestId?: string
-  ) {
-    this.validateEventGrants(data.permissions);
-    const [role] = await this.db
-      .select()
-      .from(roles)
-      .where(and(eq(roles.id, roleId), eq(roles.eventId, eventId)))
-      .limit(1);
-
-    if (!role) {
-      throw new NotFoundException(`Role '${roleId}' not found in event`);
-    }
-
-    const changes: Record<string, { from: unknown; to: unknown }> = {};
-    if (data.name !== undefined && data.name !== role.name) {
-      changes.name = { from: role.name, to: data.name };
-    }
-    if (data.description !== undefined && data.description !== role.description) {
-      changes.description = { from: role.description, to: data.description };
-    }
-
-    if (data.name !== undefined || data.description !== undefined) {
-      await this.db
-        .update(roles)
-        .set({
-          name: data.name ?? role.name,
-          description: data.description ?? role.description,
-          updatedAt: new Date(),
-        })
-        .where(eq(roles.id, roleId));
-    }
-
-    if (data.permissions) {
-      await this.db
-        .delete(rolePermissions)
-        .where(eq(rolePermissions.roleId, roleId));
-
-      if (data.permissions.length > 0) {
-        await this.db.insert(rolePermissions).values(
-          data.permissions.map((p) => ({
-            roleId,
-            permissionKey: p.permissionKey,
-            scope: p.scope,
-          }))
-        );
+  private validateEventRolePermissions(permissions: Array<{ permissionKey: string; scope: string }>): void {
+    const known = new Set<string>(Object.values(Permissions));
+    const platformOnly = new Set<string>([
+      Permissions.PLATFORM_MANAGE, Permissions.EVENT_CREATE,
+      Permissions.IDENTITY_MANAGE, Permissions.INTEGRATION_MANAGE,
+    ]);
+    const scopes = new Set<string>(['EVENT', 'UNIT', 'OWN', 'ASSIGNED']);
+    const seen = new Set<string>();
+    for (const permission of permissions) {
+      if (!known.has(permission.permissionKey) || platformOnly.has(permission.permissionKey) || !scopes.has(permission.scope)) {
+        throw new BadRequestException('Event roles may contain only known event permissions with an event, unit, own or assigned scope');
       }
-      changes.permissionsUpdated = { from: false, to: true };
+      const key = `${permission.permissionKey}:${permission.scope}`;
+      if (seen.has(key)) throw new BadRequestException('Duplicate role permission');
+      seen.add(key);
     }
+  }
 
-    await this.auditService.record({
-      action: 'role.updated',
-      category: 'role',
-      eventId,
-      resourceType: 'role',
-      resourceId: roleId,
-      actorUserId,
-      requestId,
-      changes: Object.keys(changes).length > 0 ? changes : null,
+  private async assertEventRoleManager(eventId: string, actorUserId?: string): Promise<void> {
+    if (!actorUserId) throw new ForbiddenException('An authenticated role manager is required');
+    const [actor] = await this.db.select({ id: users.id, email: users.email, displayName: users.displayName, status: users.status })
+      .from(users).where(eq(users.id, actorUserId)).limit(1);
+    if (!actor) throw new ForbiddenException('An authenticated role manager is required');
+    await this.authzService.assertAuthorized({ user: actor, permission: Permissions.ROLE_MANAGE, context: { eventId } });
+  }
+
+  async createRole(eventId: string, data: CreateRoleRequest, actorUserId?: string, requestId?: string) {
+    await this.assertEventRoleManager(eventId, actorUserId);
+    await this.getEvent(eventId);
+    this.validateEventRolePermissions(data.permissions ?? []);
+    return this.db.transaction(async (tx) => {
+      // Serialize same-event role creation, including retries, without changing
+      // or deleting legacy roles already maintained by an administrator.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`event-role:${eventId}:${data.slug}`}))`);
+      const [existing] = await tx.select({ id: roles.id }).from(roles)
+        .where(and(eq(roles.eventId, eventId), eq(roles.slug, data.slug))).limit(1);
+      if (existing) throw new ConflictException('Role slug already exists in this event');
+      const [createdRole] = await tx.insert(roles).values({
+        eventId, name: data.name, slug: data.slug, description: data.description,
+      }).returning();
+      if (data.permissions?.length) {
+        await tx.insert(rolePermissions).values(data.permissions.map((permission) => ({ roleId: createdRole!.id, ...permission })));
+      }
+      await this.auditService.record({
+        action: 'role.created', category: 'role', eventId, resourceType: 'role', resourceId: createdRole!.id,
+        actorUserId, requestId, metadata: { name: createdRole!.name, slug: createdRole!.slug, permissionCount: data.permissions?.length ?? 0 }, txClient: tx,
+      });
+      await this.searchIndexerService.emitSearchUpsert('role', createdRole!.id, tx);
+      return createdRole;
     });
+  }
 
-    await this.searchIndexerService.emitSearchUpsert('role', roleId);
-
-    return this.db.select().from(roles).where(eq(roles.id, roleId)).limit(1);
+  async updateRole(eventId: string, roleId: string, data: UpdateRoleRequest, actorUserId?: string, requestId?: string) {
+    await this.assertEventRoleManager(eventId, actorUserId);
+    if (data.permissions) this.validateEventRolePermissions(data.permissions);
+    return this.db.transaction(async (tx) => {
+      const [role] = await tx.select().from(roles)
+        .where(and(eq(roles.id, roleId), eq(roles.eventId, eventId))).limit(1).for('update');
+      if (!role) throw new NotFoundException('Role not found in this event');
+      const changes: Record<string, { from: unknown; to: unknown }> = {};
+      if (data.name !== undefined && data.name !== role.name) changes.name = { from: role.name, to: data.name };
+      if (data.description !== undefined && data.description !== role.description) changes.description = { from: role.description, to: data.description };
+      await tx.update(roles).set({
+        name: data.name ?? role.name,
+        description: data.description !== undefined ? data.description : role.description,
+        updatedAt: new Date(),
+      }).where(and(eq(roles.id, roleId), eq(roles.eventId, eventId)));
+      if (data.permissions) {
+        await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
+        if (data.permissions.length) await tx.insert(rolePermissions).values(data.permissions.map((permission) => ({ roleId, ...permission })));
+        changes.permissionsUpdated = { from: false, to: true };
+      }
+      await this.auditService.record({
+        action: 'role.updated', category: 'role', eventId, resourceType: 'role', resourceId: roleId,
+        actorUserId, requestId, changes: Object.keys(changes).length ? changes : null, txClient: tx,
+      });
+      await this.searchIndexerService.emitSearchUpsert('role', roleId, tx);
+      return tx.select().from(roles).where(and(eq(roles.id, roleId), eq(roles.eventId, eventId))).limit(1);
+    });
   }
 
   async assignRole(eventId: string, data: AssignRoleRequest, actorUserId?: string, requestId?: string) {
-    const [role] = await this.db
-      .select()
-      .from(roles)
-      .where(and(eq(roles.id, data.roleId), eq(roles.eventId, eventId)))
-      .limit(1);
-
-    if (!role) {
-      throw new NotFoundException(`Role '${data.roleId}' not found`);
+    await this.assertEventRoleManager(eventId, actorUserId);
+    if (Boolean(data.userId) === Boolean(data.membershipId)) {
+      throw new BadRequestException('Exactly one userId or membershipId is required');
     }
-
-    if (!data.membershipId || data.userId) {
-      throw new BadRequestException('Event role must be assigned to an event membership, not a platform user');
-    }
-    const [member] = await this.db.select({id:eventMemberships.id}).from(eventMemberships).where(and(eq(eventMemberships.id,data.membershipId),eq(eventMemberships.eventId,eventId),eq(eventMemberships.status,'ACTIVE'))).limit(1);
-    if (!member) throw new BadRequestException('Active membership in this event is required');
-    if (data.unitId) {
-      const [unit] = await this.db.select({id:organizationalUnits.id}).from(organizationalUnits).where(and(eq(organizationalUnits.id,data.unitId),eq(organizationalUnits.eventId,eventId))).limit(1);
-      if (!unit) throw new BadRequestException('Assignment unit must belong to this event');
-    }
-    const [assignment] = await this.db
-      .insert(roleAssignments)
-      .values({
-        roleId: data.roleId,
-        userId: data.userId,
-        membershipId: data.membershipId,
-        unitId: data.unitId,
-      })
-      .returning();
-
-    await this.auditService.record({
-      action: 'role.assigned',
-      category: 'role',
-      eventId: role.eventId,
-      resourceType: 'role_assignment',
-      resourceId: assignment!.id,
-      actorUserId,
-      requestId,
-      metadata: {
-        roleId: data.roleId,
-        roleSlug: role.slug,
-        userId: data.userId,
-        membershipId: data.membershipId,
-        unitId: data.unitId,
-      },
+    return this.db.transaction(async (tx) => {
+      // Role updates and duplicate grants use the same lock. A permission edit
+      // cannot race an assignment into granting unchecked platform privileges.
+      const [role] = await tx.select().from(roles)
+        .where(and(eq(roles.id, data.roleId), eq(roles.eventId, eventId))).limit(1).for('update');
+      if (!role) throw new NotFoundException('Role not found in this event');
+      const permissions = await tx.select({ permissionKey: rolePermissions.permissionKey, scope: rolePermissions.scope })
+        .from(rolePermissions).where(eq(rolePermissions.roleId, role.id));
+      this.validateEventRolePermissions(permissions);
+      const [membership] = await tx.select({ id: eventMemberships.id, userId: eventMemberships.userId })
+        .from(eventMemberships).innerJoin(users, eq(users.id, eventMemberships.userId))
+        .where(and(
+          eq(eventMemberships.eventId, eventId), eq(eventMemberships.status, 'ACTIVE'), eq(users.status, 'ACTIVE'),
+          data.membershipId ? eq(eventMemberships.id, data.membershipId) : eq(eventMemberships.userId, data.userId!),
+        )).limit(1).for('update');
+      if (!membership) throw new BadRequestException('An active user membership in this event is required');
+      if (data.unitId) {
+        const [unit] = await tx.select({ id: organizationalUnits.id }).from(organizationalUnits)
+          .innerJoin(membershipUnitAssignments, eq(membershipUnitAssignments.unitId, organizationalUnits.id))
+          .where(and(
+            eq(organizationalUnits.id, data.unitId), eq(organizationalUnits.eventId, eventId), isNull(organizationalUnits.archivedAt),
+            eq(membershipUnitAssignments.membershipId, membership.id),
+          )).limit(1);
+        if (!unit) throw new BadRequestException('The role unit must be an active unit of this member in the same event');
+      }
+      const [existing] = await tx.select().from(roleAssignments).where(and(
+        eq(roleAssignments.roleId, role.id), eq(roleAssignments.membershipId, membership.id), isNull(roleAssignments.userId),
+        data.unitId ? eq(roleAssignments.unitId, data.unitId) : isNull(roleAssignments.unitId),
+      )).limit(1);
+      if (existing) return existing;
+      const [assignment] = await tx.insert(roleAssignments).values({
+        roleId: role.id, userId: null, membershipId: membership.id, unitId: data.unitId ?? null,
+      }).returning();
+      await this.auditService.record({
+        action: 'role.assigned', category: 'role', eventId, resourceType: 'role_assignment', resourceId: assignment!.id,
+        actorUserId, requestId, metadata: { roleId: role.id, roleSlug: role.slug, userId: membership.userId, membershipId: membership.id, unitId: data.unitId ?? null }, txClient: tx,
+      });
+      return assignment;
     });
+  }
 
-    return assignment;
+  async revokeRole(eventId: string, assignmentId: string, actorUserId?: string, requestId?: string) {
+    await this.assertEventRoleManager(eventId, actorUserId);
+    return this.db.transaction(async (tx) => {
+      const [assignment] = await tx.select({ id: roleAssignments.id, roleId: roles.id, membershipId: roleAssignments.membershipId, unitId: roleAssignments.unitId })
+        .from(roleAssignments).innerJoin(roles, eq(roles.id, roleAssignments.roleId))
+        .innerJoin(eventMemberships, eq(eventMemberships.id, roleAssignments.membershipId))
+        .where(and(
+          eq(roleAssignments.id, assignmentId), eq(roles.eventId, eventId), eq(eventMemberships.eventId, eventId), isNull(roleAssignments.userId),
+        )).limit(1).for('update');
+      if (!assignment) throw new NotFoundException('Role assignment not found in this event');
+      await tx.delete(roleAssignments).where(eq(roleAssignments.id, assignment.id));
+      await this.auditService.record({
+        action: 'role.revoked', category: 'role', eventId, resourceType: 'role_assignment', resourceId: assignment.id,
+        actorUserId, requestId, metadata: { roleId: assignment.roleId, membershipId: assignment.membershipId, unitId: assignment.unitId }, txClient: tx,
+      });
+      return { success: true };
+    });
   }
 }

@@ -18,7 +18,7 @@ export class PreferencesService {
   /**
    * Retrieves user preferences, automatically seeding defaults if none exist yet.
    */
-  async getUserPreferences(userId: string): Promise<UserPreferences> {
+  async getUserPreferences(userId: string, persistDefaults = true): Promise<UserPreferences> {
     const db = this.databaseService.client;
     const [existing] = await db
       .select()
@@ -38,6 +38,12 @@ export class PreferencesService {
         createdAt: existing.createdAt.toISOString(),
         updatedAt: existing.updatedAt.toISOString(),
       };
+    }
+
+    if (!persistDefaults) {
+      return { userId, locale: 'en', timezone: 'UTC', dateFormat: 'YYYY-MM-DD', timeFormat: '24h',
+        notificationChannels: { inApp: true, email: true }, notificationCategories: {},
+        createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() };
     }
 
     // Insert default preferences

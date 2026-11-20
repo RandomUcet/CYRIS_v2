@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Client } from 'ldapts';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { IntegrationSecretService } from '../../integrations/integration-secret.service.js';
 import {
@@ -10,12 +9,12 @@ import {
   IntegrationCategory,
   IdentityProviderType,
   UserStatus,
-  roles,
-  roleAssignments,
 } from '@cyris/db';
 import { generateId } from '@cyris/shared';
 import type { IIdentityProvider, AuthenticatedIdentity } from './identity-provider.interface.js';
-import type { LdapConfig } from '@cyris/contracts';
+import { validateLdapConfig, type LdapConfig } from '@cyris/contracts';
+import { authenticateDirectoryUser, ldapIdentitySubject } from './ldap-directory.js';
+import { reconcileLdapMemberships } from './ldap-provisioning.js';
 
 export interface LdapCredentials {
   providerId?: string;
@@ -32,6 +31,10 @@ export class LdapIdentityProvider implements IIdentityProvider {
     private readonly databaseService: DatabaseService,
     private readonly secretService: IntegrationSecretService
   ) {}
+
+  protected authenticateDirectory(config: LdapConfig, username: string, password: string, bindPassword: string) {
+    return authenticateDirectoryUser(config, username, password, bindPassword);
+  }
 
   /**
    * Authenticates user against configured LDAP / Active Directory directory.
@@ -78,96 +81,28 @@ export class LdapIdentityProvider implements IIdentityProvider {
     }
 
     const config = providerRow.config as LdapConfig;
+    if (validateLdapConfig(config).length > 0) {
+      this.logger.warn(`LDAP auth denied: invalid provider configuration ${providerRow.id}`);
+      return null;
+    }
     let bindPassword = '';
     try {
       bindPassword = (await this.secretService.getSecret(providerRow.id, 'BIND_PASSWORD')) ?? '';
     } catch (err) {
-      this.logger.warn(`Could not decrypt bind password for provider ${providerRow.id}: ${(err as Error).message}`);
+      this.logger.warn(`LDAP login denied: bind secret unavailable for provider ${providerRow.id}`);
+      return null;
     }
 
-    // 2. Connect to LDAP directory with safe error boundary
-    const client = new Client({
-      url: config.url,
-      timeout: 5000,
-      connectTimeout: 5000,
-      tlsOptions: config.tls ? { rejectUnauthorized: false } : undefined,
-    });
-
+    if (!bindPassword) {
+      this.logger.warn(`LDAP login denied: configure a bind secret for provider ${providerRow.id}`);
+      return null;
+    }
     try {
-      // 3. Service account bind
-      if (config.bindDn && bindPassword) {
-        await client.bind(config.bindDn, bindPassword);
-      }
-
-      // 4. Search for user entry
-      const safeUsername = creds.username.replace(/[\\*()\0]/g, (c) => `\\${c.charCodeAt(0).toString(16)}`);
-      const filter = (config.userFilter || '(uid={username})').replace('{username}', safeUsername);
-
-      const usernameAttr = config.usernameAttr || 'uid';
-      const emailAttr = config.emailAttr || 'mail';
-      const displayNameAttr = config.displayNameAttr || 'cn';
-
-      const searchResult = await client.search(config.baseDn, {
-        scope: 'sub',
-        filter,
-        attributes: ['dn', usernameAttr, emailAttr, displayNameAttr],
-        sizeLimit: 2,
-      });
-
-      if (!searchResult.searchEntries || searchResult.searchEntries.length === 0) {
-        this.logger.debug(`LDAP user not found with filter: ${filter}`);
-        await client.unbind().catch(() => {});
-        return null;
-      }
-
-      const userEntry = searchResult.searchEntries[0];
-      const userDn = userEntry.dn;
-      const userEmail = (userEntry[emailAttr] as string) || `${creds.username}@ldap.local`;
-      const userDisplayName = (userEntry[displayNameAttr] as string) || creds.username;
-
-      // 5. Authenticate user credentials by binding user's DN
-      const userClient = new Client({
-        url: config.url,
-        timeout: 5000,
-        connectTimeout: 5000,
-        tlsOptions: config.tls ? { rejectUnauthorized: false } : undefined,
-      });
-
-      try {
-        await userClient.bind(userDn, creds.password);
-        await userClient.unbind().catch(() => {});
-      } catch (bindErr) {
-        this.logger.debug(`LDAP user authentication failed for DN: ${userDn}`);
-        await client.unbind().catch(() => {});
-        return null;
-      }
-
-      // 6. Query user groups if groupBaseDn configured
-      const userGroups: string[] = [];
-      if (config.groupBaseDn) {
-        try {
-          const groupFilter = config.groupFilter
-            ? config.groupFilter.replace('{dn}', userDn).replace('{username}', safeUsername)
-            : `(|(member=${userDn})(memberUid=${safeUsername}))`;
-
-          const groupSearch = await client.search(config.groupBaseDn, {
-            scope: 'sub',
-            filter: groupFilter,
-            attributes: ['cn'],
-          });
-
-          for (const ge of groupSearch.searchEntries) {
-            if (ge.cn) userGroups.push(String(ge.cn));
-          }
-        } catch (groupErr) {
-          this.logger.warn(`Failed to resolve LDAP groups: ${(groupErr as Error).message}`);
-        }
-      }
-
-      await client.unbind().catch(() => {});
-
-      // 7. Resolve CYRIS User Identity or Perform Controlled JIT Provisioning
+      const directoryUser = await this.authenticateDirectory(config, creds.username, creds.password, bindPassword);
+      if (!directoryUser) return null;
+      const { dn: userDn, email: userEmail, displayName: userDisplayName, groups: userGroups } = directoryUser;
       const normalizedSubject = userDn.toLowerCase();
+      const scopedSubject = ldapIdentitySubject(providerRow.id, userDn);
 
       const [existingIdentity] = await db
         .select({
@@ -179,7 +114,13 @@ export class LdapIdentityProvider implements IIdentityProvider {
         .where(
           and(
             eq(userIdentities.providerType, IdentityProviderType.LDAP),
-            eq(userIdentities.providerSubject, normalizedSubject)
+            or(
+              eq(userIdentities.providerSubject, scopedSubject),
+              and(
+                eq(userIdentities.providerSubject, normalizedSubject),
+                sql`${userIdentities.metadata}->>'providerId' = ${providerRow.id}`,
+              ),
+            )
           )
         )
         .limit(1);
@@ -190,10 +131,13 @@ export class LdapIdentityProvider implements IIdentityProvider {
           return null;
         }
 
-        await db
-          .update(users)
-          .set({ lastLoginAt: new Date(), updatedAt: new Date() })
-          .where(eq(users.id, existingIdentity.user.id));
+        await db.transaction(async (tx) => {
+          await tx.select({ id: users.id }).from(users).where(eq(users.id, existingIdentity.user.id)).for('update');
+          const [identity] = await tx.select().from(userIdentities).where(eq(userIdentities.id, existingIdentity.identity.id)).for('update');
+          await reconcileLdapMemberships(tx, identity.id, existingIdentity.user.id, providerRow.id,
+            config.groupMappings ?? [], userGroups, (identity.metadata ?? {}) as Record<string, unknown>);
+          await tx.update(users).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(users.id, existingIdentity.user.id));
+        });
 
         return {
           userId: existingIdentity.user.id,
@@ -205,80 +149,63 @@ export class LdapIdentityProvider implements IIdentityProvider {
 
       // JIT Provisioning Policy Check
       if (config.jitEnabled === false) {
-        this.logger.warn(`LDAP user ${normalizedSubject} authenticated, but JIT provisioning is disabled for provider`);
+        this.logger.warn(`LDAP login denied: JIT provisioning is disabled for provider ${providerRow.id}`);
         return null;
       }
 
-      // Conservative Identity Linking
-      let targetUserId: string;
-      const [existingUserByEmail] = await db
-        .select()
-        .from(users)
-        .where(eq(users.email, userEmail.trim().toLowerCase()))
-        .limit(1);
+      return await db.transaction(async (tx) => {
+        // Directory email is not proof of ownership of an existing local account.
+        // Existing associations are resolved only through a provider-scoped identity above.
+        let targetUserId: string;
+        const [existingUserByEmail] = await tx
+          .select()
+          .from(users)
+          .where(eq(users.email, userEmail.trim().toLowerCase()))
+          .limit(1);
 
-      if (existingUserByEmail) {
-        targetUserId = existingUserByEmail.id;
-      } else {
-        const [newUser] = await db
-          .insert(users)
-          .values({
-            id: generateId(),
-            email: userEmail.trim().toLowerCase(),
-            displayName: userDisplayName,
-            status: UserStatus.ACTIVE,
-            lastLoginAt: new Date(),
-          })
-          .returning();
-        targetUserId = newUser.id;
-      }
-
-      const identityId = generateId();
-      await db.insert(userIdentities).values({
-        id: identityId,
-        userId: targetUserId,
-        providerType: IdentityProviderType.LDAP,
-        providerSubject: normalizedSubject,
-        metadata: {
-          groups: userGroups,
-          providerId: providerRow.id,
-        },
-      });
-
-      // Apply LDAP group to role mappings if defined
-      if (config.groupMappings && config.groupMappings.length > 0 && userGroups.length > 0) {
-        for (const mapping of config.groupMappings) {
-          if (userGroups.includes(mapping.ldapGroup)) {
-            const [roleRow] = await db
-              .select({ id: roles.id })
-              .from(roles)
-              .where(eq(roles.slug, mapping.roleSlug))
-              .limit(1);
-
-            if (roleRow) {
-              await db
-                .insert(roleAssignments)
-                .values({
-                  id: generateId(),
-                  userId: targetUserId,
-                  roleId: roleRow.id,
-                })
-                .onConflictDoNothing();
-            }
-          }
+        if (existingUserByEmail) {
+          this.logger.warn(`LDAP provisioning denied: existing account needs an administrator-managed identity association (provider ${providerRow.id})`);
+          return null;
+        } else {
+          const [newUser] = await tx
+            .insert(users)
+            .values({
+              id: generateId(),
+              email: userEmail.trim().toLowerCase(),
+              displayName: userDisplayName,
+              status: UserStatus.ACTIVE,
+              lastLoginAt: new Date(),
+            })
+            .returning();
+          targetUserId = newUser.id;
         }
-      }
 
-      return {
-        userId: targetUserId,
-        identityId,
-        providerType: IdentityProviderType.LDAP,
-        providerSubject: normalizedSubject,
-      };
+        const identityId = generateId();
+        await tx.insert(userIdentities).values({
+          id: identityId,
+          userId: targetUserId,
+          providerType: IdentityProviderType.LDAP,
+          providerSubject: scopedSubject,
+          metadata: {
+            groups: userGroups,
+            providerId: providerRow.id,
+          },
+        });
+
+        await reconcileLdapMemberships(tx, identityId, targetUserId, providerRow.id,
+          config.groupMappings ?? [], userGroups, { providerId: providerRow.id, groups: userGroups });
+
+        return {
+          userId: targetUserId,
+          identityId,
+          providerType: IdentityProviderType.LDAP,
+          providerSubject: scopedSubject,
+        };
+      });
     } catch (ldapErr) {
       // Comprehensive error boundary: Unreachable / DNS failure / timeout never breaks local login
-      this.logger.warn(`LDAP authentication error: ${(ldapErr as Error).message}`);
-      await client.unbind().catch(() => {});
+      // LDAP errors can contain directory filters or DNs; do not log raw server errors.
+      this.logger.warn(`LDAP authentication failed for provider ${providerRow.id}`);
       return null;
     }
   }

@@ -20,6 +20,7 @@ import { ScenarioReleaseService } from './scenario-release.service.js';
 import {
   CreateScenarioInjectSchema,
   UpdateScenarioInjectSchema,
+  ScenarioInjectTranslationInputSchema,
   OverrideReleaseScenarioInjectSchema,
   type ScenarioInjectResponse,
   type ScenarioControlRunSheet,
@@ -156,11 +157,8 @@ export class ScenarioInjectsController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    const parse = CreateScenarioInjectSchema.shape.participantTitle; // basic validation
-    const data = body as { locale: string; participantTitle: string; participantContent: string };
-    if (!data.locale || !data.participantTitle || !data.participantContent) {
-      throw new BadRequestException('locale, participantTitle, and participantContent are required');
-    }
-    return this.injectsService.addOrUpdateTranslation(eventId, injectId, data, user.id);
+    const parse = ScenarioInjectTranslationInputSchema.safeParse(body);
+    if (!parse.success) throw new BadRequestException(parse.error.flatten());
+    return this.injectsService.addOrUpdateTranslation(eventId, injectId, parse.data, user.id);
   }
 }

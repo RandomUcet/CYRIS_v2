@@ -30,9 +30,9 @@ export class EventsController {
   constructor(private readonly eventsService: EventsService) {}
 
   @Get()
-  async listEvents(@CurrentUser() user: AuthenticatedUser,@Req() req:CyrisRequest) {
-    const events=await this.eventsService.listEvents(user);
-    return req.viewAs ? events.filter(e=>e.id===req.viewAs!.eventId) : events;
+  async listEvents(@CurrentUser() user: AuthenticatedUser, @Req() req: CyrisRequest) {
+    const events = await this.eventsService.listEvents(user);
+    return req.viewAs ? events.filter((event) => event.id === req.viewAs!.eventId) : events;
   }
 
   @Post()

@@ -9,8 +9,7 @@ import { LoadingState } from '../common/StateViews';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { workspaceLabel } from '@/lib/workspace-navigation';
 import { usePathname } from 'next/navigation';
-import Link from 'next/link';
-import {useEvent} from '@/contexts/EventContext';
+import { ViewAsBanner } from './ViewAsBanner';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -20,11 +19,9 @@ interface AppShellProps {
 }
 
 export function AppShell({ children, breadcrumbs, title, actions }: AppShellProps) {
-  const { currentUser, loading, isPlatformAdmin } = useAuth();
+  const { currentUser, loading, isPlatformAdmin, previewInvalid, viewAs } = useAuth();
   const { t, locale } = usePreferences();
   const pathname = usePathname();
-  const {selectedEventId}=useEvent();
-  const cs=locale==='cs';
   const paddedRoute = /\/(tasks|medical|documents|forensics|court)(\/[^/]+)?$/.test(pathname);
   const localBreadcrumbs = breadcrumbs?.map(item => ({...item, label: workspaceLabel(locale, item.label)}));
   const [collapsed, setCollapsed] = useState(false);
@@ -35,7 +32,7 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        if (currentUser && !currentUser.viewAs) {
+        if (currentUser) {
           e.preventDefault();
           setIsSearchOpen((prev) => !prev);
         }
@@ -59,12 +56,16 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
 
   // Guard: if unauthenticated in AppShell, immediately redirect to login root
   useEffect(() => {
-    if (!loading && !currentUser) {
+    if (!loading && !currentUser && !viewAs && !previewInvalid) {
       if (typeof window !== 'undefined') {
         window.location.href = '/';
       }
     }
-  }, [loading, currentUser]);
+  }, [loading, currentUser, viewAs, previewInvalid]);
+
+  if (previewInvalid || (!loading && !currentUser && viewAs)) {
+    return <div className="preview-unavailable"><ViewAsBanner /></div>;
+  }
 
   if (loading || !currentUser) {
     return (
@@ -75,20 +76,21 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
   }
 
   return (
-    <div className="app-shell" style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' }}>
       <React.Suspense fallback={<div className="workspace-nav-placeholder" />}><SideNav collapsed={collapsed} onToggleCollapse={() => setCollapsed((p) => !p)} /></React.Suspense>
 
-      <div className="app-shell-main" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100vh' }}>
-        <TopBar onOpenSearch={() => {if(!currentUser.viewAs)setIsSearchOpen(true)}} breadcrumbs={localBreadcrumbs} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100vh' }}>
+        <ViewAsBanner />
+        <TopBar onOpenSearch={() => setIsSearchOpen(true)} breadcrumbs={localBreadcrumbs} />
         <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--bg-canvas)' }}>
-          {currentUser && !isPlatformAdmin && selectedEventId && pathname.startsWith('/events/') && (
+          {currentUser && !isPlatformAdmin && (
             <div className="workspace-help-bar">
               <button type="button" onClick={() => setShowWorkspaceHelp((value) => !value)} aria-expanded={showWorkspaceHelp}>
                 {t('workspace.help')}
               </button>
               {showWorkspaceHelp && (
                 <span className="workspace-help-panel" role="note">
-                  {t('workspace.helpCopy')} <Link href={`/events/${selectedEventId}/support`}>{cs?'Kontaktovat EXCON':'Contact EXCON'}</Link> · <Link href={`/events/${selectedEventId}/service-status`}>{cs?'Stav služeb':'Service status'}</Link>
+                  {t('workspace.helpCopy')}
                 </span>
               )}
             </div>

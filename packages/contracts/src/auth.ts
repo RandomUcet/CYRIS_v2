@@ -31,17 +31,31 @@ export const MembershipSummarySchema = z.object({
 
 export type MembershipSummary = z.infer<typeof MembershipSummarySchema>;
 
-export const StartViewAsRequestSchema = z.object({eventId:z.string().uuid(),userId:z.string().uuid(),reason:z.string().trim().min(3).max(500)});
+export const StartViewAsRequestSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+  eventId: z.string().uuid(),
+  targetUserId: z.string().uuid(),
+});
 export type StartViewAsRequest = z.infer<typeof StartViewAsRequestSchema>;
-export const ViewAsInfoSchema = z.object({actorUserId:z.string().uuid(),userId:z.string().uuid(),eventId:z.string().uuid(),displayName:z.string(),expiresAt:z.string().datetime(),readOnly:z.literal(true)});
-export type ViewAsInfo = z.infer<typeof ViewAsInfoSchema>;
+
+export const ViewAsContextSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  actorUserId: z.string().uuid(),
+  targetUserId: z.string().uuid(),
+  targetDisplayName: z.string(),
+  startedAt: z.string(),
+  expiresAt: z.string(),
+  readOnly: z.literal(true),
+});
+export type ViewAsContext = z.infer<typeof ViewAsContextSchema>;
 
 export const CurrentUserResponseSchema = z.object({
   user: UserProfileSchema,
   platformRoles: z.array(z.string()),
   platformPermissions: z.array(z.string()),
   memberships: z.array(MembershipSummarySchema),
-  viewAs: ViewAsInfoSchema.optional(),
+  viewAs: ViewAsContextSchema.optional(),
 });
 
 export type CurrentUserResponse = z.infer<typeof CurrentUserResponseSchema>;

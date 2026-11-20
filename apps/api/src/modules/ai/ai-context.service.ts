@@ -12,7 +12,7 @@ import {
   resources,
 } from '@cyris/db';
 import { Permissions } from '@cyris/shared';
-import { AuthorizationService } from '../authorization/authorization.service.js';
+import { ActivityService } from '../resources/activity.service.js';
 
 export interface PermittedCaseContext {
   caseId: string;
@@ -98,7 +98,7 @@ export class AIContextService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly resourceAccessService: ResourceAccessService,
-    private readonly authzService: AuthorizationService
+    private readonly activityService: ActivityService
   ) {}
 
   /**
@@ -135,6 +135,11 @@ export class AIContextService {
       throw new NotFoundException(`Case '${caseId}' not found`);
     }
 
+    const [caseResource] = await db.select({ eventId: resources.eventId }).from(resources)
+      .where(eq(resources.id, caseId)).limit(1);
+    if (!caseResource) throw new NotFoundException(`Case '${caseId}' not found`);
+    const eventId = caseResource.eventId;
+
     const accessibleResourceIds: string[] = [caseId];
 
     // 2. Fetch relationships connected to this case
@@ -151,7 +156,8 @@ export class AIContextService {
             eq(resourceRelationships.sourceResourceId, caseId),
             eq(resourceRelationships.targetResourceId, caseId)
           ),
-          isNull(resourceRelationships.removedAt)
+          isNull(resourceRelationships.removedAt),
+          eq(resourceRelationships.eventId, eventId)
         )
       );
 
@@ -168,15 +174,16 @@ export class AIContextService {
       );
 
       if (allowed) {
-        accessibleResourceIds.push(otherId);
-        // Find resource type
+        // Find resource type and retain the case's event boundary.
         const [res] = await db
-          .select({ resourceType: resources.resourceType })
+          .select({ resourceType: resources.resourceType, eventId: resources.eventId })
           .from(resources)
           .where(eq(resources.id, otherId))
           .limit(1);
 
-        if (res?.resourceType === 'evidence') {
+        if (!res || res.eventId !== eventId) continue;
+        accessibleResourceIds.push(otherId);
+        if (res.resourceType === 'evidence') {
           relatedEvidenceIds.push(otherId);
         } else if (res?.resourceType === 'lab_analysis') {
           relatedLabIds.push(otherId);
@@ -261,30 +268,16 @@ export class AIContextService {
       }
     }
 
-    // 5. Fetch bounded timeline events for this case
-    const rawActivities = await db
-      .select({
-        id: activityEvents.id,
-        activityType: activityEvents.activityType,
-        title: activityEvents.title,
-        summary: activityEvents.summary,
-        occurredAt: activityEvents.occurredAt,
-        resourceId: activityEvents.resourceId,
-      })
-      .from(activityEvents)
-      .where(eq(activityEvents.resourceId, caseId))
-      .orderBy(desc(activityEvents.occurredAt))
-      .limit(15);
-
-    const timelineHighlights: PermittedCaseContext['timelineHighlights'] = [];
-    for (const act of rawActivities) {
-      timelineHighlights.push({
-        id: act.id,
-        activityType: act.activityType,
-        title: act.title,
-        summary: act.summary || '',
-        occurredAt: act.occurredAt.toISOString(),
-      });
+    // Optional timeline context must obey exactly the same boundary as its UI.
+    let timelineHighlights: PermittedCaseContext['timelineHighlights'] = [];
+    try {
+      const activities = await this.activityService.getActivityFeed({ eventId, resourceId: caseId, limit: 15 }, user);
+      timelineHighlights = activities.map((activity) => ({
+        id: activity.id, activityType: activity.activityType, title: activity.title,
+        summary: activity.summary ?? '', occurredAt: activity.occurredAt,
+      }));
+    } catch (error) {
+      if (!(error instanceof ForbiddenException)) throw error;
     }
 
     return {
@@ -325,88 +318,15 @@ export class AIContextService {
       threshold = new Date(now - 4 * 60 * 60 * 1000);
     }
 
-    const rawActivities = await db
-      .select({
-        id: activityEvents.id,
-        activityType: activityEvents.activityType,
-        title: activityEvents.title,
-        summary: activityEvents.summary,
-        resourceId: activityEvents.resourceId,
-        occurredAt: activityEvents.occurredAt,
-      })
-      .from(activityEvents)
-      .where(
-        and(
-          eq(activityEvents.eventId, eventId),
-          gte(activityEvents.occurredAt, threshold)
-        )
-      )
-      .orderBy(desc(activityEvents.occurredAt))
-      .limit(30);
+    const rawActivities = await this.activityService.getActivityFeed({
+      eventId, from: threshold.toISOString(), limit: 30,
+    }, user);
 
     const items: PermittedOperationalItem[] = [];
     const accessibleResourceIds: string[] = [];
 
     for (const act of rawActivities) {
-      // Evaluation Quarantine: NEVER expose evaluation activity unless user has explicit EVALUATION_READ
-      if (act.activityType.startsWith('evaluation.')) {
-        const canReadEval = await this.authzService.authorize({
-          user,
-          permission: Permissions.EVALUATION_READ,
-          context: { eventId },
-        });
-        if (!canReadEval) continue;
-      }
-
-      // Medical Confidentiality: NEVER expose clinical/encounter activity unless user has MEDICAL_READ and resource access
-      if (act.activityType.startsWith('medical.')) {
-        const canReadMed = await this.authzService.authorize({
-          user,
-          permission: Permissions.MEDICAL_READ,
-          context: { eventId },
-        });
-        if (!canReadMed) continue;
-        if (act.resourceId) {
-          const canAccess = await this.resourceAccessService.canAccessResource(
-            user,
-            act.resourceId,
-            Permissions.MEDICAL_READ
-          );
-          if (!canAccess) continue;
-        }
-      }
-
-      // Task Confidentiality: verify TASK_READ and resource access
-      if (act.activityType.startsWith('task.')) {
-        const canReadTask = await this.authzService.authorize({
-          user,
-          permission: Permissions.TASK_READ,
-          context: { eventId },
-        });
-        if (!canReadTask) continue;
-        if (act.resourceId) {
-          const canAccess = await this.resourceAccessService.canAccessResource(
-            user,
-            act.resourceId,
-            Permissions.TASK_READ
-          );
-          if (!canAccess) continue;
-        }
-      }
-
-      if (act.resourceId && !act.activityType.startsWith('medical.') && !act.activityType.startsWith('task.')) {
-        const canAccess = await this.resourceAccessService.canAccessResource(
-          user,
-          act.resourceId,
-          Permissions.REGISTRY_READ
-        );
-        if (!canAccess) {
-          continue;
-        }
-        accessibleResourceIds.push(act.resourceId);
-      } else if (act.resourceId) {
-        accessibleResourceIds.push(act.resourceId);
-      }
+      if (act.resourceId) accessibleResourceIds.push(act.resourceId);
 
       let category: PermittedOperationalItem['category'] = 'TIMELINE';
       if (act.activityType.startsWith('case.')) category = 'CASE';
@@ -423,7 +343,7 @@ export class AIContextService {
         title: act.title,
         description: act.summary || act.title,
         resourceId: act.resourceId ?? undefined,
-        occurredAt: act.occurredAt.toISOString(),
+        occurredAt: act.occurredAt,
       });
     }
 
@@ -444,86 +364,18 @@ export class AIContextService {
     const db = this.databaseService.client;
     const accessibleResourceIds: string[] = [];
 
+    const canRead = await this.activityService.createAccessReader(eventId, user);
     let targetActivityRow: typeof activityEvents.$inferSelect | null = null;
-
     if (params.activityId) {
-      const [act] = await db
-        .select()
-        .from(activityEvents)
-        .where(
-          and(
-            eq(activityEvents.id, params.activityId),
-            eq(activityEvents.eventId, eventId)
-          )
-        )
-        .limit(1);
-
-      if (act) {
-        targetActivityRow = act;
-
-        // Verify domain permissions for specialized activity types
-        if (act.activityType.startsWith('evaluation.')) {
-          await this.authzService.assertAuthorized({
-            user,
-            permission: Permissions.EVALUATION_READ,
-            context: { eventId },
-          });
-        }
-        if (act.activityType.startsWith('medical.')) {
-          await this.authzService.assertAuthorized({
-            user,
-            permission: Permissions.MEDICAL_READ,
-            context: { eventId },
-          });
-          if (act.resourceId) {
-            await this.resourceAccessService.assertCanAccessResource(
-              user,
-              act.resourceId,
-              Permissions.MEDICAL_READ
-            );
-          }
-        }
-        if (act.activityType.startsWith('task.')) {
-          await this.authzService.assertAuthorized({
-            user,
-            permission: Permissions.TASK_READ,
-            context: { eventId },
-          });
-          if (act.resourceId) {
-            await this.resourceAccessService.assertCanAccessResource(
-              user,
-              act.resourceId,
-              Permissions.TASK_READ
-            );
-          }
-        }
-
-        if (act.resourceId) {
-          accessibleResourceIds.push(act.resourceId);
-        }
-      }
+      const [activity] = await db.select().from(activityEvents)
+        .where(and(eq(activityEvents.id, params.activityId), eq(activityEvents.eventId, eventId))).limit(1);
+      if (activity && await canRead(activity)) targetActivityRow = activity;
     } else if (params.resourceId) {
-      await this.resourceAccessService.assertCanAccessResource(
-        user,
-        params.resourceId,
-        Permissions.REGISTRY_READ
-      );
-      accessibleResourceIds.push(params.resourceId);
-
-      const [latest] = await db
-        .select()
-        .from(activityEvents)
-        .where(
-          and(
-            eq(activityEvents.eventId, eventId),
-            eq(activityEvents.resourceId, params.resourceId)
-          )
-        )
-        .orderBy(desc(activityEvents.occurredAt))
-        .limit(1);
-
-      if (latest) {
-        targetActivityRow = latest;
+      const [visible] = await this.activityService.getActivityFeed({ eventId, resourceId: params.resourceId, limit: 1 }, user);
+      if (visible) {
+        const [activity] = await db.select().from(activityEvents)
+          .where(and(eq(activityEvents.id, visible.id), eq(activityEvents.eventId, eventId))).limit(1);
+        if (activity && await canRead(activity)) targetActivityRow = activity;
       }
     }
 
@@ -531,32 +383,24 @@ export class AIContextService {
       throw new NotFoundException('Specified activity or resource timeline could not be resolved');
     }
 
+    if (targetActivityRow.resourceId) accessibleResourceIds.push(targetActivityRow.resourceId);
     const causalChain: PermittedTimelineExplainContext['causalChain'] = [];
+    const visited = new Set([targetActivityRow.id]);
     let currentCausalId = targetActivityRow.causationId;
     let step = 1;
 
     // Follow explicit activity causation backwards up to 5 steps
-    while (currentCausalId && step <= 5) {
+    while (currentCausalId && step <= 5 && !visited.has(currentCausalId)) {
+      visited.add(currentCausalId);
       const [cause] = await db
         .select()
         .from(activityEvents)
-        .where(eq(activityEvents.id, currentCausalId))
+        .where(and(eq(activityEvents.id, currentCausalId), eq(activityEvents.eventId, eventId)))
         .limit(1);
 
-      if (!cause) break;
+      if (!cause || !(await canRead(cause))) break;
 
-      if (cause.resourceId) {
-        const canAccess = await this.resourceAccessService.canAccessResource(
-          user,
-          cause.resourceId,
-          Permissions.REGISTRY_READ
-        );
-        if (!canAccess) {
-          // Break chain immediately if user cannot access parent resource
-          break;
-        }
-        accessibleResourceIds.push(cause.resourceId);
-      }
+      if (cause.resourceId) accessibleResourceIds.push(cause.resourceId);
 
       causalChain.push({
         step,
@@ -579,7 +423,7 @@ export class AIContextService {
         title: targetActivityRow.title,
         summary: targetActivityRow.summary,
         occurredAt: targetActivityRow.occurredAt.toISOString(),
-        causationId: targetActivityRow.causationId,
+        causationId: causalChain[0]?.id ?? null,
         resourceId: targetActivityRow.resourceId,
       },
       causalChain,

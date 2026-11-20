@@ -56,16 +56,16 @@ async function main() {
   const configService = new ConfigService();
   const databaseService = new DatabaseService(configService);
   const auditService = new AuditService(databaseService);
-  const activityService = new ActivityService(databaseService);
+  const authzService = new AuthorizationService(databaseService);
+  const resourceAccessService = new ResourceAccessService(databaseService, authzService);
+  const activityService = new ActivityService(databaseService, authzService, resourceAccessService);
   const searchAuthzService = new SearchAuthzService(databaseService);
   const searchService = new SearchService(configService, searchAuthzService);
   const searchIndexerService = new SearchIndexerService(databaseService, searchService);
-  const authzService = new AuthorizationService(databaseService);
   const notificationTestDouble = {
     emit: async () => null,
   } as Pick<NotificationsService, 'emit'>;
   const resourceService = new ResourceService(databaseService, auditService, activityService, searchIndexerService);
-  const resourceAccessService = new ResourceAccessService(databaseService, authzService);
   const resourceAssignmentService = new ResourceAssignmentService(
     databaseService,
     auditService,
@@ -114,7 +114,7 @@ async function main() {
     notificationTestDouble as NotificationsService,
     authzService
   );
-  const timelineService = new TimelineService(databaseService, resourceAccessService);
+  const timelineService = new TimelineService(databaseService, resourceAccessService, activityService);
 
   // 1. Get or create test operators (without modifying admin credentials)
   console.log('1. Locating test operators...');

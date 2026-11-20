@@ -94,7 +94,8 @@ export class WorkspaceResolverService {
           .where(
             and(
               eq(membershipUnitAssignments.membershipId, membership.id),
-              eq(organizationalUnits.eventId, eventId)
+              eq(organizationalUnits.eventId, eventId),
+              isNull(organizationalUnits.archivedAt)
             )
           )
       : [];
@@ -206,10 +207,8 @@ export class WorkspaceResolverService {
         permission: Permissions.DOCUMENT_READ,
         context: { eventId },
       }),
-      this.authzService.authorize({
-        user,
-        permission: Permissions.TASK_READ,
-        context: { eventId },
+      isPlatformAdmin || this.authzService.hasEventCapability({
+        user, permission: Permissions.TASK_READ, eventId, resourceScopes: ['OWN', 'ASSIGNED'],
       }),
       this.authzService.authorize({
         user,
@@ -223,7 +222,9 @@ export class WorkspaceResolverService {
       }),
     ]);
 
-    const canAdmin = isPlatformAdmin || canManageUnits || canReadAudit;
+    const canManageMembers = await this.authzService.authorize({ user, permission: Permissions.MEMBERSHIP_MANAGE, context: { eventId } });
+    const canManageRoles = await this.authzService.authorize({ user, permission: Permissions.ROLE_MANAGE, context: { eventId } });
+    const canAdmin = isPlatformAdmin || canManageUnits || canReadAudit || canManageMembers || canManageRoles;
 
     // 5. Compose Navigation Structure (Deduplicated union)
     const seenHrefs = new Set<string>();
@@ -874,31 +875,31 @@ export class WorkspaceResolverService {
         href: '/admin/events',
         iconKey: 'calendar',
       });
-      addItem(adminSection, {
+      if (canManageUnits) addItem(adminSection, {
         id: 'nav-admin-units',
         label: 'Units & Teams',
         href: '/admin/units',
         iconKey: 'building',
       });
-      addItem(adminSection, {
+      if (canManageMembers) addItem(adminSection, {
         id: 'nav-admin-users',
         label: 'Users & Access',
         href: '/admin/users',
         iconKey: 'users',
       });
-      addItem(adminSection, {
+      if (canManageRoles) addItem(adminSection, {
         id: 'nav-admin-roles',
         label: 'Roles & Perms',
         href: '/admin/roles',
         iconKey: 'key',
       });
-      addItem(adminSection, {
+      if (canReadAudit) addItem(adminSection, {
         id: 'nav-admin-audit',
         label: 'Audit Log',
         href: '/admin/audit',
         iconKey: 'shield',
       });
-      addItem(adminSection, {
+      if (isPlatformAdmin) addItem(adminSection, {
         id: 'nav-admin-integrations',
         label: 'Integrations & AI',
         href: '/admin/settings/integrations/ai',

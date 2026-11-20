@@ -513,7 +513,7 @@ export class InvestigationService {
         eventId,
         resourceId: caseId,
         limit: 25,
-      });
+      }, user);
 
       return {
         case: caseData,

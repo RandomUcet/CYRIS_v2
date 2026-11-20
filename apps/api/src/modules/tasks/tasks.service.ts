@@ -4,7 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { eq, and, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql, isNull } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
@@ -22,8 +22,11 @@ import {
   eventMemberships,
   resourceRelationships,
   labAnalyses,
+  membershipUnitAssignments,
+  MembershipStatus,
+  UserStatus,
 } from '@cyris/db';
-import { generateId, Permissions } from '@cyris/shared';
+import { generateId, Permissions, type PermissionKey } from '@cyris/shared';
 import type {
   OperationalTaskItem,
   OperationalTaskDetail,
@@ -74,11 +77,25 @@ export class TasksService {
     dto: CreateOperationalTaskRequest,
     user: AuthenticatedUser
   ): Promise<OperationalTaskItem> {
+    await this.authorizationService.assertAuthorized({
+      user, permission: Permissions.TASK_CREATE,
+      context: { eventId, unitId: dto.owningUnitId || dto.assignedUnitId },
+    });
+    await this.validateAssignmentTargets(eventId, dto.owningUnitId);
+    if (dto.assignedUnitId || dto.assignedUserId) {
+      await this.authorizationService.assertAuthorized({
+        user, permission: Permissions.TASK_ASSIGN,
+        context: { eventId, unitId: dto.assignedUnitId },
+      });
+    }
+    if (dto.sourceResourceId && !await this.canReadLinkedResource(eventId, dto.sourceResourceId, user)) {
+      throw new ForbiddenException('Source resource is not accessible in this exercise');
+    }
     await this.disruptionsService.assertTaskWriteAllowed(eventId, user, dto.assignedUnitId);
     await this.validateAssignmentTargets(eventId, dto.assignedUnitId, dto.assignedUserId);
     const taskId = generateId();
 
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       // 1. Concurrency-safe identifier allocation: TASK-0001
       const taskNumber = await this.identifierAllocator.allocate(
         eventId,
@@ -107,7 +124,7 @@ export class TasksService {
           description: dto.description || null,
           status: 'OPEN',
           priority: dto.priority || 'NORMAL',
-          owningUnitId: dto.owningUnitId || null,
+          owningUnitId: dto.owningUnitId || dto.assignedUnitId || null,
           assignedUnitId: dto.assignedUnitId || null,
           assignedUserId: dto.assignedUserId || null,
           sourceType: dto.sourceType || 'MANUAL',
@@ -146,6 +163,7 @@ export class TasksService {
           sourceType: dto.sourceType,
           sourceResourceId: dto.sourceResourceId,
         },
+        txClient: tx,
       });
 
       // 6. Activity Timeline
@@ -164,544 +182,183 @@ export class TasksService {
       // 7. Search index outbox event
       await this.searchIndexer.emitSearchUpsert('operational_task', taskId, tx);
 
-      if (dto.assignedUserId) {
-        await this.notificationsService.emit({
-          userId: dto.assignedUserId,
-          eventId,
-          type: 'TASK_ASSIGNED',
-          severity: 'ACTION',
-          templateKey: 'task.assigned',
-          templateParams: {
-            taskNumber,
-            title: dto.title,
-          },
-          resourceId: taskId,
-          actionUrl: `/events/${eventId}/tasks/${taskId}`,
-          sourceEventId: `task-assign-${taskId}-${dto.assignedUserId}`,
-        });
-      }
 
       return this.mapTaskItem(created!, {
         visibility: dto.visibility,
         ownerUserId: user.id,
       });
     });
-  }
-
-  /**
-   * Updates task general metadata.
-   */
-  async updateTask(
-    taskId: string,
-    dto: UpdateOperationalTaskRequest,
-    user: AuthenticatedUser
-  ): Promise<OperationalTaskDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      taskId,
-      Permissions.TASK_UPDATE
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(operationalTasks)
-      .where(eq(operationalTasks.id, taskId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Task '${taskId}' not found`);
-    }
-    await this.disruptionsService.assertTaskReadAllowed(existing.eventId, user, existing.assignedUnitId);
-    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
-
-    const updates: Record<string, unknown> = {
-      updatedAt: new Date(),
-    };
-    if (dto.title !== undefined) updates.title = dto.title;
-    if (dto.description !== undefined) updates.description = dto.description;
-    if (dto.priority !== undefined) updates.priority = dto.priority;
-    if (dto.dueAt !== undefined) updates.dueAt = dto.dueAt ? new Date(dto.dueAt) : null;
-
-    await this.db
-      .update(operationalTasks)
-      .set(updates)
-      .where(eq(operationalTasks.id, taskId));
-
-    await this.auditService.record({
-      action: 'task.updated',
-      category: 'tasks',
-      eventId: existing.eventId,
-      resourceType: 'operational_task',
-      resourceId: taskId,
-      actorUserId: user.id,
-      metadata: updates,
-    });
-
-    await this.searchIndexer.emitSearchUpsert('operational_task', taskId);
-
-    return this.getTaskDetail(taskId, user);
-  }
-
-  /**
-   * Assigns task to a unit and/or user.
-   */
-  async assignTask(
-    taskId: string,
-    dto: AssignOperationalTaskRequest,
-    user: AuthenticatedUser
-  ): Promise<OperationalTaskDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      taskId,
-      Permissions.TASK_ASSIGN
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(operationalTasks)
-      .where(eq(operationalTasks.id, taskId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Task '${taskId}' not found`);
-    }
-    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
-    await this.validateAssignmentTargets(existing.eventId, dto.assignedUnitId, dto.assignedUserId);
-
-    const now = new Date();
-    await this.db
-      .update(operationalTasks)
-      .set({
-        assignedUnitId: dto.assignedUnitId || null,
-        assignedUserId: dto.assignedUserId || null,
-        updatedAt: now,
-      })
-      .where(eq(operationalTasks.id, taskId));
-
-    await this.auditService.record({
-      action: 'task.assigned',
-      category: 'tasks',
-      eventId: existing.eventId,
-      resourceType: 'operational_task',
-      resourceId: taskId,
-      actorUserId: user.id,
-      metadata: {
-        taskNumber: existing.taskNumber,
-        assignedUnitId: dto.assignedUnitId,
-        assignedUserId: dto.assignedUserId,
-        notes: dto.notes,
-      },
-    });
-
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: taskId,
-      activityType: 'task.assigned',
-      actorUserId: user.id,
-      title: `Task Assigned: ${existing.taskNumber}`,
-      summary: dto.notes || `Assigned to Unit: ${dto.assignedUnitId || 'None'} / User: ${dto.assignedUserId || 'None'}`,
-    });
-
-    await this.searchIndexer.emitSearchUpsert('operational_task', taskId);
 
     if (dto.assignedUserId) {
       await this.notificationsService.emit({
         userId: dto.assignedUserId,
-        eventId: existing.eventId,
+        eventId,
         type: 'TASK_ASSIGNED',
         severity: 'ACTION',
         templateKey: 'task.assigned',
         templateParams: {
-          taskNumber: existing.taskNumber,
-          title: existing.title,
+          taskNumber: result.taskNumber,
+          title: dto.title,
         },
         resourceId: taskId,
-        actionUrl: `/events/${existing.eventId}/tasks/${taskId}`,
+        actionUrl: `/events/${eventId}/tasks/${taskId}`,
         sourceEventId: `task-assign-${taskId}-${dto.assignedUserId}`,
       });
     }
-
-    return this.getTaskDetail(taskId, user);
+    return result;
   }
 
-  /**
-   * Acknowledges task receipt by assigned unit/user.
-   */
-  async acknowledgeTask(
-    taskId: string,
-    dto: AcknowledgeOperationalTaskRequest,
-    user: AuthenticatedUser
-  ): Promise<OperationalTaskDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      taskId,
-      Permissions.TASK_ACKNOWLEDGE
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(operationalTasks)
-      .where(eq(operationalTasks.id, taskId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Task '${taskId}' not found`);
-    }
-    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
-
-    if (existing.status === 'COMPLETED' || existing.status === 'CANCELLED') {
-      throw new BadRequestException(`Cannot acknowledge task in ${existing.status} status`);
-    }
-
-    const now = new Date();
-    await this.db
-      .update(operationalTasks)
-      .set({
-        status: 'ACKNOWLEDGED',
-        acknowledgedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(operationalTasks.id, taskId));
-
-    await this.auditService.record({
-      action: 'task.acknowledged',
-      category: 'tasks',
-      eventId: existing.eventId,
-      resourceType: 'operational_task',
-      resourceId: taskId,
-      actorUserId: user.id,
-      metadata: { taskNumber: existing.taskNumber, notes: dto.notes },
-    });
-
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: taskId,
-      activityType: 'task.acknowledged',
-      actorUserId: user.id,
-      title: `Task Acknowledged: ${existing.taskNumber}`,
-      summary: dto.notes || 'Task received and acknowledged by operative',
-    });
-
-    await this.searchIndexer.emitSearchUpsert('operational_task', taskId);
-
-    return this.getTaskDetail(taskId, user);
-  }
-
-  /**
-   * Starts work on task (transitions to IN_PROGRESS).
-   */
-  async startTask(
-    taskId: string,
-    dto: StartOperationalTaskRequest,
-    user: AuthenticatedUser
-  ): Promise<OperationalTaskDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      taskId,
-      Permissions.TASK_WORK
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(operationalTasks)
-      .where(eq(operationalTasks.id, taskId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Task '${taskId}' not found`);
-    }
-    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
-
-    if (existing.status === 'COMPLETED' || existing.status === 'CANCELLED') {
-      throw new BadRequestException(`Cannot start task in ${existing.status} status. Reopen first.`);
-    }
-
-    const now = new Date();
-    await this.db
-      .update(operationalTasks)
-      .set({
-        status: 'IN_PROGRESS',
-        startedAt: existing.startedAt || now,
-        blockedReason: null,
-        updatedAt: now,
-      })
-      .where(eq(operationalTasks.id, taskId));
-
-    await this.auditService.record({
-      action: 'task.started',
-      category: 'tasks',
-      eventId: existing.eventId,
-      resourceType: 'operational_task',
-      resourceId: taskId,
-      actorUserId: user.id,
-      metadata: { taskNumber: existing.taskNumber, notes: dto.notes },
-    });
-
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: taskId,
-      activityType: 'task.started',
-      actorUserId: user.id,
-      title: `Task In Progress: ${existing.taskNumber}`,
-      summary: dto.notes || 'Work actively commenced on operational task',
-    });
-
-    await this.searchIndexer.emitSearchUpsert('operational_task', taskId);
-
-    return this.getTaskDetail(taskId, user);
-  }
-
-  /**
-   * Marks task as blocked with required reason.
-   */
-  async blockTask(
-    taskId: string,
-    dto: BlockOperationalTaskRequest,
-    user: AuthenticatedUser
-  ): Promise<OperationalTaskDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      taskId,
-      Permissions.TASK_WORK
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(operationalTasks)
-      .where(eq(operationalTasks.id, taskId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Task '${taskId}' not found`);
-    }
-    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
-
-    if (existing.status === 'COMPLETED' || existing.status === 'CANCELLED') {
-      throw new BadRequestException(`Cannot block task in ${existing.status} status`);
-    }
-
-    const now = new Date();
-    await this.db
-      .update(operationalTasks)
-      .set({
-        status: 'BLOCKED',
-        blockedReason: dto.reason,
-        updatedAt: now,
-      })
-      .where(eq(operationalTasks.id, taskId));
-
-    await this.auditService.record({
-      action: 'task.blocked',
-      category: 'tasks',
-      eventId: existing.eventId,
-      resourceType: 'operational_task',
-      resourceId: taskId,
-      actorUserId: user.id,
-      metadata: { taskNumber: existing.taskNumber, reason: dto.reason },
-    });
-
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: taskId,
-      activityType: 'task.blocked',
-      actorUserId: user.id,
-      title: `Task Blocked: ${existing.taskNumber}`,
-      summary: `Blocked reason: ${dto.reason}`,
-    });
-
-    await this.searchIndexer.emitSearchUpsert('operational_task', taskId);
-
-    return this.getTaskDetail(taskId, user);
-  }
-
-  /**
-   * Completes task with optional completion note.
-   */
-  async completeTask(
-    taskId: string,
-    dto: CompleteOperationalTaskRequest,
-    user: AuthenticatedUser
-  ): Promise<OperationalTaskDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      taskId,
-      Permissions.TASK_COMPLETE
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(operationalTasks)
-      .where(eq(operationalTasks.id, taskId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Task '${taskId}' not found`);
-    }
-    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
-
-    const now = new Date();
-    await this.db
-      .update(operationalTasks)
-      .set({
-        status: 'COMPLETED',
-        completedAt: now,
-        completionNote: dto.completionNote || null,
-        blockedReason: null,
-        updatedAt: now,
-      })
-      .where(eq(operationalTasks.id, taskId));
-
-    await this.auditService.record({
-      action: 'task.completed',
-      category: 'tasks',
-      eventId: existing.eventId,
-      resourceType: 'operational_task',
-      resourceId: taskId,
-      actorUserId: user.id,
-      metadata: { taskNumber: existing.taskNumber, note: dto.completionNote },
-    });
-
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: taskId,
-      activityType: 'task.completed',
-      actorUserId: user.id,
-      title: `Task Completed: ${existing.taskNumber} — ${existing.title}`,
-      summary: dto.completionNote || 'Operational task concluded successfully',
-    });
-
-    await this.searchIndexer.emitSearchUpsert('operational_task', taskId);
-
-    return this.getTaskDetail(taskId, user);
-  }
-
-  /**
-   * Cancels task with required reason.
-   */
-  async cancelTask(
-    taskId: string,
-    dto: CancelOperationalTaskRequest,
-    user: AuthenticatedUser
-  ): Promise<OperationalTaskDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      taskId,
-      Permissions.TASK_CANCEL
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(operationalTasks)
-      .where(eq(operationalTasks.id, taskId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Task '${taskId}' not found`);
-    }
-    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
-
-    const now = new Date();
-    await this.db
-      .update(operationalTasks)
-      .set({
-        status: 'CANCELLED',
-        blockedReason: dto.reason,
-        updatedAt: now,
-      })
-      .where(eq(operationalTasks.id, taskId));
-
-    await this.auditService.record({
-      action: 'task.cancelled',
-      category: 'tasks',
-      eventId: existing.eventId,
-      resourceType: 'operational_task',
-      resourceId: taskId,
-      actorUserId: user.id,
-      metadata: { taskNumber: existing.taskNumber, reason: dto.reason },
-    });
-
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: taskId,
-      activityType: 'task.cancelled',
-      actorUserId: user.id,
-      title: `Task Cancelled: ${existing.taskNumber}`,
-      summary: `Cancellation reason: ${dto.reason}`,
-    });
-
-    await this.searchIndexer.emitSearchUpsert('operational_task', taskId);
-
-    return this.getTaskDetail(taskId, user);
-  }
-
-  /**
-   * Reopens a completed or cancelled task.
-   * Explicit action with required operational justification.
-   */
-  async reopenTask(
-    taskId: string,
-    dto: ReopenOperationalTaskRequest,
-    user: AuthenticatedUser
-  ): Promise<OperationalTaskDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      taskId,
-      Permissions.TASK_UPDATE
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(operationalTasks)
-      .where(eq(operationalTasks.id, taskId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Task '${taskId}' not found`);
-    }
-    await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
-
-    if (existing.status !== 'COMPLETED' && existing.status !== 'CANCELLED') {
-      throw new BadRequestException(`Task is in ${existing.status} status and cannot be reopened`);
-    }
-
-    const now = new Date();
-    await this.db
-      .update(operationalTasks)
-      .set({
-        status: dto.newStatus || 'OPEN',
-        completedAt: null,
-        blockedReason: null,
-        updatedAt: now,
-      })
-      .where(eq(operationalTasks.id, taskId));
-
-    await this.auditService.record({
-      action: 'task.reopened',
-      category: 'tasks',
-      eventId: existing.eventId,
-      resourceType: 'operational_task',
-      resourceId: taskId,
-      actorUserId: user.id,
-      metadata: {
-        taskNumber: existing.taskNumber,
-        previousStatus: existing.status,
-        newStatus: dto.newStatus || 'OPEN',
-        reason: dto.reason,
+  async updateTask(taskId: string, dto: UpdateOperationalTaskRequest, user: AuthenticatedUser, expectedEventId?: string): Promise<OperationalTaskDetail> {
+    return this.mutateTask(taskId, user, expectedEventId, Permissions.TASK_UPDATE, async () => ({
+      action: 'task.updated',
+      updates: {
+        ...(dto.title !== undefined ? { title: dto.title } : {}),
+        ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.priority !== undefined ? { priority: dto.priority } : {}),
+        ...(dto.dueAt !== undefined ? { dueAt: dto.dueAt ? new Date(dto.dueAt) : null } : {}),
       },
+      metadata: { fields: Object.keys(dto) },
+    }));
+  }
+
+  async assignTask(taskId: string, dto: AssignOperationalTaskRequest, user: AuthenticatedUser, expectedEventId?: string): Promise<OperationalTaskDetail> {
+    let changed = false;
+    const result = await this.mutateTask(taskId, user, expectedEventId, Permissions.TASK_ASSIGN, async (existing) => {
+      await this.validateAssignmentTargets(existing.eventId, dto.assignedUnitId, dto.assignedUserId);
+      if (dto.assignedUnitId || dto.assignedUserId) {
+        await this.authorizationService.assertAuthorized({ user, permission: Permissions.TASK_ASSIGN,
+          context: { eventId: existing.eventId, unitId: dto.assignedUnitId ?? undefined } });
+      }
+      const assignedUnitId = dto.assignedUnitId ?? null;
+      const assignedUserId = dto.assignedUserId ?? null;
+      changed = existing.assignedUnitId !== assignedUnitId || existing.assignedUserId !== assignedUserId;
+      return {
+        action: 'task.assigned', noOp: !changed,
+        updates: { assignedUnitId, assignedUserId },
+        title: `Task Assigned: ${existing.taskNumber}`, summary: dto.notes,
+        metadata: { assignedUnitId, assignedUserId, notes: dto.notes },
+      };
     });
+    if (changed && dto.assignedUserId) {
+      await this.notificationsService.emit({
+        userId: dto.assignedUserId, eventId: result.eventId, type: 'TASK_ASSIGNED', severity: 'ACTION',
+        templateKey: 'task.assigned', templateParams: { taskNumber: result.taskNumber, title: result.title },
+        resourceId: taskId, actionUrl: `/events/${result.eventId}/tasks/${taskId}`,
+        sourceEventId: `task-assign-${taskId}-${dto.assignedUserId}-${result.updatedAt}`,
+      });
+    }
+    return result;
+  }
 
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: taskId,
-      activityType: 'task.reopened',
-      actorUserId: user.id,
-      title: `Task Reopened: ${existing.taskNumber}`,
-      summary: `Reopen reason: ${dto.reason}`,
+  async acknowledgeTask(taskId: string, dto: AcknowledgeOperationalTaskRequest, user: AuthenticatedUser, expectedEventId?: string): Promise<OperationalTaskDetail> {
+    return this.mutateTask(taskId, user, expectedEventId, Permissions.TASK_ACKNOWLEDGE, async (existing) => {
+      this.assertTaskActive(existing, 'acknowledge');
+      return { action: 'task.acknowledged', noOp: existing.status !== 'OPEN',
+        updates: { status: 'ACKNOWLEDGED', acknowledgedAt: new Date() },
+        title: `Task Acknowledged: ${existing.taskNumber}`, summary: dto.notes,
+        metadata: { notes: dto.notes } };
     });
+  }
 
-    await this.searchIndexer.emitSearchUpsert('operational_task', taskId);
+  async startTask(taskId: string, dto: StartOperationalTaskRequest, user: AuthenticatedUser, expectedEventId?: string): Promise<OperationalTaskDetail> {
+    return this.mutateTask(taskId, user, expectedEventId, Permissions.TASK_WORK, async (existing) => {
+      this.assertTaskActive(existing, 'start');
+      return { action: 'task.started', noOp: existing.status === 'IN_PROGRESS',
+        updates: { status: 'IN_PROGRESS', startedAt: existing.startedAt ?? new Date(), blockedReason: null },
+        title: `Task In Progress: ${existing.taskNumber}`, summary: dto.notes,
+        metadata: { notes: dto.notes } };
+    });
+  }
 
-    return this.getTaskDetail(taskId, user);
+  async blockTask(taskId: string, dto: BlockOperationalTaskRequest, user: AuthenticatedUser, expectedEventId?: string): Promise<OperationalTaskDetail> {
+    return this.mutateTask(taskId, user, expectedEventId, Permissions.TASK_WORK, async (existing) => {
+      this.assertTaskActive(existing, 'block');
+      return { action: 'task.blocked', noOp: existing.status === 'BLOCKED' && existing.blockedReason === dto.reason,
+        updates: { status: 'BLOCKED', blockedReason: dto.reason },
+        title: `Task Blocked: ${existing.taskNumber}`, summary: dto.reason,
+        metadata: { reason: dto.reason } };
+    });
+  }
+
+  async completeTask(taskId: string, dto: CompleteOperationalTaskRequest, user: AuthenticatedUser, expectedEventId?: string): Promise<OperationalTaskDetail> {
+    return this.mutateTask(taskId, user, expectedEventId, Permissions.TASK_COMPLETE, async (existing) => {
+      if (existing.status === 'CANCELLED') throw new BadRequestException('Cannot complete a cancelled task. Reopen it first.');
+      return { action: 'task.completed', noOp: existing.status === 'COMPLETED',
+        updates: { status: 'COMPLETED', completedAt: new Date(), completionNote: dto.completionNote ?? null, blockedReason: null },
+        title: `Task Completed: ${existing.taskNumber}`, summary: dto.completionNote,
+        metadata: { note: dto.completionNote } };
+    });
+  }
+
+  async cancelTask(taskId: string, dto: CancelOperationalTaskRequest, user: AuthenticatedUser, expectedEventId?: string): Promise<OperationalTaskDetail> {
+    return this.mutateTask(taskId, user, expectedEventId, Permissions.TASK_CANCEL, async (existing) => {
+      if (existing.status === 'COMPLETED') throw new BadRequestException('Cannot cancel a completed task. Reopen it first.');
+      return { action: 'task.cancelled', noOp: existing.status === 'CANCELLED',
+        updates: { status: 'CANCELLED', blockedReason: dto.reason },
+        title: `Task Cancelled: ${existing.taskNumber}`, summary: dto.reason,
+        metadata: { reason: dto.reason } };
+    });
+  }
+
+  async reopenTask(taskId: string, dto: ReopenOperationalTaskRequest, user: AuthenticatedUser, expectedEventId?: string): Promise<OperationalTaskDetail> {
+    return this.mutateTask(taskId, user, expectedEventId, Permissions.TASK_UPDATE, async (existing) => {
+      if (!['COMPLETED', 'CANCELLED'].includes(existing.status)) throw new BadRequestException('Only a completed or cancelled task can be reopened');
+      return { action: 'task.reopened',
+        updates: { status: dto.newStatus ?? 'OPEN', completedAt: null, completionNote: null, blockedReason: null },
+        title: `Task Reopened: ${existing.taskNumber}`, summary: dto.reason,
+        metadata: { reason: dto.reason } };
+    });
+  }
+
+  private assertTaskActive(task: typeof operationalTasks.$inferSelect, action: string): void {
+    if (['COMPLETED', 'CANCELLED'].includes(task.status)) {
+      throw new BadRequestException(`Cannot ${action} task in ${task.status} status. Reopen it first.`);
+    }
+  }
+
+  /** Serialize each task transition and atomically persist state, audit and outbox.
+   * Retried acknowledgement/start/completion does not regress state or duplicate audit.
+   */
+  private async mutateTask(
+    taskId: string,
+    user: AuthenticatedUser,
+    expectedEventId: string | undefined,
+    permission: PermissionKey,
+    buildChange: (task: typeof operationalTasks.$inferSelect) => Promise<{
+      action: string;
+      updates: Partial<typeof operationalTasks.$inferInsert>;
+      noOp?: boolean;
+      title?: string;
+      summary?: string | null;
+      metadata?: Record<string, unknown>;
+    }>,
+  ): Promise<OperationalTaskDetail> {
+    await this.db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(operationalTasks)
+        .where(and(eq(operationalTasks.id, taskId), expectedEventId ? eq(operationalTasks.eventId, expectedEventId) : undefined))
+        .limit(1).for('update');
+      if (!existing) throw new NotFoundException(`Task '${taskId}' not found in this event`);
+      await this.resourceAccessService.assertCanAccessResource(user, taskId, permission, tx);
+      await this.disruptionsService.assertTaskWriteAllowed(existing.eventId, user, existing.assignedUnitId);
+      const change = await buildChange(existing);
+      if (change.noOp) return;
+      const now = new Date();
+      await tx.update(operationalTasks).set({ ...change.updates, updatedAt: now })
+        .where(and(eq(operationalTasks.id, taskId), eq(operationalTasks.eventId, existing.eventId)));
+      await this.auditService.record({
+        action: change.action, category: 'tasks', eventId: existing.eventId,
+        resourceType: 'operational_task', resourceId: taskId, actorUserId: user.id,
+        metadata: { taskNumber: existing.taskNumber, ...change.metadata },
+        changes: { previousStatus: existing.status, newStatus: change.updates.status ?? existing.status },
+        txClient: tx,
+      });
+      if (change.title) await this.activityService.recordActivity({
+        eventId: existing.eventId, resourceId: taskId, activityType: change.action,
+        actorUserId: user.id, title: change.title, summary: change.summary,
+      }, tx);
+      await this.searchIndexer.emitSearchUpsert('operational_task', taskId, tx);
+    });
+    return this.getTaskDetail(taskId, user, expectedEventId);
   }
 
   /**
@@ -759,7 +416,7 @@ export class TasksService {
 
     // Resolve source resource if any
     let sourceResource: { id: string; resourceType: string; title?: string } | null = null;
-    if (row.task.sourceResourceId) {
+    if (row.task.sourceResourceId && await this.canReadLinkedResource(row.task.eventId, row.task.sourceResourceId, user)) {
       const [s] = await this.db
         .select({ id: resources.id, resourceType: resources.resourceType })
         .from(resources)
@@ -778,8 +435,14 @@ export class TasksService {
       })
       .from(resourceRelationships)
       .innerJoin(resources, eq(resourceRelationships.targetResourceId, resources.id))
-      .where(eq(resourceRelationships.sourceResourceId, taskId));
+      .where(and(eq(resourceRelationships.sourceResourceId, taskId), isNull(resourceRelationships.removedAt), eq(resources.eventId, row.task.eventId)));
 
+    const visibleRelations = [];
+    for (const relation of relations) {
+      if (await this.canReadLinkedResource(row.task.eventId, relation.targetResource.id, user)) {
+        visibleRelations.push(relation);
+      }
+    }
     return {
       ...this.mapTaskItem(row.task, {
         visibility: row.resource.visibility,
@@ -788,8 +451,9 @@ export class TasksService {
         assignedUnitName,
         assignedUserDisplayName,
       }),
+      sourceResourceId: sourceResource?.id ?? null,
       sourceResource,
-      relatedResources: relations.map((r) => ({
+      relatedResources: visibleRelations.map((r) => ({
         id: r.targetResource.id,
         resourceType: r.targetResource.resourceType,
         relationshipType: r.rel.relationshipType,
@@ -805,6 +469,7 @@ export class TasksService {
     filters: TaskQueryFilters,
     user: AuthenticatedUser
   ): Promise<OperationalTaskItem[]> {
+    await this.assertModuleAccess(eventId, user, Permissions.TASK_READ);
     await this.disruptionsService.assertTaskReadAllowed(eventId, user);
     const whereConditions = [eq(operationalTasks.eventId, eventId)];
 
@@ -839,6 +504,9 @@ export class TasksService {
 
     const accessible: OperationalTaskItem[] = [];
     for (const r of rows) {
+      const visibleTask = r.task.sourceResourceId && !await this.canReadLinkedResource(eventId, r.task.sourceResourceId, user)
+        ? { ...r.task, sourceResourceId: null }
+        : r.task;
       try {
         await this.disruptionsService.assertTaskReadAllowed(eventId, user, r.task.assignedUnitId);
       } catch (error) {
@@ -852,7 +520,7 @@ export class TasksService {
       );
       if (allowed) {
         accessible.push(
-          this.mapTaskItem(r.task, {
+          this.mapTaskItem(visibleTask, {
             visibility: r.resource.visibility,
             ownerUserId: r.resource.ownerUserId,
             owningUnitName: await this.getUnitName(r.task.owningUnitId),
@@ -872,6 +540,9 @@ export class TasksService {
     query: MyWorkQuery,
     user: AuthenticatedUser
   ): Promise<MyWorkResponse> {
+    const canReadTasks = await this.canUseModule(eventId, user, Permissions.TASK_READ);
+    const canReadLaboratory = await this.canUseModule(eventId, user, Permissions.LAB_READ);
+    if (!canReadTasks && !canReadLaboratory) throw new ForbiddenException('Work queues are not available in this exercise');
     const requestedUnitId = query.unitId;
     if (query.view === 'unit' && !requestedUnitId) {
       throw new BadRequestException('unitId is required for a unit work queue');
@@ -900,6 +571,14 @@ export class TasksService {
 
     if (!isMyWorkViewAllowed(query.view, canViewUnit, canViewEvent, Boolean(requestedUnitId))) {
       throw new ForbiddenException('Event-wide My Work access is not authorized');
+    }
+
+    const units = await this.db.select({ id: organizationalUnits.id, name: organizationalUnits.name })
+      .from(organizationalUnits).where(and(eq(organizationalUnits.eventId, eventId), isNull(organizationalUnits.archivedAt)));
+    const availableUnits: Array<{ id: string; name: string }> = [];
+    for (const unit of units) {
+      if (canViewEvent || await this.authorizationService.authorize({ user, permission: Permissions.TASK_READ, context: { eventId, unitId: unit.id } }) ||
+          await this.authorizationService.authorize({ user, permission: Permissions.LAB_READ, context: { eventId, unitId: unit.id } })) availableUnits.push(unit);
     }
 
     const [taskRows, labRows] = await Promise.all([
@@ -972,6 +651,8 @@ export class TasksService {
       page: query.page,
       limit: query.limit,
       view: query.view,
+      availableViews: ['personal', ...(availableUnits.length ? ['unit' as const] : []), ...(canViewEvent ? ['event' as const] : [])],
+      availableUnits,
     };
   }
 
@@ -994,12 +675,46 @@ export class TasksService {
       const [membership] = await this.db
         .select({ id: eventMemberships.id })
         .from(eventMemberships)
-        .where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, assignedUserId)))
+        .innerJoin(users, eq(users.id, eventMemberships.userId))
+        .where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, assignedUserId), eq(eventMemberships.status, MembershipStatus.ACTIVE), eq(users.status, UserStatus.ACTIVE)))
         .limit(1);
       if (!membership) {
-        throw new BadRequestException('Assigned user must be a member of the task event');
+        throw new BadRequestException('Assigned user must be an active member of the task event');
+      }
+      if (assignedUnitId) {
+        const [assignment] = await this.db.select({ id: membershipUnitAssignments.id })
+          .from(membershipUnitAssignments)
+          .where(and(eq(membershipUnitAssignments.membershipId, membership.id), eq(membershipUnitAssignments.unitId, assignedUnitId)))
+          .limit(1);
+        if (!assignment) throw new BadRequestException('Assigned user must belong to the assigned unit');
       }
     }
+  }
+
+  private async canUseModule(eventId: string, user: AuthenticatedUser, permission: PermissionKey): Promise<boolean> {
+    return await this.authorizationService.authorize({ user, permission, context: { eventId } }) ||
+      await this.authorizationService.hasEventCapability({ user, permission, eventId, resourceScopes: ['OWN', 'ASSIGNED'] });
+  }
+
+  private async assertModuleAccess(eventId: string, user: AuthenticatedUser, permission: PermissionKey): Promise<void> {
+    if (!await this.canUseModule(eventId, user, permission)) throw new ForbiddenException('Module is not available in this exercise');
+  }
+
+  private async canReadLinkedResource(eventId: string, resourceId: string, user: AuthenticatedUser): Promise<boolean> {
+    const linked = await this.resourceService.getResource(resourceId);
+    if (!linked || linked.eventId !== eventId) return false;
+    const permissionByType: Record<string, PermissionKey> = {
+      incident: Permissions.INCIDENT_READ, case: Permissions.CASE_READ,
+      evidence: Permissions.EVIDENCE_READ, lab_analysis: Permissions.LAB_READ,
+      forensic_analysis: Permissions.FORENSICS_READ, technical_indicator: Permissions.INDICATOR_READ,
+      court_case: Permissions.COURT_READ, medical_encounter: Permissions.MEDICAL_READ,
+      operational_task: Permissions.TASK_READ, document: Permissions.DOCUMENT_READ,
+      person: Permissions.REGISTRY_READ, organisation: Permissions.REGISTRY_READ,
+      location: Permissions.REGISTRY_READ, vehicle: Permissions.REGISTRY_READ,
+      device: Permissions.REGISTRY_READ, weapon: Permissions.REGISTRY_READ,
+    };
+    const permission = permissionByType[linked.resourceType];
+    return Boolean(permission && await this.resourceAccessService.canAccessResource(user, resourceId, permission));
   }
 
   private async getUnitName(unitId: string | null) {

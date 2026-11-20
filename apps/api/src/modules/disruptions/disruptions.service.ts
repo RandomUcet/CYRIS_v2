@@ -519,10 +519,11 @@ export class DisruptionsService {
   private async assertParticipantAccess(eventId: string, user: AuthenticatedUser): Promise<void> {
     const [event] = await this.db.select({ id: events.id }).from(events).where(eq(events.id, eventId)).limit(1);
     if (!event) throw new NotFoundException(`Event '${eventId}' not found`);
-    const canReadTasks = await this.authorizationService.authorize({
+    const canReadTasks = await this.authorizationService.hasEventCapability({
       user,
       permission: Permissions.TASK_READ,
-      context: { eventId },
+      eventId,
+      resourceScopes: ['OWN', 'ASSIGNED'],
     });
     const canOverride = await this.authorizationService.authorize({
       user,

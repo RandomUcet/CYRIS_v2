@@ -7,7 +7,6 @@ import {
 } from '@cyris/contracts';
 import { selectLowestWorkloadCandidate } from '../modules/laboratory/laboratory-assignment.js';
 import { assignmentMatchesPrincipal } from '../modules/resources/resource-assignment-predicate.js';
-import { skipWithoutVerifiedDatabase } from './isolated-postgres-harness.js';
 
 test('laboratory selection excludes unavailable candidates before selection', () => {
   const selected = selectLowestWorkloadCandidate([
@@ -90,29 +89,5 @@ test('generic assigned access matches legacy user and unit assignments without l
   );
 });
 
-skipWithoutVerifiedDatabase(
-  'NOT IMPLEMENTED: database assignment eligibility excludes inactive, wrong-unit, wrong-exercise, and missing-permission users',
-  async () => {
-    throw new Error(
-      'Harness extension required: provision isolated exercise memberships, units, roles, and laboratory rows before running this test'
-    );
-  }
-);
-
-skipWithoutVerifiedDatabase(
-  'NOT IMPLEMENTED: database concurrent laboratory requests serialize assignment and preserve transaction consistency',
-  async () => {
-    throw new Error(
-      'Harness extension required: run concurrent requests against an isolated disposable PostgreSQL instance'
-    );
-  }
-);
-
-skipWithoutVerifiedDatabase(
-  'NOT IMPLEMENTED: database reassignment and correction preserve findings and invalidate approval metadata when reopening',
-  async () => {
-    throw new Error(
-      'Harness extension required: exercise the real LaboratoryService with isolated database fixtures'
-    );
-  }
-);
+// Eligibility and concurrent assignment are exercised against PostgreSQL in tasks-authorization.test.ts.
+test.todo('database reassignment and correction preserve findings and invalidate approval metadata when reopening');

@@ -214,5 +214,7 @@ export const MyWorkResponseSchema = z.object({
   page: z.number().int().positive(),
   limit: z.number().int().positive(),
   view: MyWorkViewSchema,
+  availableViews: z.array(MyWorkViewSchema).default(['personal']),
+  availableUnits: z.array(z.object({ id: z.string().uuid(), name: z.string() })).default([]),
 });
 export type MyWorkResponse = z.infer<typeof MyWorkResponseSchema>;

@@ -23,7 +23,7 @@ const EventContext = createContext<EventContextType | undefined>(undefined);
 
 export function EventProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { currentUser, isPlatformAdmin } = useAuth();
+  const { currentUser, isPlatformAdmin, viewAs } = useAuth();
   const [events, setEvents] = useState<EventResponse[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
@@ -33,12 +33,12 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       const match = pathname.match(/^\/events\/([0-9a-fA-F-]{36})/);
       if (match && match[1] && match[1] !== selectedEventId) {
         setSelectedEventId(match[1]);
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && !viewAs) {
           localStorage.setItem('cyris_selected_event', match[1]);
         }
       }
     }
-  }, [pathname, selectedEventId]);
+  }, [pathname, selectedEventId, viewAs]);
   const [workspace, setWorkspace] = useState<WorkspaceResolutionResponse | null>(null);
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
@@ -58,7 +58,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       if (res.ok && res.data) {
         setEvents(res.data);
         if (res.data.length > 0) {
-          const saved = typeof window !== 'undefined' ? localStorage.getItem('cyris_selected_event') : null;
+          const saved = viewAs?.eventId ?? (typeof window !== 'undefined' ? localStorage.getItem('cyris_selected_event') : null);
           const match = saved ? res.data.find((e) => e.id === saved) : null;
           setSelectedEventId(match ? match.id : isPlatformAdmin ? null : res.data[0]!.id);
         } else {
@@ -70,7 +70,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoadingEvents(false);
     }
-  }, [currentUser, isPlatformAdmin]);
+  }, [currentUser, isPlatformAdmin, viewAs]);
 
   const refreshWorkspace = useCallback(async () => {
     const request=++workspaceRequest.current;
@@ -106,7 +106,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
 
   const selectEvent = (eventId: string) => {
     setSelectedEventId(eventId);
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && !viewAs) {
       localStorage.setItem('cyris_selected_event', eventId);
     }
   };

@@ -2,11 +2,7 @@ import type {
   HealthResponse,
   ReadinessResponse,
   CurrentUserResponse,
-  StartViewAsRequest,
-  CreateSupportRequest,
-  SupportInbox,
-  SupportMessageInput,
-  ViewAsInfo,
+  CreateSupportRequest, SupportInbox, SupportMessageInput,
   EventResponse,
   LoginRequest,
   SearchResponse,
@@ -123,31 +119,52 @@ import type {
   RecoveryArtifact,
   CreateRecoveryArtifactRequest,
   ServiceStatusResponse,
+  StartViewAsRequest,
+  ViewAsContext,
+  MembershipResponse,
 } from '@cyris/contracts';
+import { readViewAs, VIEW_AS_INVALID_EVENT } from './view-as';
 
 export class CyrisApiClient {
   private readonly baseUrl: string;
-  private previewMode = false;
-  setPreviewMode(enabled:boolean) { this.previewMode=enabled; }
-  private request(url:string, options:RequestInit={}) {
-    const headers=new Headers(options.headers);
-    if(this.previewMode) {
-      headers.set('x-cyris-read-only-preview','1');
-      const method=(options.method??'GET').toUpperCase();
-      if(method!=='GET' && !url.endsWith('/auth/view-as/stop') && !url.endsWith('/auth/logout')) {
-        return Promise.resolve(new Response(JSON.stringify({message:'Read-only participant preview: changes are not allowed'}),{status:403,headers:{'Content-Type':'application/json'}}));
+
+  private async request(input: string, init?: RequestInit): Promise<Response> {
+    const headers = new Headers(init?.headers);
+    let preview: ViewAsContext | null;
+    try { preview = readViewAs(); } catch {
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event(VIEW_AS_INVALID_EVENT));
+      throw new Error('Invalid preview. Return to administration.');
+    }
+    if (preview) {
+      headers.set('X-Cyris-View-As', preview.id);
+      const url = new URL(input, window.location.origin);
+      if (['/api/search', '/api/notifications', '/search', '/notifications'].includes(url.pathname) && !url.searchParams.has('eventId')) {
+        url.searchParams.set('eventId', preview.eventId);
+        input = url.toString();
       }
     }
-    return fetch(url,{...options,headers});
+    const response = await fetch(input, { ...init, headers, cache: 'no-store' });
+    if (preview && response.status === 403 && !input.split('?')[0]!.endsWith('/auth/view-as')) {
+      const body = await response.clone().json().catch(() => null);
+      if (body?.code === 'VIEW_AS_INVALID') window.dispatchEvent(new Event(VIEW_AS_INVALID_EVENT));
+    }
+    return response;
   }
+
+  async startViewAs(input: StartViewAsRequest) {
+    return this.postJson<ViewAsContext>('/auth/view-as', input);
+  }
+
+  async stopViewAs() {
+    const response = await this.request(`${this.baseUrl}/auth/view-as`, { method: 'DELETE', credentials: 'include' });
+    const body = await response.json().catch(() => ({}));
+    return { ok: response.ok, code: body.code as string | undefined, error: body.message as string | undefined };
+  }
+
   listSupport(eventId:string){return this.fetchJson<SupportInbox>(`/events/${eventId}/support`);}
   createSupport(eventId:string,input:CreateSupportRequest){return this.postJson<{id:string}>(`/events/${eventId}/support`,input);}
   replySupport(eventId:string,id:string,input:SupportMessageInput){return this.postJson<{id:string}>(`/events/${eventId}/support/${id}/reply`,input);}
   resolveSupport(eventId:string,id:string,expectedRevision:number){return this.postJson<{id:string}>(`/events/${eventId}/support/${id}/resolve`,{expectedRevision});}
-  startViewAs(input:StartViewAsRequest) {return this.postJson<ViewAsInfo>('/auth/view-as/start',input);}
-  getViewAsStatus() {return this.fetchJson<{active:boolean}>('/auth/view-as');}
-  stopViewAs() {return this.postJson<{success:boolean}>('/auth/view-as/stop',{});}
-
 
   constructor(baseUrl?: string) {
     if (baseUrl) {
@@ -209,14 +226,8 @@ export class CyrisApiClient {
   }
 
   async logout(): Promise<void> {
-    try {
-      await this.request(`${this.baseUrl}/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-    } catch {
-      // ignore logout network errors
-    }
+    const response = await this.request(`${this.baseUrl}/auth/logout`, { method: 'POST', credentials: 'include' });
+    if (!response.ok) throw new Error('Unable to end the session. Please try again.');
   }
 
   async getMe(cookieHeader?: string): Promise<{ ok: boolean; data?: CurrentUserResponse }> {
@@ -525,7 +536,7 @@ export class CyrisApiClient {
     return this.fetchJson<WorkspaceResolutionResponse>(`/events/${eventId}/workspace`);
   }
   async getMemberships(eventId: string) {
-    return this.fetchJson<any[]>(`/events/${eventId}/memberships`);
+    return this.fetchJson<MembershipResponse[]>(`/events/${eventId}/memberships`);
   }
   async getRoles(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/roles`);
@@ -1444,6 +1455,10 @@ export class CyrisApiClient {
 
   async toggleIdentityProvider(id: string, enabled: boolean): Promise<{ ok: boolean; data?: IdentityProviderSummary; error?: string }> {
     return this.patchJson<IdentityProviderSummary>(`/admin/settings/identity/${id}/toggle`, { enabled });
+  }
+
+  async testIdentityProvider(id: string): Promise<{ ok: boolean; data?: { ok: boolean; mode: 'CONFIGURATION'; networkChecked: false; message: string }; error?: string }> {
+    return this.postJson<{ ok: boolean; mode: 'CONFIGURATION'; networkChecked: false; message: string }>(`/admin/settings/identity/${id}/test`, { mode: 'CONFIGURATION' });
   }
 
   async deleteIdentityProvider(id: string): Promise<{ ok: boolean; error?: string }> {

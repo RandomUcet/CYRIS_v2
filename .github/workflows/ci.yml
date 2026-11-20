@@ -7,6 +7,26 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: cyris_test
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: cyris_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cyris_test -d cyris_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://cyris_test:local-ci-only@127.0.0.1:5432/cyris_test
+      POSTGRES_PASSWORD: local-ci-only
+      CYRIS_TEST_DATABASE_URL: postgresql://cyris_test:local-ci-only@127.0.0.1:5432/cyris_test
+      CYRIS_TEST_DATABASE_ISOLATED: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -31,28 +51,19 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Exercise policy and workspace tests
+      - name: Run regression tests
         run: |
-          pnpm exec tsx --test \
-            apps/api/src/modules/auth/view-as-policy.test.ts \
-            apps/api/src/modules/disruptions/service-status-policy.test.ts \
-            apps/api/src/modules/disruptions/disruption-policy.test.ts \
-            apps/api/src/modules/disruptions/recovery-policy.test.ts \
-            apps/api/src/modules/command/defcon-policy.test.ts \
-            apps/api/src/modules/support/support-policy.test.ts \
-            apps/api/src/modules/laboratory/laboratory-assignment.test.ts \
-            apps/api/src/regression/scenario-designer.test.ts \
-            apps/api/src/regression/scenario-progression.test.ts \
-            apps/web/src/components/command/defcon-live.test.ts \
-            apps/web/src/lib/workspace-navigation.test.ts \
-            packages/contracts/src/command-defcon.test.ts
+          cp .env.example .env
+          pnpm db:migrate
+          pnpm test:run
 
       - name: Check diff
         run: git diff --check
 
       - name: Validate deployment scripts
         run: |
-          bash -n deploy/install.sh
+          bash -n deploy/install.sh scripts/start-dev.sh scripts/dev-status.sh scripts/dev-runtime.sh
+          node --check scripts/dev-apps.mjs
           ./deploy/install.sh --help
           python3 ./deploy/cyrisctl --help
           docker compose -f deploy/compose.prod.yml config > /dev/null

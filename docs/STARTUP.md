@@ -3,84 +3,132 @@
 ## Prerequisites
 
 - Node.js 22 or newer
-- pnpm 12 (`corepack enable` is recommended)
+- The pnpm version pinned in `package.json`
 - Docker Desktop or Docker Engine with Docker Compose
 
-## First setup
+## Start an empty installation
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 cp .env.example .env
 pnpm dev
 ```
 
-`pnpm dev` starts the Docker infrastructure, applies migrations, seeds the
-canonical local baseline, and starts the API, worker, and web application.
-The seed step is local-development-only and removes temporary synthetic users
-and operational QA records. Legitimate administrator-managed integrations are
-preserved. If the documented local Spark provider is absent, the seed creates
-it once with its non-secret endpoint configuration; it never overwrites an
-existing provider. Set `CYRIS_SEED_ON_START=0` if you need to preserve local
-operational data between restarts.
+Review `.env` for this installation. `pnpm dev` builds the internal packages,
+starts PostgreSQL, Redis, Typesense, MinIO and Mailpit, waits for each service
+and successful bucket initialization, applies pending migrations, and starts
+the API, worker and web application. The existing database and accounts are
+preserved. A normal start does not seed, delete data, reset passwords, change
+exercise status, create sample participants, or configure external providers.
 
-Open:
+Open http://localhost:3000. In another terminal, create the first administrator
+explicitly and enter the credentials requested by the command:
 
-- Web/login: http://localhost:3000
-- API: http://localhost:4000
-- API readiness: http://localhost:4000/health/ready
-- Mailpit: http://localhost:8025
-- MinIO console: http://localhost:9001
+```bash
+pnpm admin:create
+```
 
-The canonical local administrator is `admin@cyris.local`. The default seed
-password is `AdminPassword123!`; change it for any non-local environment.
+There is no automatically provisioned account or shared default password.
+Create the exercise through the administration UI, then optionally initialize
+its team and role templates as described below. LDAP, OIDC and AI providers
+are configured separately by an administrator using their real settings.
+
+## Optional team and role templates
+
+`pnpm seed:system` is an additive, transactional command. Without an exercise
+selector it creates only a missing platform administrator role; it creates no
+exercise, accounts or operational data. To initialize the seven CzechCybertron
+teams and event role templates for an existing exercise:
+
+```bash
+CYRIS_SEED_EVENT_ID='<exercise-uuid>' pnpm seed:system
+```
+
+Alternatively use its slug. A missing exercise is created only when an
+explicit name is supplied; a new exercise starts as `DRAFT`:
+
+```bash
+CYRIS_SEED_EVENT_SLUG='exercise-slug' \
+CYRIS_SEED_EVENT_NAME='Exercise name' \
+pnpm seed:system
+```
+
+Repeated runs preserve existing names, lifecycle, role permissions, team
+capabilities, membership, passwords and integration settings. Customized
+existing templates are not overwritten or automatically repaired. All seed
+changes commit together; concurrent seed runs are serialized. No fixed year
+or exercise date is inferred.
+
+The `Exercise Organizer` template uses an explicit allowlist of `EVENT`
+permissions for scenario control (including secret material and overrides),
+command/DEFCON, tasks, registry, cases, evidence, laboratory correction,
+forensics, medical response, court work, documents and evaluation. It also
+supports exercise membership, unit and role administration. It grants no
+platform administration, exercise creation, identity/provider management,
+global preferences or notification administration. The template is not
+assigned to anyone automatically; an administrator assigns it within the
+selected exercise. Existing customized `EXCON` and organizer roles are left
+unchanged on repeated bootstrap.
+
+If a local workflow requires an additive seed at every start, explicitly set
+`CYRIS_SEED_ON_START=1` in the launching environment together with the chosen
+exercise selector. It remains non-destructive. Do not use the separate
+`seed:demo` command with operational data; it is not part of normal startup.
 
 ## Status and shutdown
-
-In another terminal:
 
 ```bash
 pnpm dev:status
 ```
 
-Stop the complete development process with `Ctrl+C` in the terminal running
-`pnpm dev`. The script terminates the API, worker, and web children. Docker
-containers remain available for faster restarts.
+The status command reports API readiness, individual container state and the
+managed worker process. A running worker process alone does not prove that a
+particular job or external integration succeeded. The API readiness endpoint
+is http://localhost:4000/health/ready by default; `PORT` can change the API port.
+The web application stays on port 3000. Mailpit is available on port 8025 and
+the MinIO console on port 9001.
 
-To stop infrastructure too:
+Press `Ctrl+C` in the `pnpm dev` terminal to stop the supervised API, worker
+and web process groups. Any unexpected application exit also stops the other
+applications and returns failure. Docker volumes and containers remain for
+the next start. Stop infrastructure without deleting its data with:
 
 ```bash
 docker compose down
 ```
 
-## Reset local development data
-
-The normal `pnpm dev` seed restores the canonical application baseline. For a
-full infrastructure reset, including Docker volumes:
+## Verification
 
 ```bash
-docker compose down -v
-pnpm dev
+pnpm build
+pnpm typecheck
+pnpm test:run
+git diff --check
 ```
 
-This permanently removes local PostgreSQL, Redis, Typesense, and MinIO data.
+`pnpm test` also builds the shared packages before running the discovered
+regression tests. Tests requiring PostgreSQL are explicitly skipped unless
+both `CYRIS_TEST_DATABASE_URL` (a local disposable database) and
+`CYRIS_TEST_DATABASE_ISOLATED=true` are set. Apply all migrations to that test
+database first. Remaining unimplemented checks are reported as `TODO`, never
+as successful coverage. `scripts/system-bootstrap.integration.test.ts` checks
+preservation of accounts, passwords, operational resources, audit, integration
+configuration, exercise lifecycle and customized templates using rolled-back
+fixtures.
 
 ## Troubleshooting
 
-Check all service state with:
-
 ```bash
-pnpm dev:status
-docker compose ps
+docker compose ps --all
+docker compose logs --tail=100 postgres redis typesense minio minio-init mailpit
 ```
 
-If ports `3000`, `4000`, `5432`, `6379`, `8108`, `9000`, `9001`, `1025`, or
-`8025` are occupied, stop the owning process or change the local port mapping
-and corresponding environment values before starting again. Do not run a
-second `pnpm dev` while one is already active.
+A missing or unhealthy service and an unsuccessful bucket initializer block
+startup. Resolve the specific container error before retrying. When an API or
+web port is already occupied, stop the previous development session first.
+Do not start a second session against the same ports.
 
-Application logs are printed in the `pnpm dev` terminal. Docker logs are
-available with:
-
-```bash
-docker compose logs -f postgres redis typesense minio mailpit
-```
+Schema changes use the checked-in migration history. A startup error is not a
+reason to reset volumes or run a schema push over existing data. A command
+such as `docker compose down -v` permanently deletes local volumes and is not
+part of this startup or recovery procedure.

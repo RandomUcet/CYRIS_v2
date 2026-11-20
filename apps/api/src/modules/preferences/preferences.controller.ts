@@ -5,9 +5,10 @@ import {
   Body,
   UseGuards,
   BadRequestException,
+  Req,
 } from '@nestjs/common';
 import { PreferencesService } from './preferences.service.js';
-import { AuthGuard } from '../auth/guards/auth.guard.js';
+import { AuthGuard, type CyrisRequest } from '../auth/guards/auth.guard.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
@@ -21,8 +22,8 @@ export class PreferencesController {
   constructor(private readonly preferencesService: PreferencesService) {}
 
   @Get('me')
-  async getMyPreferences(@CurrentUser() user: AuthenticatedUser): Promise<UserPreferences> {
-    return this.preferencesService.getUserPreferences(user.id);
+  async getMyPreferences(@CurrentUser() user: AuthenticatedUser, @Req() req: CyrisRequest): Promise<UserPreferences> {
+    return this.preferencesService.getUserPreferences(user.id, !req.viewAs);
   }
 
   @Patch('me')

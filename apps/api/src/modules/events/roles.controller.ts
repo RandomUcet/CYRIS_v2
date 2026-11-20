@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   UseGuards,
@@ -82,5 +83,17 @@ export class RolesController {
     }
     const requestId = (req.headers['x-request-id'] as string) || req.id;
     return this.eventsService.assignRole(eventId, parse.data, user.id, requestId);
+  }
+
+  @Delete('assignments/:assignmentId')
+  @RequirePermission(Permissions.ROLE_MANAGE, PermissionScopes.EVENT)
+  async revokeRole(
+    @Param('eventId') eventId: string,
+    @Param('assignmentId') assignmentId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: CyrisRequest
+  ) {
+    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    return this.eventsService.revokeRole(eventId, assignmentId, user.id, requestId);
   }
 }

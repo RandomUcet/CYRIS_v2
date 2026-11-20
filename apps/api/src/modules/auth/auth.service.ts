@@ -213,7 +213,7 @@ export class AuthService {
       })
       .from(roleAssignments)
       .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
-      .where(and(eq(roleAssignments.userId, userId),isNull(roles.eventId),isNull(roleAssignments.membershipId),isNull(roleAssignments.unitId)));
+      .where(and(eq(roleAssignments.userId, userId), isNull(roleAssignments.membershipId), isNull(roleAssignments.unitId), isNull(roles.eventId)));
 
     const platformRoles = platformRoleAssignments.map((r) => r.roleSlug);
     const platformPermissionRows = await db
@@ -221,9 +221,9 @@ export class AuthService {
         permissionKey: rolePermissions.permissionKey,
       })
       .from(roleAssignments)
+      .innerJoin(roles, eq(roles.id, roleAssignments.roleId))
       .innerJoin(rolePermissions, eq(roleAssignments.roleId, rolePermissions.roleId))
-      .innerJoin(roles,eq(roleAssignments.roleId,roles.id))
-      .where(and(eq(roleAssignments.userId,userId),isNull(roles.eventId),isNull(roleAssignments.membershipId),isNull(roleAssignments.unitId),eq(rolePermissions.scope,'PLATFORM')));
+      .where(and(eq(roleAssignments.userId, userId), isNull(roleAssignments.membershipId), isNull(roleAssignments.unitId), isNull(roles.eventId), eq(rolePermissions.scope, 'PLATFORM')));
     const platformPermissions = [...new Set(platformPermissionRows.map((p) => p.permissionKey))];
 
     // 3. Event Memberships
@@ -248,16 +248,16 @@ export class AuthService {
           })
           .from(roleAssignments)
           .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
-          .where(and(eq(roleAssignments.membershipId,m.membershipId),eq(roles.eventId,m.eventId),isNull(roleAssignments.userId)));
+          .where(and(eq(roleAssignments.membershipId, m.membershipId), eq(roles.eventId, m.eventId), isNull(roleAssignments.userId)));
 
         const eventPermissionRows = await db
           .select({
             permissionKey: rolePermissions.permissionKey,
           })
           .from(roleAssignments)
+          .innerJoin(roles, eq(roles.id, roleAssignments.roleId))
           .innerJoin(rolePermissions, eq(roleAssignments.roleId, rolePermissions.roleId))
-          .innerJoin(roles,eq(roleAssignments.roleId,roles.id))
-          .where(and(eq(roleAssignments.membershipId,m.membershipId),eq(roles.eventId,m.eventId),isNull(roleAssignments.userId),ne(rolePermissions.scope,'PLATFORM'),ne(rolePermissions.permissionKey,'platform.manage')));
+          .where(and(eq(roleAssignments.membershipId, m.membershipId), eq(roles.eventId, m.eventId), isNull(roleAssignments.userId), ne(rolePermissions.scope, 'PLATFORM'), ne(rolePermissions.permissionKey, 'platform.manage')));
 
         // Assigned units
         const unitRows = await db

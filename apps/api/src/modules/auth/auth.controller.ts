@@ -13,18 +13,15 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
-import { ViewAsService, PREVIEW_COOKIE } from './view-as.service.js';
-import { SessionService } from './session.service.js';
 import { AuthService } from './auth.service.js';
 import { AuthGuard, type CyrisRequest } from './guards/auth.guard.js';
 import { CurrentUser } from './decorators/current-user.decorator.js';
-import type { AuthenticatedUser } from './session.service.js';
+import { SessionService, type AuthenticatedUser } from './session.service.js';
 import { ConfigService } from '../config/config.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { IdentityService } from '../integrations/identity.service.js';
 import {
   LoginRequestSchema,
-  StartViewAsRequestSchema,
   LdapAuthRequestSchema,
   type CurrentUserResponse,
 } from '@cyris/contracts';
@@ -39,16 +36,11 @@ export class AuthController {
     private readonly configService: ConfigService,
     private readonly auditService: AuditService,
     private readonly identityService: IdentityService,
-    private readonly viewAsService: ViewAsService,
-    private readonly sessionService: SessionService
+    private readonly sessionService: SessionService,
   ) {}
 
   private isRequestSecure(req: CyrisRequest): boolean {
-    const isHttps =
-      req.headers['x-forwarded-proto'] === 'https' ||
-      (req.headers['origin'] as string)?.startsWith('https://') ||
-      Boolean((req.raw?.socket as any)?.encrypted);
-    return this.configService.isProduction && Boolean(isHttps);
+    return this.configService.isProduction;
   }
 
   @Get('providers')
@@ -98,6 +90,7 @@ export class AuthController {
       });
 
       // Set secure HttpOnly session cookie
+      if (req.cookies?.cyris_preview) res.clearCookie('cyris_preview', { path: '/' });
       res.setCookie(COOKIE_NAME, sessionToken, {
         path: '/',
         httpOnly: true,
@@ -132,20 +125,24 @@ export class AuthController {
     @Req() req: CyrisRequest,
     @Res({ passthrough: true }) res: FastifyReply
   ) {
-    const sessionToken = req.cookies?.[COOKIE_NAME];
-    const preview = req.cookies?.[PREVIEW_COOKIE];
-    const original = preview ? await this.sessionService.validateSession(sessionToken) : null;
-    if (original && sessionToken && preview) await this.viewAsService.stop(original.user, sessionToken, preview);
-    res.clearCookie(PREVIEW_COOKIE, {path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'lax'});
+    const sessionToken = req.cookies?.[COOKIE_NAME] ||
+      (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7).trim() : undefined);
     const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || '127.0.0.1';
     const userAgent = (req.headers['user-agent'] as string) || null;
     const requestId = (req.headers['x-request-id'] as string) || req.id || null;
 
-    if (req.user) {
+    const validated = await this.sessionService.validateSession(sessionToken);
+    // Revoke before auditing; an audit failure cannot leave a live session.
+    await this.authService.logout(sessionToken);
+    if (req.cookies?.cyris_preview) res.clearCookie('cyris_preview', { path: '/' });
+    res.clearCookie(COOKIE_NAME, {
+      path: '/', httpOnly: true, secure: this.isRequestSecure(req), sameSite: 'lax',
+    });
+    if (validated) {
       await this.auditService.record({
         action: 'auth.logout',
         category: 'auth',
-        actorUserId: req.user.id,
+        actorUserId: validated.user.id,
         actorType: 'USER',
         outcome: 'SUCCESS',
         ipAddress: clientIp,
@@ -153,15 +150,6 @@ export class AuthController {
         requestId,
       });
     }
-
-    await this.authService.logout(sessionToken);
-
-    res.clearCookie(COOKIE_NAME, {
-      path: '/',
-      httpOnly: true,
-      secure: this.isRequestSecure(req),
-      sameSite: 'lax',
-    });
 
     return { success: true };
   }
@@ -189,6 +177,7 @@ export class AuthController {
       clientIp
     );
 
+    if (req.cookies?.cyris_preview) res.clearCookie('cyris_preview', { path: '/' });
     res.setCookie(COOKIE_NAME, sessionToken, {
       path: '/',
       httpOnly: true,
@@ -220,6 +209,7 @@ export class AuthController {
     const existingCookie = req.cookies?.[COOKIE_NAME];
     const { sessionToken } = await this.authService.loginOidc(providerId, code, state, existingCookie);
 
+    if (req.cookies?.cyris_preview) res.clearCookie('cyris_preview', { path: '/' });
     res.setCookie(COOKIE_NAME, sessionToken, {
       path: '/',
       httpOnly: true,
@@ -233,38 +223,14 @@ export class AuthController {
     res.redirect(302, `${publicBaseUrl}/`);
   }
 
-  @Post('view-as/start')
-  @HttpCode(HttpStatus.OK)
-  @UseGuards(AuthGuard)
-  async startPreview(@Body() body:unknown, @Req() req:CyrisRequest, @CurrentUser() actor:AuthenticatedUser, @Res({passthrough:true}) res:FastifyReply) {
-    const parsed=StartViewAsRequestSchema.safeParse(body);
-    if (!parsed.success || !req.cookies?.[COOKIE_NAME] || !req.sessionToken) throw new BadRequestException('Invalid preview request');
-    const {token,info}=await this.viewAsService.start(actor,req.sessionToken,parsed.data);
-    res.setCookie(PREVIEW_COOKIE,token,{path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'lax',maxAge:COOKIE_MAX_AGE_SECONDS});
-    return info;
-  }
-
-  @Get('view-as')
-  async previewStatus(@Req() req:CyrisRequest) {
-    return {active:Boolean(req.cookies?.[PREVIEW_COOKIE])};
-  }
-
-  @Post('view-as/stop')
-  @HttpCode(HttpStatus.OK)
-  async stopPreview(@Req() req:CyrisRequest,@Res({passthrough:true}) res:FastifyReply) {
-    const token=req.cookies?.[COOKIE_NAME];
-    const preview=req.cookies?.[PREVIEW_COOKIE];
-    const original=await this.sessionService.validateSession(token);
-    if (original && token && preview) await this.viewAsService.stop(original.user,token,preview);
-    res.clearCookie(PREVIEW_COOKIE,{path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'lax'});
-    return {success:true};
-  }
-
   @Get('me')
   @UseGuards(AuthGuard)
-  async getMe(@CurrentUser() user: AuthenticatedUser, @Req() req:CyrisRequest): Promise<CurrentUserResponse> {
-    const profile=await this.authService.getCurrentUserProfile(user.id);
-    if (!req.viewAs) return profile;
-    return {...profile,platformRoles:[],platformPermissions:[],memberships:profile.memberships.filter(m=>m.eventId===req.viewAs!.eventId && m.status==='ACTIVE'),viewAs:req.viewAs};
+  async getMe(@CurrentUser() user: AuthenticatedUser, @Req() req: CyrisRequest): Promise<CurrentUserResponse> {
+    const profile = await this.authService.getCurrentUserProfile(user.id);
+    if (req.viewAs) {
+      profile.memberships = profile.memberships.filter((membership) => membership.eventId === req.viewAs!.eventId);
+      profile.viewAs = req.viewAs;
+    }
+    return profile;
   }
 }

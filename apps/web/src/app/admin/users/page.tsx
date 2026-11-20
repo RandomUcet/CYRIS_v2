@@ -1,80 +1,107 @@
 'use client';
-import React, { useEffect,useState } from 'react';
-import {AppShell} from '@/components/layout/AppShell';
-import {DataTable,Column} from '@/components/common/DataTable';
-import {LoadingState,EmptyState,ErrorState} from '@/components/common/StateViews';
-import {apiClient} from '@/lib/api-client';
-import {useEvent} from '@/contexts/EventContext';
-import {useAuth} from '@/contexts/AuthContext';
-import {usePreferences} from '@/contexts/PreferencesContext';
-import {Eye,RefreshCw,Search,Shield,Users} from 'lucide-react';
 
-interface Assignment {id:string;name:string;slug:string}
-interface Member {id:string;eventId:string;userId:string;status:string;joinedAt:string;user:{id:string;displayName:string;email:string;status:string};roles:Assignment[];units:Assignment[];platformRoles:Assignment[]}
-export default function AdminUsersPage(){
-  const {currentEvent,events,selectEvent}=useEvent();
-  const {currentUser,isPlatformAdmin}=useAuth();
-  const {locale,formatDate}=usePreferences();
-  const cs=locale==='cs';
-  const tr=(cz:string,en:string)=>cs?cz:en;
-  const [members,setMembers]=useState<Member[]>([]);
-  const [loading,setLoading]=useState(true);
-  const [error,setError]=useState('');
-  const [query,setQuery]=useState('');
-  const [refresh,setRefresh]=useState(0);
-  const [target,setTarget]=useState<Member|null>(null);
-  const [reason,setReason]=useState('');
-  const [busy,setBusy]=useState(false);
-  const [previewError,setPreviewError]=useState('');
-  useEffect(()=>{
-    let active=true;
-    setMembers([]);setTarget(null);setError('');
-    if(!currentEvent?.id){setLoading(false);return ()=>{active=false;};}
+import React, { useEffect, useMemo, useState } from 'react';
+import { Eye, RefreshCw, Search, Shield, Users } from 'lucide-react';
+import type { MembershipResponse } from '@cyris/contracts';
+import { AppShell } from '@/components/layout/AppShell';
+import { DataTable, type Column } from '@/components/common/DataTable';
+import { EmptyState, ErrorState, LoadingState } from '@/components/common/StateViews';
+import { apiClient } from '@/lib/api-client';
+import { saveViewAs } from '@/lib/view-as';
+import { useAuth } from '@/contexts/AuthContext';
+import { useEvent } from '@/contexts/EventContext';
+import { usePreferences } from '@/contexts/PreferencesContext';
+
+export default function AdminUsersPage() {
+  const { currentUser, isPlatformAdmin } = useAuth();
+  const { currentEvent, events, selectEvent, loadingEvents } = useEvent();
+  const { formatDate, locale } = usePreferences();
+  const cs = locale === 'cs';
+  const tr = (cz: string, en: string) => cs ? cz : en;
+  const [target, setTarget] = useState<MembershipResponse | null>(null);
+  const [reason, setReason] = useState('');
+  const [memberships, setMemberships] = useState<MembershipResponse[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState('ALL');
+  const [revision, setRevision] = useState(0);
+  const [starting, setStarting] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTarget(null); setMemberships([]); setError(null); setActionError(null);
+    if (!currentEvent) { setLoading(false); return; }
     setLoading(true);
-    apiClient.getMemberships(currentEvent.id).then(res=>{
-      if(!active)return;
-      if(res.ok&&res.data)setMembers(res.data);
-      else setError(res.error||'Cannot load memberships');
-      setLoading(false);
-    }).catch(e=>{if(active){setError(String(e));setLoading(false);}});
-    return ()=>{active=false;};
-  },[currentEvent?.id,refresh]);
-  useEffect(()=>{if(!currentEvent&&events.length)selectEvent(events[0]!.id);},[events,currentEvent,selectEvent]);
-  const filtered=members.filter(m=>[m.user.displayName,m.user.email,...(m.roles??[]).map(x=>x.name),...(m.units??[]).map(x=>x.name)].join(' ').toLowerCase().includes(query.toLowerCase()));
-  const columns:Column<Member>[]=[
-    {header:tr('Uživatel','User'),accessor:m=><div><strong>{m.user.displayName}</strong><small className="member-secondary">{m.user.email}</small></div>},
-    {header:tr('Jednotky','Units'),accessor:m=><div>{(m.units??[]).map(x=><span className="member-tag" key={x.id}>{x.name}</span>)}{!m.units?.length&&'—'}</div>},
-    {header:tr('Role cvičení','Event roles'),accessor:m=><div>{(m.roles??[]).map(x=><span className="member-tag" key={x.id}>{x.name}</span>)}{!m.roles?.length&&tr('Bez role','No role')}</div>},
-    {header:tr('Role platformy','Platform roles'),accessor:m=><div>{(m.platformRoles??[]).map(x=><span className="member-tag platform" key={x.id}>{x.name}</span>)}{!m.platformRoles?.length&&'—'}</div>},
-    {header:tr('Stav','Status'),accessor:m=><span className={'member-state '+(m.status==='ACTIVE'&&m.user.status==='ACTIVE'?'active':'')}>{m.status==='ACTIVE'&&m.user.status==='ACTIVE'?tr('Aktivní','Active'):tr('Neaktivní','Inactive')}</span>},
-    {header:tr('Členem od','Joined'),accessor:m=>formatDate(m.joinedAt)},
+    void apiClient.getMemberships(currentEvent.id).then((res) => {
+      if (cancelled) return;
+      if (res.ok && res.data) setMemberships(res.data);
+      else setError(res.error || (cs ? 'Účastníky se nepodařilo načíst.' : 'Unable to load participants.'));
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [currentEvent?.id, revision]);
+
+  const visible = useMemo(() => {
+    const text = query.trim().toLocaleLowerCase();
+    return memberships.filter((member) => {
+      const active = member.status === 'ACTIVE' && member.user?.status === 'ACTIVE';
+      if (status === 'ACTIVE' && !active) return false;
+      if (status === 'INACTIVE' && active) return false;
+      return !text || [member.user?.displayName, member.user?.email, ...member.units.map((unit) => unit.name), ...member.roles.map((role) => role.name)]
+        .join(' ').toLocaleLowerCase().includes(text);
+    });
+  }, [memberships, query, status]);
+
+  const startPreview = async (member: MembershipResponse) => {
+    if (!currentEvent || starting) return;
+    setStarting(member.id); setActionError(null);
+    try {
+      const res = await apiClient.startViewAs({ eventId: currentEvent.id, targetUserId: member.userId, reason: reason.trim() });
+      if (!res.ok || !res.data) throw new Error(res.error || (cs ? 'Náhled nelze otevřít.' : 'Unable to open preview.'));
+      saveViewAs(res.data);
+      // Full navigation drops all previously loaded administrator data.
+      window.location.assign(`/events/${currentEvent.id}/my-work`);
+    } catch (err) { setActionError((err as Error).message); setStarting(null); }
+  };
+
+  const columns: Column<MembershipResponse>[] = [
+    { header: cs ? 'Účastník' : 'Participant', accessor: (member) => <div className="roster-identity"><strong>{member.user?.displayName || member.user?.email || member.userId}</strong><span>{member.user?.email}</span></div> },
+    { header: cs ? 'Týmy' : 'Teams', accessor: (member) => member.units.length ? <div className="roster-tags">{member.units.map((unit) => <span key={unit.id}>{unit.name}</span>)}</div> : <span className="roster-muted">{cs ? 'Bez týmu' : 'No team'}</span> },
+    { header: cs ? 'Role ve cvičení' : 'Exercise roles', accessor: (member) => member.roles.length ? <div className="roster-tags">{member.roles.map((role) => <span key={`${role.id}:${role.unitId ?? ''}`}>{role.name}{role.unitId ? ` · ${member.units.find((unit) => unit.id === role.unitId)?.name ?? (cs ? 'vymezený tým' : 'scoped team')}` : ''}</span>)}</div> : <span className="roster-muted">{cs ? 'Bez přidělené role' : 'No assigned role'}</span> },
+    ...(isPlatformAdmin ? [{ header: cs ? 'Role platformy' : 'Platform roles', accessor: (member: MembershipResponse) => member.platformRoles.map(role => role.name).join(', ') || '—' }] : []),
+    { header: cs ? 'Stav' : 'Status', accessor: (member) => <span className={`roster-status ${member.status === 'ACTIVE' && member.user?.status === 'ACTIVE' ? 'is-active' : ''}`}>{member.user?.status === 'DISABLED' ? (cs ? 'Účet zakázán' : 'Account disabled') : member.status === 'ACTIVE' ? (cs ? 'Aktivní' : 'Active') : (cs ? 'Neaktivní členství' : 'Inactive membership')}</span> },
+    { header: cs ? 'Přidán' : 'Joined', accessor: (member) => formatDate(member.joinedAt), sortKey: 'joinedAt' },
+    ...(isPlatformAdmin ? [{ header: cs ? 'Náhled' : 'Preview', accessor: (member: MembershipResponse) => <button type="button" className="btn btn-secondary" disabled={Boolean(starting) || member.status !== 'ACTIVE' || member.user?.status !== 'ACTIVE' || member.platformRoles.length > 0 || member.userId === currentUser?.user.id} onClick={() => { setTarget(member); setReason(''); setActionError(null); }} title={cs ? 'Zobrazit cvičení s oprávněními účastníka, pouze pro čtení' : 'Inspect this exercise with the participant’s permissions, read only'}><Eye size={14} />{starting === member.id ? (cs ? 'Otevírám…' : 'Opening…') : (cs ? 'Zobrazit jako' : 'View as')}</button> }] : []),
   ];
-  if(isPlatformAdmin)columns.push({header:tr('Náhled','Preview'),accessor:m=>m.status==='ACTIVE'&&m.user.status==='ACTIVE'&&m.userId!==currentUser?.user.id&&!m.platformRoles?.length?<button type="button" className="btn btn-secondary" onClick={()=>{setTarget(m);setReason('');setPreviewError('');}}><Eye size={14}/>{tr('Zobrazit jako','View As')}</button>:'—'});
-  async function startPreview(e:React.FormEvent){
-    e.preventDefault();if(!target||busy)return;
-    setBusy(true);setPreviewError('');
-    const res=await apiClient.startViewAs({eventId:target.eventId,userId:target.userId,reason:reason.trim()});
-    if(res.ok&&res.data){
-      localStorage.setItem('cyris_selected_event',res.data.eventId);
-      window.location.replace('/events/'+res.data.eventId+'/my-work');
-    }else{setPreviewError(res.error||'Preview failed');setBusy(false);}
-  }
-  return <AppShell title={tr('Uživatelé a přístupy','Users & access')} breadcrumbs={[{label:'Administration'},{label:'Users & Access'}]}>
-    <section className="admin-members workspace-pad">
-      <p className="workspace-subtitle">{tr('Skutečné členství, jednotky a přiřazené role vybraného cvičení.','Actual memberships, units and role assignments for the selected exercise.')}</p>
-      <div className="member-toolbar">
-        <label>{tr('Cvičení','Exercise')}<select value={currentEvent?.id??''} onChange={e=>selectEvent(e.target.value)}>{!currentEvent&&<option value="">{tr('Vyberte cvičení','Select exercise')}</option>}{events.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
-        <label>{tr('Hledat','Search')}<div className="member-search"><Search size={15}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder={tr('Jméno, e-mail, jednotka…','Name, email, unit…')}/></div></label>
-        <button onClick={()=>setRefresh(x=>x+1)} className="btn btn-secondary"><RefreshCw size={15}/>{tr('Obnovit','Refresh')}</button>
+
+  return <AppShell title={cs ? 'Uživatelé a přístupy' : 'Users & access'} breadcrumbs={[{ label: 'Administration' }, { label: 'Users & Access' }]}>
+    <div className="roster-page">
+      <div className="roster-toolbar">
+        <label className="roster-event-label">{cs ? 'Cvičení' : 'Exercise'}
+          <select aria-label={cs ? 'Vybrat cvičení' : 'Select exercise'} value={currentEvent?.id ?? ''} onChange={(event) => selectEvent(event.target.value)} disabled={loadingEvents || Boolean(starting)}>
+            <option value="" disabled>{cs ? 'Vyber cvičení' : 'Select an exercise'}</option>
+            {events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
+          </select>
+        </label>
+        <label className="roster-search"><Search size={16} aria-hidden="true" /><input aria-label={cs ? 'Hledat účastníka, tým nebo roli' : 'Search participant, team or role'} placeholder={cs ? 'Jméno, e-mail, tým nebo role…' : 'Name, email, team or role…'} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        <select aria-label={cs ? 'Filtrovat podle stavu' : 'Filter by status'} value={status} onChange={(event) => setStatus(event.target.value)}>
+          <option value="ALL">{cs ? 'Všechny stavy' : 'All statuses'}</option><option value="ACTIVE">{cs ? 'Aktivní' : 'Active'}</option><option value="INACTIVE">{cs ? 'Neaktivní' : 'Inactive'}</option>
+        </select>
+        <button type="button" className="btn btn-secondary" disabled={loading || !currentEvent} onClick={() => setRevision((value) => value + 1)}><RefreshCw size={14} />{cs ? 'Obnovit' : 'Refresh'}</button>
       </div>
-      {loading?<LoadingState/>:error?<ErrorState message={error} onRetry={()=>setRefresh(x=>x+1)}/>:!filtered.length?<EmptyState title={tr('Žádní uživatelé','No matching users')} description={tr('Vyberte cvičení nebo změňte vyhledávání.','Select an exercise or change the search.')}/>:<DataTable columns={columns} data={filtered} keyExtractor={m=>m.id}/>}
-    </section>
-    {target&&<div className="preview-dialog-backdrop" onClick={()=>{if(!busy)setTarget(null);}}><form className="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title" onSubmit={startPreview} onClick={e=>e.stopPropagation()}>
+      {actionError && <div role="alert" className="roster-action-error">{actionError}</div>}
+      {loading || loadingEvents ? <LoadingState /> : !currentEvent ? <EmptyState icon={<Users size={28} />} title={cs ? 'Vyber cvičení' : 'Select an exercise'} description={cs ? 'Zobrazí se jeho účastníci, týmy a přidělené role.' : 'See its participants, teams and assigned roles.'} /> : error ? <ErrorState message={error} onRetry={() => setRevision((value) => value + 1)} /> : <>
+        <p className="roster-caption">{visible.length} / {memberships.length} {cs ? 'účastníků' : 'participants'} · {currentEvent.name}</p>
+        <DataTable columns={columns} data={visible} keyField="id" emptyTitle={cs ? 'Žádní účastníci' : 'No participants'} emptyDescription={query || status !== 'ALL' ? (cs ? 'Zkus změnit hledání nebo filtr.' : 'Try a different search or filter.') : (cs ? 'V tomto cvičení zatím není žádný účastník.' : 'This exercise has no participants yet.')} />
+      </>}
+    </div>
+    {target&&<div className="preview-dialog-backdrop" onClick={()=>{if(!starting)setTarget(null);}}><form className="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title" onSubmit={e => { e.preventDefault(); void startPreview(target); }} onClick={e=>e.stopPropagation()}>
        <Shield size={23}/><h2 id="preview-title">{tr('Náhled účastníka','Participant preview')}</h2>
-       <strong>{target.user.displayName}</strong><p>{tr('Po dobu 15 minut použijete oprávnění tohoto účastníka v jediném cvičení. Změny a exporty jsou zakázané. Začátek a ukončení se zaznamenají do auditu.','For 15 minutes you will use this participant’s permissions in one exercise. Changes and exports are blocked. Start and exit are audited.')}</p>
+       <strong>{target.user?.displayName}</strong><p>{tr('Po dobu 15 minut použijete oprávnění tohoto účastníka v jediném cvičení. Změny a exporty jsou zakázané. Začátek a ukončení se zaznamenají do auditu.','For 15 minutes you will use this participant’s permissions in one exercise. Changes and exports are blocked. Start and exit are audited.')}</p>
        <label>{tr('Důvod náhledu','Reason for preview')}<textarea required minLength={3} maxLength={500} rows={3} value={reason} onChange={e=>setReason(e.target.value)}/></label>
-       {previewError&&<p role="alert" className="error-text">{previewError}</p>}
-       <div className="preview-dialog-actions"><button type="button" disabled={busy} onClick={()=>setTarget(null)}>{tr('Zrušit','Cancel')}</button><button type="submit" disabled={busy||reason.trim().length<3} className="btn btn-primary"><Eye size={16}/>{busy?'…':tr('Spustit náhled','Start preview')}</button></div>
+       {actionError&&<p role="alert" className="error-text">{actionError}</p>}
+       <div className="preview-dialog-actions"><button type="button" disabled={Boolean(starting)} onClick={()=>setTarget(null)}>{tr('Zrušit','Cancel')}</button><button type="submit" disabled={Boolean(starting)||reason.trim().length<3} className="btn btn-primary"><Eye size={16}/>{starting?'…':tr('Spustit náhled','Start preview')}</button></div>
     </form></div>}
   </AppShell>;
 }

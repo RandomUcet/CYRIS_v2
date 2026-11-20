@@ -32,6 +32,7 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
   const { locale, timezone, setLocale, setTimezone, t } = usePreferences();
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [logoutError, setLogoutError] = useState(false);
   const { snapshot: readiness, stale: readinessStale } = useDefconReadiness(
     selectedEvent?.id ?? '',
     Boolean(selectedEvent && hasPermission('command.read', selectedEvent.id)),
@@ -287,7 +288,7 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
 
                   <button
                     type="button"
-                    onClick={() => void logout()}
+                    onClick={() => { setLogoutError(false); void logout().catch(() => setLogoutError(true)); }}
                     className="btn-ghost"
                     style={{
                       width: '100%',
@@ -299,6 +300,7 @@ export function TopBar({ onOpenSearch, breadcrumbs = [] }: TopBarProps) {
                   >
                     <LogOut size={13} /> {t('action.signOut')}
                   </button>
+                  {logoutError && <p role="alert" style={{ padding: '0 8px', fontSize: 12, color: 'var(--status-danger)' }}>{locale === 'cs' ? 'Odhlášení se nepodařilo. Zkus to znovu.' : 'Unable to sign out. Please try again.'}</p>}
                 </div>
               )}
             </div>

@@ -77,7 +77,7 @@ async function bootstrap(): Promise<void> {
 
   // Enable CORS for Next.js web application and future frontend clients
   app.enableCors({
-    origin: true,
+    origin: [new URL(configService.values.PUBLIC_WEB_URL).origin],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
   });

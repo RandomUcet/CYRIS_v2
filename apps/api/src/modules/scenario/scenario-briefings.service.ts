@@ -1,242 +1,114 @@
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-  Logger,
-} from '@nestjs/common';
-import { eq, and, or, inArray, desc, isNull } from 'drizzle-orm';
+  scenarioDeliveries, scenarioInjectReleases, scenarioInjects, scenarioBriefingReceipts,
+  eventMemberships, membershipUnitAssignments, resources, activityEvents,
+} from '@cyris/db';
+import { generateId, Permissions } from '@cyris/shared';
+import type { ParticipantBriefing, ParticipantBriefingsListResponse } from '@cyris/contracts';
 import { DatabaseService } from '../database/database.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
-import {
-  scenarioDeliveries,
-  scenarioInjectReleases,
-  scenarioInjects,
-  eventMemberships,
-  membershipUnitAssignments,
-  resources,
-  activityEvents,
-  ActivityVisibility,
-  MembershipStatus,
-} from '@cyris/db';
-import { generateId, Permissions } from '@cyris/shared';
-import type {
-  ParticipantBriefing,
-  ParticipantBriefingsListResponse,
-} from '@cyris/contracts';
 
 @Injectable()
 export class ScenarioBriefingsService {
-  private readonly logger = new Logger(ScenarioBriefingsService.name);
-
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly auditService: AuditService,
-    private readonly resourceAccessService: ResourceAccessService
+    private readonly resourceAccessService: ResourceAccessService,
   ) {}
+  private get db() { return this.databaseService.client; }
 
-  private get db() {
-    return this.databaseService.client;
-  }
-
-  /**
-   * Resolves briefings visible to the authenticated participant in this event.
-   * Physically omits ALL controller-only metadata (notes, conditions, triggers, etc.).
-   */
-  async getBriefingsForUser(
-    eventId: string,
-    user: AuthenticatedUser
-  ): Promise<ParticipantBriefingsListResponse> {
-    // 1. Resolve User's active unit memberships in this event
-    const [membership] = await this.db
-      .select({ id: eventMemberships.id })
-      .from(eventMemberships)
-      .where(
-        and(
-          eq(eventMemberships.eventId, eventId),
-          eq(eventMemberships.userId, user.id),
-          eq(eventMemberships.status, MembershipStatus.ACTIVE)
-        )
-      )
-      .limit(1);
-
-    const userUnitIds: string[] = [];
-    if (membership) {
-      const units = await this.db
-        .select({ unitId: membershipUnitAssignments.unitId })
-        .from(membershipUnitAssignments)
-        .where(eq(membershipUnitAssignments.membershipId, membership.id));
-      for (const u of units) {
-        userUnitIds.push(u.unitId);
-      }
-    }
-
-    // 2. Build Audience Filter (Direct user, User's unit, or Whole Event)
-    const audienceFilters = [
+  private async audienceFilter(eventId: string, user: AuthenticatedUser) {
+    const [membership] = await this.db.select({ id: eventMemberships.id }).from(eventMemberships)
+      .where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, user.id), eq(eventMemberships.status, 'ACTIVE'))).limit(1);
+    if (!membership) throw new ForbiddenException('Active participation in this exercise is required');
+    const assignments = await this.db.select({ unitId: membershipUnitAssignments.unitId }).from(membershipUnitAssignments)
+      .where(eq(membershipUnitAssignments.membershipId, membership.id));
+    return or(
       eq(scenarioDeliveries.recipientUserId, user.id),
       and(isNull(scenarioDeliveries.recipientUserId), isNull(scenarioDeliveries.targetUnitId)),
-    ];
-    if (userUnitIds.length > 0) {
-      audienceFilters.push(inArray(scenarioDeliveries.targetUnitId, userUnitIds));
-    }
+      assignments.length ? and(isNull(scenarioDeliveries.recipientUserId), inArray(scenarioDeliveries.targetUnitId, assignments.map(a => a.unitId))) : undefined,
+    );
+  }
 
-    const rows = await this.db
-      .select({
-        delivery: scenarioDeliveries,
-        release: scenarioInjectReleases,
-        injectNumber: scenarioInjects.injectNumber,
-        requiresAck: scenarioInjects.requiresAcknowledgement,
-      })
-      .from(scenarioDeliveries)
-      .innerJoin(scenarioInjectReleases, eq(scenarioDeliveries.releaseId, scenarioInjectReleases.id))
-      .innerJoin(scenarioInjects, eq(scenarioDeliveries.injectId, scenarioInjects.id))
-      .where(and(eq(scenarioDeliveries.eventId, eventId), or(...audienceFilters)))
+  async getBriefingsForUser(eventId: string, user: AuthenticatedUser): Promise<ParticipantBriefingsListResponse> {
+    const audience = await this.audienceFilter(eventId, user);
+    const rows = await this.db.select({ delivery: scenarioDeliveries, release: scenarioInjectReleases,
+      injectNumber: scenarioInjects.injectNumber, requiresAck: scenarioInjects.requiresAcknowledgement,
+      receipt: scenarioBriefingReceipts,
+    }).from(scenarioDeliveries)
+      .innerJoin(scenarioInjectReleases, eq(scenarioInjectReleases.id, scenarioDeliveries.releaseId))
+      .innerJoin(scenarioInjects, eq(scenarioInjects.id, scenarioDeliveries.injectId))
+      .leftJoin(scenarioBriefingReceipts, and(eq(scenarioBriefingReceipts.releaseId, scenarioDeliveries.releaseId), eq(scenarioBriefingReceipts.userId, user.id)))
+      .where(and(eq(scenarioDeliveries.eventId, eventId), eq(scenarioInjectReleases.eventId, eventId), eq(scenarioInjects.eventId, eventId), audience))
       .orderBy(desc(scenarioDeliveries.deliveredAt));
-
+    // Prefer localized direct deliveries over overlapping legacy broadcasts.
+    rows.sort((a, b) => b.delivery.deliveredAt.getTime() - a.delivery.deliveredAt.getTime() || Number(Boolean(b.delivery.recipientUserId)) - Number(Boolean(a.delivery.recipientUserId)));
+    const seen = new Set<string>();
     const newBriefings: ParticipantBriefing[] = [];
     const earlierBriefings: ParticipantBriefing[] = [];
-
-    // Deduplicate by releaseId in case user is targeted both individually and by unit
-    const seenReleaseIds = new Set<string>();
-
     for (const row of rows) {
-      if (seenReleaseIds.has(row.release.id)) {
-        continue;
-      }
-      seenReleaseIds.add(row.release.id);
-
-      // Disclosed resources resolution
-      const actionsSnapshot = Array.isArray(row.release.actionsSnapshot)
-        ? (row.release.actionsSnapshot as any[])
-        : [];
-
+      if (seen.has(row.release.id)) continue;
+      seen.add(row.release.id);
       const disclosedResources: ParticipantBriefing['disclosedResources'] = [];
-      for (const act of actionsSnapshot) {
-        if (act.resourceId) {
-          // Check if current user is allowed to access this resource
-          const canRead = await this.resourceAccessService.canAccessResource(
-            user,
-            act.resourceId,
-            Permissions.REGISTRY_READ
-          );
-
-          if (canRead) {
-            const [resRow] = await this.db
-              .select({ id: resources.id, resourceType: resources.resourceType })
-              .from(resources)
-              .where(eq(resources.id, act.resourceId))
-              .limit(1);
-
-            disclosedResources.push({
-              resourceId: act.resourceId,
-              resourceType: resRow?.resourceType ?? 'resource',
-              identifier: undefined,
-              title: undefined,
-            });
-          }
+      const actions = Array.isArray(row.release.actionsSnapshot) ? row.release.actionsSnapshot as Array<{ resourceId?: string }> : [];
+      for (const action of actions) {
+        if (!action.resourceId) continue;
+        const [resource] = await this.db.select({ id: resources.id, resourceType: resources.resourceType }).from(resources)
+          .where(and(eq(resources.id, action.resourceId), eq(resources.eventId, eventId))).limit(1);
+        if (resource && await this.resourceAccessService.canAccessResource(user, resource.id, Permissions.REGISTRY_READ)) {
+          disclosedResources.push({ resourceId: resource.id, resourceType: resource.resourceType });
         }
       }
-
       const item: ParticipantBriefing = {
-        deliveryId: row.delivery.id,
-        eventId: row.delivery.eventId,
-        injectNumber: row.injectNumber,
-        title: row.delivery.participantTitle || row.release.participantTitle,
-        content: row.delivery.participantContent || row.release.participantContent,
-        locale: row.delivery.locale ?? 'en',
-        deliveredAt: row.delivery.deliveredAt.toISOString(),
-        readAt: row.delivery.readAt ? row.delivery.readAt.toISOString() : null,
-        acknowledgedAt: row.delivery.acknowledgedAt ? row.delivery.acknowledgedAt.toISOString() : null,
-        requiresAcknowledgement: row.requiresAck,
-        disclosedResources,
+        deliveryId: row.delivery.id, eventId, injectNumber: row.injectNumber,
+        title: row.delivery.participantTitle ?? row.release.participantTitle,
+        content: row.delivery.participantContent ?? row.release.participantContent,
+        locale: row.delivery.locale, deliveredAt: row.delivery.deliveredAt.toISOString(),
+        readAt: row.receipt?.readAt?.toISOString() ?? null,
+        acknowledgedAt: row.receipt?.acknowledgedAt?.toISOString() ?? null,
+        requiresAcknowledgement: row.requiresAck, disclosedResources,
       };
-
-      if (!row.delivery.readAt) {
-        newBriefings.push(item);
-      } else {
-        earlierBriefings.push(item);
-      }
+      (item.readAt ? earlierBriefings : newBriefings).push(item);
     }
+    return { unreadCount: newBriefings.length,
+      pendingAcknowledgementCount: [...newBriefings, ...earlierBriefings].filter(b => b.requiresAcknowledgement && !b.acknowledgedAt).length,
+      newBriefings, earlierBriefings };
+  }
 
-    const unreadCount = newBriefings.length;
-    const pendingAcknowledgementCount = [...newBriefings, ...earlierBriefings].filter(
-      (b) => b.requiresAcknowledgement && !b.acknowledgedAt
-    ).length;
-
-    return {
-      unreadCount,
-      pendingAcknowledgementCount,
-      newBriefings,
-      earlierBriefings,
-    };
+  private async visibleDelivery(eventId: string, deliveryId: string, user: AuthenticatedUser) {
+    const audience = await this.audienceFilter(eventId, user);
+    const [delivery] = await this.db.select({ id: scenarioDeliveries.id, releaseId: scenarioDeliveries.releaseId, injectNumber: scenarioInjects.injectNumber })
+      .from(scenarioDeliveries).innerJoin(scenarioInjects, eq(scenarioInjects.id, scenarioDeliveries.injectId))
+      .where(and(eq(scenarioDeliveries.id, deliveryId), eq(scenarioDeliveries.eventId, eventId), eq(scenarioInjects.eventId, eventId), audience)).limit(1);
+    if (!delivery) throw new NotFoundException('Briefing delivery is not available to this participant');
+    return delivery;
   }
 
   async markAsRead(eventId: string, deliveryId: string, user: AuthenticatedUser): Promise<void> {
-    const [delivery] = await this.db
-      .select()
-      .from(scenarioDeliveries)
-      .where(and(eq(scenarioDeliveries.eventId, eventId), eq(scenarioDeliveries.id, deliveryId)))
-      .limit(1);
-
-    if (!delivery) {
-      throw new NotFoundException(`Delivery '${deliveryId}' not found`);
-    }
-
-    if (!delivery.readAt) {
-      await this.db
-        .update(scenarioDeliveries)
-        .set({ readAt: new Date() })
-        .where(eq(scenarioDeliveries.id, deliveryId));
-    }
+    const delivery = await this.visibleDelivery(eventId, deliveryId, user);
+    const now = new Date();
+    await this.db.insert(scenarioBriefingReceipts).values({ id: generateId(), releaseId: delivery.releaseId, userId: user.id, readAt: now })
+      .onConflictDoUpdate({ target: [scenarioBriefingReceipts.releaseId, scenarioBriefingReceipts.userId],
+        set: { readAt: sql`COALESCE(${scenarioBriefingReceipts.readAt}, ${now.toISOString()}::timestamptz)` } });
   }
 
   async acknowledgeBriefing(eventId: string, deliveryId: string, user: AuthenticatedUser): Promise<void> {
-    const [delivery] = await this.db
-      .select({
-        id: scenarioDeliveries.id,
-        injectId: scenarioDeliveries.injectId,
-        readAt: scenarioDeliveries.readAt,
-        acknowledgedAt: scenarioDeliveries.acknowledgedAt,
-        injectNumber: scenarioInjects.injectNumber,
-      })
-      .from(scenarioDeliveries)
-      .innerJoin(scenarioInjects, eq(scenarioDeliveries.injectId, scenarioInjects.id))
-      .where(and(eq(scenarioDeliveries.eventId, eventId), eq(scenarioDeliveries.id, deliveryId)))
-      .limit(1);
-
-    if (!delivery) {
-      throw new NotFoundException(`Delivery '${deliveryId}' not found`);
-    }
-
+    const delivery = await this.visibleDelivery(eventId, deliveryId, user);
     const now = new Date();
-    await this.db
-      .update(scenarioDeliveries)
-      .set({
-        acknowledgedAt: now,
-        readAt: delivery.readAt ?? now,
-      })
-      .where(eq(scenarioDeliveries.id, deliveryId));
-
-    await this.auditService.record({
-      action: 'briefing.acknowledged',
-      category: 'scenario',
-      eventId,
-      resourceType: 'briefing_delivery',
-      resourceId: deliveryId,
-      actorUserId: user.id,
-      metadata: { injectNumber: delivery.injectNumber },
-    });
-
-    await this.db.insert(activityEvents).values({
-      id: generateId(),
-      eventId,
-      activityType: 'briefing.acknowledged',
-      title: `Briefing Acknowledged: ${delivery.injectNumber}`,
-      summary: `Acknowledged by ${user.displayName}`,
-      actorUserId: user.id,
-      visibility: ActivityVisibility.SCENARIO,
-      occurredAt: now,
+    await this.db.transaction(async tx => {
+      const changed = await tx.insert(scenarioBriefingReceipts).values({ id: generateId(), releaseId: delivery.releaseId, userId: user.id, readAt: now, acknowledgedAt: now })
+        .onConflictDoUpdate({ target: [scenarioBriefingReceipts.releaseId, scenarioBriefingReceipts.userId],
+          set: { readAt: sql`COALESCE(${scenarioBriefingReceipts.readAt}, ${now.toISOString()}::timestamptz)`, acknowledgedAt: now },
+          setWhere: isNull(scenarioBriefingReceipts.acknowledgedAt) }).returning({ id: scenarioBriefingReceipts.id });
+      if (!changed.length) return;
+      await this.auditService.record({ action: 'briefing.acknowledged', category: 'scenario', eventId,
+        resourceType: 'briefing_delivery', resourceId: deliveryId, actorUserId: user.id,
+        metadata: { injectNumber: delivery.injectNumber }, txClient: tx });
+      await tx.insert(activityEvents).values({ eventId, activityType: 'briefing.acknowledged',
+        title: `Briefing Acknowledged: ${delivery.injectNumber}`, actorUserId: user.id, visibility: 'SCENARIO', occurredAt: now });
     });
   }
 }
