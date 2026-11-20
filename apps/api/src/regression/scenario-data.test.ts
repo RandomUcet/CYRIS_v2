@@ -1,0 +1,108 @@
+import 'reflect-metadata';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { eq } from 'drizzle-orm';
+import { closeDatabaseConnection, events, getDbClient, persons, resources, users } from '@cyris/db';
+import { generateId } from '@cyris/shared';
+import { localWorld, fullName, nameKey, samples } from '../modules/scenario-data/world.js';
+import { ScenarioDataService } from '../modules/scenario-data/scenario-data.service.js';
+import { IdentifierAllocatorService } from '../modules/resources/identifier-allocator.service.js';
+import { ResourceService } from '../modules/resources/resource.service.js';
+import { SearchIndexerService } from '../modules/search/search-indexer.service.js';
+import { AuditService } from '../modules/audit/audit.service.js';
+import { requireVerifiedIsolatedDatabase, skipWithoutVerifiedDatabase } from './isolated-postgres-harness.js';
+
+const empty = { persons: 0, organisations: 0, locations: 0, vehicles: 0, devices: 0, weapons: 0 };
+test('three full 5,000-person batches contain distinct, repeatable names including the former zero-state seed', () => {
+  const used = new Set<string>();
+  for (const seed of [2027, 2027, -1640531527]) {
+    const counts = { ...empty, persons: 5000 };
+    const w = localWorld(seed, counts, used);
+    assert.deepEqual(samples(w), samples(localWorld(seed, counts, used)));
+    for (const p of w.persons) {
+      const name = nameKey(fullName(p));
+      assert(!/\d/.test(name));
+      assert(!used.has(name), name);
+      used.add(name);
+    }
+  }
+  assert.equal(used.size, 15000);
+});
+
+skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Spark pages and event isolation', async () => {
+  const db = getDbClient({ url: requireVerifiedIsolatedDatabase()! });
+  const ids = [generateId(), generateId()];
+  const [a, b] = ids as [string, string];
+  const uid = generateId();
+  const user = { id: uid } as any;
+  const database = { client: db } as any;
+  const audit = new AuditService(database);
+  const index = new SearchIndexerService(database, {} as any);
+  const resource = new ResourceService(database, audit, {} as any, index);
+  let broken = true;
+  let calls = 0;
+  const ai = {
+    getStatus: async (profile: string) => {
+      assert.equal(profile, 'DGX_SPARK');
+      return { enabled: true };
+    },
+    execute: async ({ messages, eventId, userId }: any) => {
+      calls++;
+      assert.equal(eventId, a);
+      assert.equal(userId, uid);
+      const ctx = JSON.parse(messages[1].content);
+      assert.equal(ctx.brief, 'Regional railway depot');
+      assert.equal(ctx.event.name, a);
+      if (broken) return { text: 'not JSON' };
+      return {
+        text: JSON.stringify(Array.from({ length: ctx.count }, (_, i) => ctx.kind === 'persons' ?
+          { ...ctx.example, givenName: ctx.suggestedNames[i].split(' ')[0], familyName: ctx.suggestedNames[i].split(' ').slice(1).join(' '), description: 'Koordinuje předání dokumentů v depu.', links: ctx.targets.length ? [0] : [] } : ctx.example))
+      };
+    },
+  };
+  const auth = { assertAuthorized: async ({ user: actor }: any) => { if (actor.id !== uid) throw Error('denied'); } };
+  const svc = new ScenarioDataService(database, resource, ai as any, new IdentifierAllocatorService(database), index, audit, auth as any);
+  try {
+    await db.insert(users).values({ id: uid, email: uid + '@example.test', displayName: 'Generator test' });
+    await db.insert(events).values(ids.map(id => ({ id, slug: id, name: id })));
+    const req = { preset: 'CUSTOM' as const, seed: 2027, counts: { ...empty, persons: 6, locations: 2, devices: 2 } };
+    const prev = await svc.preview(a, req, user);
+    await assert.rejects(() => svc.generate(a, { ...req, previewToken: '0'.repeat(64) }, user), /registry changed/);
+    const local = await svc.generate(a, { ...req, previewToken: prev.previewToken }, user);
+    const names = await db.select({ displayName: persons.displayName }).from(persons).where(eq(persons.generationBatchId, local.id)).orderBy(persons.identifier);
+    assert.deepEqual(names.slice(0, 4).map(p => p.displayName), prev.samples.persons);
+    assert.equal(local.relationshipCount, prev.estimatedRelationships);
+    await assert.rejects(() => svc.generate(a, req, user), /already exists/);
+    await svc.generate(b, req, user);
+    const next = await Promise.all([17, 31].map(seed => svc.generate(a, { ...req, seed }, user)));
+    const generated = await db.select({ name: persons.displayName }).from(persons).innerJoin(resources, eq(resources.id, persons.id)).where(eq(resources.eventId, a));
+    assert.equal(new Set(generated.map(p => p.name)).size, 18);
+    assert.notEqual(next[0]!.identifier, next[1]!.identifier);
+    const draft = await svc.startDraft(a, { ...req, counts: { ...empty, persons: 13, devices: 1 }, brief: 'Regional railway depot' }, user);
+    await assert.rejects(() => svc.advance(b, draft.id, 0, user), /unavailable/);
+    await assert.rejects(() => svc.advance(a, draft.id, 0, { id: generateId() } as any), /denied/);
+    await assert.rejects(() => svc.advance(a, draft.id, 0, user), /incomplete JSON/);
+    assert.equal((await svc.get(a, draft.id, user)).prepared, 0);
+    await assert.rejects(() => svc.publish(a, draft.id, user), /Complete the draft/);
+    broken = false;
+    let page = await svc.advance(a, draft.id, 0, user);
+    assert.equal(page.prepared, 1);
+    await svc.advance(a, draft.id, 0, user);
+    assert.equal(calls, 2);
+    page = await svc.advance(a, draft.id, 1, user);
+    assert.equal(page.prepared, 13);
+    page = await svc.advance(a, draft.id, 13, user);
+    assert.equal(page.prepared, 14);
+    const [pub, repeat] = await Promise.all([svc.publish(a, draft.id, user), svc.publish(a, draft.id, user)]);
+    assert.equal(pub.id, repeat.id);
+    assert.equal(pub.relationshipCount, 13);
+    const rows = await db.select().from(persons).where(eq(persons.generationBatchId, pub.id)).orderBy(persons.identifier);
+    assert.equal(rows.length, 13);
+    assert.equal(rows[0]?.description, page.personDetails?.[0]?.description);
+    await svc.cleanup(a, draft.id, user);
+    assert.equal((await db.select().from(persons).where(eq(persons.generationBatchId, pub.id))).length, 0);
+  } finally {
+    // The disposable database owns the immutable event audit records.
+    await closeDatabaseConnection();
+  }
+});

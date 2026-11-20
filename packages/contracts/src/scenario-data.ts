@@ -15,6 +15,7 @@ export const ScenarioDataRequestSchema = z.object({
   seed: z.number().int().min(-2147483648).max(2147483647),
   preset: ScenarioDataPresetSchema,
   counts: ScenarioDataCountsSchema.optional(),
+  previewToken: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 export type ScenarioDataRequest = z.infer<typeof ScenarioDataRequestSchema>;
 export type ScenarioDataCounts = z.infer<typeof ScenarioDataCountsSchema>;
@@ -36,12 +37,19 @@ export const ScenarioDataBatchResponseSchema = z.object({
   completedAt: z.string().nullable(),
   cleanedAt: z.string().nullable(),
   failureMessage: z.string().nullable(),
+  source: z.enum(['LOCAL', 'SPARK']).optional(),
+  prepared: z.number().int().optional(),
+  brief: z.string().optional(),
+  samples: z.record(z.array(z.string())).optional(),
+  personDetails: z.array(z.object({ name: z.string(), description: z.string(), dateOfBirth: z.string() })).optional(),
 });
 export type ScenarioDataBatchResponse = z.infer<typeof ScenarioDataBatchResponseSchema>;
 
 export const ScenarioDataPreviewSchema = z.object({
   counts: ScenarioDataCountsSchema,
   estimatedRelationships: z.number(),
+  previewToken: z.string().optional(),
+  personDetails: z.array(z.object({ name: z.string(), description: z.string(), dateOfBirth: z.string() })).optional(),
   samples: z.object({
     persons: z.array(z.string()),
     organisations: z.array(z.string()),
@@ -52,3 +60,28 @@ export const ScenarioDataPreviewSchema = z.object({
   }),
 });
 export type ScenarioDataPreview = z.infer<typeof ScenarioDataPreviewSchema>;
+
+export const SparkDraftRequestSchema = ScenarioDataRequestSchema.extend({
+  brief: z.string().trim().min(1).max(1200),
+});
+export type SparkDraftRequest = z.infer<typeof SparkDraftRequestSchema>;
+
+const short = z.string().trim().min(1).max(64);
+const name = z.string().trim().min(1).max(120);
+const personalName = name.regex(/^[\p{L}\p{M}]+(?:[ '’‑-][\p{L}\p{M}]+)*$/u);
+const description = z.string().trim().min(1).max(450);
+export const ScenarioRowSchemas = {
+  persons: z.object({
+    givenName: personalName, familyName: personalName, nationality: short,
+    dateOfBirth: z.string().date(), description,
+  }),
+  organisations: z.object({ name, description }),
+  locations: z.object({ name, city: name, country: name, locationType: short, description }),
+  vehicles: z.object({ make: short, model: short, modelYear: z.string().regex(/^\d{4}$/), colour: short, description }),
+  devices: z.object({ deviceType: short, manufacturer: short, model: short, description }),
+  weapons: z.object({ category: short, manufacturer: short, model: short, description }),
+};
+export type ScenarioWorld = { [K in keyof typeof ScenarioRowSchemas]: z.infer<(typeof ScenarioRowSchemas)[K]>[] };
+export const ScenarioDraftPosition = z.object({ prepared: z.number().int().nonnegative() });
+
+export const ScenarioLinkSlots = z.array(z.number().int().nonnegative()).max(4);

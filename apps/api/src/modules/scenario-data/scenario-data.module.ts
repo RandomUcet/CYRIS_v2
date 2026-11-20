@@ -1,3 +1,4 @@
+import { AIModule } from '../ai/ai.module.js';
 import { Module } from '@nestjs/common';
 import { ScenarioDataController } from './scenario-data.controller.js';
 import { ScenarioDataService } from './scenario-data.service.js';
@@ -8,7 +9,7 @@ import { AuditModule } from '../audit/audit.module.js';
 import { AuthorizationModule } from '../authorization/authorization.module.js';
 
 @Module({
-  imports: [DatabaseModule, ResourcesModule, SearchModule, AuditModule, AuthorizationModule],
+  imports: [AIModule, DatabaseModule, ResourcesModule, SearchModule, AuditModule, AuthorizationModule],
   controllers: [ScenarioDataController],
   providers: [ScenarioDataService],
 })

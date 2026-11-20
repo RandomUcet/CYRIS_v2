@@ -177,3 +177,25 @@ Zkoušku obnovy proveďte na samostatném serveru s odpovídající verzí. Po p
 | Web se neotevře nebo se opožďují úlohy. | Na Macu `pnpm dev:status`. Na serveru `sudo cyrisctl status`, poté `sudo cyrisctl doctor --full`. Chyby aplikace ukáže `sudo cyrisctl logs api`, zpracování úloh `sudo cyrisctl logs worker`. |
 
 Podrobný postup pro místní prostředí obsahuje [Spuštění CYRIS](STARTUP.md). Rozložení a příkazy serverové instalace uvádí [Provozní dokumentace](../deploy/README.md).
+
+## Generátor registru pro cvičení
+
+Ve vybraném cvičení otevřete **Scenario data → Dataset**. Režim **Local generator**
+připraví osoby, organizace, místa a vybavení přímo v CYRIS. Při každé nové dávce
+dostanete nový seed. Stejný seed lze zadat znovu pro opakovatelný náhled při
+stejném stavu registru. Generátor kontroluje jména i proti osobám už uloženým
+v tomto cvičení.
+
+Pro obsah podle vlastního příběhu vyberte **Spark · scenario brief**. Do zadání
+popište místo, pracovní prostředí, jazyk a důvod, proč se lidé ve cvičení potkávají.
+Například „Pardubické depo během výměny směn. V češtině připrav dispečery,
+pracovníky expedice a externí servis. U každé osoby popiš, co ten den předávala.“
+Pro první pokus v **Custom counts** stačí 8 osob, 2 organizace, 2 místa a 3 zařízení.
+
+**Prepare with Spark** ukládá návrh po částech. Model píše jednotlivé záznamy
+a vybírá vazby na další položky v téže dávce. CYRIS přiděluje identifikátory.
+Přes **Pause after this page** můžete práci přerušit. Po zavření stránky otevřete
+dávku v historii přes **Open draft → Resume draft**. Při vytížení nebo výpadku
+Sparku zůstanou dokončené části uložené. Před zápisem zkontrolujte ukázky osob,
+popisy a počty. Tlačítkem **Add to registry** zveřejníte celou dávku v registru
+daného cvičení. **Discard** odstraní rozpracovaný návrh.

@@ -107,6 +107,7 @@ import type {
   OidcConfig,
   ScenarioDataRequest,
   ScenarioDataPreview,
+  SparkDraftRequest,
   ScenarioDataBatchResponse,
   CommandDefconSnapshot,
   CommandReadinessSnapshot,
@@ -338,6 +339,15 @@ export class CyrisApiClient {
   }
   async generateScenarioData(eventId: string, payload: ScenarioDataRequest) {
     return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/generate`, payload);
+  }
+  async startScenarioDraft(eventId:string, payload:SparkDraftRequest) {
+    return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/spark-drafts`,payload);
+  }
+  async advanceScenarioDraft(eventId:string,id:string,prepared:number) {
+    return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/batches/${id}/advance`,{prepared});
+  }
+  async publishScenarioDraft(eventId:string,id:string) {
+    return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/batches/${id}/publish`,{});
   }
   async cleanupScenarioData(eventId: string, batchId: string) {
     return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/batches/${batchId}/cleanup`, {});
