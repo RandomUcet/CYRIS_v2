@@ -1,5 +1,8 @@
 # První server CYRIS pro CYLAB
 
+[Provoz serveru, vydání z GitHubu, zálohy a obnova](Provoz.md).
+
+
 ## 1. Připrav virtuální stroj
 
 Na hypervizoru CYLAB založ samostatnou VM s názvem cyris a nainstaluj Ubuntu Server 24.04 LTS (amd64). Jako výchozí velikost pro první nasazení doporučuji 8 vCPU, 16 GB RAM a 160 GB SSD. Po zkoušce s týmy zkontroluj hlavně spotřebu paměti a velikost příloh. GPU zůstává na Sparku.

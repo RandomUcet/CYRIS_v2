@@ -1,5 +1,8 @@
 # CYRIS v2 — Production Deployment & Operations Guide
 
+[Provoz serveru, vydání z GitHubu, zálohy a obnova](Provoz.md).
+
+
 Production-grade deployment and operations layer for **Ubuntu Server 24.04 LTS (x86_64 / aarch64)**.
 
 Pro první nasazení z Macu použijte [český návod pro samostatnou VM v CYLAB](Prvni-server.md). Stažený balíček obsahuje průvodce i zdrojový kód. Níže uvedený postup používá obrazy z registru.
@@ -11,12 +14,12 @@ Pro první nasazení z Macu použijte [český návod pro samostatnou VM v CYLAB
 On a clean Ubuntu Server 24.04 LTS host with standard packages:
 
 ```bash
-# 1. Clone repository bootstrap source
-git clone https://github.com/RandomUcet/CYRIS_v2.git
-cd CYRIS_v2
+# 1. On a fresh host, unpack cyris-ubuntu.tar.gz from the selected GitHub Release
+mkdir cyris-release && tar -C cyris-release -xzf cyris-ubuntu.tar.gz
+cd cyris-release
 
-# 2. Run idempotent system installer
-sudo ./deploy/install.sh
+# 2. Install and authorize this server to read the private release and packages
+sudo ./deploy/install.sh && sudo cyrisctl github login
 
 # 3. Deploy and start CYRIS production stack
 sudo cyrisctl deploy
@@ -82,18 +85,18 @@ sudo cyrisctl admin create    # Bootstrap or create Platform Administrator accou
 
 ### Disaster Recovery & Backups
 ```bash
-sudo cyrisctl backup                  # Create authoritative snapshot (Postgres + MinIO + Manifest)
+sudo cyrisctl backup                  # Create encrypted cold snapshot (brief service downtime)
 sudo cyrisctl backup verify <file>    # Verify archive integrity, checksum, and contents
 sudo cyrisctl backups                 # List all snapshots with timestamps, size, and status
 sudo cyrisctl restore <file>          # Restore database and storage from a verified backup
-sudo cyrisctl diagnostics             # Collect non-sensitive logs and system information archive
+sudo cyrisctl diagnostics             # Collect host information and container status
 ```
 
 ### Updates & Versioning
 ```bash
 sudo cyrisctl versions                # Display installed version and available GitHub releases
 sudo cyrisctl update                  # Upgrade to latest release with mandatory pre-update backup
-sudo cyrisctl update --version v0.1.1  # Upgrade or pin to a specific release version
+sudo cyrisctl update --version v2.0.1  # Upgrade or pin to a specific release version
 sudo cyrisctl self-update             # Update cyrisctl operations CLI utility
 ```
 

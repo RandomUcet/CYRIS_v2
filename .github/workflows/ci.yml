@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_call:
 
 jobs:
   validate:
@@ -31,15 +32,17 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 12.14.0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -62,8 +65,12 @@ jobs:
 
       - name: Validate deployment scripts
         run: |
-          bash -n deploy/install.sh scripts/start-dev.sh scripts/dev-status.sh scripts/dev-runtime.sh
+          for script in deploy/*.sh scripts/start-dev.sh scripts/dev-status.sh scripts/dev-runtime.sh; do bash -n "$script"; done
+          python3 -m unittest discover -s deploy/tests -v
           node --check scripts/dev-apps.mjs
           ./deploy/install.sh --help
           python3 ./deploy/cyrisctl --help
           docker compose -f deploy/compose.prod.yml config > /dev/null
+
+      - name: Restore encrypted backup on an isolated Compose project
+        run: sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" bash deploy/tests/recovery-smoke.sh

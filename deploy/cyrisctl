@@ -5,6 +5,12 @@ CYRIS System Operations Utility (cyrisctl)
 Production control layer for Czech Cybertron / CYLAB CYRIS platform on Ubuntu Server 24.04 LTS.
 """
 
+from contextlib import ExitStack
+from pathlib import Path
+import fcntl
+import secrets
+import tarfile
+import tempfile
 import sys
 import os
 import subprocess
@@ -239,13 +245,14 @@ def cmd_admin_create(args):
     cmd = ["docker", "compose", "-f", CYRIS_COMPOSE_FILE]
     if os.path.exists(CYRIS_ENV_FILE):
         cmd.extend(["--env-file", CYRIS_ENV_FILE])
+    cmd.extend(["run", "--rm"])
     for env_var in ["CYRIS_ADMIN_EMAIL", "CYRIS_ADMIN_NAME", "CYRIS_ADMIN_PASSWORD"]:
         if os.environ.get(env_var):
-            cmd.extend(["-e", f"{env_var}={os.environ[env_var]}"])
+            cmd.extend(["-e", env_var])
     if not sys.stdin.isatty():
-        cmd.extend(["run", "--rm", "-T", "api", "node", "dist/scripts/create-admin.js"])
+        cmd.extend(["-T", "api", "node", "dist/scripts/create-admin.js"])
     else:
-        cmd.extend(["run", "--rm", "api", "node", "dist/scripts/create-admin.js"])
+        cmd.extend(["api", "node", "dist/scripts/create-admin.js"])
     res = subprocess.run(cmd)
     sys.exit(res.returncode)
 
@@ -270,30 +277,12 @@ def cmd_deploy(args):
 
     # 2. Pull container images
     print("\n[2/5] Pulling target production container images...")
-    docker_compose_cmd("pull", capture=False, check=False)
-
-    # 3. Start infrastructure services first
-    print("\n[3/5] Starting core infrastructure (PostgreSQL, Redis, Typesense, MinIO)...")
-    docker_compose_cmd("up", "-d", "postgres", "redis", "typesense", "minio", "minio-init", capture=False)
-
-    print("  Waiting for infrastructure readiness...")
-    for _ in range(30):
-        res = docker_compose_cmd("ps", "--format", "json", check=False)
-        if res.returncode == 0 and res.stdout:
-            lines = res.stdout.strip().split("\n")
-            healthy_count = 0
-            for line in lines:
-                try:
-                    c = json.loads(line)
-                    name = c.get("Service", "")
-                    health = c.get("Health", "")
-                    if name in ("postgres", "redis", "typesense", "minio") and health == "healthy":
-                        healthy_count += 1
-                except Exception:
-                    pass
-            if healthy_count >= 4:
-                break
-        time.sleep(2)
+    env = load_env()
+    local = all(env.get(f"CYRIS_{service.upper()}_IMAGE", "").startswith("cyris-local/") for service in APP_SERVICES)
+    if not local:
+        docker_compose_cmd("pull", capture=False)
+    docker_compose_cmd("up", "-d", "--wait", "--wait-timeout", "240", "postgres", "redis", "typesense", "minio", capture=False)
+    docker_compose_cmd("run", "--rm", "-T", "--no-deps", "minio-init", capture=False)
 
     # 4. Apply database migrations
     print("\n[4/5] Applying database migrations...")
@@ -304,24 +293,10 @@ def cmd_deploy(args):
 
     # Search schema initialization if necessary
     print("  Initializing search engine schema...")
-    docker_compose_cmd("run", "--rm", "-T", "api", "node", "dist/scripts/search-setup.js", check=False)
-
-    # 5. Start application services
-    print("\n[5/5] Starting CYRIS API, Worker, and Web...")
-    docker_compose_cmd("up", "-d", "api", "worker", "web", capture=False)
-
-    print("\n  Waiting for application readiness...")
-    env = load_env()
+    docker_compose_cmd("run", "--rm", "-T", "api", "node", "dist/scripts/search-setup.js", capture=False)
+    cmd_start(args)
+    docker_compose_cmd("exec", "-T", "api", "curl", "-fsS", "http://127.0.0.1:4000/health/ready")
     http_port = env.get("CYRIS_HTTP_PORT", "3000")
-    for _ in range(30):
-        try:
-            req = urllib.request.urlopen("http://127.0.0.1:4000/health", timeout=2)
-            if req.status == 200:
-                break
-        except Exception:
-            pass
-        time.sleep(2)
-
     print("\n================================================================")
     print(f"  {COLOR_GREEN}✓ CYRIS v2 deployed and operational!{COLOR_RESET}")
     print(f"  Web Interface: {env.get('PUBLIC_WEB_URL', f'http://localhost:{http_port}')}")
@@ -332,7 +307,10 @@ def cmd_deploy(args):
 def cmd_start(args):
     """Start all production containers."""
     print("[CYRIS] Starting all services...")
-    docker_compose_cmd("start", capture=False)
+    cmd = ["up", "-d", "--wait", "--wait-timeout", "240", *APP_SERVICES]
+    if "gateway" in docker_compose_cmd("config", "--services").stdout.split():
+        cmd.append("gateway")
+    docker_compose_cmd(*cmd, capture=False)
 
 
 def cmd_stop(args):
@@ -362,6 +340,8 @@ def cmd_logs(args):
 def cmd_status(args):
     """Display clean operational status matching target specification."""
     res = docker_compose_cmd("ps", "--format", "json", check=False)
+    if res.returncode:
+        raise ValueError("Cannot query Docker. Verify sudo and docker.service.")
     service_states = {}
     if res.returncode == 0 and res.stdout:
         for line in res.stdout.strip().split("\n"):
@@ -454,6 +434,8 @@ def cmd_doctor(args):
         print_pass("Configuration (/etc/cyris/cyris.env)") if has_env else print_fail("Configuration")
 
         print("\nUse 'sudo cyrisctl doctor --full' for complete end-to-end verification.")
+        if not (has_docker and has_compose and has_env and arch in ("x86_64", "aarch64")):
+            sys.exit(1)
         return
 
     # Deep verification
@@ -512,7 +494,7 @@ def cmd_doctor(args):
         clock_ok = True
     else:
         # Fallback check socket to pool.ntp.org or time check
-        clock_ok = True
+        clock_ok = False
     if clock_ok:
         print_pass("Clock synchronization")
     else:
@@ -655,7 +637,7 @@ def cmd_doctor(args):
     s3_write = docker_compose_cmd(
         "run", "--rm", "-T", "--entrypoint", "", "minio-init",
         "/bin/sh", "-c",
-        f"/usr/bin/mc alias set cyris http://minio:9000 $S3_ACCESS_KEY $S3_SECRET_KEY >/dev/null 2>&1 && echo 'cyris-probe' > /tmp/{obj_name} && /usr/bin/mc cp /tmp/{obj_name} cyris/cyris-storage/{obj_name}",
+        f"/usr/bin/mc alias set cyris http://minio:9000 $S3_ACCESS_KEY $S3_SECRET_KEY >/dev/null 2>&1 && echo 'cyris-probe' > /tmp/{obj_name} && /usr/bin/mc cp /tmp/{obj_name} cyris/$S3_BUCKET/{obj_name}",
         check=False
     )
     if s3_write.returncode == 0:
@@ -665,14 +647,18 @@ def cmd_doctor(args):
         has_failures = True
 
     # Cleanup verification
-    docker_compose_cmd("exec", "-T", "redis", "redis-cli", "del", f"probe:{probe_id}", check=False)
-    docker_compose_cmd(
+    cleanup_queue = docker_compose_cmd("exec", "-T", "redis", "redis-cli", "del", f"probe:{probe_id}", check=False)
+    cleanup_storage = docker_compose_cmd(
         "run", "--rm", "-T", "--entrypoint", "", "minio-init",
         "/bin/sh", "-c",
-        f"/usr/bin/mc alias set cyris http://minio:9000 $S3_ACCESS_KEY $S3_SECRET_KEY >/dev/null 2>&1 && /usr/bin/mc rm --force cyris/cyris-storage/{obj_name}",
+        f"/usr/bin/mc alias set cyris http://minio:9000 $S3_ACCESS_KEY $S3_SECRET_KEY >/dev/null 2>&1 && /usr/bin/mc rm --force cyris/$S3_BUCKET/{obj_name}",
         check=False
     )
-    print_pass("Cleanup")
+    if cleanup_queue.returncode or cleanup_storage.returncode:
+        print_fail("Cleanup")
+        has_failures = True
+    else:
+        print_pass("Cleanup")
 
     # 5. SECURITY
     print(f"\n{COLOR_BOLD}SECURITY{COLOR_RESET}")
@@ -732,115 +718,258 @@ def cmd_doctor(args):
 # ------------------------------------------------------------------------------
 # 7. Backup, Verify, List & Restore
 # ------------------------------------------------------------------------------
-def cmd_backup(args):
-    """Create authoritative backup of PostgreSQL, MinIO, and configuration."""
-    print("================================================================")
-    print("  CYRIS v2 — Disaster Recovery & Backup")
-    print("================================================================\n")
-
-    os.makedirs(CYRIS_BACKUPS, mode=0o700, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    version = get_installed_version()
-    backup_id = f"backup_{timestamp}_v{version}"
-    backup_dir = os.path.join(CYRIS_BACKUPS, backup_id)
-    os.makedirs(backup_dir, mode=0o700, exist_ok=True)
-
-    print(f"[1/4] Created backup target: {backup_dir}")
-
-    # 1. PostgreSQL Dump
-    print("[2/4] Dumping PostgreSQL database...")
-    sql_file = os.path.join(backup_dir, "database.sql")
-    with open(sql_file, "w", encoding="utf-8") as f:
-        res = docker_compose_cmd("exec", "-T", "postgres", "pg_dump", "-U", "cyris", "cyris", capture=True, check=False)
-        if res.returncode != 0 or not res.stdout:
-            print(f"{COLOR_RED}Error:{COLOR_RESET} PostgreSQL database dump failed.")
-            sys.exit(1)
-        f.write(res.stdout)
-
-    sql_size_kb = os.path.getsize(sql_file) / 1024
-    print(f"  ✓ Database dump created ({sql_size_kb:.1f} KB)")
-
-    # 2. MinIO S3 Object Mirror
-    print("[3/4] Mirroring MinIO S3 object storage...")
-    s3_dir = os.path.join(backup_dir, "s3")
-    os.makedirs(s3_dir, mode=0o700, exist_ok=True)
-
-    # Use minio-init mc to mirror buckets into mounted /data or via docker cp
-    docker_compose_cmd(
-        "exec", "-T", "minio-init",
-        f"/bin/sh -c \"/usr/bin/mc mirror cyris/cyris-storage /data/cyris-storage-backup 2>/dev/null || true\"",
-        check=False
-    )
-    # Copy from persistent storage path /var/lib/cyris/minio
-    minio_storage = os.path.join(CYRIS_VAR, "minio", "cyris-storage")
-    if os.path.exists(minio_storage):
-        shutil.copytree(minio_storage, os.path.join(s3_dir, "cyris-storage"), dirs_exist_ok=True)
-    print("  ✓ S3 object storage mirrored.")
-
-    # 3. Release Manifest & Configuration Snapshot
-    print("[4/4] Writing cryptographic manifest & configuration metadata...")
-    if os.path.exists(CYRIS_MANIFEST_FILE):
-        shutil.copy2(CYRIS_MANIFEST_FILE, os.path.join(backup_dir, "release-manifest.json"))
-
-    # Sanitize config (do not include plaintext master key or passwords in manifest)
-    manifest = {
-        "backupId": backup_id,
-        "timestamp": datetime.now().isoformat(),
-        "cyrisVersion": version,
-        "components": {
-            "postgres": {
-                "file": "database.sql",
-                "sizeBytes": os.path.getsize(sql_file),
-            },
-            "s3": {
-                "directory": "s3",
-            },
-            "search": {
-                "rebuildable": True,
-                "rebuildScript": "cyrisctl search reindex",
-            },
-            "redis": {
-                "transient": True,
-                "note": "Redis cache and rate limits regenerate automatically upon restart.",
-            },
-        },
-        "security": {
-            "plaintextSecretsIncluded": False,
-            "masterKeyIncluded": False,
-            "masterKeyDependency": "CRITICAL: Encrypted integration secrets require the active CYRIS_MASTER_KEY to decrypt upon restore.",
-        },
+# Full snapshots for Ubuntu's bind-mounted production stack. The recovery key stays outside the archive.
+SNAP_EXT = ".tar.gz.gpg"
+def snapshot_layout():
+    return {
+        "env": Path(CYRIS_ENV_FILE), "compose": Path(CYRIS_COMPOSE_FILE), "release": Path(CYRIS_MANIFEST_FILE),
+        **{k: Path(CYRIS_VAR, k) for k in ("postgres", "redis", "typesense", "minio", "caddy")},
+        "web-config": Path(CYRIS_OPT, "Caddyfile"), "web-ca": Path(CYRIS_OPT, "CYRIS-root.crt"),
+        "ldap-ca": Path(CYRIS_ETC, "api-ca"), "first-server": Path(CYRIS_ETC, "first-server"),
+        "first-server-complete": Path(CYRIS_ETC, "first-server-complete"),
     }
 
-    manifest_path = os.path.join(backup_dir, "manifest.json")
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
 
-    # Compress into tar.gz archive
-    archive_path = f"{backup_dir}.tar.gz"
-    print(f"  Compressing archive to {archive_path}...")
-    run_command(f"tar -czf '{archive_path}' -C '{CYRIS_BACKUPS}' '{backup_id}'")
-    shutil.rmtree(backup_dir)
+def require_layout(names):
+    required = {"env", "compose", "release", "postgres", "redis", "typesense", "minio"}
+    if not required.issubset(names):
+        raise ValueError("Missing snapshot components: " + ", ".join(sorted(required - set(names))))
 
-    # Generate sha256 checksum
-    h = hashlib.sha256()
-    with open(archive_path, "rb") as f:
-        while chunk := f.read(8192):
-            h.update(chunk)
-    checksum = h.hexdigest()
-    with open(f"{archive_path}.sha256", "w") as f:
-        f.write(f"{checksum}  {os.path.basename(archive_path)}\n")
 
-    archive_size_mb = os.path.getsize(archive_path) / (1024 * 1024)
-    print("================================================================")
-    print(f"{COLOR_GREEN}✓ Backup created successfully!{COLOR_RESET}")
-    print(f"  Archive:  {archive_path}")
-    print(f"  Size:     {archive_size_mb:.2f} MB")
-    print(f"  SHA-256:  {checksum}")
-    print("================================================================")
+def crypt_archive(source, target, decrypt=False):
+    key = Path(CYRIS_ETC, "backup.key")
+    if not key.exists() and not decrypt:
+        with os.fdopen(os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:
+            f.write(secrets.token_hex(32) + "\n")
+    if not key.is_file() or key.is_symlink() or key.stat().st_mode & 0o077 or key.stat().st_size < 32:
+        raise ValueError(f"Missing or insecure recovery key at {key} (expected mode 0600)")
+    subprocess.run(["gpg", "--batch", "--no-autostart", "--s2k-count", "65011712", "--no-symkey-cache", "--pinentry-mode", "loopback",
+                    "--passphrase-file", str(key), "--compress-algo", "none", "--output", str(target),
+                    *(["--decrypt"] if decrypt else ["--symmetric", "--cipher-algo", "AES256"]), str(source)], check=True)
+
+
+def safe_member(info):
+    if not (info.isfile() or info.isdir()):
+        raise ValueError(f"Unsupported snapshot entry: {info.name}")
+    return info
+
+
+def add_snapshot_path(archive, path, name):
+    # Hard-linked regular files can occur in index checkpoints. Archive their contents;
+    # external symlinks would refer to data outside the recovery set.
+    if path.is_symlink():
+        raise ValueError(f"External link requires a separate recovery plan: {path}")
+    def normalize(member):
+        safe_member(member)
+        member.mode &= 0o777
+        return member
+    archive.add(path, arcname=name, recursive=False, filter=normalize)
+    if path.is_dir():
+        for child in sorted(path.iterdir()):
+            add_snapshot_path(archive, child, name + "/" + child.name)
+
+
+def snapshot_inventory(archive):
+    names = set()
+    roots = set()
+    allowed = snapshot_layout()
+    directory_roots = {"postgres", "redis", "typesense", "minio", "caddy", "ldap-ca"}
+    directories = set()
+    for info in archive:
+        safe_member(info)
+        parts = info.name.split("/")
+        if parts[0] not in allowed or any(p in ("", ".", "..") for p in parts) or info.name in names:
+            raise ValueError(f"Unexpected snapshot path: {info.name}")
+        if (len(parts) == 1 and info.isdir() != (parts[0] in directory_roots)) or (len(parts) > 1 and "/".join(parts[:-1]) not in directories):
+            raise ValueError(f"Invalid snapshot hierarchy: {info.name}")
+        if info.mode & 0o7000:
+            raise ValueError(f"Unexpected special permissions: {info.name}")
+        if info.isdir():
+            directories.add(info.name)
+        names.add(info.name)
+        if len(parts) == 1:
+            roots.add(parts[0])
+    require_layout(roots)
+    return sorted(roots)
+
+
+def running_services():
+    return docker_compose_cmd("ps", "--status", "running", "--services").stdout.split()
+
+
+def cmd_backup(args):
+    """Create an encrypted, consistent snapshot, reviving exactly the services that were running."""
+    dest = Path(CYRIS_BACKUPS)
+    dest.mkdir(mode=0o700, parents=True, exist_ok=True)
+    version = get_installed_version()
+    if not re.fullmatch(r"[a-zA-Z0-9.-]+", version):
+        raise ValueError("Invalid installed version")
+    prefix = "backup_auto_" if getattr(args, "backup_action", None) == "scheduled" else "backup_"
+    target = dest / (prefix + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ_v") + version + SNAP_EXT)
+    paths = {k: p for k, p in snapshot_layout().items() if p.exists()}
+    require_layout(paths)
+    if not shutil.which("gpg"):
+        raise ValueError("Install gpg on the Ubuntu server before creating a backup.")
+    services = running_services()
+    with tempfile.TemporaryDirectory(dir=dest) as temp:
+        raw = Path(temp, "snapshot.tar.gz")
+        sealed = Path(temp, "snapshot.gpg")
+        print("Saving database, objects, queues, index, TLS and configuration. Pausing services.", flush=True)
+        try:
+            if services:
+                docker_compose_cmd("stop", *services, capture=False)
+            with tarfile.open(raw, "w:gz", compresslevel=1, dereference=True) as tar:
+                for name, p in paths.items():
+                    add_snapshot_path(tar, p, name)
+        finally:
+            if services:
+                docker_compose_cmd("start", "--wait", "--wait-timeout", "240", *services, capture=False)
+        with tarfile.open(raw, "r:gz") as archive:
+            snapshot_inventory(archive)
+        crypt_archive(raw, sealed)
+        os.chmod(sealed, 0o600)
+        os.replace(sealed, target)
+    print(f"Encrypted backup: {target}\nStore /etc/cyris/backup.key separately in your recovery vault.")
+    return target
+
+
+def backup_target(value=None):
+    dest = Path(CYRIS_BACKUPS)
+    if value:
+        return dest / value
+    candidates = list(dest.glob("backup_*.tar.gz*"))
+    files = [p for p in candidates if p.name.endswith((SNAP_EXT, ".tar.gz"))]
+    if not files:
+        raise ValueError("No backups found")
+    return max(files, key=lambda p: p.stat().st_mtime_ns)
 
 
 def cmd_backup_verify(args):
+    target = backup_target(args.backup)
+    if not target.name.endswith(SNAP_EXT):
+        args.backup = str(target)
+        return verify_legacy_backup(args)
+    with tempfile.TemporaryDirectory(dir=CYRIS_BACKUPS) as temp:
+        raw = Path(temp, "verified.tar.gz")
+        crypt_archive(target, raw, decrypt=True)
+        with tarfile.open(raw, "r:gz") as tar:
+            roots = snapshot_inventory(tar)
+    print("Integrity and snapshot contents verified: " + ", ".join(roots))
+
+
+def cmd_restore(args):
+    target = backup_target(args.backup)
+    if not target.name.endswith(SNAP_EXT):
+        return restore_legacy(args, target)
+    paths = snapshot_layout()
+    with tempfile.TemporaryDirectory(dir=CYRIS_BACKUPS) as temp, ExitStack() as stages:
+        raw = Path(temp, "verified.tar.gz")
+        crypt_archive(target, raw, decrypt=True)
+        staged = {}
+        recovery_complete = True
+        with tarfile.open(raw, "r:gz") as tar:
+            roots = snapshot_inventory(tar)
+            for root in roots:
+                if paths[root].is_mount() or paths[root].is_symlink():
+                    raise ValueError(f"Cannot atomically replace mount point or link: {paths[root]}")
+                directory = Path(tempfile.mkdtemp(prefix=".cyris-restore-", dir=paths[root].parent))
+                stages.callback(lambda path=directory: shutil.rmtree(path) if recovery_complete else print(f"Recovery files retained at {path}", file=sys.stderr))
+                staged[root] = directory
+            # Only regular files and directories with checked relative names can reach extraction.
+            for root, directory in staged.items():
+                members = [m for m in tar.getmembers() if m.name.split("/", 1)[0] == root]
+                tar.extractall(directory, members=members, numeric_owner=True, filter="fully_trusted")
+        if not args.force and input(f"Replace CYRIS data and configuration from {target.name}? [y/N] ").lower() != "y":
+            return
+        services = running_services()
+        exchanged = []
+        try:
+            if services:
+                docker_compose_cmd("stop", *services, capture=False)
+            for root, directory in staged.items():
+                live = paths[root]
+                previous = directory / "previous"
+                if live.exists():
+                    os.replace(live, previous)
+                exchanged.append(root)
+                os.replace(directory / root, live)
+            if services:
+                docker_compose_cmd("up", "-d", "--force-recreate", "--no-deps", "--wait", "--wait-timeout", "240", *services, capture=False)
+        except BaseException:
+            recovery_complete = False
+            if exchanged and services:
+                docker_compose_cmd("stop", *services, capture=False)
+            for root in reversed(exchanged):
+                previous = staged[root] / "previous"
+                if paths[root].exists():
+                    os.replace(paths[root], staged[root] / "failed")
+                if previous.exists():
+                    os.replace(previous, paths[root])
+            if services:
+                docker_compose_cmd("up", "-d", "--no-deps", "--force-recreate", "--wait", *services, capture=False)
+            recovery_complete = True
+            raise
+    print("Snapshot restored.")
+
+
+def restore_legacy(args, target):
+    """Old releases saved one SQL database and optionally the physical storage bucket."""
+    verify_legacy_backup(argparse.Namespace(backup=str(target)))
+    with tempfile.TemporaryDirectory(dir=CYRIS_BACKUPS) as temp, tarfile.open(target) as archive:
+        names = set()
+        for member in archive:
+            safe_member(member)
+            parts = member.name.split("/")
+            if any(p in ("", ".", "..") for p in parts) or member.name in names:
+                raise ValueError("Unsafe legacy archive")
+            names.add(member.name)
+        archive.extractall(temp, filter="data")
+        dumps = list(Path(temp).glob("*/database.sql"))
+        if len(dumps) != 1 or not dumps[0].stat().st_size:
+            raise ValueError("Expected one database dump")
+        bucket = dumps[0].parent / "s3/cyris-storage"
+        print("Legacy backup: SQL" + (" and storage bucket" if bucket.is_dir() else " only"))
+        if not args.force and input("Replace these components? [y/N] ").lower() != "y":
+            return
+        services = running_services()
+        writers = [s for s in APP_SERVICES if s in services]
+        if "postgres" not in services:
+            raise ValueError("Start PostgreSQL before restoring a legacy SQL archive")
+        if writers:
+            docker_compose_cmd("stop", *writers, capture=False)
+        try:
+            recovery = cmd_backup(args)
+            cmd_backup_verify(argparse.Namespace(backup=str(recovery)))
+        except BaseException:
+            if writers:
+                docker_compose_cmd("start", *writers, capture=False)
+            raise
+        print(f"Pre-restore snapshot: {recovery}", flush=True)
+        env = load_env()
+        cmd = ["docker", "compose", "--env-file", CYRIS_ENV_FILE, "-f", CYRIS_COMPOSE_FILE, "exec", "-T",
+               "postgres", "psql", "-X", "-v", "ON_ERROR_STOP=1", "--single-transaction",
+               "-U", env.get("POSTGRES_USER", "cyris"), "-d", env.get("POSTGRES_DB", "cyris"),
+               "-c", "DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;", "-f", "-"]
+        with dumps[0].open("rb") as stream:
+            subprocess.run(cmd, stdin=stream, check=True)
+        if bucket.is_dir():
+            live = Path(CYRIS_VAR, "minio", "cyris-storage")
+            if "minio" in services:
+                docker_compose_cmd("stop", "minio", capture=False)
+            with tempfile.TemporaryDirectory(dir=Path(CYRIS_VAR)) as directory:
+                new = Path(directory, "new")
+                shutil.copytree(bucket, new)
+                if live.exists():
+                    os.replace(live, Path(directory, "previous"))
+                os.replace(new, live)
+            if "minio" in services:
+                docker_compose_cmd("start", "minio", capture=False)
+        if writers:
+            docker_compose_cmd("start", *writers, capture=False)
+    print("Legacy components restored.")
+
+
+def verify_legacy_backup(args):
     """Verify integrity of a backup archive."""
     target = args.backup
     if not target:
@@ -879,7 +1008,7 @@ def cmd_backup_verify(args):
         print("  ✓ SHA-256 checksum verified.")
 
     # Inspect tarball contents
-    tar_list = run_command(f"tar -tf '{target}'", check=False).stdout.strip().split("\n")
+    tar_list = run_command(["tar", "-tf", target]).stdout.strip().split("\n")
     has_manifest = any("manifest.json" in line for line in tar_list)
     has_db = any("database.sql" in line for line in tar_list)
 
@@ -900,317 +1029,206 @@ def cmd_backups(args):
         print(f"No backups directory found at {CYRIS_BACKUPS}")
         return
 
-    files = [f for f in os.listdir(CYRIS_BACKUPS) if f.startswith("backup_") and f.endswith(".tar.gz")]
-    files.sort(reverse=True)
-
-    print(f"{COLOR_BOLD}{'TIMESTAMP':<20} {'VERSION':<10} {'SIZE':<10} {'STATUS':<12} {'FILENAME'}{COLOR_RESET}")
-    print("-" * 75)
-
-    for f in files:
-        full_path = os.path.join(CYRIS_BACKUPS, f)
-        size_mb = f"{os.path.getsize(full_path) / (1024*1024):.1f} MB"
-        # Parse timestamp and version from filename backup_YYYY-MM-DDTHH-MM-SS_vX.Y.Z.tar.gz
-        parts = f.replace(".tar.gz", "").split("_")
-        ts = parts[1] if len(parts) > 1 else "unknown"
-        ver = parts[2] if len(parts) > 2 else "2.0.0"
-        has_sha = os.path.exists(f"{full_path}.sha256")
-        status = "VERIFIED" if has_sha else "UNVERIFIED"
-        print(f"{ts:<20} {ver:<10} {size_mb:<10} {COLOR_GREEN if status == 'VERIFIED' else COLOR_YELLOW}{status:<12}{COLOR_RESET} {f}")
-
-
-def cmd_restore(args):
-    """Restore CYRIS from a verified backup."""
-    target = args.backup
-    if not target:
-        print(f"{COLOR_RED}Error:{COLOR_RESET} Please specify the backup file to restore (e.g. cyrisctl restore backup_...tar.gz)")
-        sys.exit(1)
-
-    if not os.path.isabs(target):
-        target = os.path.join(CYRIS_BACKUPS, target)
-
-    if not os.path.exists(target):
-        print(f"{COLOR_RED}Error:{COLOR_RESET} Backup file not found: {target}")
-        sys.exit(1)
-
-    print("================================================================")
-    print(f"{COLOR_RED}  WARNING: DISASTER RECOVERY RESTORATION{COLOR_RESET}")
-    print("================================================================")
-    print("Restoring will OVERWRITE current database records and storage.")
-    print(f"Target archive: {target}\n")
-
-    if not getattr(args, "force", False):
-        confirm = input("Are you absolutely sure you want to proceed? [y/N]: ").strip().lower()
-        if confirm != "y":
-            print("Restoration cancelled.")
-            sys.exit(0)
-
-    # 1. Verify backup
-    print("[1/4] Verifying backup integrity...")
-    run_command([sys.executable, sys.argv[0], "backup", "verify", target], check=True)
-
-    # 2. Extract backup to temporary directory
-    temp_dir = os.path.join(CYRIS_BACKUPS, f"restore_{int(time.time())}")
-    os.makedirs(temp_dir, mode=0o700, exist_ok=True)
-    try:
-        run_command(f"tar -xzf '{target}' -C '{temp_dir}'", check=True)
-        subdirs = [os.path.join(temp_dir, d) for d in os.listdir(temp_dir) if os.path.isdir(os.path.join(temp_dir, d))]
-        restore_src = subdirs[0] if subdirs else temp_dir
-
-        # 3. Stop application services
-        print("[2/4] Stopping application services...")
-        docker_compose_cmd("stop", "web", "worker", "api", capture=False, check=False)
-
-        # 4. Restore PostgreSQL
-        print("[3/4] Restoring PostgreSQL database...")
-        db_sql = os.path.join(restore_src, "database.sql")
-        if not os.path.exists(db_sql):
-            raise Exception("database.sql missing from extracted backup")
-
-        # Drop and recreate schema or restore
-        docker_compose_cmd(
-            "exec", "-T", "postgres",
-            "psql", "-U", "cyris", "-d", "cyris", "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;",
-            check=False
-        )
-        with open(db_sql, "rb") as f:
-            restore_cmd = ["docker", "compose", "-f", CYRIS_COMPOSE_FILE]
-            if os.path.exists(CYRIS_ENV_FILE):
-                restore_cmd.extend(["--env-file", CYRIS_ENV_FILE])
-            restore_cmd.extend(["exec", "-T", "postgres", "psql", "-U", "cyris", "-d", "cyris"])
-            subprocess.run(restore_cmd, stdin=f, check=True)
-        print("  ✓ PostgreSQL database restored.")
-
-        # 5. Restore S3 storage
-        print("[4/4] Restoring S3 storage files...")
-        s3_src = os.path.join(restore_src, "s3", "cyris-storage")
-        if os.path.exists(s3_src):
-            minio_dst = os.path.join(CYRIS_VAR, "minio", "cyris-storage")
-            if os.path.exists(minio_dst):
-                shutil.rmtree(minio_dst)
-            shutil.copytree(s3_src, minio_dst)
-            print("  ✓ S3 object storage restored.")
-
-        # Restart all services
-        print("\nRestarting services...")
-        docker_compose_cmd("up", "-d", capture=False)
-
-        print("\n================================================================")
-        print(f"{COLOR_GREEN}✓ CYRIS restored successfully from {target}!{COLOR_RESET}")
-        print("================================================================")
-    finally:
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
+    for archive in sorted(Path(CYRIS_BACKUPS).glob("backup_*"), reverse=True):
+        if archive.name.endswith((SNAP_EXT, ".tar.gz")):
+            kind = "encrypted snapshot" if archive.name.endswith(SNAP_EXT) else "legacy SQL archive"
+            print(f"{archive.name}   {archive.stat().st_size // 1024} KiB   {kind}")
 
 
 # ------------------------------------------------------------------------------
 # 8. Update & Versions
 # ------------------------------------------------------------------------------
-def get_github_headers() -> dict:
-    """Prepare HTTP headers with optional GitHub authentication."""
-    headers = {"User-Agent": "cyrisctl", "Accept": "application/vnd.github.v3+json"}
-    env = load_env()
-    token = os.environ.get("GITHUB_TOKEN") or env.get("GITHUB_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
+REPO_API = "https://api.github.com/repos/RandomUcet/CYRIS_v2"
+APP_SERVICES = ("api", "worker", "web")
+VERSION_PATTERN = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
 
 
-def update_env_version(version: str):
-    """Persist updated CYRIS_VERSION into /etc/cyris/cyris.env."""
-    if not os.path.exists(CYRIS_ENV_FILE):
-        return
-    try:
-        with open(CYRIS_ENV_FILE, "r", encoding="utf-8") as f:
-            content = f.read()
-        if re.search(r"^CYRIS_VERSION=.*$", content, flags=re.MULTILINE):
-            new_content = re.sub(r"^CYRIS_VERSION=.*$", f"CYRIS_VERSION={version}", content, flags=re.MULTILINE)
-        else:
-            new_content = content + f"\nCYRIS_VERSION={version}\n"
-        with open(CYRIS_ENV_FILE, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        os.chmod(CYRIS_ENV_FILE, 0o600)
-    except Exception as e:
-        print(f"Warning: Could not update {CYRIS_ENV_FILE}: {e}")
-
-
-def update_manifest_version(version: str):
-    """Persist updated version into /opt/cyris/release-manifest.json."""
-    manifest_data = {}
-    if os.path.exists(CYRIS_MANIFEST_FILE):
+def atomic_file(path, data, mode):
+    path = Path(path)
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as f:
+        temporary = Path(f.name)
         try:
-            with open(CYRIS_MANIFEST_FILE, "r", encoding="utf-8") as f:
-                manifest_data = json.load(f)
-        except Exception:
-            manifest_data = {}
-    manifest_data["version"] = version
-    manifest_data["releaseDate"] = datetime.now(timezone.utc).isoformat()
-    manifest_data["images"] = {
-        "api": f"ghcr.io/randomucet/cyris-api:{version}",
-        "worker": f"ghcr.io/randomucet/cyris-worker:{version}",
-        "web": f"ghcr.io/randomucet/cyris-web:{version}",
-    }
+            os.fchmod(f.fileno(), mode)
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        except BaseException:
+            temporary.unlink()
+            raise
     try:
-        with open(CYRIS_MANIFEST_FILE, "w", encoding="utf-8") as f:
-            json.dump(manifest_data, f, indent=2)
-    except Exception as e:
-        print(f"Warning: Could not update {CYRIS_MANIFEST_FILE}: {e}")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def github_get(endpoint, accept="application/vnd.github+json", token=None):
+    token_file = Path(CYRIS_ETC, "github.token")
+    if token is None:
+        token = os.environ.get("GITHUB_TOKEN") or load_env().get("GITHUB_TOKEN")
+        if not token and token_file.exists():
+            token = token_file.read_text().strip()
+    request = urllib.request.Request(REPO_API + endpoint, headers={"Accept": accept, "User-Agent": "cyrisctl"})
+    if token:
+        request.add_unredirected_header("Authorization", "Bearer " + token)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.read()
+
+
+def cmd_github_login(args):
+    username = input("GitHub username: ").strip()
+    token = getpass.getpass("GitHub token (repository read + package read): ").strip()
+    if not username or not token:
+        raise ValueError("Missing GitHub credentials")
+    github_get("", token=token)
+    subprocess.run(["docker", "login", "ghcr.io", "--username", username, "--password-stdin"],
+                   input=token, text=True, check=True)
+    atomic_file(Path(CYRIS_ETC, "github.token"), token.encode(), 0o600)
+    print("GitHub repository and registry login verified.")
+
+
+def github_release(version=None):
+    endpoint = "/releases/latest"
+    if version:
+        version = version.removeprefix("v")
+        if not re.fullmatch(VERSION_PATTERN, version):
+            raise ValueError("Expected a stable vMAJOR.MINOR.PATCH release")
+        endpoint = "/releases/tags/v" + version
+    release = json.loads(github_get(endpoint))
+    tag = release["tag_name"]
+    if (release["draft"] or release["prerelease"] or not re.fullmatch("v" + VERSION_PATTERN, tag)
+            or (version and tag != "v" + version)):
+        raise ValueError("Expected a published stable release")
+    return release
+
+
+def release_asset(release, name):
+    asset = next((a for a in release["assets"] if a["name"] == name), None)
+    if not asset or not isinstance(asset["id"], int):
+        raise ValueError(f"Missing release asset: {name}")
+    data = github_get(f"/releases/assets/{asset['id']}", "application/octet-stream")
+    if asset.get("digest") != "sha256:" + hashlib.sha256(data).hexdigest():
+        raise ValueError(f"Missing or incorrect GitHub digest: {name}")
+    return data
+
+
+def release_settings(manifest, version):
+    if manifest["version"] != version or manifest.get("breaking") or manifest.get("searchReindexRequired"):
+        raise ValueError("Manifest requires a manual upgrade or does not match the requested version")
+    settings = {"CYRIS_VERSION": version}
+    for service in APP_SERVICES:
+        image = manifest["images"][service]
+        if not re.fullmatch(f"ghcr.io/randomucet/cyris-{service}@sha256:[a-f0-9]{{64}}", image):
+            raise ValueError(f"Expected a digest-pinned {service} image")
+        settings[f"CYRIS_{service.upper()}_IMAGE"] = image
+    return settings
 
 
 def cmd_versions(args):
-    """Show installed and available versions."""
-    installed = get_installed_version()
-    print(f"Installed: {COLOR_BOLD}{installed}{COLOR_RESET}")
-
-    # Query GitHub Releases for CYRIS_v2
-    print("Querying GitHub for available versions...")
-    url = "https://api.github.com/repos/RandomUcet/CYRIS_v2/releases"
-    try:
-        req = urllib.request.Request(url, headers=get_github_headers())
-        with urllib.request.urlopen(req, timeout=5) as res:
-            releases = json.loads(res.read().decode())
-            tags = [r.get("tag_name", "").lstrip("v") for r in releases if not r.get("draft", False)]
-            if tags:
-                print(f"Available: {tags[0]} (latest)")
-                for t in tags[1:5]:
-                    print(f"           {t}")
-            else:
-                print("Available: (no published GitHub releases found)")
-    except Exception as e:
-        print(f"Available: (could not contact GitHub: {e})")
+    print("Installed:", get_installed_version(), flush=True)
+    print("Latest published release:", github_release()["tag_name"])
 
 
 def cmd_update(args):
-    """Perform verified upgrade to latest or target version."""
-    print("================================================================")
-    print("  CYRIS v2 — Release Update Workflow")
-    print("================================================================\n")
-
-    current_ver = get_installed_version()
-    raw_target = getattr(args, "version", None)
-    target_ver = raw_target.lstrip("v") if raw_target else None
-
-    if not target_ver:
-        # Determine latest release from GitHub or prompt
-        print("[1/7] Discovering latest release...")
-        url = "https://api.github.com/repos/RandomUcet/CYRIS_v2/releases/latest"
+    release = github_release(args.version)
+    version = release["tag_name"][1:]
+    manifest = release_asset(release, "release-manifest.json")
+    settings = release_settings(json.loads(manifest), version)
+    current = get_installed_version()
+    if re.fullmatch(VERSION_PATTERN, current) and tuple(map(int, current.split("."))) > tuple(map(int, version.split("."))):
+        raise ValueError("Use a matching backup to recover an older release")
+    if current == version and not args.force and all(load_env().get(k) == v for k, v in settings.items()):
+        print(f"Installed release {version} is current.")
+        return
+    env_path = Path(CYRIS_ENV_FILE)
+    original = env_path.read_bytes()
+    lines = [line for line in original.decode().splitlines() if line.partition("=")[0] not in settings]
+    candidate = ("\n".join(lines + [f"{k}={v}" for k, v in settings.items()]) + "\n").encode()
+    with tempfile.TemporaryDirectory(dir=env_path.parent) as directory:
+        staged = Path(directory, "release.env")
+        atomic_file(staged, candidate, 0o600)
+        compose = ["docker", "compose", "--env-file", str(staged), "-f", CYRIS_COMPOSE_FILE]
+        run_command(compose + ["config", "--quiet"])
+        print(f"Downloading {release['tag_name']} before stopping services.", flush=True)
+        run_command(compose + ["pull", *APP_SERVICES], capture=False)
+        if not set(APP_SERVICES).issubset(running_services()):
+            raise ValueError("Start the installed application before upgrading")
+        check = run_command(compose + ["run", "--rm", "--no-deps", "-T", "api", "node", "dist/scripts/db-status.js", "--json"], check=False)
+        status = json.loads(check.stdout[check.stdout.index("{"):])
+        pending = status.get("pendingCount")
+        if (type(pending) is not int or pending < 0 or not status.get("totalAvailable")
+                or (check.returncode, status["status"]) != ((1, "PENDING") if pending else (0, "UP_TO_DATE"))):
+            raise ValueError("Unexpected migration status. Live release preserved.")
+        # Keep writers stopped from the recovery point until the new release is ready.
         try:
-            req = urllib.request.Request(url, headers=get_github_headers())
-            with urllib.request.urlopen(req, timeout=5) as res:
-                rel = json.loads(res.read().decode())
-                target_ver = rel.get("tag_name", "").lstrip("v")
-        except Exception:
-            target_ver = current_ver
-
-    print(f"Current version:  {current_ver}")
-    print(f"Target version:   {target_ver}")
-
-    if current_ver == target_ver and not getattr(args, "force", False):
-        print("\nCYRIS is already on the target version. Use --force to reinstall.")
-        sys.exit(0)
-
-    # 1. Create verified pre-update backup
-    print("\n[2/7] Creating mandatory pre-update backup...")
-    try:
-        run_command([sys.executable, sys.argv[0], "backup"], check=True)
-    except Exception as e:
-        print(f"{COLOR_RED}Update aborted:{COLOR_RESET} Pre-update backup failed: {e}")
-        sys.exit(1)
-
-    # 2. Pull new container images
-    print("\n[3/7] Pulling target release container images...")
-    update_env_version(target_ver)
-    os.environ["CYRIS_VERSION"] = target_ver
-    os.environ["CYRIS_API_IMAGE"] = f"ghcr.io/randomucet/cyris-api:{target_ver}"
-    os.environ["CYRIS_WORKER_IMAGE"] = f"ghcr.io/randomucet/cyris-worker:{target_ver}"
-    os.environ["CYRIS_WEB_IMAGE"] = f"ghcr.io/randomucet/cyris-web:{target_ver}"
-
-    # Download latest compose definition and manifest from GitHub release
-    tag_name = f"v{target_ver}"
-    url_base = f"https://api.github.com/repos/RandomUcet/CYRIS_v2/releases/tags/{tag_name}"
-    try:
-        req = urllib.request.Request(url_base, headers=get_github_headers())
-        with urllib.request.urlopen(req, timeout=5) as res:
-            rel_info = json.loads(res.read().decode())
-            for asset in rel_info.get("assets", []):
-                name = asset.get("name")
-                download_url = asset.get("browser_download_url")
-                if name == "compose.prod.yml" and download_url:
-                    headers = get_github_headers()
-                    headers["Accept"] = "application/octet-stream"
-                    areq = urllib.request.Request(asset.get("url", download_url), headers=headers)
-                    with urllib.request.urlopen(areq, timeout=10) as ares:
-                        with open(CYRIS_COMPOSE_FILE, "wb") as f:
-                            f.write(ares.read())
-                elif name == "release-manifest.json" and download_url:
-                    headers = get_github_headers()
-                    headers["Accept"] = "application/octet-stream"
-                    areq = urllib.request.Request(asset.get("url", download_url), headers=headers)
-                    with urllib.request.urlopen(areq, timeout=10) as ares:
-                        with open(CYRIS_MANIFEST_FILE, "wb") as f:
-                            f.write(ares.read())
-    except Exception:
-        pass
-
-    res = docker_compose_cmd("pull", check=False)
-    if res.returncode != 0:
-        print(f"{COLOR_RED}Error:{COLOR_RESET} Could not pull target container images for version {target_ver}.")
-        sys.exit(1)
-
-    # 3. Stop application services before migration
-    print("\n[4/7] Stopping application workers...")
-    docker_compose_cmd("stop", "web", "worker", "api", capture=False, check=False)
-
-    # 4. Perform database migrations
-    print("\n[5/7] Applying target database migrations...")
-    mig_res = docker_compose_cmd("run", "--rm", "-T", "api", "node", "dist/scripts/db-migrate.js", capture=False, check=False)
-    if mig_res.returncode != 0:
-        print("\n================================================================")
-        print(f"{COLOR_RED}CYRIS update failed.{COLOR_RESET}")
-        print("Application rollback alone is unsafe because database migrations were attempted.")
-        print("Recommended recovery: sudo cyrisctl restore <latest-pre-update-backup>")
-        print("================================================================\n")
-        sys.exit(1)
-
-    # 5. Start updated services
-    print("\n[6/7] Starting updated release services...")
-    docker_compose_cmd("up", "-d", capture=False)
-
-    # Update persistent state
-    update_env_version(target_ver)
-    update_manifest_version(target_ver)
-
-    # 6. Post-update verification
-    print("\n[7/7] Running post-update smoke tests...")
-    time.sleep(5)
-    doctor_res = run_command([sys.executable, sys.argv[0], "doctor", "--full"], check=False)
-
-    if doctor_res.returncode == 0:
-        print(f"\n{COLOR_GREEN}✓ Update to CYRIS {target_ver} completed successfully!{COLOR_RESET}")
-    else:
-        print(f"\n{COLOR_YELLOW}Update completed, but some post-update checks warned. Run 'cyrisctl doctor --full'.{COLOR_RESET}")
+            docker_compose_cmd("stop", *APP_SERVICES, capture=False)
+            recovery = cmd_backup(args)
+            cmd_backup_verify(argparse.Namespace(backup=str(recovery)))
+        except BaseException:
+            docker_compose_cmd("start", *APP_SERVICES, capture=False)
+            raise
+        migrated = False
+        try:
+            if pending:
+                migrated = True
+                run_command(compose + ["run", "--rm", "--no-deps", "-T", "api", "node", "dist/scripts/db-migrate.js"], capture=False)
+            atomic_file(env_path, candidate, 0o600)
+            docker_compose_cmd("up", "-d", "--no-deps", "--wait", "--wait-timeout", "240", *APP_SERVICES, capture=False)
+            docker_compose_cmd("exec", "-T", "api", "curl", "-fsS", "http://127.0.0.1:4000/health/ready")
+            atomic_file(CYRIS_MANIFEST_FILE, manifest, 0o644)
+        except BaseException:
+            if migrated:
+                print(f"Migration attempted. Recover with: sudo cyrisctl restore {recovery} && sudo cyrisctl start", file=sys.stderr)
+                docker_compose_cmd("stop", *APP_SERVICES, capture=False)
+            else:
+                atomic_file(env_path, original, 0o600)
+                docker_compose_cmd("up", "-d", "--no-deps", "--wait", *APP_SERVICES, capture=False)
+            raise
+    print(f"Running verified CYRIS release {version}.")
 
 
 def cmd_self_update(args):
-    """Update cyrisctl CLI tool from the GitHub repository."""
-    print("Checking for cyrisctl updates from repository...")
-    url = "https://raw.githubusercontent.com/RandomUcet/CYRIS_v2/main/deploy/cyrisctl"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "cyrisctl"})
-        with urllib.request.urlopen(req, timeout=5) as res:
-            content = res.read()
-            bin_path = "/opt/cyris/bin/cyrisctl"
-            with open(bin_path, "wb") as f:
-                f.write(content)
-            os.chmod(bin_path, 0o755)
-            print(f"{COLOR_GREEN}✓ cyrisctl updated successfully!{COLOR_RESET}")
-    except Exception as e:
-        print(f"{COLOR_RED}Error updating cyrisctl:{COLOR_RESET} {e}")
-        sys.exit(1)
+    release = github_release()
+    release_settings(json.loads(release_asset(release, "release-manifest.json")), release["tag_name"][1:])
+    data = release_asset(release, "cyrisctl")
+    compile(data, "cyrisctl", "exec")
+    atomic_file(Path(CYRIS_OPT, "bin", "cyrisctl"), data, 0o755)
+    print("Installed cyrisctl from", release["tag_name"])
 
 
-# ------------------------------------------------------------------------------
-# 9. Diagnostics Collection
-# ------------------------------------------------------------------------------
+def cmd_scheduled_backup(args):
+    target = cmd_backup(args)
+    cmd_backup_verify(argparse.Namespace(backup=str(target)))
+    completed = sorted(Path(CYRIS_BACKUPS).glob("backup_auto_*" + SNAP_EXT), reverse=True)
+    for expired in completed[14:]:
+        expired.unlink()
+    print("Retained the newest 14 scheduled backups.")
+
+
+def cmd_schedule(args):
+    if args.backup_action == "enable":
+        units = Path("/etc/systemd/system")
+        atomic_file(units / "cyris-backup.service", b"""[Unit]
+Description=Encrypted CYRIS snapshot
+After=docker.service
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/local/bin/cyrisctl backup scheduled
+""", 0o644)
+        atomic_file(units / "cyris-backup.timer", b"""[Unit]
+Description=Nightly CYRIS snapshot
+[Timer]
+OnCalendar=*-*-* 02:30:00
+[Install]
+WantedBy=timers.target
+""", 0o644)
+        run_command(["systemctl", "daemon-reload"])
+        run_command(["systemctl", "enable", "--now", "cyris-backup.timer"], capture=False)
+        run_command(["systemctl", "list-timers", "cyris-backup.timer"], capture=False)
+    else:
+        run_command(["systemctl", "disable", "--now", "cyris-backup.timer"], capture=False)
+
+
 def cmd_diagnostics(args):
     """Collect non-secret operational diagnostics for troubleshooting."""
     print("Collecting non-sensitive system diagnostics...")
@@ -1230,16 +1248,8 @@ def cmd_diagnostics(args):
     with open(os.path.join(diag_dir, "docker_ps.txt"), "w") as f:
         f.write(docker_compose_cmd("ps", "-a", check=False).stdout)
 
-    # Recent service logs (sanitized)
-    with open(os.path.join(diag_dir, "recent_logs.txt"), "w") as f:
-        logs = docker_compose_cmd("logs", "--tail", "100", check=False).stdout
-        # Basic sanitization of passwords or master key
-        sanitized = re.sub(r"(CYRIS_MASTER_KEY|POSTGRES_PASSWORD|S3_SECRET_KEY|TYPESENSE_API_KEY)=[^\s]+", r"\1=***REDACTED***", logs)
-        f.write(sanitized)
-
-    # Tar and compress
     archive_path = f"{diag_dir}.tar.gz"
-    run_command(f"tar -czf '{archive_path}' -C '{CYRIS_BACKUPS}' 'diag_{ts}'")
+    run_command(["tar", "-czf", archive_path, "-C", CYRIS_BACKUPS, f"diag_{ts}"])
     shutil.rmtree(diag_dir)
 
     print(f"\n{COLOR_GREEN}✓ Diagnostics bundle generated:{COLOR_RESET} {archive_path}")
@@ -1288,6 +1298,9 @@ def main():
     p_backup_verify.add_argument("backup", nargs="?", help="Specific backup file to verify")
     p_backup_verify.set_defaults(func=cmd_backup_verify)
     p_backup.set_defaults(func=cmd_backup)
+    p_backup_sub.add_parser("scheduled", help="Run and verify a rotating daily backup").set_defaults(func=cmd_scheduled_backup)
+    for action in ("enable", "disable"):
+        p_backup_sub.add_parser(action, help=f"{action.title()} nightly backup timer").set_defaults(func=cmd_schedule)
 
     p_backups = subparsers.add_parser("backups", help="List available backup snapshots")
     p_backups.set_defaults(func=cmd_backups)
@@ -1309,6 +1322,9 @@ def main():
 
     p_self_update = subparsers.add_parser("self-update", help="Update cyrisctl CLI tool")
     p_self_update.set_defaults(func=cmd_self_update)
+
+    login = subparsers.add_parser("github", help="Configure private GitHub Releases and GHCR access")
+    login.add_subparsers(required=True).add_parser("login").set_defaults(func=cmd_github_login)
 
     # config
     p_config = subparsers.add_parser("config", help="Manage production configuration")
@@ -1336,23 +1352,29 @@ def main():
 
     args = parser.parse_args()
 
-    # Route sub-subcommands if called
-    if args.subcommand == "backup" and getattr(args, "backup_action", None) == "verify":
-        cmd_backup_verify(args)
-    elif args.subcommand == "config" and getattr(args, "config_action", None) == "check":
-        cmd_config_check(args)
-    elif args.subcommand == "db" and getattr(args, "db_action", None) == "status":
-        cmd_db_status(args)
-    elif args.subcommand == "db" and getattr(args, "db_action", None) == "migrate":
-        cmd_db_migrate(args)
-    elif args.subcommand == "admin" and getattr(args, "admin_action", None) == "create":
-        cmd_admin_create(args)
-    elif hasattr(args, "func"):
-        args.func(args)
-    else:
+    if not hasattr(args, "func"):
         parser.print_help()
-        sys.exit(0)
+        return
+    if os.geteuid() != 0:
+        parser.exit(1, "Run this production command with sudo cyrisctl.\n")
+    os.umask(0o077)
+    def interrupted(signum, frame):
+        raise SystemExit(128 + signum)
+    for sig in (signal.SIGHUP, signal.SIGTERM):
+        signal.signal(sig, interrupted)
+    mutates = args.subcommand in {"deploy", "start", "stop", "restart", "restore", "update", "self-update", "github", "backup", "admin"} or getattr(args, "db_action", "") == "migrate"
+    with ExitStack() as stack:
+        if mutates:
+            lock = stack.enter_context(open("/run/cyris-first-install.lock", "a"))
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                parser.exit(1, "Another CYRIS maintenance operation is running.\n")
+        args.func(args)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, ValueError, KeyError, tarfile.TarError, subprocess.CalledProcessError) as error:
+        sys.exit(f"CYRIS: {error}")
