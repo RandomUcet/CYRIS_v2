@@ -31,6 +31,22 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Exercise policy and workspace tests
+        run: |
+          pnpm exec tsx --test \
+            apps/api/src/modules/auth/view-as-policy.test.ts \
+            apps/api/src/modules/disruptions/service-status-policy.test.ts \
+            apps/api/src/modules/disruptions/disruption-policy.test.ts \
+            apps/api/src/modules/disruptions/recovery-policy.test.ts \
+            apps/api/src/modules/command/defcon-policy.test.ts \
+            apps/api/src/modules/support/support-policy.test.ts \
+            apps/api/src/modules/laboratory/laboratory-assignment.test.ts \
+            apps/api/src/regression/scenario-designer.test.ts \
+            apps/api/src/regression/scenario-progression.test.ts \
+            apps/web/src/components/command/defcon-live.test.ts \
+            apps/web/src/lib/workspace-navigation.test.ts \
+            packages/contracts/src/command-defcon.test.ts
+
       - name: Check diff
         run: git diff --check
 

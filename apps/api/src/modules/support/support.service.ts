@@ -6,6 +6,7 @@ import type {CreateSupportRequest,SupportInbox,SupportThread,SupportMessageInput
 import {DatabaseService} from '../database/database.service.js';
 import {AuthorizationService} from '../authorization/authorization.service.js';
 import {AuditService} from '../audit/audit.service.js';
+import {nextSupportReply} from './support-policy.js';
 import type {AuthenticatedUser} from '../auth/session.service.js';
 
 @Injectable()
@@ -50,10 +51,11 @@ export class SupportService {
   }
   async reply(eventId:string,id:string,user:AuthenticatedUser,input:SupportMessageInput){
     const {row,canManage}=await this.load(eventId,id,user);
-    if(row.status==='RESOLVED')throw new ConflictException('Request is resolved; create a new request');
-    const authorKind=canManage&&row.requesterId!==user.id?'EXCON':'PARTICIPANT';
+    const transition=nextSupportReply(row.status,canManage,user.id,row.requesterId);
+    if(!transition)throw new ConflictException('Request is resolved or inaccessible');
+    const {authorKind,status}=transition;
     return this.db.transaction(async tx=>{
-      const [updated]=await tx.update(supportRequests).set({status:authorKind==='EXCON'?'ANSWERED':'OPEN',revision:input.expectedRevision+1,updatedAt:new Date()}).where(and(eq(supportRequests.id,id),eq(supportRequests.eventId,eventId),eq(supportRequests.revision,input.expectedRevision))).returning({id:supportRequests.id});
+      const [updated]=await tx.update(supportRequests).set({status,revision:input.expectedRevision+1,updatedAt:new Date()}).where(and(eq(supportRequests.id,id),eq(supportRequests.eventId,eventId),eq(supportRequests.revision,input.expectedRevision))).returning({id:supportRequests.id});
       if(!updated)throw new ConflictException('Request changed; reload before replying');
       await tx.insert(supportMessages).values({requestId:id,authorId:user.id,authorKind,body:input.body});
       await this.audit.record({action:'support.request.reply',category:'support',eventId,actorUserId:user.id,resourceType:'support_request',resourceId:id,metadata:{authorKind},txClient:tx});
