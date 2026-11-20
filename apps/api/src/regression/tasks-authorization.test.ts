@@ -134,7 +134,10 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       const row = await tasks.createTask(eventA, CreateOperationalTaskRequestSchema.parse({ title: 'Assigned task', assignedUnitId: unitA, assignedUserId: worker.id }), organizer);
       taskId = row.id;
       assert.equal(notifications, 1);
-      assert.equal((await tasks.getTaskDetail(taskId, worker, eventA)).id, taskId);
+      const detail = await tasks.getTaskDetail(taskId, worker, eventA);
+      assert.equal(detail.id, taskId);
+      assert.deepEqual(detail.availableActions.sort(), ['acknowledge', 'block', 'complete', 'start']);
+      assert.ok((await tasks.getTaskDetail(taskId, organizer, eventA)).availableActions.includes('assign'));
     });
     await t.test('all controller mutations reject a task addressed through another event', async () => {
       const calls = [
@@ -203,7 +206,7 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         tasks.completeTask(row.id, { completionNote: 'First completion' }, worker, eventA),
         tasks.completeTask(row.id, { completionNote: 'Retried completion' }, worker, eventA),
       ]);
-      assert.ok(results.every((result) => result.status === 'COMPLETED'));
+      assert.ok(results.every((result) => result.status === 'COMPLETED' && result.availableActions.length === 0));
       const completed = await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId, row.id), eq(auditEvents.action, 'task.completed')));
       assert.equal(completed.length, 1);
       await assert.rejects(tasks.cancelTask(row.id, { reason: 'Already done' }, organizer, eventA), BadRequestException);
@@ -227,6 +230,7 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       const status = await disruptions.getServiceStatus(eventA, worker);
       assert.equal(status.items[0]?.reason, null);
       assert.equal(status.items[0]?.impact, 'READ_ONLY');
+      assert.deepEqual((await tasks.getTaskDetail(taskId, worker, eventA)).availableActions, []);
       await assert.rejects(tasks.startTask(taskId, {}, worker, eventA), ForbiddenException);
       await assert.rejects(disruptions.getParticipantStatus(eventA, outsider), ForbiddenException);
       await assert.rejects(disruptions.getParticipantStatus(eventB, worker), ForbiddenException);

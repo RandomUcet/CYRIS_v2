@@ -67,7 +67,11 @@ export const OperationalTaskItemSchema = z.object({
 
 export type OperationalTaskItem = z.infer<typeof OperationalTaskItemSchema>;
 
+export const TaskActionSchema = z.enum(['acknowledge', 'start', 'block', 'complete', 'cancel', 'reopen', 'assign']);
+export type TaskAction = z.infer<typeof TaskActionSchema>;
+
 export const OperationalTaskDetailSchema = OperationalTaskItemSchema.extend({
+  availableActions: z.array(TaskActionSchema).default([]),
   sourceResource: z
     .object({
       id: z.string().uuid(),

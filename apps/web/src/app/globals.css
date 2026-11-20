@@ -1413,3 +1413,17 @@ html,body {font-size:14px}
 .helpdesk-form,.helpdesk-reply{display:flex;flex-direction:column;gap:13px;padding:20px}.helpdesk-reply{border-top:1px solid var(--border-subtle)}.helpdesk-form label,.helpdesk-reply label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;color:var(--text-secondary)}.helpdesk-form input,.helpdesk-form select,.helpdesk-form textarea,.helpdesk-reply textarea{font:inherit;border:1px solid var(--border-subtle);background:var(--bg-canvas);color:var(--text-primary);padding:10px 12px;border-radius:6px;width:100%;resize:vertical}
 .helpdesk-empty{min-height:430px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;padding:30px;color:var(--text-dim);text-align:center}.helpdesk-empty h2{color:var(--text-primary)}
 @media(max-width:950px){.helpdesk-layout{grid-template-columns:1fr}.helpdesk-threads{max-height:260px}.helpdesk{padding:16px}}
+
+.task-record { display: grid; gap: 1rem; max-width: 56rem; margin: 0 auto; padding: clamp(1rem, 3vw, 2rem); }
+.task-record h1 { font-size: clamp(1.3rem, 3vw, 1.85rem); margin-top: .6rem; overflow-wrap: anywhere; }
+.task-badges, .task-controls { display: flex; flex-wrap: wrap; gap: .5rem; }
+.task-record dl { display: grid; grid-template-columns: max-content 1fr; gap: .5rem 1rem; margin: .75rem 0; }
+.task-record dt { color: var(--text-secondary); }
+.task-record dd { margin: 0; overflow-wrap: anywhere; }
+.task-time { display: contents; }
+.task-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-record form, .task-record form label { display: grid; gap: .6rem; }
+.task-record form { border: 1px solid var(--border-subtle); border-radius: .5rem; padding: 1rem; }
+.task-record textarea { min-height: 5rem; }
+.task-record :is(textarea, select) { background: var(--bg-panel); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: .5rem; }
+a.my-work-item { color: inherit; text-decoration: none; }

@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { RecordIdentifier, StatusBadge, PriorityBadge } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
@@ -15,27 +16,21 @@ import {
   RefreshCw,
   X,
   AlertTriangle,
-  Play,
-  CheckCircle,
-  Clock,
-  RotateCcw,
   Search,
   Filter,
   User,
-  Users,
 } from 'lucide-react';
 import type {
   OperationalTaskItem,
-  OperationalTaskDetail,
   TaskPriority,
-  TaskStatus,
 } from '@cyris/contracts';
 
 export default function TasksPage() {
+  const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const eventId = params.eventId as string;
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, viewAs } = useAuth();
   const { formatTime, formatDate, t, locale } = usePreferences();
   const tr = (label: string) => workspaceLabel(locale, label);
 
@@ -50,19 +45,6 @@ export default function TasksPage() {
   const [quickFilter, setQuickFilter] = useState<'ALL' | 'MINE' | 'MY_TEAM' | 'MY_SUBTEAM' | 'UNASSIGNED' | 'OPEN' | 'BLOCKED' | 'COMPLETED'>('ALL');
   const [search, setSearch] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
-
-  // Selected Task Drawer
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [taskDetail, setTaskDetail] = useState<OperationalTaskDetail | null>(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [actionPending, setActionPending] = useState(false);
-
-  // Modal: Action Reason (for Block / Cancel / Reopen / Complete)
-  const [actionModal, setActionModal] = useState<{
-    type: 'BLOCK' | 'CANCEL' | 'REOPEN' | 'COMPLETE' | null;
-    note: string;
-  }>({ type: null, note: '' });
 
   // Modal: Create Task
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -85,14 +67,7 @@ export default function TasksPage() {
     priority: 'NORMAL',
   });
 
-  const canCreate = hasPermission('task.create');
-  const canUpdate = hasPermission('task.update');
-  const canAcknowledge = hasPermission('task.acknowledge');
-  const canWork = hasPermission('task.work');
-  const canComplete = hasPermission('task.complete');
-  const canCancel = hasPermission('task.cancel');
-  const canAssign = hasPermission('task.assign');
-
+  const canCreate = !viewAs && hasPermission('task.create', eventId);
   const fetchTasks = async () => {
     setLoading(true);
     setError(null);
@@ -107,23 +82,6 @@ export default function TasksPage() {
       setError(err.message || t('error.network'));
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchTaskDetail = async (taskId: string) => {
-    setLoadingDetail(true);
-    setActionError(null);
-    try {
-      const res = await apiClient.getTask(eventId, taskId);
-      if (res.ok && res.data) {
-        setTaskDetail(res.data);
-      } else {
-        setActionError(res.error || 'Failed to load task details');
-      }
-    } catch (err: any) {
-      setActionError(err.message || 'Network error');
-    } finally {
-      setLoadingDetail(false);
     }
   };
 
@@ -147,7 +105,7 @@ export default function TasksPage() {
 
   useEffect(() => {
     const sourceResourceId = searchParams.get('sourceResourceId');
-    if (sourceResourceId) {
+    if (sourceResourceId && canCreate) {
       setCreateForm((current) => ({
         ...current,
         sourceType: 'CASE',
@@ -160,15 +118,7 @@ export default function TasksPage() {
         }
       });
     }
-  }, [searchParams]);
-
-  useEffect(() => {
-    if (selectedTaskId) {
-      fetchTaskDetail(selectedTaskId);
-    } else {
-      setTaskDetail(null);
-    }
-  }, [selectedTaskId]);
+  }, [searchParams, canCreate, eventId]);
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
@@ -214,87 +164,6 @@ export default function TasksPage() {
     });
   }, [tasks, search, priorityFilter, quickFilter, user, units]);
 
-  // Task Transitions
-  const handleAcknowledge = async () => {
-    if (!taskDetail) return;
-    setActionPending(true);
-    setActionError(null);
-    try {
-      const res = await apiClient.acknowledgeTask(eventId, taskDetail.id);
-      if (res.ok && res.data) {
-        setTaskDetail(res.data);
-        fetchTasks();
-      } else {
-        setActionError(res.error || 'Failed to acknowledge task');
-      }
-    } catch (err: any) {
-      setActionError(err.message);
-    } finally {
-      setActionPending(false);
-    }
-  };
-
-  const handleStart = async () => {
-    if (!taskDetail) return;
-    setActionPending(true);
-    setActionError(null);
-    try {
-      const res = await apiClient.startTask(eventId, taskDetail.id);
-      if (res.ok && res.data) {
-        setTaskDetail(res.data);
-        fetchTasks();
-      } else {
-        setActionError(res.error || 'Failed to start task');
-      }
-    } catch (err: any) {
-      setActionError(err.message);
-    } finally {
-      setActionPending(false);
-    }
-  };
-
-  const handleActionModalSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!taskDetail || !actionModal.type) return;
-
-    setActionPending(true);
-    setActionError(null);
-    try {
-      let res;
-      if (actionModal.type === 'BLOCK') {
-        if (!actionModal.note.trim()) {
-          setActionError('Blocked reason is required');
-          setActionPending(false);
-          return;
-        }
-        res = await apiClient.blockTask(eventId, taskDetail.id, { reason: actionModal.note });
-      } else if (actionModal.type === 'COMPLETE') {
-        res = await apiClient.completeTask(eventId, taskDetail.id, { completionNote: actionModal.note });
-      } else if (actionModal.type === 'CANCEL') {
-        res = await apiClient.cancelTask(eventId, taskDetail.id, { reason: actionModal.note });
-      } else if (actionModal.type === 'REOPEN') {
-        if (!actionModal.note.trim()) {
-          setActionError('Reason for reopening is required');
-          setActionPending(false);
-          return;
-        }
-        res = await apiClient.reopenTask(eventId, taskDetail.id, { reason: actionModal.note, newStatus: 'OPEN' });
-      }
-
-      if (res && res.ok && res.data) {
-        setTaskDetail(res.data);
-        setActionModal({ type: null, note: '' });
-        fetchTasks();
-      } else {
-        setActionError(res?.error || 'Action failed');
-      }
-    } catch (err: any) {
-      setActionError(err.message);
-    } finally {
-      setActionPending(false);
-    }
-  };
-
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!createForm.title.trim()) {
@@ -320,8 +189,7 @@ export default function TasksPage() {
       if (res.ok && res.data) {
         setShowCreateModal(false);
         setCreateForm({ title: '', description: '', priority: 'NORMAL' });
-        fetchTasks();
-        setSelectedTaskId(res.data.id);
+        router.push(`/events/${eventId}/tasks/${res.data.id}`);
       } else {
         setCreateError(res.error || 'Failed to create task');
       }
@@ -330,23 +198,6 @@ export default function TasksPage() {
     } finally {
       setCreateSubmitting(false);
     }
-  };
-
-  const handleAssignTask = async (assignedUnitId: string, assignedUserId: string) => {
-    if (!taskDetail) return;
-    setActionPending(true);
-    setActionError(null);
-    const res = await apiClient.assignTask(eventId, taskDetail.id, {
-      assignedUnitId: assignedUnitId || null,
-      assignedUserId: assignedUserId || null,
-    });
-    if (res.ok && res.data) {
-      setTaskDetail(res.data);
-      fetchTasks();
-    } else {
-      setActionError(res.error || 'Failed to assign task');
-    }
-    setActionPending(false);
   };
 
   return (
@@ -523,16 +374,14 @@ export default function TasksPage() {
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-sans">
                 {filteredTasks.map((t) => {
-                  const isSelected = selectedTaskId === t.id;
+                  const href = `/events/${eventId}/tasks/${t.id}`;
                   const isBlocked = t.status === 'BLOCKED';
                   return (
                     <tr
                       key={t.id}
-                      onClick={() => setSelectedTaskId(t.id)}
+                      onClick={() => router.push(href)}
                       className={`cursor-pointer transition-colors ${
-                        isSelected
-                          ? 'bg-blue-950/40 border-l-4 border-l-blue-500'
-                          : isBlocked
+                        isBlocked
                           ? 'bg-amber-950/10 hover:bg-amber-950/20'
                           : 'hover:bg-slate-800/40'
                       }`}
@@ -541,7 +390,7 @@ export default function TasksPage() {
                         <RecordIdentifier code={t.taskNumber} />
                       </td>
                       <td className="py-2.5 px-3 font-medium text-slate-200">
-                        <div>{t.title}</div>
+                        <Link href={href} onClick={e => e.stopPropagation()}>{t.title}</Link>
                         {t.blockedReason && (
                           <div className="text-[11px] text-amber-400 font-normal mt-0.5 flex items-center gap-1">
                             <AlertTriangle size={11} />
@@ -578,283 +427,6 @@ export default function TasksPage() {
           </div>
         )}
       </div>
-
-      {/* Task Detail Drawer */}
-      {selectedTaskId && (
-        <div className="fixed inset-y-0 right-0 w-96 bg-slate-900 border-l border-slate-800 shadow-2xl z-40 flex flex-col">
-          <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
-            <div className="flex items-center gap-2">
-              <CheckSquare size={16} className="text-blue-400" />
-              <span className="font-mono font-semibold text-slate-200">
-                {taskDetail?.taskNumber || 'Loading...'}
-              </span>
-            </div>
-            <button
-              onClick={() => setSelectedTaskId(null)}
-              className="text-slate-400 hover:text-white p-1 rounded"
-            >
-              <X size={16} />
-            </button>
-          </div>
-
-          <div className="p-4 flex-1 overflow-y-auto space-y-4 text-xs">
-            {loadingDetail ? (
-              <LoadingState message={tr("Fetching task details...")} />
-            ) : taskDetail ? (
-              <>
-                {actionError && (
-                  <div className="p-2.5 bg-red-950/50 border border-red-800 rounded text-red-300 text-xs">
-                    {actionError}
-                  </div>
-                )}
-
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-100">{taskDetail.title}</h3>
-                  {taskDetail.description && (
-                    <p className="mt-1 text-slate-400 whitespace-pre-wrap leading-relaxed">
-                      {taskDetail.description}
-                    </p>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 p-3 bg-slate-950/50 rounded border border-slate-800">
-                  <div>
-                    <div className="text-slate-500 text-[10px] uppercase font-mono">{tr("Status")}</div>
-                    <div className="mt-1">
-                      <StatusBadge status={taskDetail.status} />
-                    </div>
-
-                    {canAssign && (
-                      <div className="p-3 bg-slate-950/50 rounded border border-slate-800 space-y-2">
-                        <div className="text-slate-500 text-[10px] uppercase font-mono">{tr("Reassign")}</div>
-                        <select
-                          defaultValue={taskDetail.assignedUnitId || ''}
-                          onChange={(e) => handleAssignTask(e.target.value, taskDetail.assignedUserId || '')}
-                          className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-300"
-                          disabled={actionPending}
-                        >
-                          <option value="">{tr("Unassigned unit")}</option>
-                          {units.map((unit) => (
-                            <option key={unit.id} value={unit.id}>
-                              {unit.parentUnitId ? `${units.find((parent) => parent.id === unit.parentUnitId)?.name ?? 'Team'} → ${unit.name}` : unit.name}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          defaultValue={taskDetail.assignedUserId || ''}
-                          onChange={(e) => handleAssignTask(taskDetail.assignedUnitId || '', e.target.value)}
-                          className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-300"
-                          disabled={actionPending}
-                        >
-                          <option value="">{tr("No individual assignee")}</option>
-                          {memberships.filter((membership) => membership.user).map((membership) => (
-                            <option key={membership.userId} value={membership.userId}>{membership.user?.displayName}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-slate-500 text-[10px] uppercase font-mono">{tr("Priority")}</div>
-                    <div className="mt-1">
-                      <PriorityBadge priority={taskDetail.priority} />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500 text-[10px] uppercase font-mono">{tr("Owning Unit")}</div>
-                    <div className="mt-1 text-slate-300 font-mono">
-                      {taskDetail.owningUnitName || '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500 text-[10px] uppercase font-mono">{tr("Assigned Unit")}</div>
-                    <div className="mt-1 text-slate-300 font-mono">
-                      {taskDetail.assignedUnitName || '—'}
-                    </div>
-                  </div>
-                </div>
-
-                {taskDetail.blockedReason && (
-                  <div className="p-2.5 bg-amber-950/40 border border-amber-800/60 rounded">
-                    <div className="text-amber-400 font-semibold flex items-center gap-1.5 text-xs">
-                      <AlertTriangle size={13} />
-                      {tr("Blocked Reason")}
-                    </div>
-                    <div className="text-slate-300 mt-1">{taskDetail.blockedReason}</div>
-                  </div>
-                )}
-
-                {taskDetail.completionNote && (
-                  <div className="p-2.5 bg-emerald-950/40 border border-emerald-800/60 rounded">
-                    <div className="text-emerald-400 font-semibold flex items-center gap-1.5 text-xs">
-                      <CheckCircle size={13} />
-                      {tr("Completion Note")}
-                    </div>
-                    <div className="text-slate-300 mt-1">{taskDetail.completionNote}</div>
-                  </div>
-                )}
-
-                {/* Lifecycle timestamps */}
-                <div className="space-y-1.5 text-slate-400 border-t border-slate-800 pt-3 text-[11px] font-mono">
-                  <div>Created: {formatTime(taskDetail.createdAt)}</div>
-                  {taskDetail.acknowledgedAt && (
-                    <div>Acknowledged: {formatTime(taskDetail.acknowledgedAt)}</div>
-                  )}
-                  {taskDetail.startedAt && (
-                    <div>Started: {formatTime(taskDetail.startedAt)}</div>
-                  )}
-                  {taskDetail.completedAt && (
-                    <div>Completed: {formatTime(taskDetail.completedAt)}</div>
-                  )}
-                </div>
-
-                {/* Operational Actions */}
-                <div className="border-t border-slate-800 pt-3 space-y-2">
-                  <div className="text-slate-400 font-semibold uppercase font-mono text-[10px]">
-                    {tr("Task Actions")}
-                  </div>
-
-                  {taskDetail.status === 'OPEN' && canAcknowledge && (
-                    <button
-                      onClick={handleAcknowledge}
-                      disabled={actionPending}
-                      className="w-full py-1.5 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
-                    >
-                      <CheckSquare size={13} />
-                      {tr("Acknowledge Task")}
-                    </button>
-                  )}
-
-                  {['OPEN', 'ACKNOWLEDGED'].includes(taskDetail.status) && canWork && (
-                    <button
-                      onClick={handleStart}
-                      disabled={actionPending}
-                      className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
-                    >
-                      <Play size={13} />
-                      {tr("Start Work")}
-                    </button>
-                  )}
-
-                  {['IN_PROGRESS', 'ACKNOWLEDGED'].includes(taskDetail.status) && canWork && (
-                    <button
-                      onClick={() => setActionModal({ type: 'BLOCK', note: '' })}
-                      disabled={actionPending}
-                      className="w-full py-1.5 px-3 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
-                    >
-                      <AlertTriangle size={13} />
-                      {tr("Mark as Blocked")}
-                    </button>
-                  )}
-
-                  {taskDetail.status === 'BLOCKED' && canWork && (
-                    <button
-                      onClick={handleStart}
-                      disabled={actionPending}
-                      className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
-                    >
-                      <Play size={13} />
-                      {tr("Resume Work")}
-                    </button>
-                  )}
-
-                  {['IN_PROGRESS', 'ACKNOWLEDGED', 'BLOCKED'].includes(taskDetail.status) && canComplete && (
-                    <button
-                      onClick={() => setActionModal({ type: 'COMPLETE', note: '' })}
-                      disabled={actionPending}
-                      className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
-                    >
-                      <CheckCircle size={13} />
-                      {tr("Complete Task")}
-                    </button>
-                  )}
-
-                  {taskDetail.status === 'COMPLETED' && canUpdate && (
-                    <button
-                      onClick={() => setActionModal({ type: 'REOPEN', note: '' })}
-                      disabled={actionPending}
-                      className="w-full py-1.5 px-3 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
-                    >
-                      <RotateCcw size={13} />
-                      {tr("Reopen Task")}
-                    </button>
-                  )}
-
-                  {!['COMPLETED', 'CANCELLED'].includes(taskDetail.status) && canCancel && (
-                    <button
-                      onClick={() => setActionModal({ type: 'CANCEL', note: '' })}
-                      disabled={actionPending}
-                      className="w-full py-1.5 px-3 bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 border border-slate-700 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
-                    >
-                      <X size={13} />
-                      {tr("Cancel Task")}
-                    </button>
-                  )}
-                </div>
-              </>
-            ) : null}
-          </div>
-        </div>
-      )}
-
-      {/* Action Prompt Modal (Block, Reopen, Complete, Cancel) */}
-      {actionModal.type && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <form
-            onSubmit={handleActionModalSubmit}
-            className="bg-slate-900 border border-slate-700 rounded-lg max-w-md w-full p-4 shadow-xl space-y-3"
-          >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h4 className="font-semibold text-slate-100 text-sm">
-                {actionModal.type === 'BLOCK' && 'Block Task'}
-                {actionModal.type === 'COMPLETE' && 'Complete Task'}
-                {actionModal.type === 'REOPEN' && 'Reopen Task'}
-                {actionModal.type === 'CANCEL' && 'Cancel Task'}
-              </h4>
-              <button
-                type="button"
-                onClick={() => setActionModal({ type: null, note: '' })}
-                className="text-slate-400 hover:text-white"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                {actionModal.type === 'BLOCK' && 'Reason for Block (Required)'}
-                {actionModal.type === 'COMPLETE' && 'Completion Notes (Optional)'}
-                {actionModal.type === 'REOPEN' && 'Reopen Justification (Required)'}
-                {actionModal.type === 'CANCEL' && 'Cancellation Reason (Optional)'}
-              </label>
-              <textarea
-                value={actionModal.note}
-                onChange={(e) => setActionModal({ ...actionModal, note: e.target.value })}
-                rows={3}
-                placeholder={tr("Enter operational note...")}
-                className="w-full p-2 text-xs bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setActionModal({ type: null, note: '' })}
-                className="px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded transition"
-              >
-                {tr("Dismiss")}
-              </button>
-              <button
-                type="submit"
-                disabled={actionPending}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded transition"
-              >
-                {actionPending ? 'Submitting...' : 'Confirm'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
 
       {/* New Task Modal */}
       {showCreateModal && (

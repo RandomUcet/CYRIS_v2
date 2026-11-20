@@ -30,6 +30,7 @@ import { generateId, Permissions, type PermissionKey } from '@cyris/shared';
 import type {
   OperationalTaskItem,
   OperationalTaskDetail,
+  TaskAction,
   CreateOperationalTaskRequest,
   UpdateOperationalTaskRequest,
   AssignOperationalTaskRequest,
@@ -444,6 +445,7 @@ export class TasksService {
       }
     }
     return {
+      availableActions: await this.availableActions(row.task, user),
       ...this.mapTaskItem(row.task, {
         visibility: row.resource.visibility,
         ownerUserId: row.resource.ownerUserId,
@@ -459,6 +461,29 @@ export class TasksService {
         relationshipType: r.rel.relationshipType,
       })),
     };
+  }
+
+  private async availableActions(task: typeof operationalTasks.$inferSelect, user: AuthenticatedUser): Promise<TaskAction[]> {
+    try {
+      await this.disruptionsService.assertTaskWriteAllowed(task.eventId, user, task.assignedUnitId);
+    } catch (error) {
+      if (error instanceof ForbiddenException) return [];
+      throw error;
+    }
+    const candidates: Array<[PermissionKey, TaskAction[]]> = [[Permissions.TASK_ASSIGN, ['assign']]];
+    if (task.status === 'COMPLETED' || task.status === 'CANCELLED') {
+      candidates.push([Permissions.TASK_UPDATE, ['reopen']]);
+    } else {
+      if (task.status === 'OPEN') candidates.push([Permissions.TASK_ACKNOWLEDGE, ['acknowledge']]);
+      const work: TaskAction[] = [];
+      if (task.status !== 'IN_PROGRESS') work.push('start');
+      if (task.status !== 'BLOCKED') work.push('block');
+      candidates.push([Permissions.TASK_WORK, work], [Permissions.TASK_COMPLETE, ['complete']], [Permissions.TASK_CANCEL, ['cancel']]);
+    }
+    const allowed = await Promise.all(candidates.map(async ([permission, actions]) =>
+      await this.resourceAccessService.canAccessResource(user, task.id, permission) ? actions : []
+    ));
+    return allowed.flat();
   }
 
   /**

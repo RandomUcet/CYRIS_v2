@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { StatusBadge } from '@/components/common/Badges';
@@ -12,9 +12,11 @@ import { usePreferences } from '@/contexts/PreferencesContext';
 import type { MyWorkResponse, MyWorkView } from '@cyris/contracts';
 
 export default function MyWorkPage() {
-  const params = useParams();
-  const router = useRouter();
-  const eventId = params.eventId as string;
+  const { eventId } = useParams<{ eventId: string }>();
+  return <WorkQueue key={eventId} eventId={eventId} />;
+}
+
+function WorkQueue({ eventId }: { eventId: string }) {
   const { data: serviceStatus, error: serviceStatusError } = useServiceStatus(eventId);
   const [guideOpen, setGuideOpen] = useState(false);
   const { formatDate, t, locale } = usePreferences();
@@ -34,8 +36,10 @@ export default function MyWorkPage() {
   const needsUnitSelection = view === 'unit' && !unitId;
 
   useEffect(() => {
-    setView('personal'); setUnitId(''); setPage(1); setResult(null);
-  }, [eventId]);
+    const refresh = () => setRefreshNonce(n => n + 1);
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
 
   useEffect(() => {
     if (!eventId) return;
@@ -53,7 +57,11 @@ export default function MyWorkPage() {
       limit: 50,
     }).then((response) => {
       if (sequence !== requestSequence.current) return;
-      if (response.ok && response.data) setResult(response.data);
+      if (response.ok && response.data) {
+        setResult(response.data);
+        const lastPage = Math.max(1, Math.ceil(response.data.total / response.data.limit));
+        if (page > lastPage) setPage(lastPage);
+      }
       else setError(response.error || 'Unable to load My Work');
     }).catch((cause) => {
       if (sequence !== requestSequence.current) return;
@@ -61,10 +69,12 @@ export default function MyWorkPage() {
     }).finally(() => {
       if (sequence === requestSequence.current) setLoading(false);
     });
+    return () => { requestSequence.current++; };
   }, [eventId, page, refreshNonce, unitId, view]);
 
 
   const selectView = (next: MyWorkView) => {
+    if (next === 'unit' && units.length === 1) setUnitId(units[0]!.id);
     setView(next);
     setPage(1);
   };
@@ -113,6 +123,7 @@ export default function MyWorkPage() {
               {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
             </select>
           )}
+          <button type="button" disabled={loading || needsUnitSelection} onClick={() => setRefreshNonce(n => n + 1)}>{t('action.refresh')}</button>
         </div>
         <Link className="service-mini" href={`/events/${eventId}/service-status`}>
           <span><strong>{t('serviceStatus.title')}</strong><small>{serviceStatusError?(cs?'Stav není dostupný':'Status unavailable'):serviceStatus?(serviceStatus.current.activeCount?(cs?'Probíhá simulované omezení':'Exercise disruption active'):(cs?'Bez aktivního omezení':'No active disruption')):t('serviceStatus.loading')}</small></span>
@@ -130,17 +141,16 @@ export default function MyWorkPage() {
           <>
             <div className="my-work-list">
               {result.items.map((item) => (
-                <button
+                <Link
                   key={`${item.kind}-${item.id}`}
-                  type="button"
-                  onClick={() => router.push(item.href)}
+                  href={item.href}
                   className="my-work-item"
                 >
                   <span>{item.identifier}</span>
-                  <span><strong>{item.title}</strong><small>{item.kind === 'LAB_ANALYSIS' ? (cs ? 'Laboratorní požadavek' : 'Laboratory request') : (cs ? 'Úkol' : 'Task')} · {t('myWork.nextAction')}</small></span>
+                  <span><strong>{item.title}</strong><small>{item.kind === 'LAB_ANALYSIS' ? (cs ? 'Laboratorní požadavek' : 'Laboratory request') : (cs ? 'Úkol' : 'Task')}</small></span>
                   <StatusBadge status={item.status} />
                   <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>{formatDate(item.updatedAt)}</span>
-                </button>
+                </Link>
               ))}
             </div>
             <div className="my-work-pagination">
