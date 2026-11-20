@@ -1,3 +1,5 @@
+import { PlatformAdminsController } from './platform-admins.controller.js';
+import { PlatformAdminsService } from './platform-admins.service.js';
 import { Module, Global } from '@nestjs/common';
 import { IntegrationSecretService } from './integration-secret.service.js';
 import { IdentityService } from './identity.service.js';
@@ -11,8 +13,8 @@ import { AuditModule } from '../audit/audit.module.js';
 @Global()
 @Module({
   imports: [DatabaseModule, ConfigModule, AuditModule],
-  controllers: [IdentityController, LdapTeamsController],
-  providers: [IntegrationSecretService, IdentityService, LdapTeamsService],
+  controllers: [IdentityController, LdapTeamsController, PlatformAdminsController],
+  providers: [IntegrationSecretService, IdentityService, LdapTeamsService, PlatformAdminsService],
   exports: [IntegrationSecretService, IdentityService],
 })
 export class IntegrationsModule {}

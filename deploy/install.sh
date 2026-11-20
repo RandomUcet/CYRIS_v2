@@ -171,7 +171,8 @@ log_info "Checking Docker Engine and Docker Compose plugin..."
 if ! command -v docker >/dev/null 2>&1; then
   log_info "Docker is not installed. Installing official Docker Engine..."
   if command -v apt-get >/dev/null 2>&1; then
-    curl -fsSL https://get.docker.com | sh
+    apt-get update -qq
+    apt-get install -y --no-install-recommends docker.io docker-compose-v2 docker-buildx
   else
     fail "Docker is required but not installed, and automated installation is only supported on Debian/Ubuntu."
   fi
@@ -181,7 +182,7 @@ if ! docker compose version >/dev/null 2>&1; then
   log_info "Docker Compose plugin is missing. Installing docker-compose-plugin..."
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update -qq
-    apt-get install -y --no-install-recommends docker-compose-plugin
+    apt-get install -y --no-install-recommends docker-compose-v2
   else
     fail "Docker Compose (v2 plugin) is required."
   fi
@@ -225,7 +226,7 @@ mkdir -p "${CYRIS_VAR}/typesense"
 mkdir -p "${CYRIS_VAR}/minio"
 chmod 0700 "${CYRIS_VAR}"
 chmod 0700 "${CYRIS_VAR}/postgres" "${CYRIS_VAR}/redis" "${CYRIS_VAR}/typesense" "${CYRIS_VAR}/minio"
-chown -R root:root "${CYRIS_VAR}"
+chown root:root "${CYRIS_VAR}"
 
 # /var/backups/cyris: authoritative backups directory
 mkdir -p "${CYRIS_BACKUPS}"

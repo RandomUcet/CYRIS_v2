@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for CYRIS Web (Next.js 14)
 # Stage 1: Dependencies & Build
-FROM node:22-bookworm-slim AS builder
-RUN corepack enable && corepack prepare pnpm@12.14.0 --activate
+FROM node:24-bookworm-slim AS builder
+RUN npm install --global pnpm@12.14.0
 WORKDIR /app
 
 # Copy monorepo manifests
@@ -27,12 +27,14 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV API_INTERNAL_URL="http://api:4000"
 ENV NEXT_PUBLIC_API_URL="/api"
-RUN pnpm --filter @cyris/contracts build && \
+# Source archives may have been extracted with umask 077. The runner uses a separate UID.
+RUN chmod -R go=rX package.json packages apps/web && \
+    pnpm --filter @cyris/contracts build && \
     pnpm --filter @cyris/shared build && \
     pnpm --filter @cyris/web build
 
 # Stage 2: Production Runner
-FROM node:22-bookworm-slim AS runner
+FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

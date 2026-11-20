@@ -4,7 +4,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, type ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import {
   auditEvents, closeDatabaseConnection, eventMemberships, events, getDbClient, integrations, membershipUnitAssignments,
   organizationalUnits, roleAssignments, rolePermissions, roles, userIdentities, users,
@@ -19,6 +19,8 @@ import { PermissionsGuard } from '../modules/authorization/guards/permissions.gu
 import { DatabaseService } from '../modules/database/database.service.js';
 import { EventsService } from '../modules/events/events.service.js';
 import { LdapTeamsController } from '../modules/integrations/ldap-teams.controller.js';
+import { PlatformAdminsController } from '../modules/integrations/platform-admins.controller.js';
+import { PlatformAdminsService } from '../modules/integrations/platform-admins.service.js';
 import { LdapTeamsService } from '../modules/integrations/ldap-teams.service.js';
 import { requireVerifiedIsolatedDatabase } from './isolated-postgres-harness.js';
 
@@ -73,6 +75,40 @@ test('LDAP group and operator team selection through repeated logins', { skip: !
     assert.ok(first && concurrent); assert.equal(first.identityId, concurrent.identityId);
     const id = first.identityId, participant = { id: first.userId, email: userEmail, displayName: 'Directory participant', status: 'ACTIVE' };
     const account = async (eventId = event) => (await teams.listAccounts(eventId, userEmail)).accounts[0]!;
+    const admins = new PlatformAdminsService(database, audit);
+    const guardAdmin = new PermissionsGuard(new Reflector(), authz, audit);
+    for (const handler of ['list', 'set'] as const) {
+      const context = (user: typeof admin) => ({
+        getHandler: () => PlatformAdminsController.prototype[handler], getClass: () => PlatformAdminsController,
+        switchToHttp: () => ({ getRequest: () => ({ user, headers: {}, params: {} }) }),
+      } as unknown as ExecutionContext);
+      await assert.rejects(guardAdmin.canActivate(context(participant)), ForbiddenException);
+      assert.ok(await guardAdmin.canActivate(context(admin)));
+    }
+    const [existingRole] = await db.select().from(roles).where(and(isNull(roles.eventId), eq(roles.slug, 'platform-admin')));
+    if (!existingRole) {
+      const [canonical] = await db.insert(roles).values({ slug: 'platform-admin', name: 'Platform Administrator' }).returning();
+      await db.insert(rolePermissions).values({ roleId: canonical!.id, permissionKey: Permissions.PLATFORM_MANAGE, scope: 'PLATFORM' });
+    }
+    assert.equal((await admins.list(userEmail)).accounts[0]?.id, first.userId);
+    await assert.rejects(admins.set(first.userId, true, first.userId), ForbiddenException);
+    const alternateId = generateId();
+    await db.insert(userIdentities).values({ id: alternateId, userId: first.userId, providerType: 'OIDC', providerSubject: alternateId });
+    await assert.rejects(admins.set(first.userId, true, admin.id), ConflictException);
+    await db.delete(userIdentities).where(eq(userIdentities.id, alternateId));
+    await Promise.all([admins.set(first.userId, true, admin.id), admins.set(first.userId, true, admin.id)]);
+    assert.ok(await login());
+    assert.ok(await authz.authorize({ user: participant, permission: Permissions.PLATFORM_MANAGE }));
+    assert.ok((await admins.list('')).accounts.some(item => item.id === first.userId));
+    await assert.rejects(admins.set(first.userId, false, first.userId), ConflictException);
+    await assert.rejects(admins.set(admin.id, false, first.userId), NotFoundException);
+    await admins.set(first.userId, false, admin.id);
+    await admins.set(first.userId, false, admin.id);
+    await assert.rejects(admins.set(first.userId, true, first.userId), ForbiddenException);
+    assert.equal(await authz.authorize({ user: participant, permission: Permissions.PLATFORM_MANAGE }), false);
+    const changes = await db.select({ action: auditEvents.action }).from(auditEvents)
+      .where(and(eq(auditEvents.actorUserId, admin.id), eq(auditEvents.resourceId, first.userId)));
+    assert.deepEqual(changes.map(row => row.action).sort(), ['platform.admin.granted', 'platform.admin.revoked']);
     const ids = async (eventId = event) => (await account(eventId)).units.map(unit => unit.id).sort();
     assert.equal((await account()).membershipStatus, null);
     assert.equal((await teams.listAccounts(event, userEmail, true)).accounts.length, 1);

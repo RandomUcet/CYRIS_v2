@@ -137,58 +137,60 @@ async function main(): Promise<void> {
 
   const userId = generateId();
 
-  // 1. Create User Profile
-  await db.insert(users).values({
-    id: userId,
-    email: email.toLowerCase(),
-    displayName,
-    status: UserStatus.ACTIVE,
-  });
+  await db.transaction(async (tx) => {
+    // 1. Create User Profile
+    await tx.insert(users).values({
+      id: userId,
+      email: email.toLowerCase(),
+      displayName,
+      status: UserStatus.ACTIVE,
+    });
 
-  // 2. Create Local Identity
-  await db.insert(userIdentities).values({
-    id: generateId(),
-    userId,
-    providerType: IdentityProviderType.LOCAL,
-    providerSubject: email.toLowerCase(),
-    passwordHash,
-  });
+    // 2. Create Local Identity
+    await tx.insert(userIdentities).values({
+      id: generateId(),
+      userId,
+      providerType: IdentityProviderType.LOCAL,
+      providerSubject: email.toLowerCase(),
+      passwordHash,
+    });
 
-  // 3. Ensure Platform Administrator role exists
-  let [adminRole] = await db
-    .select({ id: roles.id })
-    .from(roles)
-    .where(and(eq(roles.slug, 'platform-admin')))
-    .limit(1);
+    // 3. Ensure Platform Administrator role exists
+    let [adminRole] = await tx
+      .select({ id: roles.id })
+      .from(roles)
+      .where(and(eq(roles.slug, 'platform-admin')))
+      .limit(1);
 
-  if (!adminRole) {
-    const roleId = generateId();
-    const [inserted] = await db
-      .insert(roles)
-      .values({
-        id: roleId,
-        eventId: null,
-        name: 'Platform Administrator',
-        slug: 'platform-admin',
-        description: 'Full administrative control over the CYRIS platform',
-      })
-      .returning();
-    adminRole = inserted!;
+    if (!adminRole) {
+      const roleId = generateId();
+      const [inserted] = await tx
+        .insert(roles)
+        .values({
+          id: roleId,
+          eventId: null,
+          name: 'Platform Administrator',
+          slug: 'platform-admin',
+          description: 'Full administrative control over the CYRIS platform',
+        })
+        .returning();
+      adminRole = inserted!;
 
-    // Assign platform.manage permission with PLATFORM scope
-    await db.insert(rolePermissions).values({
+      // Assign platform.manage permission with PLATFORM scope
+      await tx.insert(rolePermissions).values({
+        id: generateId(),
+        roleId: adminRole.id,
+        permissionKey: Permissions.PLATFORM_MANAGE,
+        scope: PermissionScopes.PLATFORM,
+      });
+    }
+
+    // 4. Assign Platform Administrator role to user
+    await tx.insert(roleAssignments).values({
       id: generateId(),
       roleId: adminRole.id,
-      permissionKey: Permissions.PLATFORM_MANAGE,
-      scope: PermissionScopes.PLATFORM,
+      userId,
     });
-  }
-
-  // 4. Assign Platform Administrator role to user
-  await db.insert(roleAssignments).values({
-    id: generateId(),
-    roleId: adminRole.id,
-    userId,
   });
 
   console.log(`[Success] Platform administrator '${email}' created successfully!`);

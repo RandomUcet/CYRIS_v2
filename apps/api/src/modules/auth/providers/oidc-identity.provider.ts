@@ -306,6 +306,12 @@ export class OidcIdentityProvider implements IIdentityProvider {
         .limit(1);
 
       if (existingUserByEmail) {
+        // An LDAP account can hold platform authority. An email match from a new
+        // OIDC subject must never add an alternative sign-in to that account.
+        const [directoryIdentity] = await db.select({ id: userIdentities.id }).from(userIdentities)
+          .where(and(eq(userIdentities.userId, existingUserByEmail.id), eq(userIdentities.providerType, IdentityProviderType.LDAP)))
+          .limit(1);
+        if (directoryIdentity) return null;
         targetUserId = existingUserByEmail.id;
       } else {
         const [newUser] = await db

@@ -61,7 +61,13 @@ Stejné šablony lze při místní přípravě doplnit z terminálu. Pro již za
 | Účastník týmu | Jeho tým a zpravidla `Team Member`. Pro odbornou práci doplňte příslušnou roli, například `Laboratory Worker`. |
 | Člověk, který řídí DEFCON | Členství v **Juniorském krizovém štábu**. Ve **Uživatelé a přístupy** zvolte u jeho řádku **Pověřit řízením cvičení**. |
 | Organizátor, který řídí scénář a frontu podpory | `Exercise Organizer` ve vybraném cvičení. Tato role obsahuje správu scénáře. Samostatná výchozí role `EXCON` je zaměřená na laboratorní agendu. |
-| Správce instalace | Lokální účet platformního správce. Integrace, přihlašování a dostupnost modulů se spravují na této úrovni. |
+| Správce instalace | Lokální správce z instalace a pověření správci s LDAP účtem. Integrace, přihlašování a dostupnost modulů se spravují na této úrovni. |
+
+### Další správce platformy
+
+Po prvním přihlášení kolegy přes LDAP otevřete **Uživatelé a přístupy → Správci platformy**. Vyhledejte jeho jméno nebo e-mail, ověřte účet ve výsledcích a potvrďte **Přidat správce**. Po obnovení stránky uvidí kolega celou administraci a může jmenovat další správce. Role platí i bez členství ve cvičení.
+
+Pro odebrání otevřete stejnou sekci, vymažte hledání a u daného správce potvrďte **Odebrat roli**. Každou změnu zaznamenává audit. Vlastní roli může odebrat jiný správce. Lokální správce z instalace zůstává k dispozici i při výpadku adresáře.
 
 ## 3. LDAP a zařazení účastníků
 

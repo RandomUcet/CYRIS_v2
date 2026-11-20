@@ -150,3 +150,15 @@ export const OidcAuthorizeUrlResponseSchema = z.object({
 });
 
 export type OidcAuthorizeUrlResponse = z.infer<typeof OidcAuthorizeUrlResponseSchema>;
+
+export const PlatformAdminSearchSchema = z.string().trim().max(160);
+export const PlatformAdminChangeSchema = z.object({ enabled: z.boolean() }).strict();
+
+export interface PlatformAdminAccount {
+  id: string;
+  displayName: string;
+  email: string;
+  status: string;
+  ldap: boolean;
+  admin: boolean;
+}

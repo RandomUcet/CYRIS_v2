@@ -1,8 +1,8 @@
 # Multi-stage Dockerfile for CYRIS API (NestJS Fastify)
 # Stage 1: Dependencies & Build
-FROM node:22-bookworm-slim AS builder
+FROM node:24-bookworm-slim AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
-RUN corepack enable && corepack prepare pnpm@12.14.0 --activate
+RUN npm install --global pnpm@12.14.0
 WORKDIR /app
 
 # Copy monorepo manifests
@@ -24,17 +24,16 @@ COPY packages ./packages
 COPY apps/api ./apps/api
 
 # Build packages and API
-RUN pnpm --filter @cyris/config build && \
+# Source archives may have been extracted with umask 077. The runner uses a separate UID.
+RUN chmod -R go=rX package.json packages apps/api && \
+    pnpm --filter @cyris/config build && \
     pnpm --filter @cyris/contracts build && \
     pnpm --filter @cyris/shared build && \
     pnpm --filter @cyris/db build && \
     pnpm --filter @cyris/api build
 
-# Deploy isolated production dependencies
-RUN pnpm --filter @cyris/api --prod deploy /app/deploy
-
 # Stage 2: Production Runner
-FROM node:22-bookworm-slim AS runner
+FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -47,10 +46,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 RUN groupadd --system --gid 1001 cyris && \
     useradd --system --uid 1001 --gid cyris cyris
 
-# Copy deployed runtime (dist, node_modules, package.json)
-COPY --from=builder --chown=cyris:cyris /app/deploy ./
-# Copy migrations folder for runtime database migration & status checks
-COPY --from=builder --chown=cyris:cyris /app/packages/db/migrations ./migrations
+# Preserve pnpm workspace links and compiled workspace packages.
+COPY --from=builder /app/node_modules /app/node_modules
+COPY --from=builder /app/packages /app/packages
+COPY --from=builder /app/apps/api /app/apps/api
+WORKDIR /app/apps/api
 
 USER cyris
 

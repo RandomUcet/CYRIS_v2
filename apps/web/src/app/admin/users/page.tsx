@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Eye, RefreshCw, Search, Shield, Users } from 'lucide-react';
 import type { MembershipResponse } from '@cyris/contracts';
 import { LdapTeamAssignments } from '@/components/admin/LdapTeamAssignments';
+import { PlatformAdministrators } from '@/components/admin/PlatformAdministrators';
 import { TeamPreviewAccess } from '@/components/admin/TeamPreviewAccess';
 import { AppShell } from '@/components/layout/AppShell';
 import { DataTable, type Column } from '@/components/common/DataTable';
@@ -132,6 +133,7 @@ export default function AdminUsersPage() {
 
   return <AppShell title={cs ? 'Uživatelé a přístupy' : 'Users & access'} breadcrumbs={[{ label: 'Administration' }, { label: 'Users & Access' }]}>
     <div className="roster-page">
+      {isPlatformAdmin && currentUser && <PlatformAdministrators actorId={currentUser.user.id} onChanged={() => setRevision(value => value + 1)} />}
       {isPlatformAdmin && <TeamPreviewAccess />}
       <div className="roster-toolbar">
         <label className="roster-event-label">{cs ? 'Cvičení' : 'Exercise'}
