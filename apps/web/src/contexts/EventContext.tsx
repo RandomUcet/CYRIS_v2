@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { apiClient } from '@/lib/api-client';
 import type { EventResponse, WorkspaceResolutionResponse } from '@cyris/contracts';
@@ -42,6 +42,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   const [workspace, setWorkspace] = useState<WorkspaceResolutionResponse | null>(null);
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+  const workspaceRequest=useRef(0);
 
   const refreshEvents = useCallback(async () => {
     if (!currentUser) {
@@ -72,6 +73,8 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   }, [currentUser, isPlatformAdmin]);
 
   const refreshWorkspace = useCallback(async () => {
+    const request=++workspaceRequest.current;
+    setWorkspace(null);
     if (!selectedEventId || !currentUser) {
       setWorkspace(null);
       return;
@@ -80,15 +83,16 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     setLoadingWorkspace(true);
     try {
       const res = await apiClient.getWorkspace(selectedEventId);
+      if(request!==workspaceRequest.current)return;
       if (res.ok && res.data) {
         setWorkspace(res.data);
       } else {
         setWorkspace(null);
       }
     } catch {
-      setWorkspace(null);
+      if(request===workspaceRequest.current)setWorkspace(null);
     } finally {
-      setLoadingWorkspace(false);
+      if(request===workspaceRequest.current)setLoadingWorkspace(false);
     }
   }, [selectedEventId, currentUser]);
 

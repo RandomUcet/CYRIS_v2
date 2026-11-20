@@ -2,6 +2,8 @@ import type {
   HealthResponse,
   ReadinessResponse,
   CurrentUserResponse,
+  StartViewAsRequest,
+  ViewAsInfo,
   EventResponse,
   LoginRequest,
   SearchResponse,
@@ -122,6 +124,23 @@ import type {
 
 export class CyrisApiClient {
   private readonly baseUrl: string;
+  private previewMode = false;
+  setPreviewMode(enabled:boolean) { this.previewMode=enabled; }
+  private request(url:string, options:RequestInit={}) {
+    const headers=new Headers(options.headers);
+    if(this.previewMode) {
+      headers.set('x-cyris-read-only-preview','1');
+      const method=(options.method??'GET').toUpperCase();
+      if(method!=='GET' && !url.endsWith('/auth/view-as/stop') && !url.endsWith('/auth/logout')) {
+        return Promise.resolve(new Response(JSON.stringify({message:'Read-only participant preview: changes are not allowed'}),{status:403,headers:{'Content-Type':'application/json'}}));
+      }
+    }
+    return fetch(url,{...options,headers});
+  }
+  startViewAs(input:StartViewAsRequest) {return this.postJson<ViewAsInfo>('/auth/view-as/start',input);}
+  getViewAsStatus() {return this.fetchJson<{active:boolean}>('/auth/view-as');}
+  stopViewAs() {return this.postJson<{success:boolean}>('/auth/view-as/stop',{});}
+
 
   constructor(baseUrl?: string) {
     if (baseUrl) {
@@ -135,7 +154,7 @@ export class CyrisApiClient {
 
   async getHealth(): Promise<{ ok: boolean; data?: HealthResponse; error?: string }> {
     try {
-      const res = await fetch(`${this.baseUrl}/health`, {
+      const res = await this.request(`${this.baseUrl}/health`, {
         cache: 'no-store',
       });
       if (!res.ok) {
@@ -151,7 +170,7 @@ export class CyrisApiClient {
 
   async getReadiness(): Promise<{ ok: boolean; data?: ReadinessResponse; error?: string }> {
     try {
-      const res = await fetch(`${this.baseUrl}/health/ready`, {
+      const res = await this.request(`${this.baseUrl}/health/ready`, {
         cache: 'no-store',
       });
       const data = (await res.json()) as ReadinessResponse;
@@ -164,7 +183,7 @@ export class CyrisApiClient {
 
   async login(payload: LoginRequest): Promise<{ ok: boolean; error?: string }> {
     try {
-      const res = await fetch(`${this.baseUrl}/auth/login`, {
+      const res = await this.request(`${this.baseUrl}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -184,7 +203,7 @@ export class CyrisApiClient {
 
   async logout(): Promise<void> {
     try {
-      await fetch(`${this.baseUrl}/auth/logout`, {
+      await this.request(`${this.baseUrl}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -200,7 +219,7 @@ export class CyrisApiClient {
         headers['cookie'] = cookieHeader;
       }
 
-      const res = await fetch(`${this.baseUrl}/auth/me`, {
+      const res = await this.request(`${this.baseUrl}/auth/me`, {
         cache: 'no-store',
         credentials: 'include',
         headers,
@@ -224,7 +243,7 @@ export class CyrisApiClient {
         headers['cookie'] = cookieHeader;
       }
 
-      const res = await fetch(`${this.baseUrl}/events`, {
+      const res = await this.request(`${this.baseUrl}/events`, {
         cache: 'no-store',
         credentials: 'include',
         headers,
@@ -253,7 +272,7 @@ export class CyrisApiClient {
       if (options?.page) params.set('page', String(options.page));
       if (options?.limit) params.set('limit', String(options.limit));
 
-      const res = await fetch(`${this.baseUrl}/search?${params.toString()}`, {
+      const res = await this.request(`${this.baseUrl}/search?${params.toString()}`, {
         cache: 'no-store',
         credentials: 'include',
       });
@@ -544,7 +563,7 @@ export class CyrisApiClient {
   private async fetchJson<T>(path: string): Promise<{ ok: boolean; data?: T; error?: string }> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const res = await fetch(`${this.baseUrl}${path}`, {
+        const res = await this.request(`${this.baseUrl}${path}`, {
           cache: 'no-store',
           credentials: 'include',
         });
@@ -568,7 +587,7 @@ export class CyrisApiClient {
 
   private async postJson<T>(path: string, payload: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
     try {
-      const res = await fetch(`${this.baseUrl}${path}`, {
+      const res = await this.request(`${this.baseUrl}${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -587,7 +606,7 @@ export class CyrisApiClient {
 
   private async patchJson<T>(path: string, payload: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
     try {
-      const res = await fetch(`${this.baseUrl}${path}`, {
+      const res = await this.request(`${this.baseUrl}${path}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -956,7 +975,7 @@ export class CyrisApiClient {
 
   private async putJson<T>(path: string, payload: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
     try {
-      const res = await fetch(`${this.baseUrl}${path}`, {
+      const res = await this.request(`${this.baseUrl}${path}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1430,7 +1449,7 @@ export class CyrisApiClient {
 
   private async deleteJson<T>(path: string): Promise<{ ok: boolean; data?: T; error?: string }> {
     try {
-      const res = await fetch(`${this.baseUrl}${path}`, {
+      const res = await this.request(`${this.baseUrl}${path}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

@@ -31,7 +31,7 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        if (currentUser) {
+        if (currentUser && !currentUser.viewAs) {
           e.preventDefault();
           setIsSearchOpen((prev) => !prev);
         }
@@ -71,11 +71,11 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+    <div className="app-shell" style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' }}>
       <React.Suspense fallback={<div className="workspace-nav-placeholder" />}><SideNav collapsed={collapsed} onToggleCollapse={() => setCollapsed((p) => !p)} /></React.Suspense>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100vh' }}>
-        <TopBar onOpenSearch={() => setIsSearchOpen(true)} breadcrumbs={localBreadcrumbs} />
+      <div className="app-shell-main" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100vh' }}>
+        <TopBar onOpenSearch={() => {if(!currentUser.viewAs)setIsSearchOpen(true)}} breadcrumbs={localBreadcrumbs} />
         <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--bg-canvas)' }}>
           {currentUser && !isPlatformAdmin && (
             <div className="workspace-help-bar">

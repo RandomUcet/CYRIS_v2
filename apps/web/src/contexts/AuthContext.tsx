@@ -20,11 +20,21 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<CurrentUserResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [previewActive,setPreviewActive]=useState(false);
+  const [exitError,setExitError]=useState('');
+  const [exiting,setExiting]=useState(false);
 
   const refreshSession = useCallback(async () => {
     try {
+      const status=await apiClient.getViewAsStatus();
+      const active=Boolean(status.ok && status.data?.active);
+      apiClient.setPreviewMode(active);
+      setPreviewActive(active);
       const res = await apiClient.getMe();
       if (res.ok && res.data) {
+        const preview=Boolean(res.data.viewAs);
+        apiClient.setPreviewMode(preview);
+        setPreviewActive(preview);
         setCurrentUser(res.data);
       } else {
         setCurrentUser(null);
@@ -61,6 +71,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const exitPreview=async()=>{
+    setExiting(true);setExitError('');
+    const result=await apiClient.stopViewAs();
+    if(result.ok){apiClient.setPreviewMode(false);window.location.replace('/admin/users');}
+    else {setExitError(result.error || 'Unable to exit preview');setExiting(false);}
+  };
+
   const platformPermissions = currentUser?.platformPermissions ?? [];
   const isPlatformAdmin = platformPermissions.includes('platform.manage');
 
@@ -91,7 +108,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         hasPermission,
       }}
     >
-      {children}
+      {previewActive ? <div className="preview-root">
+        <div className="preview-banner" role="status">
+          <div><strong>VIEW AS · READ ONLY / POUZE PRO ČTENÍ</strong><span>{currentUser?.viewAs?.displayName ?? 'Preview expired / Náhled vypršel'}{currentUser?.viewAs ? ' · '+new Date(currentUser.viewAs.expiresAt).toLocaleTimeString() : ''}</span>{exitError && <span role="alert">{exitError}</span>}</div>
+          <button type="button" onClick={exitPreview} disabled={exiting}>{exiting ? '…' : 'Exit preview / Ukončit náhled'}</button>
+        </div>
+        <div className="preview-body">{children}</div>
+      </div> : children}
     </AuthContext.Provider>
   );
 }

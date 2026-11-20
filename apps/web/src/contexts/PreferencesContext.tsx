@@ -55,7 +55,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
 
   // Sync preferences from backend when authenticated
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || currentUser.viewAs) return;
 
     let mounted = true;
     apiClient
@@ -89,7 +89,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEY_LOCALE, newLocale);
       }
-      if (currentUser) {
+      if (currentUser && !currentUser.viewAs) {
         await apiClient.updateUserPreferences({ locale: newLocale }).catch(() => {});
       }
     },
@@ -102,12 +102,14 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEY_TIMEZONE, newTz);
       }
-      if (currentUser) {
+      if (currentUser && !currentUser.viewAs) {
         await apiClient.updateUserPreferences({ timezone: newTz }).catch(() => {});
       }
     },
     [currentUser]
   );
+
+  useEffect(()=>{document.documentElement.lang=locale;},[locale]);
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>) => {
