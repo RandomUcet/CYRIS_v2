@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { LoadingState, EmptyState } from './StateViews';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { workspaceLabel } from '@/lib/workspace-navigation';
 
 export interface Column<T> {
   key?: string;
@@ -41,7 +42,7 @@ export function DataTable<T extends Record<string, any>>({
   emptyDescription,
   emptyMessage,
 }: DataTableProps<T>) {
-  const { t } = usePreferences();
+  const { t, locale } = usePreferences();
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
@@ -90,7 +91,7 @@ export function DataTable<T extends Record<string, any>>({
   };
 
   if (loading) {
-    return <LoadingState message="Loading records..." />;
+    return <LoadingState />;
   }
 
   if (data.length === 0) {
@@ -121,10 +122,13 @@ export function DataTable<T extends Record<string, any>>({
                     cursor: isSortable ? 'pointer' : 'default',
                     userSelect: 'none',
                   }}
+                  aria-sort={isSortable ? (sortKey === sKey ? sortDirection === 'asc' ? 'ascending' : 'descending' : 'none') : undefined}
+                  tabIndex={isSortable ? 0 : undefined}
+                  onKeyDown={event => {if(isSortable && (event.key==='Enter'||event.key===' ')){event.preventDefault();handleHeaderClick(col);}}}
                   onClick={() => handleHeaderClick(col)}
                 >
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <span>{col.header}</span>
+                    <span>{workspaceLabel(locale, col.header)}</span>
                     {isSortable && (
                       <span style={{ color: sortKey === sKey ? 'var(--color-accent-ops)' : 'var(--color-text-dim)' }}>
                         {sortKey === sKey ? (

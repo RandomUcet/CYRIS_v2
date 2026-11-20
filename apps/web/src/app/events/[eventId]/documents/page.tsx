@@ -10,6 +10,7 @@ import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateV
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { workspaceLabel } from '@/lib/workspace-navigation';
 import { FileText, Upload, Download, RefreshCw, X, History, FileCheck } from 'lucide-react';
 import type { DocumentItem, DocumentDetail } from '@cyris/contracts';
 
@@ -17,7 +18,8 @@ export default function DocumentsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
   const { hasPermission } = useAuth();
-  const { formatTime } = usePreferences();
+  const { formatTime, locale } = usePreferences();
+  const tr = (label: string) => workspaceLabel(locale, label);
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -192,7 +194,7 @@ export default function DocumentsPage() {
   const columns: Column<DocumentItem>[] = [
     {
       key: 'documentNumber',
-      header: 'Identifier',
+      header: tr("Identifier"),
       width: '120px',
       render: (d) => <RecordIdentifier id={d.documentNumber || d.id.slice(0, 8)} prefix="DOC" />,
     },
@@ -208,7 +210,7 @@ export default function DocumentsPage() {
     },
     {
       key: 'documentType',
-      header: 'Category',
+      header: tr("Category"),
       width: '140px',
       render: (d) => (
         <span
@@ -228,7 +230,7 @@ export default function DocumentsPage() {
     },
     {
       key: 'byteSize',
-      header: 'Size',
+      header: tr("Size"),
       width: '100px',
       render: (d) => <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{formatBytes(d.byteSize)}</span>,
     },
@@ -251,7 +253,7 @@ export default function DocumentsPage() {
     },
     {
       key: 'textExtractionStatus',
-      header: 'Text Status',
+      header: tr("Text Status"),
       width: '120px',
       render: (d) => (
         <span
@@ -320,7 +322,7 @@ export default function DocumentsPage() {
             <FileText size={20} style={{ color: '#60a5fa' }} /> Documents & Files
           </h1>
           <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
-            Central object storage for forensic artifacts, legal filings, briefings, and case reports
+            {tr("Central object storage for forensic artifacts, legal filings, briefings, and case reports")}
           </p>
         </div>
 
@@ -340,7 +342,7 @@ export default function DocumentsPage() {
               cursor: 'pointer',
             }}
           >
-            <RefreshCw size={13} /> Refresh
+            <RefreshCw size={13} /> {tr("Refresh")}
           </button>
           {canUpload && (
             <button
@@ -359,7 +361,7 @@ export default function DocumentsPage() {
                 cursor: 'pointer',
               }}
             >
-              <Upload size={14} /> Upload File
+              <Upload size={14} /> {tr("Upload File")}
             </button>
           )}
         </div>
@@ -372,12 +374,12 @@ export default function DocumentsPage() {
       />
 
       {loading ? (
-        <LoadingState message="Loading documents catalog..." />
+        <LoadingState message={tr("Loading documents catalog...")} />
       ) : error ? (
         <ErrorState message={error} onRetry={fetchDocuments} />
       ) : filteredDocs.length === 0 ? (
         <EmptyState
-          title="No documents found"
+          title={tr("No documents found")}
           description={search ? 'No documents match your query filters.' : 'No documents have been uploaded to this exercise yet.'}
         />
       ) : (
@@ -447,13 +449,13 @@ export default function DocumentsPage() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div style={{ background: 'var(--bg-surface)', padding: '10px', borderRadius: '6px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Category</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{tr("Category")}</span>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6', marginTop: '2px' }}>
                   {selectedDoc.documentType}
                 </div>
               </div>
               <div style={{ background: 'var(--bg-surface)', padding: '10px', borderRadius: '6px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Text Extraction</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{tr("Text Extraction")}</span>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6', marginTop: '2px' }}>
                   {selectedDoc.textExtractionStatus}
                 </div>
@@ -461,7 +463,7 @@ export default function DocumentsPage() {
             </div>
 
             <div style={{ background: 'var(--bg-surface)', padding: '12px', borderRadius: '6px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Cryptographic SHA-256 Hash</span>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{tr("Cryptographic SHA-256 Hash")}</span>
               <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#4ade80', wordBreak: 'break-all', marginTop: '4px' }}>
                 {selectedDoc.sha256}
               </div>
@@ -552,7 +554,7 @@ export default function DocumentsPage() {
                         gap: '4px',
                       }}
                     >
-                      <Download size={12} /> Download
+                      <Download size={12} /> {tr("Download")}
                     </a>
                   </div>
                 ))}
@@ -579,7 +581,7 @@ export default function DocumentsPage() {
                   boxSizing: 'border-box',
                 }}
               >
-                <Download size={16} /> Download Current Version
+                <Download size={16} /> {tr("Download Current Version")}
               </a>
             </div>
           </div>
@@ -613,7 +615,7 @@ export default function DocumentsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Upload Document</h3>
+              <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>{tr("Upload Document")}</h3>
               <button onClick={() => setShowUploadModal(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                 <X size={18} />
               </button>
@@ -635,29 +637,29 @@ export default function DocumentsPage() {
                   required
                   value={uploadForm.title}
                   onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
-                  placeholder="e.g. Server Compromise Forensic Report"
+                  placeholder={tr("e.g. Server Compromise Forensic Report")}
                   style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Category
+                  {tr("Category")}
                 </label>
                 <select
                   value={uploadForm.documentType}
                   onChange={(e) => setUploadForm({ ...uploadForm, documentType: e.target.value })}
                   style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }}
                 >
-                  <option value="REPORT">REPORT</option>
+                  <option value="REPORT">{tr("REPORT")}</option>
                   <option value="FORENSIC_REPORT">FORENSIC_REPORT</option>
                   <option value="LAB_REPORT">LAB_REPORT</option>
-                  <option value="PHOTO">PHOTO</option>
-                  <option value="INTERVIEW">INTERVIEW</option>
+                  <option value="PHOTO">{tr("PHOTO")}</option>
+                  <option value="INTERVIEW">{tr("INTERVIEW")}</option>
                   <option value="COURT_FILING">COURT_FILING</option>
-                  <option value="EXHIBIT">EXHIBIT</option>
+                  <option value="EXHIBIT">{tr("EXHIBIT")}</option>
                   <option value="BRIEFING_ATTACHMENT">BRIEFING_ATTACHMENT</option>
-                  <option value="OTHER">OTHER</option>
+                  <option value="OTHER">{tr("OTHER")}</option>
                 </select>
               </div>
 
@@ -669,7 +671,7 @@ export default function DocumentsPage() {
                   rows={2}
                   value={uploadForm.description}
                   onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })}
-                  placeholder="Summary or operational notes..."
+                  placeholder={tr("Summary or operational notes...")}
                   style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }}
                 />
               </div>
@@ -699,7 +701,7 @@ export default function DocumentsPage() {
                   onClick={() => setShowUploadModal(false)}
                   style={{ padding: '8px 14px', background: '#374151', border: 'none', borderRadius: '6px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer' }}
                 >
-                  Cancel
+                  {tr("Cancel")}
                 </button>
                 <button
                   type="submit"
@@ -758,7 +760,7 @@ export default function DocumentsPage() {
                   type="text"
                   value={versionNote}
                   onChange={(e) => setVersionNote(e.target.value)}
-                  placeholder="e.g. Added section 3 technical timeline"
+                  placeholder={tr("e.g. Added section 3 technical timeline")}
                   style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }}
                 />
               </div>
@@ -781,7 +783,7 @@ export default function DocumentsPage() {
                   onClick={() => setShowVersionModal(false)}
                   style={{ padding: '8px 14px', background: '#374151', border: 'none', borderRadius: '6px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer' }}
                 >
-                  Cancel
+                  {tr("Cancel")}
                 </button>
                 <button
                   type="submit"

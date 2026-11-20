@@ -3,13 +3,14 @@
 import React from 'react';
 import { AlertCircle, Inbox, Loader2 } from 'lucide-react';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { workspaceLabel } from '@/lib/workspace-navigation';
 
 export function LoadingState({ message }: { message?: string }) {
-  const { t } = usePreferences();
+  const { t, locale } = usePreferences();
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem 1rem', color: 'var(--text-muted)', gap: '8px' }}>
       <Loader2 size={16} className="spin" style={{ animation: 'spin 1s linear infinite' }} />
-      <span style={{ fontSize: '13px' }}>{message || t('state.loading')}</span>
+      <span style={{ fontSize: '13px' }}>{message ? workspaceLabel(locale, message) : t('state.loading')}</span>
       <style jsx>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
@@ -35,7 +36,7 @@ export function EmptyState({
   actionLabel?: string;
   onAction?: () => void;
 }) {
-  const { t } = usePreferences();
+  const { t, locale } = usePreferences();
   return (
     <div
       style={{
@@ -54,8 +55,8 @@ export function EmptyState({
       ) : (
         <Inbox size={26} strokeWidth={1.5} style={{ marginBottom: '4px', opacity: 0.5 }} />
       )}
-      <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '13px' }}>{title || t('state.emptyTitle')}</div>
-      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '380px' }}>{description || t('state.emptyDescription')}</div>
+      <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '13px' }}>{title ? workspaceLabel(locale, title) : t('state.emptyTitle')}</div>
+      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '380px' }}>{description ? workspaceLabel(locale, description) : t('state.emptyDescription')}</div>
       {action ? (
         <div style={{ marginTop: '10px' }}>{action}</div>
       ) : actionLabel && onAction ? (
@@ -78,7 +79,7 @@ export function ErrorState({
   message: string;
   onRetry?: () => void;
 }) {
-  const { t } = usePreferences();
+  const { t, locale } = usePreferences();
   return (
     <div
       style={{

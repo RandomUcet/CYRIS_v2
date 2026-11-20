@@ -8,6 +8,7 @@ import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateV
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { workspaceLabel } from '@/lib/workspace-navigation';
 import {
   CheckSquare,
   Plus,
@@ -35,7 +36,8 @@ export default function TasksPage() {
   const searchParams = useSearchParams();
   const eventId = params.eventId as string;
   const { user, hasPermission } = useAuth();
-  const { formatTime, formatDate, t } = usePreferences();
+  const { formatTime, formatDate, t, locale } = usePreferences();
+  const tr = (label: string) => workspaceLabel(locale, label);
 
   const [tasks, setTasks] = useState<OperationalTaskItem[]>([]);
   const [units, setUnits] = useState<Array<{ id: string; name: string; kind?: string; parentUnitId?: string | null }>>([]);
@@ -366,7 +368,7 @@ export default function TasksPage() {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded transition shadow-sm"
             >
               <Plus size={14} />
-              New Task
+              {tr("New Task")}
             </button>
           )}
         </div>
@@ -402,7 +404,7 @@ export default function TasksPage() {
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               }`}
             >
-              Assigned to me
+              {tr("Assigned to me")}
             </button>
             <button
               onClick={() => setQuickFilter('MY_TEAM')}
@@ -412,7 +414,7 @@ export default function TasksPage() {
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               }`}
             >
-              My Team
+              {tr("My Team")}
             </button>
             <button
               onClick={() => setQuickFilter('MY_SUBTEAM')}
@@ -422,7 +424,7 @@ export default function TasksPage() {
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               }`}
             >
-              My Subteam
+              {tr("My Subteam")}
             </button>
             <button
               onClick={() => setQuickFilter('UNASSIGNED')}
@@ -432,7 +434,7 @@ export default function TasksPage() {
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               }`}
             >
-              Unassigned
+              {tr("Unassigned")}
             </button>
             <button
               onClick={() => setQuickFilter('OPEN')}
@@ -483,11 +485,11 @@ export default function TasksPage() {
               className="px-2 py-1 text-xs bg-slate-950 border border-slate-700 rounded text-slate-300 focus:outline-none focus:border-blue-500"
             >
               <option value="">{t('tasks.allPriorities')}</option>
-              <option value="LOW">Low</option>
-              <option value="NORMAL">Normal</option>
-              <option value="HIGH">High</option>
-              <option value="CRITICAL">Critical</option>
-              <option value="URGENT">Urgent</option>
+              <option value="LOW">{tr("Low")}</option>
+              <option value="NORMAL">{tr("Normal")}</option>
+              <option value="HIGH">{tr("High")}</option>
+              <option value="CRITICAL">{tr("Critical")}</option>
+              <option value="URGENT">{tr("Urgent")}</option>
             </select>
           </div>
         </div>
@@ -508,15 +510,15 @@ export default function TasksPage() {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-950/70 border-b border-slate-800 text-slate-400 uppercase font-mono tracking-wider text-[11px]">
-                  <th className="py-2.5 px-3 w-28">Identifier</th>
-                  <th className="py-2.5 px-3">Title & Summary</th>
-                  <th className="py-2.5 px-3 w-32">Source</th>
-                  <th className="py-2.5 px-3 w-24">Priority</th>
-                  <th className="py-2.5 px-3 w-32">Status</th>
-                  <th className="py-2.5 px-3 w-40">Assigned Unit</th>
-                  <th className="py-2.5 px-3 w-36">Assigned User</th>
-                  <th className="py-2.5 px-3 w-36">Owning Unit</th>
-                  <th className="py-2.5 px-3 w-32">Due</th>
+                  <th className="py-2.5 px-3 w-28">{tr("Identifier")}</th>
+                  <th className="py-2.5 px-3">{tr("Title & Summary")}</th>
+                  <th className="py-2.5 px-3 w-32">{tr("Source")}</th>
+                  <th className="py-2.5 px-3 w-24">{tr("Priority")}</th>
+                  <th className="py-2.5 px-3 w-32">{tr("Status")}</th>
+                  <th className="py-2.5 px-3 w-40">{tr("Assigned Unit")}</th>
+                  <th className="py-2.5 px-3 w-36">{tr("Assigned User")}</th>
+                  <th className="py-2.5 px-3 w-36">{tr("Owning Unit")}</th>
+                  <th className="py-2.5 px-3 w-32">{tr("Due")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-sans">
@@ -597,7 +599,7 @@ export default function TasksPage() {
 
           <div className="p-4 flex-1 overflow-y-auto space-y-4 text-xs">
             {loadingDetail ? (
-              <LoadingState message="Fetching task details..." />
+              <LoadingState message={tr("Fetching task details...")} />
             ) : taskDetail ? (
               <>
                 {actionError && (
@@ -617,21 +619,21 @@ export default function TasksPage() {
 
                 <div className="grid grid-cols-2 gap-2 p-3 bg-slate-950/50 rounded border border-slate-800">
                   <div>
-                    <div className="text-slate-500 text-[10px] uppercase font-mono">Status</div>
+                    <div className="text-slate-500 text-[10px] uppercase font-mono">{tr("Status")}</div>
                     <div className="mt-1">
                       <StatusBadge status={taskDetail.status} />
                     </div>
 
                     {canAssign && (
                       <div className="p-3 bg-slate-950/50 rounded border border-slate-800 space-y-2">
-                        <div className="text-slate-500 text-[10px] uppercase font-mono">Reassign</div>
+                        <div className="text-slate-500 text-[10px] uppercase font-mono">{tr("Reassign")}</div>
                         <select
                           defaultValue={taskDetail.assignedUnitId || ''}
                           onChange={(e) => handleAssignTask(e.target.value, taskDetail.assignedUserId || '')}
                           className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-300"
                           disabled={actionPending}
                         >
-                          <option value="">Unassigned unit</option>
+                          <option value="">{tr("Unassigned unit")}</option>
                           {units.map((unit) => (
                             <option key={unit.id} value={unit.id}>
                               {unit.parentUnitId ? `${units.find((parent) => parent.id === unit.parentUnitId)?.name ?? 'Team'} → ${unit.name}` : unit.name}
@@ -644,7 +646,7 @@ export default function TasksPage() {
                           className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-300"
                           disabled={actionPending}
                         >
-                          <option value="">No individual assignee</option>
+                          <option value="">{tr("No individual assignee")}</option>
                           {memberships.filter((membership) => membership.user).map((membership) => (
                             <option key={membership.userId} value={membership.userId}>{membership.user?.displayName}</option>
                           ))}
@@ -653,19 +655,19 @@ export default function TasksPage() {
                     )}
                   </div>
                   <div>
-                    <div className="text-slate-500 text-[10px] uppercase font-mono">Priority</div>
+                    <div className="text-slate-500 text-[10px] uppercase font-mono">{tr("Priority")}</div>
                     <div className="mt-1">
                       <PriorityBadge priority={taskDetail.priority} />
                     </div>
                   </div>
                   <div>
-                    <div className="text-slate-500 text-[10px] uppercase font-mono">Owning Unit</div>
+                    <div className="text-slate-500 text-[10px] uppercase font-mono">{tr("Owning Unit")}</div>
                     <div className="mt-1 text-slate-300 font-mono">
                       {taskDetail.owningUnitName || '—'}
                     </div>
                   </div>
                   <div>
-                    <div className="text-slate-500 text-[10px] uppercase font-mono">Assigned Unit</div>
+                    <div className="text-slate-500 text-[10px] uppercase font-mono">{tr("Assigned Unit")}</div>
                     <div className="mt-1 text-slate-300 font-mono">
                       {taskDetail.assignedUnitName || '—'}
                     </div>
@@ -676,7 +678,7 @@ export default function TasksPage() {
                   <div className="p-2.5 bg-amber-950/40 border border-amber-800/60 rounded">
                     <div className="text-amber-400 font-semibold flex items-center gap-1.5 text-xs">
                       <AlertTriangle size={13} />
-                      Blocked Reason
+                      {tr("Blocked Reason")}
                     </div>
                     <div className="text-slate-300 mt-1">{taskDetail.blockedReason}</div>
                   </div>
@@ -686,7 +688,7 @@ export default function TasksPage() {
                   <div className="p-2.5 bg-emerald-950/40 border border-emerald-800/60 rounded">
                     <div className="text-emerald-400 font-semibold flex items-center gap-1.5 text-xs">
                       <CheckCircle size={13} />
-                      Completion Note
+                      {tr("Completion Note")}
                     </div>
                     <div className="text-slate-300 mt-1">{taskDetail.completionNote}</div>
                   </div>
@@ -709,7 +711,7 @@ export default function TasksPage() {
                 {/* Operational Actions */}
                 <div className="border-t border-slate-800 pt-3 space-y-2">
                   <div className="text-slate-400 font-semibold uppercase font-mono text-[10px]">
-                    Task Actions
+                    {tr("Task Actions")}
                   </div>
 
                   {taskDetail.status === 'OPEN' && canAcknowledge && (
@@ -719,7 +721,7 @@ export default function TasksPage() {
                       className="w-full py-1.5 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
                     >
                       <CheckSquare size={13} />
-                      Acknowledge Task
+                      {tr("Acknowledge Task")}
                     </button>
                   )}
 
@@ -730,7 +732,7 @@ export default function TasksPage() {
                       className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
                     >
                       <Play size={13} />
-                      Start Work
+                      {tr("Start Work")}
                     </button>
                   )}
 
@@ -741,7 +743,7 @@ export default function TasksPage() {
                       className="w-full py-1.5 px-3 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
                     >
                       <AlertTriangle size={13} />
-                      Mark as Blocked
+                      {tr("Mark as Blocked")}
                     </button>
                   )}
 
@@ -752,7 +754,7 @@ export default function TasksPage() {
                       className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
                     >
                       <Play size={13} />
-                      Resume Work
+                      {tr("Resume Work")}
                     </button>
                   )}
 
@@ -763,7 +765,7 @@ export default function TasksPage() {
                       className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
                     >
                       <CheckCircle size={13} />
-                      Complete Task
+                      {tr("Complete Task")}
                     </button>
                   )}
 
@@ -774,7 +776,7 @@ export default function TasksPage() {
                       className="w-full py-1.5 px-3 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
                     >
                       <RotateCcw size={13} />
-                      Reopen Task
+                      {tr("Reopen Task")}
                     </button>
                   )}
 
@@ -785,7 +787,7 @@ export default function TasksPage() {
                       className="w-full py-1.5 px-3 bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 border border-slate-700 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition"
                     >
                       <X size={13} />
-                      Cancel Task
+                      {tr("Cancel Task")}
                     </button>
                   )}
                 </div>
@@ -829,7 +831,7 @@ export default function TasksPage() {
                 value={actionModal.note}
                 onChange={(e) => setActionModal({ ...actionModal, note: e.target.value })}
                 rows={3}
-                placeholder="Enter operational note..."
+                placeholder={tr("Enter operational note...")}
                 className="w-full p-2 text-xs bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -840,7 +842,7 @@ export default function TasksPage() {
                 onClick={() => setActionModal({ type: null, note: '' })}
                 className="px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded transition"
               >
-                Dismiss
+                {tr("Dismiss")}
               </button>
               <button
                 type="submit"
@@ -864,7 +866,7 @@ export default function TasksPage() {
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="font-semibold text-slate-100 text-sm flex items-center gap-2">
                 <CheckSquare size={16} className="text-blue-400" />
-                Create Operational Task
+                {tr("Create Operational Task")}
               </h3>
               <button
                 type="button"
@@ -884,32 +886,32 @@ export default function TasksPage() {
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block font-medium text-slate-300 mb-1">
-                  Title <span className="text-rose-400">*</span>
+                  {tr("Title")} <span className="text-rose-400">*</span>
                 </label>
                 <input
                   type="text"
                   value={createForm.title}
                   onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
-                  placeholder="e.g. Secure digital media from workstation"
+                  placeholder={tr("e.g. Secure digital media from workstation")}
                   className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500"
                   required
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Description / Brief</label>
+                <label className="block font-medium text-slate-300 mb-1">{tr("Description / Brief")}</label>
                 <textarea
                   value={createForm.description}
                   onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
                   rows={3}
-                  placeholder="Operational context, expected output, safety notes..."
+                  placeholder={tr("Operational context, expected output, safety notes...")}
                   className="w-full p-2 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">Priority</label>
+                  <label className="block font-medium text-slate-300 mb-1">{tr("Priority")}</label>
                   <select
                     value={createForm.priority}
                     onChange={(e) =>
@@ -917,16 +919,16 @@ export default function TasksPage() {
                     }
                     className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-300 focus:outline-none focus:border-blue-500"
                   >
-                    <option value="LOW">LOW</option>
-                    <option value="NORMAL">NORMAL</option>
-                    <option value="HIGH">HIGH</option>
-                    <option value="CRITICAL">CRITICAL</option>
-                    <option value="URGENT">URGENT</option>
+                    <option value="LOW">{tr("LOW")}</option>
+                    <option value="NORMAL">{tr("NORMAL")}</option>
+                    <option value="HIGH">{tr("HIGH")}</option>
+                    <option value="CRITICAL">{tr("CRITICAL")}</option>
+                    <option value="URGENT">{tr("URGENT")}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">Due At (Optional)</label>
+                  <label className="block font-medium text-slate-300 mb-1">{tr("Due At (Optional)")}</label>
                   <input
                     type="datetime-local"
                     value={createForm.dueAt || ''}
@@ -938,13 +940,13 @@ export default function TasksPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">Assigned to Team / Subteam</label>
+                  <label className="block font-medium text-slate-300 mb-1">{tr("Assigned to Team / Subteam")}</label>
                   <select
                     value={createForm.assignedUnitId || ''}
                     onChange={(e) => setCreateForm({ ...createForm, assignedUnitId: e.target.value || undefined })}
                     className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-300 focus:outline-none focus:border-blue-500"
                   >
-                    <option value="">Unassigned</option>
+                    <option value="">{tr("Unassigned")}</option>
                     {units.map((unit) => (
                       <option key={unit.id} value={unit.id}>
                         {unit.parentUnitId ? `${units.find((parent) => parent.id === unit.parentUnitId)?.name ?? 'Team'} → ${unit.name}` : unit.name}
@@ -953,13 +955,13 @@ export default function TasksPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">Assigned to User</label>
+                  <label className="block font-medium text-slate-300 mb-1">{tr("Assigned to User")}</label>
                   <select
                     value={createForm.assignedUserId || ''}
                     onChange={(e) => setCreateForm({ ...createForm, assignedUserId: e.target.value || undefined })}
                     className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-300 focus:outline-none focus:border-blue-500"
                   >
-                    <option value="">No individual assignee</option>
+                    <option value="">{tr("No individual assignee")}</option>
                     {memberships.filter((membership) => membership.user).map((membership) => (
                       <option key={membership.userId} value={membership.userId}>{membership.user?.displayName}</option>
                     ))}
@@ -969,22 +971,22 @@ export default function TasksPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">Source Type</label>
+                  <label className="block font-medium text-slate-300 mb-1">{tr("Source Type")}</label>
                   <select
                     value={createForm.sourceType || 'MANUAL'}
                     onChange={(e) => setCreateForm({ ...createForm, sourceType: e.target.value as any })}
                     className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500"
                   >
-                    <option value="MANUAL">Manual</option>
-                    <option value="INCIDENT">Incident</option>
-                    <option value="CASE">Case</option>
-                    <option value="INJECT">Scenario Inject</option>
-                    <option value="COURT_CASE">Court Case</option>
+                    <option value="MANUAL">{tr("Manual")}</option>
+                    <option value="INCIDENT">{tr("Incident")}</option>
+                    <option value="CASE">{tr("Case")}</option>
+                    <option value="INJECT">{tr("Scenario Inject")}</option>
+                    <option value="COURT_CASE">{tr("Court Case")}</option>
                     <option value="MEDICAL">Medical</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">Source Resource</label>
+                  <label className="block font-medium text-slate-300 mb-1">{tr("Source Resource")}</label>
                   {sourceContext ? (
                     <div className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded text-slate-200">
                       {sourceContext}
@@ -1004,7 +1006,7 @@ export default function TasksPage() {
                 onClick={() => setShowCreateModal(false)}
                 className="px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded transition"
               >
-                Cancel
+                {tr("Cancel")}
               </button>
               <button
                 type="submit"

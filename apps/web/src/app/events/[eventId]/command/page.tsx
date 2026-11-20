@@ -8,6 +8,7 @@ import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateV
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { workspaceLabel } from '@/lib/workspace-navigation';
 import {
   Radio,
   FileText,
@@ -32,7 +33,8 @@ export default function CommandPage() {
   const router = useRouter();
   const eventId = params.eventId as string;
   const { user, hasPermission } = useAuth();
-  const { formatTime } = usePreferences();
+  const { formatTime, locale } = usePreferences();
+  const tr = (label: string) => workspaceLabel(locale, label);
 
   const [data, setData] = useState<OperationalPictureResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -120,10 +122,10 @@ export default function CommandPage() {
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-100 uppercase tracking-wider font-mono">
-                Command Operational Picture
+                {tr("Command Operational Picture")}
               </h2>
               <p className="text-xs text-slate-400">
-                Real-time operational synthesis from canonical exercise services.
+                {tr("Real-time operational synthesis from canonical exercise services.")}
               </p>
             </div>
           </div>
@@ -134,7 +136,7 @@ export default function CommandPage() {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition"
             >
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-              Refresh
+              {tr("Refresh")}
             </button>
             <button
               onClick={() => {
@@ -144,7 +146,7 @@ export default function CommandPage() {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded transition shadow-sm"
             >
               <FileText size={14} />
-              Produce SITREP
+              {tr("Produce SITREP")}
             </button>
           </div>
 
@@ -153,29 +155,29 @@ export default function CommandPage() {
             <div className="flex items-center gap-4 bg-slate-950/80 border border-slate-800 px-4 py-2 rounded-lg text-xs font-mono">
               <div className="flex items-center gap-2 text-rose-400 font-semibold">
                 <Heart size={14} />
-                Medical Status:
+                {tr("Medical Status:")}
               </div>
               <div className="text-slate-300">
-                <span className="font-bold text-rose-300">{data.medicalSummary.activeCasualties}</span> active casualties
+                <span className="font-bold text-rose-300">{data.medicalSummary.activeCasualties}</span> {tr("active casualties")}
               </div>
               <span className="text-slate-700">|</span>
               <div className="text-slate-400">
-                <span className="font-bold text-emerald-400">{data.medicalSummary.transferredCasualties}</span> transferred
+                <span className="font-bold text-emerald-400">{data.medicalSummary.transferredCasualties}</span> {tr("transferred")}
               </div>
               <span className="text-slate-700">|</span>
               <div className="text-slate-400">
-                <span className="font-bold text-slate-300">{data.medicalSummary.stabilizedCasualties}</span> stabilized
+                <span className="font-bold text-slate-300">{data.medicalSummary.stabilizedCasualties}</span> {tr("stabilized")}
               </div>
             </div>
           )}
         </div>
 
         {loading ? (
-          <LoadingState message="Assembling operational picture..." />
+          <LoadingState message={tr("Assembling operational picture...")} />
         ) : error ? (
           <ErrorState message={error} onRetry={fetchOperationalPicture} />
         ) : !data ? (
-          <EmptyState title="No operational data" description="No operational picture available." />
+          <EmptyState title={tr("No operational data")} description={tr("No operational picture available.")} />
         ) : (
           <div className="space-y-6">
             {/* Section 1: Critical / High Incidents */}
@@ -191,7 +193,7 @@ export default function CommandPage() {
                   onClick={() => router.push(`/events/${eventId}/incidents`)}
                   className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 font-mono"
                 >
-                  View all <ExternalLink size={12} />
+                  {tr("View all")} <ExternalLink size={12} />
                 </button>
               </div>
 
@@ -203,11 +205,11 @@ export default function CommandPage() {
                 <table className="w-full text-left text-xs border-collapse font-mono">
                   <thead>
                     <tr className="border-b border-slate-800 text-slate-500 text-[11px] uppercase">
-                      <th className="py-2 px-4 w-28">Code</th>
-                      <th className="py-2 px-4">Title</th>
-                      <th className="py-2 px-4 w-24">Severity</th>
-                      <th className="py-2 px-4 w-28">Status</th>
-                      <th className="py-2 px-4 w-40">Reported</th>
+                      <th className="py-2 px-4 w-28">{tr("Code")}</th>
+                      <th className="py-2 px-4">{tr("Title")}</th>
+                      <th className="py-2 px-4 w-24">{tr("Severity")}</th>
+                      <th className="py-2 px-4 w-28">{tr("Status")}</th>
+                      <th className="py-2 px-4 w-40">{tr("Reported")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-sans">
@@ -250,23 +252,23 @@ export default function CommandPage() {
                   onClick={() => router.push(`/events/${eventId}/tasks`)}
                   className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 font-mono"
                 >
-                  View all <ExternalLink size={12} />
+                  {tr("View all")} <ExternalLink size={12} />
                 </button>
               </div>
 
               {data.priorityTasks.length === 0 ? (
                 <div className="p-4 text-xs text-slate-500 font-mono text-center">
-                  No high priority operational tasks active.
+                  {tr("No high priority operational tasks active.")}
                 </div>
               ) : (
                 <table className="w-full text-left text-xs border-collapse font-mono">
                   <thead>
                     <tr className="border-b border-slate-800 text-slate-500 text-[11px] uppercase">
-                      <th className="py-2 px-4 w-28">Identifier</th>
-                      <th className="py-2 px-4">Title</th>
-                      <th className="py-2 px-4 w-24">Priority</th>
-                      <th className="py-2 px-4 w-32">Status</th>
-                      <th className="py-2 px-4 w-44">Assigned Unit</th>
+                      <th className="py-2 px-4 w-28">{tr("Identifier")}</th>
+                      <th className="py-2 px-4">{tr("Title")}</th>
+                      <th className="py-2 px-4 w-24">{tr("Priority")}</th>
+                      <th className="py-2 px-4 w-32">{tr("Status")}</th>
+                      <th className="py-2 px-4 w-44">{tr("Assigned Unit")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-sans">
@@ -309,20 +311,20 @@ export default function CommandPage() {
                 <div className="flex items-center gap-2">
                   <Clock size={15} className="text-indigo-400" />
                   <h3 className="text-xs font-bold font-mono uppercase tracking-wider text-slate-200">
-                    Recent Significant Events
+                    {tr("Recent Significant Events")}
                   </h3>
                 </div>
                 <button
                   onClick={() => router.push(`/events/${eventId}/timeline`)}
                   className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 font-mono"
                 >
-                  Full timeline <ExternalLink size={12} />
+                  {tr("Full timeline")} <ExternalLink size={12} />
                 </button>
               </div>
 
               {data.recentActivities.length === 0 ? (
                 <div className="p-4 text-xs text-slate-500 font-mono text-center">
-                  No recent operational events recorded.
+                  {tr("No recent operational events recorded.")}
                 </div>
               ) : (
                 <div className="divide-y divide-slate-800/60 font-mono text-xs">
@@ -360,7 +362,7 @@ export default function CommandPage() {
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="font-semibold text-slate-100 text-sm flex items-center gap-2">
                 <FileText size={16} className="text-blue-400" />
-                Produce Situation Report (SITREP)
+                {tr("Produce Situation Report (SITREP)")}
               </h3>
               <button
                 type="button"
@@ -386,7 +388,7 @@ export default function CommandPage() {
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block font-medium text-slate-300 mb-1">
-                  Report Title <span className="text-rose-400">*</span>
+                  {tr("Report Title")} <span className="text-rose-400">*</span>
                 </label>
                 <input
                   type="text"
@@ -398,18 +400,18 @@ export default function CommandPage() {
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Command Assessment / Notes</label>
+                <label className="block font-medium text-slate-300 mb-1">{tr("Command Assessment / Notes")}</label>
                 <textarea
                   value={sitrepSummary}
                   onChange={(e) => setSitrepSummary(e.target.value)}
                   rows={4}
-                  placeholder="Operational commentary, unit directives, threat posture..."
+                  placeholder={tr("Operational commentary, unit directives, threat posture...")}
                   className="w-full p-2 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div className="p-3 bg-slate-950/60 rounded border border-slate-800 text-slate-400 space-y-1 text-[11px] font-mono">
-                <div className="text-slate-300 font-semibold uppercase text-[10px]">Auto-Included In Snapshot:</div>
+                <div className="text-slate-300 font-semibold uppercase text-[10px]">{tr("Auto-Included In Snapshot:")}</div>
                 <div>• {data?.criticalIncidents.length || 0} Critical / High Incidents</div>
                 <div>• {data?.priorityTasks.length || 0} Priority Operational Tasks</div>
                 <div>• Current Medical Casualties Status ({data?.medicalSummary?.activeCasualties || 0} active)</div>
@@ -423,7 +425,7 @@ export default function CommandPage() {
                 onClick={() => setShowSitrepModal(false)}
                 className="px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded transition"
               >
-                Cancel
+                {tr("Cancel")}
               </button>
               <button
                 type="submit"

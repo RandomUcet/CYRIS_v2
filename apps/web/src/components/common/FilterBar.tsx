@@ -2,6 +2,8 @@
 
 import React from 'react';
 import { Search, X } from 'lucide-react';
+import { usePreferences } from '@/contexts/PreferencesContext';
+import { workspaceLabel } from '@/lib/workspace-navigation';
 
 export interface FilterOption {
   label: string;
@@ -43,6 +45,7 @@ export function FilterBar({
   totalResults,
   extraActions,
 }: FilterBarProps) {
+  const {locale} = usePreferences();
   const currentSearch = searchValue ?? searchQuery ?? '';
   const clearHandler = onReset ?? onClearAll;
 
@@ -77,7 +80,8 @@ export function FilterBar({
               type="text"
               value={currentSearch}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder={searchPlaceholder}
+              aria-label={workspaceLabel(locale, searchPlaceholder)}
+              placeholder={workspaceLabel(locale, searchPlaceholder)}
               className="input-field"
               style={{
                 paddingLeft: '28px',
@@ -90,6 +94,7 @@ export function FilterBar({
             {currentSearch && (
               <button
                 type="button"
+                aria-label={workspaceLabel(locale, 'Clear')}
                 onClick={() => onSearchChange('')}
                 className="btn btn-ghost"
                 style={{
@@ -114,6 +119,7 @@ export function FilterBar({
           return (
             <select
               key={filterKey}
+              aria-label={workspaceLabel(locale, filter.label)}
               value={filterVal}
               onChange={(e) => {
                 if (filter.onChange) {
@@ -147,7 +153,7 @@ export function FilterBar({
             className="btn btn-ghost"
             style={{ height: '28px', fontSize: '11px', padding: '0 8px', color: 'var(--color-text-dim)' }}
           >
-            Clear ({activeCount})
+            {workspaceLabel(locale, 'Clear')} ({activeCount})
           </button>
         )}
       </div>
@@ -155,7 +161,7 @@ export function FilterBar({
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         {totalResults !== undefined && (
           <span style={{ fontSize: '11px', color: 'var(--color-text-dim)', fontFamily: 'var(--font-mono)' }}>
-            {totalResults} {totalResults === 1 ? 'record' : 'records'}
+            {totalResults} {locale === 'cs' ? (totalResults === 1 ? 'záznam' : totalResults >= 2 && totalResults <= 4 ? 'záznamy' : 'záznamů') : totalResults === 1 ? 'record' : 'records'}
           </span>
         )}
         {extraActions}

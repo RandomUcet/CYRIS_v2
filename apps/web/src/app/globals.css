@@ -1,3 +1,4 @@
+@import './workspace-legacy.css';
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
@@ -1350,3 +1351,7 @@ html,body {font-size:14px}
 :where(a,button,input,select,textarea,summary):focus-visible {outline:2px solid var(--border-focus);outline-offset:2px}
 @media(max-width:1100px){.workspace-breadcrumbs{display:none}.workspace-event-name{max-width:145px}.workspace-user-name{max-width:110px}}
 @media(max-width:700px){.workspace-page-header,.workspace-content-padded{padding:14px}.workspace-event-name{max-width:95px}.workspace-user-name{display:none}.workspace-topbar-actions{gap:4px}.workspace-topbar-context{gap:4px}.app-topbar{padding-inline:8px!important}.workspace-event-button .status-badge{display:none}}
+
+/* Match page header controls to workspace controls. */
+.workspace-page-actions button {font-size:13px;white-space:nowrap}
+.workspace-content .data-table-container {min-width:0}

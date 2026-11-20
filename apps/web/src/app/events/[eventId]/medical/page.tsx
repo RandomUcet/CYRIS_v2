@@ -8,6 +8,7 @@ import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateV
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { workspaceLabel } from '@/lib/workspace-navigation';
 import {
   Heart,
   Plus,
@@ -29,7 +30,8 @@ import type {
 import { TriageBadge } from '@/components/medical/TriageBadge';
 
 export default function MedicalPage() {
-  const { formatTime, t } = usePreferences();
+  const { formatTime, t, locale } = usePreferences();
+  const tr = (label: string) => workspaceLabel(locale, label);
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -285,13 +287,13 @@ export default function MedicalPage() {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-950/70 border-b border-slate-800 text-slate-400 uppercase font-mono tracking-wider text-[11px]">
-                  <th className="py-2.5 px-3 w-28">Identifier</th>
-                  <th className="py-2.5 px-3 w-40">Casualty / Person</th>
-                  <th className="py-2.5 px-3">Chief Complaint & Presentation</th>
+                  <th className="py-2.5 px-3 w-28">{tr("Identifier")}</th>
+                  <th className="py-2.5 px-3 w-40">{tr("Casualty / Person")}</th>
+                  <th className="py-2.5 px-3">{tr("Chief Complaint & Presentation")}</th>
                   <th className="py-2.5 px-3 w-36">Triage</th>
-                  <th className="py-2.5 px-3 w-32">Status</th>
-                  <th className="py-2.5 px-3 w-36">Disposition</th>
-                  <th className="py-2.5 px-3 w-28">Opened</th>
+                  <th className="py-2.5 px-3 w-32">{tr("Status")}</th>
+                  <th className="py-2.5 px-3 w-36">{tr("Disposition")}</th>
+                  <th className="py-2.5 px-3 w-28">{tr("Opened")}</th>
                   <th className="py-2.5 px-3 w-16"></th>
                 </tr>
               </thead>
@@ -310,7 +312,7 @@ export default function MedicalPage() {
                         <RecordIdentifier code={enc.medicalNumber} />
                       </td>
                       <td className="py-2.5 px-3 font-medium text-slate-200">
-                        {enc.personDisplayName || <span className="text-slate-400 italic">Unknown casualty</span>}
+                        {enc.personDisplayName || <span className="text-slate-400 italic">{tr("Unknown casualty")}</span>}
                       </td>
                       <td className="py-2.5 px-3 text-slate-300">
                         <div className="line-clamp-1">{enc.chiefComplaint || 'No initial complaint recorded'}</div>
@@ -383,29 +385,29 @@ export default function MedicalPage() {
 
             <div className="dialog-body space-y-3 text-xs">
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Chief Complaint</label>
+                <label className="block font-medium text-slate-300 mb-1">{tr("Chief Complaint")}</label>
                 <input
                   type="text"
                   value={formData.chiefComplaint}
                   onChange={(e) => setFormData({ ...formData, chiefComplaint: e.target.value })}
-                  placeholder="e.g. Acute respiratory distress, chemical vapor exposure"
+                  placeholder={tr("e.g. Acute respiratory distress, chemical vapor exposure")}
                   className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-rose-500"
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Mechanism of Injury</label>
+                <label className="block font-medium text-slate-300 mb-1">{tr("Mechanism of Injury")}</label>
                 <input
                   type="text"
                   value={formData.mechanismOfInjury}
                   onChange={(e) => setFormData({ ...formData, mechanismOfInjury: e.target.value })}
-                  placeholder="e.g. Inhalation near ventilation shaft, chemical leak"
+                  placeholder={tr("e.g. Inhalation near ventilation shaft, chemical leak")}
                   className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-rose-500"
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Initial Triage Category</label>
+                <label className="block font-medium text-slate-300 mb-1">{tr("Initial Triage Category")}</label>
                 <select
                   value={formData.triageCategory}
                   onChange={(e) =>
@@ -413,21 +415,21 @@ export default function MedicalPage() {
                   }
                   className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-300 focus:outline-none focus:border-rose-500 font-mono"
                 >
-                  <option value="IMMEDIATE">IMMEDIATE (Red - Life-threatening)</option>
-                  <option value="DELAYED">DELAYED (Yellow - Serious but stable)</option>
-                  <option value="MINOR">MINOR (Green - Walking wounded)</option>
-                  <option value="EXPECTANT">EXPECTANT (Black - Severe/Non-viable)</option>
-                  <option value="UNKNOWN">UNKNOWN (Pending initial assessment)</option>
+                  <option value="IMMEDIATE">{tr("IMMEDIATE (Red - Life-threatening)")}</option>
+                  <option value="DELAYED">{tr("DELAYED (Yellow - Serious but stable)")}</option>
+                  <option value="MINOR">{tr("MINOR (Green - Walking wounded)")}</option>
+                  <option value="EXPECTANT">{tr("EXPECTANT (Black - Severe/Non-viable)")}</option>
+                  <option value="UNKNOWN">{tr("UNKNOWN (Pending initial assessment)")}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Assessment Summary</label>
+                <label className="block font-medium text-slate-300 mb-1">{tr("Assessment Summary")}</label>
                 <textarea
                   value={formData.assessmentSummary}
                   onChange={(e) => setFormData({ ...formData, assessmentSummary: e.target.value })}
                   rows={3}
-                  placeholder="Initial airway, breathing, circulation, skin condition, responsiveness..."
+                  placeholder={tr("Initial airway, breathing, circulation, skin condition, responsiveness...")}
                   className="w-full p-2 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-rose-500"
                 />
               </div>
@@ -439,7 +441,7 @@ export default function MedicalPage() {
                 onClick={() => setShowCreateModal(false)}
               className="btn btn-secondary"
               >
-                Cancel
+                {tr("Cancel")}
               </button>
               <button
                 type="submit"

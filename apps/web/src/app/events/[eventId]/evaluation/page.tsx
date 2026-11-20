@@ -8,6 +8,7 @@ import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateV
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { workspaceLabel } from '@/lib/workspace-navigation';
 import {
   Target,
   Eye,
@@ -29,7 +30,8 @@ export default function EvaluationPage() {
   const pathname = usePathname();
   const eventId = params.eventId as string;
   const { hasPermission } = useAuth();
-  const { formatTime } = usePreferences();
+  const { formatTime, locale } = usePreferences();
+  const tr = (label: string) => workspaceLabel(locale, label);
 
   const activeTab = pathname.endsWith('/observations') ? 'OBSERVATIONS' : 'OBJECTIVES';
 
@@ -177,7 +179,7 @@ export default function EvaluationPage() {
             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
           >
             <RefreshCw size={13} className={loading ? 'spin' : ''} />
-            Refresh
+            {tr("Refresh")}
           </button>
           <button
             onClick={() => router.push(`/events/${eventId}/evaluation/after-action`)}
@@ -267,7 +269,7 @@ export default function EvaluationPage() {
         </div>
 
         {loading ? (
-          <LoadingState message="Loading evaluation framework..." />
+          <LoadingState message={tr("Loading evaluation framework...")} />
         ) : error ? (
           <ErrorState message={error} onRetry={fetchData} />
         ) : activeTab === 'OBSERVATIONS' ? (
@@ -297,7 +299,7 @@ export default function EvaluationPage() {
                   color: 'var(--color-text-main)',
                 }}
               >
-                <span>Recorded Live Observations</span>
+                <span>{tr("Recorded Live Observations")}</span>
                 <span style={{ fontSize: '11px', color: 'var(--color-text-dim)', fontWeight: 500 }}>
                   {observations.length} total
                 </span>
@@ -374,7 +376,7 @@ export default function EvaluationPage() {
 
                       {obs.relatedResourceId && (
                         <div style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-dim)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span>Related Record:</span>
+                          <span>{tr("Related Record:")}</span>
                           <span style={{ color: 'var(--color-accent-ops)' }}>{obs.relatedResourceId}</span>
                         </div>
                       )}
@@ -504,11 +506,11 @@ export default function EvaluationPage() {
                         fontSize: '11px',
                       }}
                     >
-                      <option value="EXCEEDED">Exceeded</option>
-                      <option value="MET">Met</option>
-                      <option value="PARTIALLY_MET">Partially Met</option>
-                      <option value="NOT_MET">Not Met</option>
-                      <option value="UNOBSERVED">Unobserved</option>
+                      <option value="EXCEEDED">{tr("Exceeded")}</option>
+                      <option value="MET">{tr("Met")}</option>
+                      <option value="PARTIALLY_MET">{tr("Partially Met")}</option>
+                      <option value="NOT_MET">{tr("Not Met")}</option>
+                      <option value="UNOBSERVED">{tr("Unobserved")}</option>
                     </select>
                   </div>
 
@@ -563,11 +565,11 @@ export default function EvaluationPage() {
             <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '12px' }}>
               <thead>
                 <tr style={{ backgroundColor: 'var(--color-bg-panel)', borderBottom: '1px solid var(--color-border-subtle)', color: 'var(--color-text-dim)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-                  <th style={{ padding: '10px 16px', width: '120px' }}>Code</th>
-                  <th style={{ padding: '10px 16px' }}>Title & Description</th>
-                  <th style={{ padding: '10px 16px', width: '120px' }}>Category</th>
-                  <th style={{ padding: '10px 16px', width: '90px' }}>Weight</th>
-                  <th style={{ padding: '10px 16px', width: '130px' }}>Criteria Count</th>
+                  <th style={{ padding: '10px 16px', width: '120px' }}>{tr("Code")}</th>
+                  <th style={{ padding: '10px 16px' }}>{tr("Title & Description")}</th>
+                  <th style={{ padding: '10px 16px', width: '120px' }}>{tr("Category")}</th>
+                  <th style={{ padding: '10px 16px', width: '90px' }}>{tr("Weight")}</th>
+                  <th style={{ padding: '10px 16px', width: '130px' }}>{tr("Criteria Count")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -668,7 +670,7 @@ export default function EvaluationPage() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '4px' }}>
-                  Description
+                  {tr("Description")}
                 </label>
                 <textarea
                   value={newObjDesc}
@@ -689,7 +691,7 @@ export default function EvaluationPage() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '4px' }}>
-                  Weight
+                  {tr("Weight")}
                 </label>
                 <input
                   type="number"
@@ -713,7 +715,7 @@ export default function EvaluationPage() {
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowAddObjModal(false)}>
-                  Cancel
+                  {tr("Cancel")}
                 </button>
                 <button type="submit" disabled={submittingObj} className="btn btn-primary">
                   {submittingObj ? 'Creating...' : 'Create Objective'}
