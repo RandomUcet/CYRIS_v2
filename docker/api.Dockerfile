@@ -24,7 +24,9 @@ COPY packages ./packages
 COPY apps/api ./apps/api
 
 # Build packages and API
-RUN pnpm --filter @cyris/config build && \
+# Source archives may have been extracted with umask 077. The runner uses a separate UID.
+RUN chmod -R go=rX package.json packages apps/api && \
+    pnpm --filter @cyris/config build && \
     pnpm --filter @cyris/contracts build && \
     pnpm --filter @cyris/shared build && \
     pnpm --filter @cyris/db build && \

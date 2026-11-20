@@ -78,6 +78,29 @@ const socket = tls.connect({host, servername: host, port: 636, rejectUnauthorize
 socket.setTimeout(8000, () => socket.destroy(new Error("LDAPS timeout")));
 socket.on("error", e => { console.error(e.message); process.exitCode = 1; });
 socket.once("secureConnect", () => { console.log("LDAPS OK:", host); socket.destroy(); });' "$directory"
+step="zkušební start nového API"
+echo "[CYRIS] Spouštím nový obraz API bez zveřejnění portu a ověřuji /health/ready."
+"${compose[@]}" --env-file "$stage/next.env" run --rm --no-deps -T -e ENABLE_API_SCENARIO_SCHEDULER=false api sh -ec '
+  log=$(mktemp)
+  node dist/main.js > "$log" 2>&1 &
+  pid=$!
+  trap "kill $pid 2>/dev/null || true" EXIT
+  for attempt in $(seq 1 45); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "Nové API skončilo při startu:" >&2
+      tail -n 35 "$log" >&2
+      exit 1
+    fi
+    if curl -fsS --max-time 2 http://127.0.0.1:4000/health/ready >/dev/null 2>&1; then
+      echo "Nové API je připravené."
+      exit 0
+    fi
+    sleep 1
+  done
+  echo "Kontrola připravenosti nového API neprošla:" >&2
+  curl -sS --max-time 5 http://127.0.0.1:4000/health/ready >&2 || true
+  tail -n 35 "$log" >&2
+  exit 1'
 activate() {
   "${compose[@]}" --env-file "$envfile" up -d --no-deps --wait --wait-timeout 240 "${services[@]}"
 }
@@ -95,7 +118,12 @@ step="spuštění aplikačních služeb"
 echo "[CYRIS] Přepínám služby na $tag."
 trap rollback ERR INT TERM HUP
 mv -f "$stage/next.env" "$envfile"
-activate
+if ! activate; then
+  # Recreating the previous containers will remove the failed ones and their logs.
+  "${compose[@]}" --env-file "$envfile" ps -a "${services[@]}" >&2 || true
+  "${compose[@]}" --env-file "$envfile" logs --no-color --tail 25 "${services[@]}" >&2 || true
+  rollback
+fi
 step="ověření HTTPS a připravenosti API"
 echo "[CYRIS] $step"
 check_https

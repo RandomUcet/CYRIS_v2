@@ -27,7 +27,9 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV API_INTERNAL_URL="http://api:4000"
 ENV NEXT_PUBLIC_API_URL="/api"
-RUN pnpm --filter @cyris/contracts build && \
+# Source archives may have been extracted with umask 077. The runner uses a separate UID.
+RUN chmod -R go=rX package.json packages apps/web && \
+    pnpm --filter @cyris/contracts build && \
     pnpm --filter @cyris/shared build && \
     pnpm --filter @cyris/web build
 
