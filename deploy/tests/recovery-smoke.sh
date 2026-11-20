@@ -11,7 +11,7 @@ cp deploy/cyris.env.template "$CYRIS_ETC_DIR/cyris.env"
 chmod 600 "$CYRIS_ETC_DIR/cyris.env"
 cp docker/postgres/01-init-pgvector.sql "$CYRIS_OPT_DIR/docker/postgres/"
 cp deploy/release-manifest.json "$CYRIS_OPT_DIR/"
-sed -e "s|/var/lib/cyris/|$CYRIS_VAR_DIR/|g" -e "s|/opt/cyris/|$CYRIS_OPT_DIR/|g" -e "s|/etc/cyris/|$CYRIS_ETC_DIR/|g" -e '/^    container_name:/d' deploy/compose.prod.yml > "$CYRIS_OPT_DIR/docker-compose.yml"
+sed -e "s|/var/lib/cyris/|$CYRIS_VAR_DIR/|g" -e "s|/opt/cyris/|$CYRIS_OPT_DIR/|g" -e "s|/etc/cyris/|$CYRIS_ETC_DIR/|g" -e "s|^    name: cyris-internal$|    name: $COMPOSE_PROJECT_NAME|" -e '/^    container_name:/d'  deploy/compose.prod.yml > "$CYRIS_OPT_DIR/docker-compose.yml"
 compose=(docker compose -f "$CYRIS_OPT_DIR/docker-compose.yml" --env-file "$CYRIS_ETC_DIR/cyris.env")
 trap '"${compose[@]}" down --remove-orphans && rm -rf -- "$stage"' EXIT
 "${compose[@]}" up -d --wait --wait-timeout 180 postgres redis typesense minio

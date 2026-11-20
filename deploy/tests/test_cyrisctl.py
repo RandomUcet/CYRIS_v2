@@ -43,6 +43,8 @@ class Operations(unittest.TestCase):
         self.args = argparse.Namespace(backup=None, force=True, version=None)
 
     def test_encrypted_restore_and_corrupt_input(self):
+        checkpoint = Path(ctl.CYRIS_VAR, "typesense", "checkpoint")
+        os.link(checkpoint.with_name("item"), checkpoint)
         archive = ctl.cmd_backup(self.args)
         self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
         self.args.backup = str(archive)
@@ -92,6 +94,25 @@ class Operations(unittest.TestCase):
         self.docker.assert_not_called()
         self.assertEqual(ctl.get_installed_version(), "abc123")
         self.assertEqual(Path(ctl.CYRIS_ENV_FILE).read_text(), "env")
+
+    def test_update_commits_manifest_only_after_readiness(self):
+        images = {s: f"ghcr.io/randomucet/cyris-{s}@sha256:" + "a"*64 for s in ctl.APP_SERVICES}
+        manifest = json.dumps({"version":"2.0.1","images":images}).encode()
+        Path(ctl.CYRIS_ENV_FILE).write_text("CUSTOM_TLS=keep\nCYRIS_VERSION=abc123\n")
+        def compose(*args, **kw):
+            if "curl" in args:
+                self.assertEqual(ctl.get_installed_version(), "abc123")
+                self.assertIn("CUSTOM_TLS=keep", Path(ctl.CYRIS_ENV_FILE).read_text())
+            return Mock(stdout="api worker web postgres")
+        self.docker.side_effect = compose
+        self.enterContext(patch.object(ctl, "github_release", return_value={"tag_name":"v2.0.1"}))
+        self.enterContext(patch.object(ctl, "release_asset", return_value=manifest))
+        check = Mock(returncode=0, stdout='{"status":"UP_TO_DATE","pendingCount":0,"totalAvailable":4}')
+        self.enterContext(patch.object(ctl, "run_command", return_value=check))
+        ctl.cmd_update(self.args)
+        self.assertEqual(ctl.get_installed_version(), "2.0.1")
+        self.assertEqual(ctl.load_env(ctl.CYRIS_ENV_FILE)["CYRIS_API_IMAGE"], images["api"])
+        self.assertEqual(len(list(Path(ctl.CYRIS_BACKUPS).glob("*.gpg"))), 1)
 
     def test_release_asset_digest_required(self):
         good = hashlib.sha256(b"data").hexdigest()

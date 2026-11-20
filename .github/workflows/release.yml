@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     branches: [main]
+    tags: ["v*"]
     paths: [deploy/VERSION]
   workflow_dispatch:
 
@@ -18,7 +19,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   publish:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs: validate
     permissions:
       contents: write
@@ -48,8 +49,14 @@ jobs:
         run: |
           VERSION=$(cat deploy/VERSION)
           [[ "$VERSION" =~ ^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$ ]]
-          git fetch --tags
-          if git show-ref --verify --quiet "refs/tags/v$VERSION"; then
+          git fetch --unshallow --tags origin main
+          if [[ $GITHUB_REF_TYPE == tag ]]; then
+            [[ $GITHUB_REF_NAME == "v$VERSION" ]]
+            git merge-base --is-ancestor HEAD FETCH_HEAD
+            # Prevent a rerun from replacing an existing release.
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' > "$RUNNER_TEMP/cyris-tags"
+            if grep -Fxq "v$VERSION" "$RUNNER_TEMP/cyris-tags"; then exit 1; fi
+          elif git show-ref --verify --quiet "refs/tags/v$VERSION"; then
             echo "Version v$VERSION already tagged. Select a new version." >&2
             exit 1
           fi
@@ -128,6 +135,25 @@ jobs:
               json.dump(manifest, f, indent=2)
           EOF
 
+      - name: Package Ubuntu installer with matching image references
+        run: |
+          bundle=$(mktemp -d)
+          mkdir -p "$bundle/deploy" "$bundle/docker/postgres"
+          cp deploy/{install.sh,cyrisctl,compose.prod.yml,cyris.env.template,Provoz.md} "$bundle/deploy/"
+          cp docker/postgres/01-init-pgvector.sql "$bundle/docker/postgres/"
+          cp release-manifest.json "$bundle/deploy/"
+          python3 - "$bundle/deploy" <<'PYTHON'
+          import json, pathlib, sys
+          directory = pathlib.Path(sys.argv[1])
+          release = json.loads((directory / "release-manifest.json").read_text())
+          template = directory / "cyris.env.template"
+          lines = [line for line in template.read_text().splitlines() if not line.startswith("CYRIS_VERSION=")]
+          lines.append("CYRIS_VERSION=" + release["version"])
+          lines.extend(f"CYRIS_{s.upper()}_IMAGE={image}" for s, image in release["images"].items())
+          template.write_text("\n".join(lines) + "\n")
+          PYTHON
+          tar -C "$bundle" -czf cyris-ubuntu.tar.gz deploy docker
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -136,6 +162,7 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             release-manifest.json
+            cyris-ubuntu.tar.gz
             deploy/cyrisctl
             deploy/install.sh
             deploy/compose.prod.yml

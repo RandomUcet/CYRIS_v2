@@ -238,8 +238,12 @@ chown root:root "${CYRIS_BACKUPS}"
 # ------------------------------------------------------------------------------
 log_info "Deploying release assets to ${CYRIS_OPT}..."
 
-cp "${SCRIPT_DIR}/compose.prod.yml" "${CYRIS_OPT}/docker-compose.yml"
-cp "${SCRIPT_DIR}/release-manifest.json" "${CYRIS_OPT}/release-manifest.json"
+if [[ ! -e "${CYRIS_OPT}/docker-compose.yml" ]]; then
+  cp "${SCRIPT_DIR}/compose.prod.yml" "${CYRIS_OPT}/docker-compose.yml"
+fi
+if [[ ! -e "${CYRIS_OPT}/release-manifest.json" ]]; then
+  cp "${SCRIPT_DIR}/release-manifest.json" "${CYRIS_OPT}/release-manifest.json"
+fi
 if [[ -f "${REPO_DIR}/docker/postgres/01-init-pgvector.sql" ]]; then
   cp "${REPO_DIR}/docker/postgres/01-init-pgvector.sql" "${CYRIS_OPT}/docker/postgres/01-init-pgvector.sql"
 fi

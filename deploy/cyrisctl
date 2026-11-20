@@ -754,6 +754,21 @@ def safe_member(info):
     return info
 
 
+def add_snapshot_path(archive, path, name):
+    # Hard-linked regular files can occur in index checkpoints. Archive their contents;
+    # external symlinks would refer to data outside the recovery set.
+    if path.is_symlink():
+        raise ValueError(f"External link requires a separate recovery plan: {path}")
+    def normalize(member):
+        safe_member(member)
+        member.mode &= 0o777
+        return member
+    archive.add(path, arcname=name, recursive=False, filter=normalize)
+    if path.is_dir():
+        for child in sorted(path.iterdir()):
+            add_snapshot_path(archive, child, name + "/" + child.name)
+
+
 def snapshot_inventory(archive):
     names = set()
     roots = set()
@@ -803,12 +818,12 @@ def cmd_backup(args):
         try:
             if services:
                 docker_compose_cmd("stop", *services, capture=False)
-            with tarfile.open(raw, "w:gz", compresslevel=1, dereference=False) as tar:
+            with tarfile.open(raw, "w:gz", compresslevel=1, dereference=True) as tar:
                 for name, p in paths.items():
-                    tar.add(p, arcname=name, filter=lambda member: safe_member(member).replace(mode=member.mode & 0o777, deep=False))
+                    add_snapshot_path(tar, p, name)
         finally:
             if services:
-                docker_compose_cmd("start", *services, capture=False)
+                docker_compose_cmd("start", "--wait", "--wait-timeout", "240", *services, capture=False)
         with tarfile.open(raw, "r:gz") as archive:
             snapshot_inventory(archive)
         crypt_archive(raw, sealed)
@@ -891,7 +906,7 @@ def cmd_restore(args):
                 if previous.exists():
                     os.replace(previous, paths[root])
             if services:
-                docker_compose_cmd("up", "-d", "--wait", *services, capture=False)
+                docker_compose_cmd("up", "-d", "--no-deps", "--force-recreate", "--wait", *services, capture=False)
             recovery_complete = True
             raise
     print("Snapshot restored.")
@@ -1173,6 +1188,7 @@ def cmd_update(args):
 
 def cmd_self_update(args):
     release = github_release()
+    release_settings(json.loads(release_asset(release, "release-manifest.json")), release["tag_name"][1:])
     data = release_asset(release, "cyrisctl")
     compile(data, "cyrisctl", "exec")
     atomic_file(Path(CYRIS_OPT, "bin", "cyrisctl"), data, 0o755)
