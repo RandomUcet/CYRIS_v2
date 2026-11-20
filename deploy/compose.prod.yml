@@ -1,6 +1,18 @@
 name: cyris-prod
 
 services:
+  gateway:
+    profiles: ["lan-https"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - /opt/cyris/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /var/lib/cyris/caddy:/data
+    networks:
+      - cyris-internal
+
   # ----------------------------------------------------------------------------
   # 1. PostgreSQL 16 with pgvector (Primary Source of Truth)
   # ----------------------------------------------------------------------------
@@ -226,7 +238,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "${CYRIS_HTTP_PORT:-3000}:3000"
+      - "${CYRIS_WEB_BIND:-0.0.0.0}:${CYRIS_HTTP_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
       PORT: 3000

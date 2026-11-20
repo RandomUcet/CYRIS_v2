@@ -2,6 +2,8 @@
 
 Production-grade deployment and operations layer for **Ubuntu Server 24.04 LTS (x86_64 / aarch64)**.
 
+Pro první nasazení z Macu použijte [český návod pro samostatnou VM v CYLAB](Prvni-server.md). Stažený balíček obsahuje průvodce i zdrojový kód. Níže uvedený postup používá obrazy z registru.
+
 ---
 
 ## 1. Operator Experience on Fresh Ubuntu Server 24.04 LTS
