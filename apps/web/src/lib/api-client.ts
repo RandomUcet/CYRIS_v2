@@ -1,5 +1,6 @@
 import type {
   HealthResponse,
+  PlatformAdminAccount,
   LabAnalysisDetail,
   ReadinessResponse,
   CurrentUserResponse,
@@ -1476,6 +1477,15 @@ export class CyrisApiClient {
 
   async loginLdap(payload: LdapAuthRequest) {
     return this.postJson<unknown>('/auth/ldap/login', payload);
+  }
+
+  async listPlatformAdmins(query: string) {
+    return this.fetchJson<{ accounts: PlatformAdminAccount[]; hasMore: boolean }>(
+      `/admin/platform-administrators?q=${encodeURIComponent(query)}`);
+  }
+
+  async setPlatformAdmin(userId: string, enabled: boolean) {
+    return this.putJson<{ ok: boolean }>(`/admin/platform-administrators/${userId}`, { enabled });
   }
 
   async listLdapTeamAccounts(eventId: string, query: string, unassigned: boolean) {
