@@ -39,7 +39,7 @@ export default function EvidenceDetailPage() {
   const evidenceId = params.evidenceId as string;
   const { hasPermission, user } = useAuth();
   const { currentEvent } = useEvent();
-  const { formatTime } = usePreferences();
+  const { formatTime, locale } = usePreferences();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'custody' | 'timeline' | 'relations'>('overview');
   const [loading, setLoading] = useState(true);
@@ -67,7 +67,7 @@ export default function EvidenceDetailPage() {
   const [relType, setRelType] = useState('RELATED_TO');
   const [addingRel, setAddingRel] = useState(false);
 
-  const canTransfer = hasPermission('evidence.transfer');
+  const canTransfer = hasPermission('evidence.transfer', eventId);
 
   const fetchEvidenceDetails = async () => {
     setLoading(true);
@@ -198,7 +198,7 @@ export default function EvidenceDetailPage() {
   }
 
   const evidence = evidenceData.evidence || evidenceData;
-  const custodyHistory = evidenceData.custody || evidenceData.transfers || [];
+  const custodyHistory = evidenceData.custodyHistory ?? evidenceData.custody ?? evidenceData.transfers ?? [];
   const linkedCase = evidenceData.case;
   const relationships = evidenceData.relationships || [];
 
@@ -222,6 +222,11 @@ export default function EvidenceDetailPage() {
           lead={evidence.currentHolderUserId ? `Holder: ${evidence.currentHolderUserId.slice(0, 8)}` : 'Secure Storage'}
           actions={
             <div style={{ display: 'flex', gap: '8px' }}>
+              {hasPermission('lab.request', eventId) && (
+                <Link className="btn btn-secondary" href={`/events/${eventId}/lab?fromEvidence=${evidenceId}`}>
+                  {locale === 'cs' ? 'Zadat laboratorní rozbor' : 'Request lab analysis'}
+                </Link>
+              )}
               <button
                 onClick={() => setShowPrintModal(true)}
                 className="btn btn-secondary"

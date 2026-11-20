@@ -8,6 +8,8 @@ import { StatusBadge } from '@/components/common/Badges';
 import { apiClient } from '@/lib/api-client';
 import Link from 'next/link';
 import { useServiceStatus } from '@/hooks/useServiceStatus';
+import { useEvent } from '@/contexts/EventContext';
+import { workspaceItemLabel } from '@/lib/workspace-navigation';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import type { MyWorkResponse, MyWorkView } from '@cyris/contracts';
 
@@ -20,6 +22,11 @@ function WorkQueue({ eventId }: { eventId: string }) {
   const { data: serviceStatus, error: serviceStatusError } = useServiceStatus(eventId);
   const [guideOpen, setGuideOpen] = useState(false);
   const { formatDate, t, locale } = usePreferences();
+  const { workspace } = useEvent();
+  const team = workspace?.eventId === eventId ? workspace : null;
+  const shortcuts = (team?.sections ?? [])
+    .filter(section => ['analysis-section', 'medical-section', 'command-section', 'forensics-section', 'investigation-section', 'prosecution-section', 'evidence-section'].includes(section.id))
+    .flatMap(section => section.items.slice(0, 1));
   const cs = locale === 'cs';
   const [view, setView] = useState<MyWorkView>('personal');
   const [unitId, setUnitId] = useState('');
@@ -83,11 +90,18 @@ function WorkQueue({ eventId }: { eventId: string }) {
     <AppShell breadcrumbs={[{ label: 'Operations' }, { label: 'My Work' }]}>
       <div className="my-work-page">
         <div style={{ marginBottom: 16 }}>
+          {team && team.unitNames.length > 0 && <p className="work-team-name">{team.unitNames.join(' · ')}</p>}
           <h1 style={{ margin: 0, fontSize: '1.5rem' }}>{cs ? 'Moje práce' : 'My Work'}</h1>
           <p className="my-work-subtitle">
             {t('myWork.subtitle')}
           </p>
         </div>
+        {team && team.unitNames.length > 0 && shortcuts.length > 0 && (
+          <nav className="work-shortcuts" aria-label={cs ? 'Pracoviště týmu' : 'Team workspaces'}>
+            {shortcuts.map(item =>
+              <Link key={item.href} href={item.href}>{workspaceItemLabel(locale, item)} <span aria-hidden="true">→</span></Link>)}
+          </nav>
+        )}
         <details className="work-guide" open={guideOpen} onToggle={e=>setGuideOpen(e.currentTarget.open)}>
           <summary>{cs?'Jak začít pracovat':'How to get started'}</summary>
           <div><p>{cs?'Zde najdete úkoly a požadavky, které jsou vám přiděleny. Otevřete záznam, přečtěte si zadání a pracujte podle jeho dostupných akcí. Než začnete, zkontrolujte brífinky a případná omezení služeb.':'Open your assigned tasks and requests, read their instructions and use the actions available on each record. Check briefings and service restrictions before starting.'}</p>

@@ -11,6 +11,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
+  evidence,
   labAnalyses,
   labAnalysisEvidence,
   resources,
@@ -30,6 +31,7 @@ import type {
   CreateLabAnalysisRequest,
   UpdateLabAnalysisRequest,
   LabAnalysisResponse,
+  LabAnalysisDetail,
   ReassignLabAnalysisRequest,
   CorrectLabAnalysisRequest,
 } from '@cyris/contracts';
@@ -397,6 +399,27 @@ export class LaboratoryService {
       updatedAt: row.analysis.updatedAt.toISOString(),
       evidenceIds: evidenceLinks.map((l) => l.evidenceId),
     };
+  }
+
+  async getAnalysisDetail(eventId: string, analysisId: string, user: AuthenticatedUser): Promise<LabAnalysisDetail> {
+    const record = await this.getAnalysis(eventId, analysisId, user);
+    const [accept, work, complete, approve] = await Promise.all([
+      Permissions.LAB_ACCEPT, Permissions.LAB_WORK, Permissions.LAB_COMPLETE, Permissions.LAB_APPROVE,
+    ].map(permission => this.resourceAccessService.canAccessResource(user, analysisId, permission)));
+    const visibleIds: string[] = [];
+    for (const id of record.evidenceIds ?? []) {
+      if (await this.resourceAccessService.canAccessResource(user, id, Permissions.EVIDENCE_READ)) visibleIds.push(id);
+    }
+    const [items, analysts, units] = await Promise.all([
+      visibleIds.length ? this.db.select({ id: evidence.id, title: evidence.title, evidenceNumber: evidence.evidenceNumber, status: evidence.status })
+        .from(evidence).innerJoin(resources, eq(evidence.id, resources.id)).where(and(inArray(evidence.id, visibleIds), eq(resources.eventId, eventId))) : [],
+      record.assignedToUserId ? this.db.select({ name: users.displayName }).from(users).where(eq(users.id, record.assignedToUserId)) : [],
+      record.assignedUnitId ? this.db.select({ name: organizationalUnits.name }).from(organizationalUnits)
+        .where(and(eq(organizationalUnits.eventId, eventId), eq(organizationalUnits.id, record.assignedUnitId))) : [],
+    ]);
+    return { ...record, evidenceIds: items.map(item => item.id), evidenceItems: items,
+      analystName: analysts[0]?.name ?? null, unitName: units[0]?.name ?? null,
+      actions: { accept: !!accept, work: !!work, complete: !!complete, approve: !!approve } };
   }
 
   async createAnalysis(

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
@@ -30,7 +30,10 @@ export default function LabListPage() {
   const router = useRouter();
   const eventId = params.eventId as string;
   const { hasPermission, user } = useAuth();
-  const { formatDate } = usePreferences();
+  const { formatDate, locale } = usePreferences();
+  const cs = locale === 'cs';
+  const sourceEvidence = useSearchParams().get('fromEvidence');
+  const [evidenceLabel, setEvidenceLabel] = useState('');
 
   const [analyses, setAnalyses] = useState<LabItem[]>([]);
   const [labUnits, setLabUnits] = useState<Array<{ id: string; name: string }>>([]);
@@ -43,7 +46,7 @@ export default function LabListPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
-  // Modal: Request Analysis
+  // Request form
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -55,6 +58,24 @@ export default function LabListPage() {
   });
 
   const canRequest = hasPermission('lab.request', eventId);
+
+  useEffect(() => {
+    if (!sourceEvidence || !canRequest) return;
+    let active = true;
+    apiClient.getEvidenceItem(eventId, encodeURIComponent(sourceEvidence)).then(response => {
+      if (!active) return;
+      setShowCreateModal(true);
+      const record = response.data?.evidence ?? response.data;
+      if (response.ok && record?.id === sourceEvidence) {
+        setFormData(current => ({ ...current, evidenceId: record.id }));
+        setEvidenceLabel(`${record.evidenceNumber} · ${record.title}`);
+      } else {
+        setFormError(locale === 'cs' ? 'Vzorek se nepodařilo načíst.' : 'Unable to access the evidence.');
+      }
+      router.replace(`/events/${eventId}/lab`, { scroll: false });
+    });
+    return () => { active = false; };
+  }, [sourceEvidence, canRequest, eventId, locale, router]);
 
   const fetchAnalyses = async () => {
     setLoading(true);
@@ -123,6 +144,7 @@ export default function LabListPage() {
 
       if (res.ok && res.data) {
         setShowCreateModal(false);
+        setEvidenceLabel('');
         setFormData({ analysisType: '', purpose: '', evidenceId: '', requestedFromUnitId: '' });
         router.push(`/events/${eventId}/lab/${res.data.id}`);
       } else {
@@ -227,10 +249,10 @@ export default function LabListPage() {
               }}
             >
               <FlaskConical size={20} color="var(--color-accent-ops)" />
-              Forensic & Chemical Laboratory Workflows
+              {cs ? 'Laboratorní požadavky' : 'Laboratory requests'}
             </h1>
             <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--color-text-dim)' }}>
-              Analytical tasking, acquisition protocol verification, forensic conclusions, and peer approval pipelines.
+              {cs ? 'Zadání rozborů, přidělené vzorky a výsledky.' : 'Requests, assigned samples and results.'}
             </p>
           </div>
 
@@ -251,7 +273,7 @@ export default function LabListPage() {
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
                 <Plus size={15} />
-                Request Analysis
+                {cs ? 'Zadat rozbor' : 'Request analysis'}
               </button>
             )}
           </div>
@@ -367,7 +389,7 @@ export default function LabListPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <FlaskConical size={16} color="var(--color-accent-ops)" />
                   <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                    Commission Laboratory Analysis
+                    {cs ? 'Nový laboratorní požadavek' : 'New laboratory request'}
                   </span>
                 </div>
                 <button
@@ -397,22 +419,23 @@ export default function LabListPage() {
 
                 <div style={{ marginBottom: '14px' }}>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                    Responsible laboratory
+                    {cs ? 'Odpovědná laboratoř' : 'Responsible laboratory'}
                   </label>
                   <select
+                    required={labUnits.length > 1}
                     value={formData.requestedFromUnitId}
                     onChange={(e) => setFormData({ ...formData, requestedFromUnitId: e.target.value })}
                     className="input-field"
                     style={{ width: '100%' }}
                   >
-                    <option value="">Automatic assignment</option>
-                    {labUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+                    <option value="">{labUnits.length > 1 ? (cs ? 'Vyberte laboratoř' : 'Select a laboratory') : (labUnits[0]?.name ?? (cs ? 'Automaticky' : 'Automatic assignment'))}</option>
+                    {labUnits.length > 1 && labUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
                   </select>
                 </div>
 
                 <div style={{ marginBottom: '14px' }}>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                    Analysis type *
+                    {cs ? 'Typ rozboru *' : 'Analysis type *'}
                   </label>
                   <input
                     type="text"
@@ -427,18 +450,26 @@ export default function LabListPage() {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
-                  <ResourcePicker
+                  {evidenceLabel ? (
+                    <div>
+                      <strong>{evidenceLabel}</strong>
+                      <button type="button" className="btn-ghost" onClick={() => {
+                        setEvidenceLabel('');
+                        setFormData(current => ({ ...current, evidenceId: '' }));
+                      }}>{locale === 'cs' ? 'Změnit vzorek' : 'Change evidence'}</button>
+                    </div>
+                  ) : <ResourcePicker
                     eventId={eventId}
                     value={formData.evidenceId}
                     onChange={(value) => setFormData({ ...formData, evidenceId: value })}
-                    label="Evidence"
+                    label={cs ? 'Vzorek' : 'Evidence'}
                     types="evidence"
-                  />
+                  />}
                 </div>
 
                 <div style={{ marginBottom: '18px' }}>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                    Analytical Purpose & Tasking Questions
+                    {cs ? 'Co má laboratoř zjistit?' : 'What should the laboratory determine?'}
                   </label>
                   <textarea
                     rows={4}
@@ -457,10 +488,10 @@ export default function LabListPage() {
                     className="btn btn-secondary"
                     disabled={submitting}
                   >
-                    Cancel
+                    {cs ? 'Zrušit' : 'Cancel'}
                   </button>
                   <button type="submit" className="btn btn-primary" disabled={submitting}>
-                    {submitting ? 'Submitting...' : 'Dispatch Request'}
+                    {submitting ? '…' : cs ? 'Odeslat požadavek' : 'Submit request'}
                   </button>
                 </div>
               </form>

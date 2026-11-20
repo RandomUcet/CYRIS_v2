@@ -71,7 +71,7 @@ export class LaboratoryController {
     @Param('analysisId') analysisId: string,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.laboratoryService.getAnalysis(eventId, analysisId, user);
+    return this.laboratoryService.getAnalysisDetail(eventId, analysisId, user);
   }
 
   @Patch(':analysisId')

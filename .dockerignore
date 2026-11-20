@@ -28,3 +28,5 @@ backups/
 # Documentation & tests
 docs/
 scratch/
+
+.cyris-preview/

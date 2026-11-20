@@ -11,7 +11,7 @@ import {
   scenarioDeliveries,
   MembershipStatus,
 } from '@cyris/db';
-import { Permissions, PermissionScopes } from '@cyris/shared';
+import { Permissions } from '@cyris/shared';
 import {
   UnitCapabilityKeys,
   type WorkspaceResolutionResponse,
@@ -151,6 +151,7 @@ export class WorkspaceResolverService {
       canReadTasks,
       canReadMedical,
       canReadEvaluation,
+      canUseLab,
     ] = await Promise.all([
       this.authzService.authorize({
         user,
@@ -219,6 +220,9 @@ export class WorkspaceResolverService {
         user,
         permission: Permissions.EVALUATION_READ,
         context: { eventId },
+      }),
+      isPlatformAdmin || this.authzService.hasEventCapability({
+        user, permission: Permissions.LAB_READ, eventId, resourceScopes: ['OWN', 'ASSIGNED'],
       }),
     ]);
 
@@ -607,7 +611,7 @@ export class WorkspaceResolverService {
       }
 
       // --- SPECIALIST CHEMICAL ANALYSIS ---
-      if (hasChemical) {
+      if (canUseLab) {
         const analysisSection: WorkspaceNavSection = {
           id: 'analysis-section',
           title: 'Analysis',
@@ -617,12 +621,6 @@ export class WorkspaceResolverService {
           id: 'nav-lab-queue',
           label: 'Work Queue',
           href: `/events/${eventId}/lab`,
-          iconKey: 'flask',
-        });
-        addItem(analysisSection, {
-          id: 'nav-chemical-analysis',
-          label: 'Chemical Analysis',
-          href: `/events/${eventId}/lab?kind=chemical`,
           iconKey: 'flask',
         });
         sections.push(analysisSection);

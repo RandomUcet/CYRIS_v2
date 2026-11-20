@@ -41,5 +41,10 @@ if [[ "${CYRIS_SEED_ON_START:-0}" == "1" ]]; then
   pnpm seed:system
 fi
 
+if [[ "${CYRIS_TEAM_PREVIEW:-0}" == "1" ]]; then
+  pnpm teams:setup
+  export NEXT_PUBLIC_CYRIS_TEAM_PREVIEW=1
+fi
+
 log "Starting application processes. Existing exercise data and accounts are preserved."
 exec node scripts/dev-apps.mjs

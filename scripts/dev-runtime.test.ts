@@ -3,12 +3,11 @@ import test from 'node:test';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 test('startup requires every expected container and successful bucket initialization', () => {
   const fixture = mkdtempSync(join(tmpdir(), 'cyris-health-test-'));
-  const helper = fileURLToPath(new URL('./dev-runtime.sh', import.meta.url));
+  const helper = join(process.cwd(), 'scripts', 'dev-runtime.sh');
   writeFileSync(join(fixture, 'docker'), `#!/usr/bin/env bash
 if [[ "$1" == 'compose' ]]; then
   service="\${@: -1}"

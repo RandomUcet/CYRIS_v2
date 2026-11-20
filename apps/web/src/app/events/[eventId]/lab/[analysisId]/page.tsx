@@ -1,5 +1,6 @@
 'use client';
 
+import type { LabAnalysisDetail } from '@cyris/contracts';
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -35,14 +36,14 @@ export default function LabAnalysisDetailPage() {
   const router = useRouter();
   const eventId = params.eventId as string;
   const analysisId = params.analysisId as string;
-  const { hasPermission, user } = useAuth();
-  const { formatTime } = usePreferences();
+  const { hasPermission, user, viewAs } = useAuth();
+  const { formatTime, locale } = usePreferences();
 
   const [activeTab, setActiveTab] = useState<'workflow' | 'evidence' | 'timeline'>('workflow');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [analysisData, setAnalysisData] = useState<any>(null);
+  const [analysisData, setAnalysisData] = useState<LabAnalysisDetail | null>(null);
   const [timelineItems, setTimelineItems] = useState<any[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
@@ -58,9 +59,9 @@ export default function LabAnalysisDetailPage() {
   const [selectedWorkerId, setSelectedWorkerId] = useState('');
   const [reassignReason, setReassignReason] = useState('');
 
-  const canApprove = hasPermission('lab.approve', eventId);
-  const canReassign = hasPermission('lab.reassign', eventId);
-  const canCorrect = hasPermission('lab.correct', eventId);
+  const cs = locale === 'cs';
+  const canReassign = !viewAs && hasPermission('lab.reassign', eventId);
+  const canCorrect = !viewAs && hasPermission('lab.correct', eventId);
 
   const fetchAnalysisDetails = async () => {
     setLoading(true);
@@ -248,9 +249,10 @@ export default function LabAnalysisDetailPage() {
     );
   }
 
-  const currentStageIndex = STAGES.indexOf(analysisData.status);
-  const linkedEvidence = analysisData.evidence;
-  const linkedCase = analysisData.case;
+  const currentStageIndex = STAGES.findIndex(stage => stage === analysisData.status);
+  const evidenceItems: LabAnalysisDetail['evidenceItems'] = analysisData.evidenceItems ?? [];
+  const actions: LabAnalysisDetail['actions'] = analysisData.actions;
+  const canEdit = !viewAs && actions?.work && analysisData.status !== 'APPROVED';
 
   return (
     <AppShell
@@ -268,8 +270,8 @@ export default function LabAnalysisDetailPage() {
           status={<StatusBadge status={analysisData.status} />}
           priority={<span className="badge badge-neutral">FORENSIC ANALYSIS</span>}
           classification={<span className="badge badge-neutral">LAB REPORT</span>}
-          owningUnit={analysisData.assignedUnitId ? 'Responsible laboratory assigned' : 'Laboratory unassigned'}
-          lead={analysisData.assignedToUserId ? 'Assigned analyst' : 'Unassigned'}
+          owningUnit={analysisData.unitName || '—'}
+          lead={analysisData.analystName || '—'}
           actions={
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
@@ -395,7 +397,7 @@ export default function LabAnalysisDetailPage() {
 
           {/* Quick Lifecycle Action Button */}
           <div>
-            {analysisData.status === 'REQUESTED' && (
+            {analysisData.status === 'REQUESTED' && !viewAs && actions?.accept && (
               <button
                 onClick={() => handleStatusTransition('ACCEPTED')}
                 disabled={updating}
@@ -403,10 +405,10 @@ export default function LabAnalysisDetailPage() {
                 style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
               >
                 <CheckCircle2 size={13} />
-                Accept Commission
+                {cs ? 'Převzít požadavek' : 'Accept request'}
               </button>
             )}
-            {analysisData.status === 'ACCEPTED' && (
+            {analysisData.status === 'ACCEPTED' && !viewAs && actions?.work && (
               <button
                 onClick={() => handleStatusTransition('IN_PROGRESS')}
                 disabled={updating}
@@ -414,10 +416,10 @@ export default function LabAnalysisDetailPage() {
                 style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
               >
                 <Play size={13} />
-                Begin Analysis
+                {cs ? 'Zahájit rozbor' : 'Start analysis'}
               </button>
             )}
-            {analysisData.status === 'IN_PROGRESS' && (
+            {analysisData.status === 'IN_PROGRESS' && !viewAs && actions?.complete && (
               <button
                 onClick={() => handleStatusTransition('COMPLETED')}
                 disabled={updating}
@@ -425,10 +427,10 @@ export default function LabAnalysisDetailPage() {
                 style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
               >
                 <FileCheck size={13} />
-                Mark Analysis Completed
+                {cs ? 'Dokončit rozbor' : 'Complete analysis'}
               </button>
             )}
-            {analysisData.status === 'COMPLETED' && canApprove && (
+            {analysisData.status === 'COMPLETED' && !viewAs && actions?.approve && (
               <button
                 onClick={() => handleStatusTransition('APPROVED')}
                 disabled={updating}
@@ -467,7 +469,7 @@ export default function LabAnalysisDetailPage() {
         <RecordTabs
           tabs={[
             { id: 'workflow', label: 'Protocol & Findings', icon: <FlaskConical size={14} /> },
-            { id: 'evidence', label: 'Evidence Input', count: linkedEvidence ? 1 : 0, icon: <FolderOpen size={14} /> },
+            { id: 'evidence', label: 'Evidence Input', count: evidenceItems.length, icon: <FolderOpen size={14} /> },
             { id: 'timeline', label: 'Activity Timeline', count: timelineItems.length, icon: <Clock size={14} /> },
           ]}
           activeTab={activeTab}
@@ -499,7 +501,7 @@ export default function LabAnalysisDetailPage() {
                       marginBottom: '8px',
                     }}
                   >
-                    Analytical Objective & Questions
+                    {cs ? 'Zadání' : 'Objective'}
                   </div>
                   <div style={{ fontSize: '13px', color: 'var(--color-text-main)', lineHeight: '1.6' }}>
                     {analysisData.purpose || 'No explicit purpose documented upon request.'}
@@ -524,30 +526,30 @@ export default function LabAnalysisDetailPage() {
                     }}
                   >
                     <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                      Forensic Methodology & Findings
+                      {cs ? 'Výsledek rozboru' : 'Analysis results'}
                     </span>
-                    {analysisData.status !== 'APPROVED' && (
+                    {canEdit && (
                       <button
                         onClick={handleSaveDraft}
                         disabled={updating}
                         className="btn btn-secondary"
                         style={{ fontSize: '11px' }}
                       >
-                        Save Draft
+                        {cs ? 'Uložit rozpracovaný výsledek' : 'Save draft'}
                       </button>
                     )}
                   </div>
 
                   <div style={{ marginBottom: '16px' }}>
                     <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                      Methodology & Acquisition Tools
+                      {cs ? 'Použitá metoda' : 'Method'}
                     </label>
                     <textarea
                       rows={3}
                       placeholder="e.g. Volatility 3 memory triage, SHA-256 integrity hash verification, Ghidra disassembly..."
                       value={method}
                       onChange={(e) => setMethod(e.target.value)}
-                      disabled={analysisData.status === 'APPROVED'}
+                      readOnly={!canEdit}
                       className="input-field"
                       style={{ width: '100%', resize: 'vertical' }}
                     />
@@ -555,14 +557,14 @@ export default function LabAnalysisDetailPage() {
 
                   <div style={{ marginBottom: '16px' }}>
                     <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                      Key Findings & Technical Indicators
+                      {cs ? 'Zjištění' : 'Findings'}
                     </label>
                     <textarea
                       rows={5}
                       placeholder="Document extracted IP addresses, persistence registry keys, compromised user tokens..."
                       value={findings}
                       onChange={(e) => setFindings(e.target.value)}
-                      disabled={analysisData.status === 'APPROVED'}
+                      readOnly={!canEdit}
                       className="input-field"
                       style={{ width: '100%', resize: 'vertical' }}
                     />
@@ -570,14 +572,14 @@ export default function LabAnalysisDetailPage() {
 
                   <div>
                     <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                      Forensic Conclusion & Expert Opinion
+                      {cs ? 'Závěr' : 'Conclusion'}
                     </label>
                     <textarea
                       rows={3}
                       placeholder="Conclusive assessment for investigative leadership or courtroom presentation..."
                       value={conclusion}
                       onChange={(e) => setConclusion(e.target.value)}
-                      disabled={analysisData.status === 'APPROVED'}
+                      readOnly={!canEdit}
                       className="input-field"
                       style={{ width: '100%', resize: 'vertical' }}
                     />
@@ -592,47 +594,12 @@ export default function LabAnalysisDetailPage() {
                 <div style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--color-text-dim)' }}>
                   Target physical or digital item submitted for this laboratory protocol.
                 </div>
-                {linkedEvidence ? (
-                  <div
-                    style={{
-                      background: 'var(--color-bg-surface)',
-                      border: '1px solid var(--color-border-subtle)',
-                      borderRadius: 'var(--radius-md)',
-                      padding: '16px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                        <FolderOpen size={15} color="var(--color-accent-ops)" />
-                        <RecordIdentifier id={linkedEvidence.evidenceNumber || linkedEvidence.id} prefix="" />
-                        <StatusBadge status={linkedEvidence.status} />
-                      </div>
-                      <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                        {linkedEvidence.title}
-                      </div>
-                      {linkedEvidence.description && (
-                        <div style={{ fontSize: '12px', color: 'var(--color-text-dim)', marginTop: '4px' }}>
-                          {linkedEvidence.description}
-                        </div>
-                      )}
-                    </div>
-                    <Link
-                      href={`/events/${eventId}/evidence/${linkedEvidence.id}`}
-                      className="btn btn-secondary"
-                      style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      View Evidence Record <ArrowRight size={12} />
-                    </Link>
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="No evidence attached"
-                    description="This laboratory task was commissioned without a direct link to an evidence item."
-                  />
-                )}
+                {evidenceItems.length ? evidenceItems.map(item => (
+                  <Link className="btn btn-secondary" key={item.id} href={`/events/${eventId}/evidence/${item.id}`}>
+                    <FolderOpen size={15} /><strong>{item.evidenceNumber}</strong> {item.title} <ArrowRight size={12} />
+                  </Link>
+                )) : <EmptyState title={cs ? 'Žádné dostupné vzorky' : 'No accessible evidence'} />}
+
               </div>
             )}
 
@@ -661,10 +628,9 @@ export default function LabAnalysisDetailPage() {
               { label: 'Analysis Number', value: analysisData.analysisNumber || analysisData.id, copyable: true },
               { label: 'Resource UUID', value: analysisData.id, copyable: true },
               { label: 'Lifecycle Stage', value: <StatusBadge status={analysisData.status} /> },
-              { label: 'Assigned Lab Unit', value: analysisData.labUnitId || 'Forensics Unit' },
-              { label: 'Analyst', value: analysisData.analystUserId || 'Unassigned' },
-              { label: 'Target Evidence', value: linkedEvidence?.evidenceNumber || 'None' },
-              { label: 'Associated Case', value: linkedCase?.caseNumber || 'None' },
+              { label: 'Assigned Lab Unit', value: analysisData.unitName || '—' },
+              { label: 'Analyst', value: analysisData.analystName || '—' },
+              { label: 'Target Evidence', value: evidenceItems.map(item => item.evidenceNumber).join(', ') || '—' },
               { label: 'Requested At', value: formatTime(analysisData.createdAt) },
               { label: 'Last Modified', value: formatTime(analysisData.updatedAt || analysisData.createdAt) },
             ]}

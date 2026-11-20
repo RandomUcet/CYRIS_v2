@@ -1,6 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { CyrisWordmark, CylabLogo } from '@/components/layout/Brand';
+import { previewTeams, previewTeamEmail } from '@cyris/contracts';
+import { usePreferences } from '@/contexts/PreferencesContext';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -11,6 +14,10 @@ import { apiClient } from '@/lib/api-client';
 
 export default function RootPage() {
   const router = useRouter();
+  const { locale } = usePreferences();
+  const preview = process.env.NEXT_PUBLIC_CYRIS_TEAM_PREVIEW === '1';
+  const cs = locale === 'cs' || (preview && locale === 'en' && typeof window !== 'undefined' && !window.localStorage.getItem('cyris_locale'));
+
   const { currentUser, loading, login, isPlatformAdmin, logout } = useAuth();
   const { events, selectedEventId, selectEvent } = useEvent();
 
@@ -60,7 +67,7 @@ export default function RootPage() {
 
     const res = await login({ identifier: email, password });
     if (!res.ok) {
-      setLoginError(res.error || 'Authentication rejected. Verify operational credentials.');
+      setLoginError(res.error || (cs ? 'Přihlášení se nezdařilo.' : 'Sign-in failed.'));
       setSubmitting(false);
     }
   };
@@ -190,171 +197,47 @@ export default function RootPage() {
     );
   }
 
-  // Institutional European Operations Login
-  const oidcProviders = publicProviders.filter((p) => p.category === 'OIDC');
+  const oidcProviders = publicProviders.filter(provider => provider.category === 'OIDC');
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--bg-canvas)',
-        padding: '20px',
-      }}
-    >
-      <div
-        style={{
-          width: '380px',
-          maxWidth: '100%',
-          background: 'var(--bg-panel)',
-          border: '1px solid var(--border-default)',
-          borderTop: '3px solid var(--accent-primary)',
-          borderRadius: 'var(--radius-md)',
-          padding: '28px 24px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '18px',
-          boxShadow: '0 16px 40px rgba(0, 0, 0, 0.08)',
-        }}
-      >
-        {/* Header */}
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <span style={{ width: '8px', height: '8px', background: 'var(--cylab-orange)', borderRadius: '2px' }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '18px', letterSpacing: '0.12em', color: 'var(--text-primary)' }}>
-              CYRIS
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>{systemVersion}</span>
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            Cybertron Registry & Intelligence System
-          </div>
-        </div>
-
-        <div className="divider" style={{ margin: 0 }} />
-
-        {/* OIDC Single Sign-On Providers */}
-        {oidcProviders.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {oidcProviders.map((p) => (
-              <a
-                key={p.id}
-                href={`/api/auth/oidc/${p.id}/authorize`}
-                className="btn-secondary"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  height: '34px',
-                  textDecoration: 'none',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: 'var(--text-primary)',
-                }}
-              >
-                Sign in with {p.displayName}
-              </a>
-            ))}
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
-              <div style={{ flex: 1, height: '1px', background: 'var(--border-subtle)' }} />
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>or continue with</span>
-              <div style={{ flex: 1, height: '1px', background: 'var(--border-subtle)' }} />
-            </div>
-          </div>
-        )}
-
-        {/* Security Classification */}
-        <div
-          style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-sm)',
-            padding: '8px 12px',
-            fontSize: '11px',
-            color: 'var(--text-muted)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <Shield size={14} style={{ color: 'var(--accent-active)', flexShrink: 0 }} />
-          <span>Restricted to authorized exercise operators. All interactions audited.</span>
-        </div>
-
-        {/* Form: Local / LDAP credentials */}
-        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {loginError && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 12px',
-                background: 'var(--status-danger-bg)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '12px',
-                color: 'var(--status-danger)',
-              }}
-            >
-              <AlertCircle size={14} />
-              <span>{loginError}</span>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label htmlFor="login-identifier" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Operator Username / Email
+    <main className="login-page">
+      <section className="login-card" aria-labelledby="login-title">
+        <header className="login-brand"><CyrisWordmark /><span>{systemVersion}</span></header>
+        <div className="login-body">
+          <h1 id="login-title">{cs ? 'Přihlášení ke cvičení' : 'Exercise sign-in'}</h1>
+          {oidcProviders.map(provider => (
+            <a key={provider.id} href={`/api/auth/oidc/${provider.id}/authorize`} className="btn-secondary">
+              {cs ? 'Přihlásit přes' : 'Sign in with'} {provider.displayName}
+            </a>
+          ))}
+          <form onSubmit={handleLogin}>
+            {preview && (
+              <label>{cs ? 'Vyzkoušet tým' : 'Preview a team'}
+                <select value={previewTeams.some(team => previewTeamEmail(team.login) === email) ? email : ''}
+                  onChange={event => { setEmail(event.target.value); setPassword(''); setLoginError(null); }}
+                  disabled={submitting}>
+                  <option value="">{cs ? 'Vlastní přihlášení' : 'Use my own account'}</option>
+                  {previewTeams.map(team => <option key={team.slug} value={previewTeamEmail(team.login)}>{team.name}</option>)}
+                </select>
+              </label>
+            )}
+            <label>{cs ? 'Uživatel nebo e-mail' : 'Username or email'}
+              <input name="identifier" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required disabled={submitting} />
             </label>
-            <input
-              id="login-identifier"
-              name="identifier"
-              type="text"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="operator@cyris.local or LDAP username"
-              required
-              autoComplete="username"
-              disabled={submitting}
-            />
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label htmlFor="login-password" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Password
+            <label>{cs ? 'Heslo' : 'Password'}
+              <input name="password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required disabled={submitting} />
             </label>
-            <input
-              id="login-password"
-              name="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••••"
-              required
-              autoComplete="current-password"
-              disabled={submitting}
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="btn-primary"
-            disabled={submitting}
-            style={{ width: '100%', marginTop: '4px', height: '34px' }}
-          >
-            {submitting ? 'Authenticating…' : 'Sign in to CYRIS'}
-          </button>
-        </form>
-      </div>
-
-      <div style={{ marginTop: '16px', fontSize: '11px', color: 'var(--text-muted)' }}>
-        LOCAL administrator break-glass login is always enabled.
-      </div>
-    </div>
+            {preview && previewTeams.some(team => previewTeamEmail(team.login) === email) && (
+              <p className="login-hint">{cs ? 'Heslo pro tým zobrazíš v terminálu příkazem' : 'Read the local team password with'} <code>pnpm teams:list</code>.</p>
+            )}
+            {loginError && <p role="alert" className="login-error"><AlertCircle size={16} />{loginError}</p>}
+            <button type="submit" className="btn-primary" disabled={submitting}>
+              {submitting ? (cs ? 'Přihlašování…' : 'Signing in…') : (cs ? 'Přihlásit se' : 'Sign in')}<ArrowRight size={16} />
+            </button>
+          </form>
+        </div>
+        <footer className="workspace-brand-footer"><span>CzechCybertron</span><CylabLogo /></footer>
+      </section>
+    </main>
   );
 }

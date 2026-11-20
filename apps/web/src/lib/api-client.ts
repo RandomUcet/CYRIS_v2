@@ -1,5 +1,6 @@
 import type {
   HealthResponse,
+  LabAnalysisDetail,
   ReadinessResponse,
   CurrentUserResponse,
   CreateSupportRequest, SupportInbox, SupportMessageInput,
@@ -419,7 +420,7 @@ export class CyrisApiClient {
     );
   }
   async getLabAnalysis(eventId: string, analysisId: string) {
-    return this.fetchJson<any>(`/events/${eventId}/lab/${analysisId}`);
+    return this.fetchJson<LabAnalysisDetail>(`/events/${eventId}/lab/${analysisId}`);
   }
   async createLabAnalysis(eventId: string, data: any) {
     return this.postJson<any>(`/events/${eventId}/lab`, data);

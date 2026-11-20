@@ -30,3 +30,4 @@ export * from './service-status.js';
 export * from './identity.js';
 
 export * from './support.js';
+export * from './preview-teams.js';

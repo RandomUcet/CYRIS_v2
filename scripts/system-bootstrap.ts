@@ -1,6 +1,6 @@
 import { sql, type CyrisDatabase } from '@cyris/db';
 import { generateId, Permissions, PermissionScopes } from '@cyris/shared';
-import { UnitCapabilityKeys } from '@cyris/contracts';
+import { UnitCapabilityKeys, previewTeams } from '@cyris/contracts';
 
 export interface BootstrapOptions {
   eventId?: string;
@@ -30,7 +30,7 @@ export function readBootstrapOptions(env: Record<string, string | undefined>): B
  * Existing roles and teams are administrator-owned: even removed permissions or
  * capabilities are not restored by a subsequent bootstrap.
  */
-export async function bootstrapSystem(db: CyrisDatabase, options: BootstrapOptions = {}) {
+export async function bootstrapSystem(db: Pick<CyrisDatabase, 'transaction'>, options: BootstrapOptions = {}) {
   const selected = readBootstrapOptions({
     CYRIS_SEED_EVENT_ID: options.eventId,
     CYRIS_SEED_EVENT_SLUG: options.eventSlug,
@@ -218,54 +218,42 @@ export const laboratoryRoles = [
     },
   ];
 
-export const canonicalUnits = [
-    {
-      name: 'Bezpečnostně právní služby',
-      slug: 'bezpecnostne-pravni-sluzby',
+const unitSpecifications = {
+    'bezpecnostne-pravni-sluzby': {
       kind: 'TEAM',
       description: 'Investigation, legal coordination, and case work',
       capabilities: [UnitCapabilityKeys.INVESTIGATION, UnitCapabilityKeys.INCIDENT_OPERATIONS, UnitCapabilityKeys.PROSECUTION],
     },
-    {
-      name: 'Laboratoř levandulového oleje',
-      slug: 'laborator-levanduloveho-oleje',
+    'laborator-levanduloveho-oleje': {
       kind: 'TEAM',
       description: 'Laboratory examination and evidence handling',
       capabilities: [UnitCapabilityKeys.CHEMICAL_ANALYSIS, UnitCapabilityKeys.EVIDENCE],
     },
-    {
-      name: 'Kybernetický forenzní tým',
-      slug: 'kyberneticky-forenzni-tym',
+    'kyberneticky-forenzni-tym': {
       kind: 'TEAM',
       description: 'Digital acquisition, extraction, and forensic analysis',
       capabilities: [UnitCapabilityKeys.DIGITAL_FORENSICS, UnitCapabilityKeys.EVIDENCE],
     },
-    {
-      name: 'Juniorská zpravodajská služba',
-      slug: 'juniorska-zpravodajska-sluzba',
+    'juniorska-zpravodajska-sluzba': {
       kind: 'TEAM',
       description: 'Intelligence collection and investigation support',
       capabilities: [UnitCapabilityKeys.INVESTIGATION, UnitCapabilityKeys.TECHNICAL_OPERATIONS],
     },
-    {
-      name: 'Juniorský krizový štáb',
-      slug: 'juniorsky-krizovy-stab',
+    'juniorsky-krizovy-stab': {
       kind: 'TEAM',
       description: 'Exercise coordination, crisis management, and scenario control',
       capabilities: [UnitCapabilityKeys.CRISIS_MANAGEMENT, UnitCapabilityKeys.SCENARIO_CONTROL],
     },
-    {
-      name: 'Chemický forenzní tým',
-      slug: 'chemicky-forenzni-tym',
+    'chemicky-forenzni-tym': {
       kind: 'TEAM',
       description: 'Chemical analysis and forensic evidence examination',
       capabilities: [UnitCapabilityKeys.CHEMICAL_ANALYSIS, UnitCapabilityKeys.EVIDENCE],
     },
-    {
-      name: 'Záchranná a zdravotní služba',
-      slug: 'zachranna-a-zdravotni-sluzba',
+    'zachranna-a-zdravotni-sluzba': {
       kind: 'TEAM',
       description: 'Medical response and operational health support',
       capabilities: [UnitCapabilityKeys.MEDICAL_OPERATIONS],
     },
-  ];
+  } as const;
+
+export const canonicalUnits = previewTeams.map(team => ({ ...team, ...unitSpecifications[team.slug] }));

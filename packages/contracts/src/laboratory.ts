@@ -64,6 +64,18 @@ export const LabAnalysisResponseSchema = z.object({
 
 export type LabAnalysisResponse = z.infer<typeof LabAnalysisResponseSchema>;
 
+export const LabAnalysisDetailSchema = LabAnalysisResponseSchema.extend({
+  analystName: z.string().nullable(),
+  unitName: z.string().nullable(),
+  evidenceItems: z.array(z.object({
+    id: z.string().uuid(), title: z.string(), evidenceNumber: z.string(), status: z.string(),
+  })),
+  actions: z.object({
+    accept: z.boolean(), work: z.boolean(), complete: z.boolean(), approve: z.boolean(),
+  }),
+});
+export type LabAnalysisDetail = z.infer<typeof LabAnalysisDetailSchema>;
+
 export const ReassignLabAnalysisRequestSchema = z.object({
   assignedToUserId: z.string().uuid().nullable().optional(),
   assignedUnitId: z.string().uuid().nullable().optional(),

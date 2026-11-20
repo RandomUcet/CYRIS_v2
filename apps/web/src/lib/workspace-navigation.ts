@@ -249,3 +249,8 @@ export function activeWorkspaceHref(hrefs: readonly string[], pathname: string, 
     return {href, score:path.length * 100 + (pathname === path ? 10 : 0) + Array.from(params).length};
   }).filter(x => x.score >= 0).sort((a,b) => b.score-a.score)[0]?.href;
 }
+
+export function workspaceItemLabel(locale: SupportedLocale, item: { id: string; label: string }) {
+  const queueLabels: Record<string, string> = { 'nav-lab-queue': 'Laboratory queue', 'nav-forensics-queue': 'Forensics queue' };
+  return workspaceLabel(locale, queueLabels[item.id] ?? item.label);
+}

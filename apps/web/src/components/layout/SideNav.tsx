@@ -1,9 +1,10 @@
 'use client';
 
+import { CyrisWordmark, CylabLogo } from './Brand';
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { activeWorkspaceHref, workspaceLabel } from '@/lib/workspace-navigation';
+import { activeWorkspaceHref, workspaceItemLabel, workspaceLabel } from '@/lib/workspace-navigation';
 import {
   Activity,
   Briefcase,
@@ -155,7 +156,6 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
     if(!seen.has(href))sectionsToRender.push({id:'exercise-services',title:'Exercise support',items:[{id:'nav-service-status',label:'Service status',href,iconKey:'activity'},{id:'nav-exercise-help',label:'Help & support',href:`/events/${selectedEventId}/support`,iconKey:'mail'}]});
   }
   const activeHref = activeWorkspaceHref(sectionsToRender.flatMap(section => section.items.map(item => item.href)), pathname, query.toString());
-  const getNavLabel = (item: WorkspaceNavItem) => workspaceLabel(locale, item.id === 'nav-lab-queue' ? 'Laboratory queue' : item.id === 'nav-forensics-queue' ? 'Forensics queue' : item.label);
   const getSectionTitle = (title: string) => workspaceLabel(locale, title);
 
   const renderSection = (section: WorkspaceNavSection) => {
@@ -195,7 +195,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
           {section.items.map((item: WorkspaceNavItem) => {
             const isActive = item.href === activeHref;
 
-            const labelText = getNavLabel(item);
+            const labelText = workspaceItemLabel(locale, item);
 
             return (
               <Link
@@ -275,7 +275,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
         zIndex: 30,
       }}
     >
-      <div>
+      <div className="workspace-nav-body">
         {/* Brand Header */}
         <div
           style={{
@@ -285,43 +285,10 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
             justifyContent: collapsed ? 'center' : 'space-between',
             padding: collapsed ? '0' : '0 14px',
             borderBottom: '1px solid var(--border-default)',
-            background: 'var(--bg-sidebar-elevated)',
+            background: collapsed ? 'var(--bg-sidebar-elevated)' : '#f5f8fa',
           }}
         >
-          {!collapsed ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span
-                style={{
-                  width: '6px',
-                  height: '12px',
-                  borderRadius: '1px',
-                  background: 'var(--cylab-orange)',
-                }}
-              />
-              <span
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontWeight: 700,
-                  fontSize: '14px',
-                  letterSpacing: '0.1em',
-                  color: 'var(--text-primary)',
-                }}
-              >
-                CYRIS
-              </span>
-              <span style={{ fontSize: '10px', color: 'var(--text-dim)', fontWeight: 600 }}>v2</span>
-            </div>
-          ) : (
-            <span
-              style={{
-                width: '6px',
-                height: '12px',
-                borderRadius: '1px',
-                background: 'var(--cylab-orange)',
-              }}
-            />
-          )}
-
+          {!collapsed && <CyrisWordmark />}
           <button
             type="button"
             onClick={onToggleCollapse}
@@ -342,7 +309,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
         </div>
 
         {/* Dynamic Navigation Sections from Resolver */}
-        <div style={{ padding: '10px 0', overflowY: 'auto', maxHeight: 'calc(100vh - 80px)' }}>
+        <div className="workspace-nav-scroll">
           {canOpenAdministration && <div className="workspace-mode-switch"><Link prefetch={false} href={adminMode ? (selectedEventId ? `/events/${selectedEventId}/my-work` : '/') : isPlatformAdmin ? '/admin' : (baseSections.flatMap((section) => section.items).find((item) => item.href.startsWith('/admin'))?.href ?? '/admin/events')} title={workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}><ShieldAlert size={15}/>{!collapsed && workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}</Link></div>}
           {sectionsToRender.map((section) => renderSection(section))}
 
@@ -354,24 +321,7 @@ export function SideNav({ collapsed, onToggleCollapse }: SideNavProps) {
         </div>
       </div>
 
-      {/* Footer Info */}
-      {!collapsed && (
-        <div
-          style={{
-            padding: '8px 14px',
-            borderTop: '1px solid var(--border-subtle)',
-            fontSize: '10px',
-            color: 'var(--text-dim)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            letterSpacing: '0.04em',
-          }}
-        >
-          <span>Cybertron</span>
-          <span>CYLAB</span>
-        </div>
-      )}
+      {!collapsed && <footer className="workspace-brand-footer"><span>CzechCybertron</span><CylabLogo /></footer>}
     </nav>
   );
 }
