@@ -59,7 +59,7 @@ export class PermissionsGuard implements CanActivate {
       await this.auditService.record({
         action: 'authorization.denied',
         category: 'authorization',
-        actorUserId: req.user.id,
+        actorUserId: req.viewAs?.actorUserId ?? req.user.id,
         actorType: 'USER',
         eventId: eventId || null,
         resourceType: 'permission',
@@ -69,6 +69,7 @@ export class PermissionsGuard implements CanActivate {
         userAgent,
         requestId,
         metadata: {
+          ...(req.viewAs ? {previewTargetUserId:req.viewAs.userId} : {}),
           permission: requirement.permission,
           scope: requirement.scope,
           context: { eventId, unitId },

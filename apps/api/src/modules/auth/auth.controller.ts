@@ -13,6 +13,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { ViewAsService, PREVIEW_COOKIE } from './view-as.service.js';
+import { SessionService } from './session.service.js';
 import { AuthService } from './auth.service.js';
 import { AuthGuard, type CyrisRequest } from './guards/auth.guard.js';
 import { CurrentUser } from './decorators/current-user.decorator.js';
@@ -22,6 +24,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { IdentityService } from '../integrations/identity.service.js';
 import {
   LoginRequestSchema,
+  StartViewAsRequestSchema,
   LdapAuthRequestSchema,
   type CurrentUserResponse,
 } from '@cyris/contracts';
@@ -35,7 +38,9 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
     private readonly auditService: AuditService,
-    private readonly identityService: IdentityService
+    private readonly identityService: IdentityService,
+    private readonly viewAsService: ViewAsService,
+    private readonly sessionService: SessionService
   ) {}
 
   private isRequestSecure(req: CyrisRequest): boolean {
@@ -128,6 +133,10 @@ export class AuthController {
     @Res({ passthrough: true }) res: FastifyReply
   ) {
     const sessionToken = req.cookies?.[COOKIE_NAME];
+    const preview = req.cookies?.[PREVIEW_COOKIE];
+    const original = preview ? await this.sessionService.validateSession(sessionToken) : null;
+    if (original && sessionToken && preview) await this.viewAsService.stop(original.user, sessionToken, preview);
+    res.clearCookie(PREVIEW_COOKIE, {path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'strict'});
     const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || '127.0.0.1';
     const userAgent = (req.headers['user-agent'] as string) || null;
     const requestId = (req.headers['x-request-id'] as string) || req.id || null;
@@ -224,9 +233,38 @@ export class AuthController {
     res.redirect(302, `${publicBaseUrl}/`);
   }
 
+  @Post('view-as/start')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard)
+  async startPreview(@Body() body:unknown, @Req() req:CyrisRequest, @CurrentUser() actor:AuthenticatedUser, @Res({passthrough:true}) res:FastifyReply) {
+    const parsed=StartViewAsRequestSchema.safeParse(body);
+    if (!parsed.success || !req.cookies?.[COOKIE_NAME] || !req.sessionToken) throw new BadRequestException('Invalid preview request');
+    const {token,info}=await this.viewAsService.start(actor,req.sessionToken,parsed.data);
+    res.setCookie(PREVIEW_COOKIE,token,{path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'strict',maxAge:COOKIE_MAX_AGE_SECONDS});
+    return info;
+  }
+
+  @Get('view-as')
+  async previewStatus(@Req() req:CyrisRequest) {
+    return {active:Boolean(req.cookies?.[PREVIEW_COOKIE])};
+  }
+
+  @Post('view-as/stop')
+  @HttpCode(HttpStatus.OK)
+  async stopPreview(@Req() req:CyrisRequest,@Res({passthrough:true}) res:FastifyReply) {
+    const token=req.cookies?.[COOKIE_NAME];
+    const preview=req.cookies?.[PREVIEW_COOKIE];
+    const original=await this.sessionService.validateSession(token);
+    if (original && token && preview) await this.viewAsService.stop(original.user,token,preview);
+    res.clearCookie(PREVIEW_COOKIE,{path:'/',httpOnly:true,secure:this.isRequestSecure(req),sameSite:'strict'});
+    return {success:true};
+  }
+
   @Get('me')
   @UseGuards(AuthGuard)
-  async getMe(@CurrentUser() user: AuthenticatedUser): Promise<CurrentUserResponse> {
-    return this.authService.getCurrentUserProfile(user.id);
+  async getMe(@CurrentUser() user: AuthenticatedUser, @Req() req:CyrisRequest): Promise<CurrentUserResponse> {
+    const profile=await this.authService.getCurrentUserProfile(user.id);
+    if (!req.viewAs) return profile;
+    return {...profile,platformRoles:[],platformPermissions:[],memberships:profile.memberships.filter(m=>m.eventId===req.viewAs!.eventId && m.status==='ACTIVE'),viewAs:req.viewAs};
   }
 }

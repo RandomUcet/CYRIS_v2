@@ -30,8 +30,8 @@ export class MembershipsController {
 
   @Get()
   @RequirePermission(Permissions.MEMBERSHIP_READ, PermissionScopes.EVENT)
-  async listMemberships(@Param('eventId') eventId: string) {
-    return this.eventsService.listMemberships(eventId);
+  async listMemberships(@Param('eventId') eventId: string,@CurrentUser() user:AuthenticatedUser) {
+    return this.eventsService.listMemberships(eventId,user);
   }
 
   @Post()

@@ -382,7 +382,7 @@ export class EventsService {
   // Memberships
   // ============================================================================
 
-  async listMemberships(eventId: string) {
+  async listMemberships(eventId: string, actor?: AuthenticatedUser) {
     await this.getEvent(eventId);
 
     const rows = await this.db
@@ -394,23 +394,26 @@ export class EventsService {
         joinedAt: eventMemberships.joinedAt,
         userEmail: users.email,
         userDisplayName: users.displayName,
+        userStatus: users.status,
       })
       .from(eventMemberships)
       .innerJoin(users, eq(eventMemberships.userId, users.id))
       .where(eq(eventMemberships.eventId, eventId))
       .orderBy(desc(eventMemberships.joinedAt));
 
-    return rows.map((r) => ({
-      id: r.id,
-      eventId: r.eventId,
-      userId: r.userId,
-      status: r.status,
-      joinedAt: r.joinedAt.toISOString(),
-      user: {
-        id: r.userId,
-        email: r.userEmail,
-        displayName: r.userDisplayName,
-      },
+    const isAdmin=actor && await this.authzService.authorize({user:actor,permission:Permissions.PLATFORM_MANAGE});
+    const ids=rows.map(r=>r.id);
+    const assignments=ids.length ? await this.db.select({membershipId:roleAssignments.membershipId,id:roles.id,name:roles.name,slug:roles.slug})
+      .from(roleAssignments).innerJoin(roles,eq(roles.id,roleAssignments.roleId)).where(and(inArray(roleAssignments.membershipId,ids),eq(roles.eventId,eventId))) : [];
+    const units=ids.length ? await this.db.select({membershipId:membershipUnitAssignments.membershipId,id:organizationalUnits.id,name:organizationalUnits.name,slug:organizationalUnits.slug})
+      .from(membershipUnitAssignments).innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId)).where(and(inArray(membershipUnitAssignments.membershipId,ids),eq(organizationalUnits.eventId,eventId))) : [];
+    const platform=isAdmin && rows.length ? await this.db.select({userId:roleAssignments.userId,id:roles.id,name:roles.name,slug:roles.slug})
+      .from(roleAssignments).innerJoin(roles,eq(roles.id,roleAssignments.roleId)).where(inArray(roleAssignments.userId,rows.map(r=>r.userId))) : [];
+    return rows.map(r=>({id:r.id,eventId:r.eventId,userId:r.userId,status:r.status,joinedAt:r.joinedAt.toISOString(),
+      user:{id:r.userId,email:r.userEmail,displayName:r.userDisplayName,status:r.userStatus},
+      roles:assignments.filter(a=>a.membershipId===r.id).map(({id,name,slug})=>({id,name,slug})),
+      units:units.filter(a=>a.membershipId===r.id).map(({id,name,slug})=>({id,name,slug})),
+      platformRoles:platform.filter(a=>a.userId===r.userId).map(({id,name,slug})=>({id,name,slug})),
     }));
   }
 

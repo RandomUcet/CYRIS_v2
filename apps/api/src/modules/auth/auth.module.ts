@@ -6,6 +6,7 @@ import { LocalIdentityProvider } from './providers/local-identity.provider.js';
 import { LdapIdentityProvider } from './providers/ldap-identity.provider.js';
 import { OidcIdentityProvider } from './providers/oidc-identity.provider.js';
 import { AuthGuard } from './guards/auth.guard.js';
+import { ViewAsService } from './view-as.service.js';
 import { RateLimitService } from './rate-limit.service.js';
 
 @Global()
@@ -19,6 +20,7 @@ import { RateLimitService } from './rate-limit.service.js';
     LdapIdentityProvider,
     OidcIdentityProvider,
     AuthGuard,
+    ViewAsService,
   ],
   exports: [AuthService, SessionService, RateLimitService, LocalIdentityProvider, LdapIdentityProvider, OidcIdentityProvider, AuthGuard],
 })
