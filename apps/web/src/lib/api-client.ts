@@ -100,6 +100,9 @@ import type {
   NotificationListResponse,
   IdentityProviderSummary,
   LdapConfig,
+  LdapAuthRequest,
+  LdapTeamAssignment,
+  LdapTeamAccount,
   OidcConfig,
   ScenarioDataRequest,
   ScenarioDataPreview,
@@ -553,6 +556,9 @@ export class CyrisApiClient {
   async getMemberships(eventId: string) {
     return this.fetchJson<MembershipResponse[]>(`/events/${eventId}/memberships`);
   }
+  async activateMembership(eventId: string, membershipId: string) {
+    return this.patchJson<unknown>(`/events/${eventId}/memberships/${membershipId}`, { status: 'ACTIVE' });
+  }
   async getRoles(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/roles`);
   }
@@ -561,6 +567,11 @@ export class CyrisApiClient {
   }
   async createEvent(data: any) {
     return this.postJson<EventResponse>('/events', data);
+  }
+  initializeTeamTemplates(eventId: string) {
+    return this.postJson<{ eventId: string; unitsCreated: number; rolesCreated: number }>(
+      `/events/${encodeURIComponent(eventId)}/team-templates`, {},
+    );
   }
   async updateEvent(eventId: string, data: any) {
     return this.patchJson<EventResponse>(`/events/${eventId}`, data);
@@ -1461,6 +1472,19 @@ export class CyrisApiClient {
 
   async listIdentityProviders(): Promise<{ ok: boolean; data?: IdentityProviderSummary[]; error?: string }> {
     return this.fetchJson<IdentityProviderSummary[]>('/admin/settings/identity');
+  }
+
+  async loginLdap(payload: LdapAuthRequest) {
+    return this.postJson<unknown>('/auth/ldap/login', payload);
+  }
+
+  async listLdapTeamAccounts(eventId: string, query: string, unassigned: boolean) {
+    const params = new URLSearchParams({ eventId, q: query, unassigned: String(unassigned) });
+    return this.fetchJson<{ accounts: LdapTeamAccount[]; hasMore: boolean }>(`/admin/settings/identity/ldap/accounts?${params}`);
+  }
+
+  async setLdapTeamAssignment(identityId: string, eventId: string, assignment: LdapTeamAssignment) {
+    return this.putJson<{ ok: boolean }>(`/admin/settings/identity/ldap/accounts/${identityId}/events/${eventId}`, assignment);
   }
 
   async saveLdapProvider(payload: { id?: string; name: string; config: LdapConfig; bindPassword?: string }): Promise<{ ok: boolean; data?: IdentityProviderSummary; error?: string }> {

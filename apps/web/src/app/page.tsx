@@ -30,11 +30,12 @@ export default function RootPage() {
   }, [teamPage, router]);
   const cs = locale === 'cs' || (preview && locale === 'en' && typeof window !== 'undefined' && !window.localStorage.getItem('cyris_locale'));
 
-  const { currentUser, loading, login, isPlatformAdmin, logout } = useAuth();
-  const { events, selectedEventId, selectEvent } = useEvent();
+  const { currentUser, loading, login, refreshSession, isPlatformAdmin, logout } = useAuth();
+  const { events, selectedEventId, selectEvent, loadingEvents } = useEvent();
 
   // Login form state
   const [email, setEmail] = useState('');
+  const [ldapProviderId, setLdapProviderId] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -77,11 +78,14 @@ export default function RootPage() {
     setSubmitting(true);
     setLoginError(null);
 
-    const res = await login({ identifier: email, password });
+    const res = ldapProviderId && !teamPage
+      ? await apiClient.loginLdap({ providerId: ldapProviderId, username: email.trim(), password })
+      : await login({ identifier: email, password });
+    if (res.ok && ldapProviderId && !teamPage) await refreshSession();
     if (!res.ok) {
       setLoginError(res.error || (cs ? 'Přihlášení se nezdařilo.' : 'Sign-in failed.'));
-      setSubmitting(false);
     }
+    setSubmitting(false);
   };
 
   if (loading) {
@@ -107,7 +111,7 @@ export default function RootPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ width: '8px', height: '8px', background: 'var(--cylab-orange)', borderRadius: '2px' }} />
-              <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>Select Active Cybertron Event</h2>
+              <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>{cs ? 'Výběr cvičení' : 'Select an exercise'}</h2>
             </div>
             <button
               type="button"
@@ -122,7 +126,7 @@ export default function RootPage() {
               }}
               title="Sign out of operator session"
             >
-              Sign out
+              {cs ? 'Odhlásit se' : 'Sign out'}
             </button>
           </div>
 
@@ -130,7 +134,13 @@ export default function RootPage() {
             {events.length === 0 ? (
               <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                 <Calendar size={28} style={{ margin: '0 auto 8px', color: 'var(--text-dim)', opacity: 0.6 }} />
-                <div>No active Cybertron events found.</div>
+                <div>{loadingEvents ? (cs ? 'Načítání cvičení…' : 'Loading exercises…') : (cs ? 'Zatím nemáte přidělené cvičení.' : 'You have not been assigned to an exercise yet.')}</div>
+                {!isPlatformAdmin && !loadingEvents && <>
+                  <p>{cs ? 'Požádejte správce o přiřazení k týmu. Potom obnovte seznam.' : 'Ask your administrator for a team assignment, then refresh the list.'}</p>
+                  <button type="button" className="btn btn-secondary" onClick={() => void refreshSession()}>
+                    {cs ? 'Obnovit seznam' : 'Refresh list'}
+                  </button>
+                </>}
                 {isPlatformAdmin && (
                   <button
                     type="button"
@@ -209,6 +219,7 @@ export default function RootPage() {
     );
   }
 
+  const ldapProviders = publicProviders.filter(provider => provider.category === 'LDAP');
   const oidcProviders = publicProviders.filter(provider => provider.category === 'OIDC');
 
   return (
@@ -223,6 +234,19 @@ export default function RootPage() {
             </a>
           ))}
           <form onSubmit={handleLogin}>
+            {!teamPage && ldapProviders.length > 0 && (
+              <label>{cs ? 'Způsob přihlášení' : 'Sign-in method'}
+                <select value={ldapProviderId} disabled={submitting} onChange={event => {
+                  setLdapProviderId(event.target.value);
+                  setEmail('');
+                  setPassword('');
+                  setLoginError(null);
+                }}>
+                  <option value="">{cs ? 'Místní účet CYRIS' : 'Local CYRIS account'}</option>
+                  {ldapProviders.map(provider => <option key={provider.id} value={provider.id}>LDAP · {provider.displayName}</option>)}
+                </select>
+              </label>
+            )}
             {preview && (
               <label>{cs ? 'Vyzkoušet tým' : 'Preview a team'}
                 <select value={previewTeams.some(team => previewTeamEmail(team.login) === email) ? email : ''}
@@ -233,7 +257,7 @@ export default function RootPage() {
                 </select>
               </label>
             )}
-            <label>{cs ? 'Uživatel nebo e-mail' : 'Username or email'}
+            <label>{ldapProviderId && !teamPage ? (cs ? 'Uživatelské jméno v adresáři' : 'Directory username') : (cs ? 'Uživatel nebo e-mail' : 'Username or email')}
               <input name="identifier" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required disabled={submitting} />
             </label>
             <label>{cs ? 'Heslo' : 'Password'}

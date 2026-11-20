@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Eye, RefreshCw, Search, Shield, Users } from 'lucide-react';
 import type { MembershipResponse } from '@cyris/contracts';
+import { LdapTeamAssignments } from '@/components/admin/LdapTeamAssignments';
 import { TeamPreviewAccess } from '@/components/admin/TeamPreviewAccess';
 import { AppShell } from '@/components/layout/AppShell';
 import { DataTable, type Column } from '@/components/common/DataTable';
@@ -29,6 +30,7 @@ export default function AdminUsersPage() {
   const [status, setStatus] = useState('ALL');
   const [revision, setRevision] = useState(0);
   const [starting, setStarting] = useState<string | null>(null);
+  const [activating, setActivating] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,12 +103,29 @@ export default function AdminUsersPage() {
     } catch (err) { setActionError((err as Error).message); setStarting(null); }
   };
 
+  async function activate(member: MembershipResponse) {
+    if (activating) return;
+    setActivating(member.id);
+    setActionError(null);
+    try {
+      const result = await apiClient.activateMembership(member.eventId, member.id);
+      if (result.ok) setRevision(value => value + 1);
+      else setActionError(result.error || tr('Aktivace členství se nezdařila.', 'Could not activate membership.'));
+    } finally { setActivating(null); }
+  }
+
   const columns: Column<MembershipResponse>[] = [
     { header: cs ? 'Účastník' : 'Participant', accessor: (member) => <div className="roster-identity"><strong>{member.user?.displayName || member.user?.email || member.userId}</strong><span>{member.user?.email}</span></div> },
     { header: cs ? 'Týmy' : 'Teams', accessor: (member) => member.units.length ? <div className="roster-tags">{member.units.map((unit) => <span key={unit.id}>{unit.name}</span>)}</div> : <span className="roster-muted">{cs ? 'Bez týmu' : 'No team'}</span> },
     { header: cs ? 'Role ve cvičení' : 'Exercise roles', accessor: (member) => <div>{member.roles.length ? <div className="roster-tags">{member.roles.map((role) => <span key={`${role.id}:${role.unitId ?? ''}`}>{role.name}{role.unitId ? ` · ${member.units.find((unit) => unit.id === role.unitId)?.name ?? (cs ? 'vymezený tým' : 'scoped team')}` : ''}</span>)}</div> : <span className="roster-muted">{cs ? 'Bez přidělené role' : 'No assigned role'}</span>}{commandControl(member)}</div> },
     ...(isPlatformAdmin ? [{ header: cs ? 'Role platformy' : 'Platform roles', accessor: (member: MembershipResponse) => member.platformRoles.map(role => role.name).join(', ') || '—' }] : []),
-    { header: cs ? 'Stav' : 'Status', accessor: (member) => <span className={`roster-status ${member.status === 'ACTIVE' && member.user?.status === 'ACTIVE' ? 'is-active' : ''}`}>{member.user?.status === 'DISABLED' ? (cs ? 'Účet zakázán' : 'Account disabled') : member.status === 'ACTIVE' ? (cs ? 'Aktivní' : 'Active') : (cs ? 'Neaktivní členství' : 'Inactive membership')}</span> },
+    { header: cs ? 'Stav' : 'Status', accessor: member => <div>
+      <span className={`roster-status ${member.status === 'ACTIVE' && member.user?.status === 'ACTIVE' ? 'is-active' : ''}`}>{member.user?.status === 'DISABLED' ? tr('Účet zakázán', 'Account disabled') : member.status === 'ACTIVE' ? tr('Aktivní', 'Active') : tr('Neaktivní členství', 'Inactive membership')}</span>
+      {isPlatformAdmin && member.status === 'INACTIVE' && member.user?.status === 'ACTIVE' && !['CLOSED', 'ARCHIVED'].includes(currentEvent?.status ?? '') &&
+        <button type="button" className="btn btn-secondary" disabled={Boolean(activating)} onClick={() => void activate(member)}>
+          {activating === member.id ? '…' : tr('Aktivovat členství', 'Activate membership')}
+        </button>}
+    </div> },
     { header: cs ? 'Přidán' : 'Joined', accessor: (member) => formatDate(member.joinedAt), sortKey: 'joinedAt' },
     ...(isPlatformAdmin ? [{ header: cs ? 'Náhled' : 'Preview', accessor: (member: MembershipResponse) => <button type="button" className="btn btn-secondary" disabled={Boolean(starting) || member.status !== 'ACTIVE' || member.user?.status !== 'ACTIVE' || member.platformRoles.length > 0 || member.userId === currentUser?.user.id} onClick={() => { setTarget(member); setReason(''); setActionError(null); }} title={cs ? 'Zobrazit cvičení s oprávněními účastníka, pouze pro čtení' : 'Inspect this exercise with the participant’s permissions, read only'}><Eye size={14} />{starting === member.id ? (cs ? 'Otevírám…' : 'Opening…') : (cs ? 'Zobrazit jako' : 'View as')}</button> }] : []),
   ];
@@ -116,7 +135,7 @@ export default function AdminUsersPage() {
       {isPlatformAdmin && <TeamPreviewAccess />}
       <div className="roster-toolbar">
         <label className="roster-event-label">{cs ? 'Cvičení' : 'Exercise'}
-          <select aria-label={cs ? 'Vybrat cvičení' : 'Select exercise'} value={currentEvent?.id ?? ''} onChange={(event) => selectEvent(event.target.value)} disabled={loadingEvents || Boolean(starting)}>
+          <select aria-label={cs ? 'Vybrat cvičení' : 'Select exercise'} value={currentEvent?.id ?? ''} onChange={(event) => selectEvent(event.target.value)} disabled={loadingEvents || Boolean(starting || activating)}>
             <option value="" disabled>{cs ? 'Vyber cvičení' : 'Select an exercise'}</option>
             {events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
           </select>
@@ -127,6 +146,7 @@ export default function AdminUsersPage() {
         </select>
         <button type="button" className="btn btn-secondary" disabled={loading || !currentEvent} onClick={() => setRevision((value) => value + 1)}><RefreshCw size={14} />{cs ? 'Obnovit' : 'Refresh'}</button>
       </div>
+      {isPlatformAdmin && currentEvent && <LdapTeamAssignments key={currentEvent.id} event={currentEvent} onChanged={() => setRevision(value => value + 1)} />}
       {actionError && <div role="alert" className="roster-action-error">{actionError}</div>}
       {loading || loadingEvents ? <LoadingState /> : !currentEvent ? <EmptyState icon={<Users size={28} />} title={cs ? 'Vyber cvičení' : 'Select an exercise'} description={cs ? 'Zobrazí se jeho účastníci, týmy a přidělené role.' : 'See its participants, teams and assigned roles.'} /> : error ? <ErrorState message={error} onRetry={() => setRevision((value) => value + 1)} /> : <>
         <p className="roster-caption">{visible.length} / {memberships.length} {cs ? 'účastníků' : 'participants'} · {currentEvent.name}</p>

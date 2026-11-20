@@ -50,7 +50,7 @@ export async function authenticateDirectoryUser(
   password: string,
   bindPassword: string,
   createClient?: LdapClientFactory,
-): Promise<{ dn: string; email: string; displayName: string; groups: string[] } | null> {
+): Promise<{ dn: string; email: string; displayName: string; groups: string[]; groupDns?: string[] } | null> {
   if (!username || !password || !bindPassword) return null;
   return withLdapConnection(config, async (client) => {
     await client.bind(config.bindDn, bindPassword);
@@ -59,7 +59,7 @@ export async function authenticateDirectoryUser(
     const displayNameAttr = config.displayNameAttr || 'cn';
     const result = await client.search(config.baseDn, {
       scope: 'sub',
-      filter: (config.userFilter || '(uid={username})').replaceAll('{username}', safeUsername),
+      filter: (config.userFilter || '(uid={username})').replaceAll('{username}', () => safeUsername),
       attributes: ['dn', config.usernameAttr || 'uid', emailAttr, displayNameAttr],
       sizeLimit: 2,
     });
@@ -69,18 +69,24 @@ export async function authenticateDirectoryUser(
     if (!entry.dn || typeof entry[emailAttr] !== 'string' || !(entry[emailAttr] as string).includes('@')) return null;
     await withLdapConnection(config, (userClient) => userClient.bind(entry.dn, password), createClient);
     const groups: string[] = [];
+    const groupDns: string[] = [];
     if (config.groupBaseDn) {
       const safeDn = escapeLdapFilter(entry.dn);
       const groupFilter = (config.groupFilter || '(|(member={dn})(memberUid={username}))')
-        .replaceAll('{dn}', safeDn).replaceAll('{username}', safeUsername);
+        .replace(/\{dn\}|\{username\}/g, token => token === '{dn}' ? safeDn : safeUsername);
       const result = await client.search(config.groupBaseDn, { scope: 'sub', filter: groupFilter, attributes: ['cn'] });
-      for (const group of result.searchEntries) if (typeof group.cn === 'string') groups.push(group.cn);
+      for (const group of result.searchEntries) {
+        if (typeof group.dn === 'string') groupDns.push(group.dn);
+        const names = Array.isArray(group.cn) ? group.cn : [group.cn];
+        for (const name of names) if (typeof name === 'string') groups.push(name);
+      }
     }
     return {
       dn: entry.dn,
       email: (entry[emailAttr] as string).trim().toLowerCase(),
       displayName: typeof entry[displayNameAttr] === 'string' ? entry[displayNameAttr] as string : username,
       groups,
+      groupDns,
     };
   }, createClient);
 }

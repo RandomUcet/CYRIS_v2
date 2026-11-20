@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { isDeepStrictEqual } from 'node:util';
 import { eq, and, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { IntegrationSecretService } from '../../integrations/integration-secret.service.js';
@@ -100,107 +101,53 @@ export class LdapIdentityProvider implements IIdentityProvider {
     try {
       const directoryUser = await this.authenticateDirectory(config, creds.username, creds.password, bindPassword);
       if (!directoryUser) return null;
-      const { dn: userDn, email: userEmail, displayName: userDisplayName, groups: userGroups } = directoryUser;
+      const { dn: userDn, email: userEmail, displayName: userDisplayName, groups: userGroups, groupDns = [] } = directoryUser;
       const normalizedSubject = userDn.toLowerCase();
       const scopedSubject = ldapIdentitySubject(providerRow.id, userDn);
 
-      const [existingIdentity] = await db
-        .select({
-          identity: userIdentities,
-          user: users,
-        })
-        .from(userIdentities)
-        .innerJoin(users, eq(userIdentities.userId, users.id))
-        .where(
-          and(
-            eq(userIdentities.providerType, IdentityProviderType.LDAP),
-            or(
-              eq(userIdentities.providerSubject, scopedSubject),
-              and(
-                eq(userIdentities.providerSubject, normalizedSubject),
-                sql`${userIdentities.metadata}->>'providerId' = ${providerRow.id}`,
-              ),
-            )
-          )
-        )
-        .limit(1);
-
-      if (existingIdentity) {
-        if (existingIdentity.user.status !== UserStatus.ACTIVE) {
-          this.logger.warn(`LDAP login denied: user account is disabled`);
-          return null;
-        }
-
-        await db.transaction(async (tx) => {
-          await tx.select({ id: users.id }).from(users).where(eq(users.id, existingIdentity.user.id)).for('update');
-          const [identity] = await tx.select().from(userIdentities).where(eq(userIdentities.id, existingIdentity.identity.id)).for('update');
-          await reconcileLdapMemberships(tx, identity.id, existingIdentity.user.id, providerRow.id,
-            config.groupMappings ?? [], userGroups, (identity.metadata ?? {}) as Record<string, unknown>);
-          await tx.update(users).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(users.id, existingIdentity.user.id));
-        });
-
-        return {
-          userId: existingIdentity.user.id,
-          identityId: existingIdentity.identity.id,
-          providerType: IdentityProviderType.LDAP,
-          providerSubject: existingIdentity.identity.providerSubject,
-        };
-      }
-
-      // JIT Provisioning Policy Check
-      if (config.jitEnabled === false) {
-        this.logger.warn(`LDAP login denied: JIT provisioning is disabled for provider ${providerRow.id}`);
-        return null;
-      }
-
       return await db.transaction(async (tx) => {
-        // Directory email is not proof of ownership of an existing local account.
-        // Existing associations are resolved only through a provider-scoped identity above.
-        let targetUserId: string;
-        const [existingUserByEmail] = await tx
-          .select()
-          .from(users)
-          .where(eq(users.email, userEmail.trim().toLowerCase()))
-          .limit(1);
+        // Two simultaneous first logins must resolve to the same identity.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${scopedSubject}, 0))`);
+        const [provider] = await tx.select({ config: integrations.config }).from(integrations)
+          .where(and(eq(integrations.id, providerRow.id), eq(integrations.category, 'LDAP'), eq(integrations.enabled, true)))
+          .limit(1).for('share');
+        if (!provider || !isDeepStrictEqual(provider.config, providerRow.config)) return null;
 
-        if (existingUserByEmail) {
-          this.logger.warn(`LDAP provisioning denied: existing account needs an administrator-managed identity association (provider ${providerRow.id})`);
-          return null;
-        } else {
-          const [newUser] = await tx
-            .insert(users)
-            .values({
-              id: generateId(),
-              email: userEmail.trim().toLowerCase(),
-              displayName: userDisplayName,
-              status: UserStatus.ACTIVE,
-              lastLoginAt: new Date(),
-            })
-            .returning();
-          targetUserId = newUser.id;
+        const [existing] = await tx.select({ identityId: userIdentities.id, userId: userIdentities.userId })
+          .from(userIdentities).where(and(eq(userIdentities.providerType, 'LDAP'), or(
+            eq(userIdentities.providerSubject, scopedSubject),
+            and(eq(userIdentities.providerSubject, normalizedSubject), sql`${userIdentities.metadata}->>'providerId' = ${providerRow.id}`),
+          ))).limit(1);
+        if (existing) {
+          const [user] = await tx.select({ status: users.status }).from(users).where(eq(users.id, existing.userId)).for('update');
+          if (user?.status !== UserStatus.ACTIVE) return null;
+          const [identity] = await tx.select().from(userIdentities).where(eq(userIdentities.id, existing.identityId)).for('update');
+          if (!identity) return null;
+          await reconcileLdapMemberships(tx, identity.id, existing.userId, providerRow.id, config.groupMappings ?? [],
+            userGroups, { ...(identity.metadata ?? {}), groupDns });
+          await tx.update(users).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(users.id, existing.userId));
+          return { userId: existing.userId, identityId: identity.id, providerType: IdentityProviderType.LDAP,
+            providerSubject: identity.providerSubject };
         }
 
+        if (config.jitEnabled === false) return null;
+        // Directory email alone cannot associate an existing account with this provider.
+        const email = userEmail.trim().toLowerCase();
+        const [userWithEmail] = await tx.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+        if (userWithEmail) {
+          this.logger.warn(`LDAP provisioning denied: email is already associated with an account (provider ${providerRow.id})`);
+          return null;
+        }
+        const [user] = await tx.insert(users).values({
+          id: generateId(), email, displayName: userDisplayName, status: UserStatus.ACTIVE, lastLoginAt: new Date(),
+        }).returning({ id: users.id });
         const identityId = generateId();
+        const metadata = { groups: userGroups, groupDns, providerId: providerRow.id };
         await tx.insert(userIdentities).values({
-          id: identityId,
-          userId: targetUserId,
-          providerType: IdentityProviderType.LDAP,
-          providerSubject: scopedSubject,
-          metadata: {
-            groups: userGroups,
-            providerId: providerRow.id,
-          },
+          id: identityId, userId: user.id, providerType: IdentityProviderType.LDAP, providerSubject: scopedSubject, metadata,
         });
-
-        await reconcileLdapMemberships(tx, identityId, targetUserId, providerRow.id,
-          config.groupMappings ?? [], userGroups, { providerId: providerRow.id, groups: userGroups });
-
-        return {
-          userId: targetUserId,
-          identityId,
-          providerType: IdentityProviderType.LDAP,
-          providerSubject: scopedSubject,
-        };
+        await reconcileLdapMemberships(tx, identityId, user.id, providerRow.id, config.groupMappings ?? [], userGroups, metadata);
+        return { userId: user.id, identityId, providerType: IdentityProviderType.LDAP, providerSubject: scopedSubject };
       });
     } catch (ldapErr) {
       // Comprehensive error boundary: Unreachable / DNS failure / timeout never breaks local login

@@ -5,6 +5,8 @@ Cybertron Registry & Intelligence System
 CYRIS is an operational information and exercise-management platform for
 Czech Cybertron / CYLAB.
 
+Česká [příručka správce platformy](./docs/prirucka-spravce.md) pokrývá přípravu ročníku, přihlášení přes LDAP, přidělení týmů, zapojení Sparku a provoz cvičení.
+
 ## Stack
 
 - Next.js

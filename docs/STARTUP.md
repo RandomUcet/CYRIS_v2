@@ -18,8 +18,8 @@ Review `.env` for this installation. `pnpm dev` builds the internal packages,
 starts PostgreSQL, Redis, Typesense, MinIO and Mailpit, waits for each service
 and successful bucket initialization, applies pending migrations, and starts
 the API, worker and web application. The existing database and accounts are
-preserved. A normal start does not seed, delete data, reset passwords, change
-exercise status, create sample participants, or configure external providers.
+preserved. The migration installs the fixed CYLAB Spark profile even when the
+device is offline. A fresh installation starts with its switch off.
 
 Open http://localhost:3000. In another terminal, create the first administrator
 explicitly and enter the credentials requested by the command:
@@ -30,8 +30,10 @@ pnpm admin:create
 
 There is no automatically provisioned account or shared default password.
 Create the exercise through the administration UI, then optionally initialize
-its team and role templates as described below. LDAP, OIDC and AI providers
-are configured separately by an administrator using their real settings.
+its team and role templates as described below. Configure the school directory
+under **Identity Providers**. The built-in Spark switch is under **Integrations
+& AI**. The [administrator handbook in Czech](prirucka-spravce.md) covers both
+directory groups and individual team assignments.
 
 ## Optional team and role templates
 

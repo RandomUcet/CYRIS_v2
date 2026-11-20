@@ -6,24 +6,22 @@ import { usePreferences } from '@/contexts/PreferencesContext';
 import { AppShell } from '@/components/layout/AppShell';
 import {
   Users,
-  Shield,
   Plus,
-  Key,
-  Globe,
   CheckCircle2,
-  AlertCircle,
   Trash2,
   ToggleLeft,
   ToggleRight,
-  ExternalLink,
   Pencil,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { resolveLdapTransportSecurity, type IdentityProviderSummary, type LdapConfig, type OidcConfig } from '@cyris/contracts';
+import type { IdentityProviderSummary, OidcConfig } from '@cyris/contracts';
+import { LdapProviderForm } from './LdapProviderForm';
+import styles from '@/components/admin/LdapTeams.module.css';
 
 export default function IdentitySettingsPage() {
-  const { isPlatformAdmin } = useAuth();
-  const { t, formatTime } = usePreferences();
+  const { isPlatformAdmin, loading: loadingSession } = useAuth();
+  const { t, locale } = usePreferences();
+  const cs = locale === 'cs';
   const [providers, setProviders] = useState<IdentityProviderSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ error: boolean; message: string } | null>(null);
@@ -34,19 +32,6 @@ export default function IdentitySettingsPage() {
   const [isLdapModalOpen, setIsLdapModalOpen] = useState(false);
   const [isOidcModalOpen, setIsOidcModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  // LDAP form state
-  const [ldapName, setLdapName] = useState('Active Directory');
-  const [ldapUrl, setLdapUrl] = useState('ldaps://localhost:636');
-  const [ldapTransportSecurity, setLdapTransportSecurity] = useState<'NONE' | 'LDAPS' | 'STARTTLS'>('LDAPS');
-  const [ldapBindDn, setLdapBindDn] = useState('cn=admin,dc=example,dc=org');
-  const [ldapBindPassword, setLdapBindPassword] = useState('');
-  const [ldapBaseDn, setLdapBaseDn] = useState('dc=example,dc=org');
-  const [ldapUserFilter, setLdapUserFilter] = useState('(uid={username})');
-  const [ldapUsernameAttr, setLdapUsernameAttr] = useState('uid');
-  const [ldapEmailAttr, setLdapEmailAttr] = useState('mail');
-  const [ldapDisplayNameAttr, setLdapDisplayNameAttr] = useState('cn');
-  const [ldapJit, setLdapJit] = useState(true);
 
   // OIDC form state
   const [oidcName, setOidcName] = useState('Partner SSO');
@@ -83,67 +68,10 @@ export default function IdentitySettingsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Opravdu odstranit poskytovatele přihlášení?')) return;
+    if (!confirm(cs ? 'Opravdu odstranit poskytovatele přihlášení?' : 'Remove this identity provider?')) return;
     const res = await apiClient.deleteIdentityProvider(id);
     if (!res.ok) setFeedback({ error: true, message: res.error ?? 'Odstranění se nezdařilo.' });
     else await fetchProviders();
-  };
-
-  const editLdap = (provider: IdentityProviderSummary) => {
-    const config = provider.config as LdapConfig;
-    setEditingLdap(provider);
-    setLdapName(provider.name);
-    setLdapUrl(config.url);
-    setLdapTransportSecurity(resolveLdapTransportSecurity(config));
-    setLdapBindDn(config.bindDn);
-    setLdapBaseDn(config.baseDn);
-    setLdapUserFilter(config.userFilter ?? '(uid={username})');
-    setLdapUsernameAttr(config.usernameAttr ?? 'uid');
-    setLdapEmailAttr(config.emailAttr ?? 'mail');
-    setLdapDisplayNameAttr(config.displayNameAttr ?? 'cn');
-    setLdapJit(config.jitEnabled !== false);
-    setLdapBindPassword('');
-    setIsLdapModalOpen(true);
-  };
-
-  const handleSaveLdap = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    const config: LdapConfig = {
-      ...(editingLdap?.config as LdapConfig | undefined),
-      displayName: ldapName,
-      url: ldapUrl,
-      tls: ldapTransportSecurity !== 'NONE',
-      transportSecurity: ldapTransportSecurity,
-      bindDn: ldapBindDn,
-      baseDn: ldapBaseDn,
-      userFilter: ldapUserFilter,
-      usernameAttr: ldapUsernameAttr,
-      emailAttr: ldapEmailAttr,
-      displayNameAttr: ldapDisplayNameAttr,
-      jitEnabled: ldapJit,
-      groupMappings: (editingLdap?.config as LdapConfig | undefined)?.groupMappings ?? [],
-    };
-
-    try {
-      const res = await apiClient.saveLdapProvider({
-        id: editingLdap?.id,
-        name: ldapName,
-        config,
-        bindPassword: ldapBindPassword || undefined,
-      });
-      if (!res.ok) {
-        setFeedback({ error: true, message: res.error ?? 'Konfiguraci LDAP se nepodařilo uložit.' });
-        return;
-      }
-      setIsLdapModalOpen(false);
-      setLdapBindPassword('');
-      setEditingLdap(null);
-      setFeedback({ error: false, message: 'Konfigurace LDAP byla uložena. Připojení zatím nebylo ověřeno.' });
-      await fetchProviders();
-    } finally {
-      setSubmitting(false);
-    }
   };
 
   const handleSaveOidc = async (e: React.FormEvent) => {
@@ -173,7 +101,8 @@ export default function IdentitySettingsPage() {
     }
   };
 
-  if (!isPlatformAdmin) return <AppShell><p role="alert">Nastavení přihlášení může měnit pouze správce platformy.</p></AppShell>;
+  if (loadingSession) return <AppShell><p role="status">{cs ? 'Načítání…' : 'Loading…'}</p></AppShell>;
+  if (!isPlatformAdmin) return <AppShell><p role="alert">{cs ? 'Nastavení přihlášení může měnit pouze správce platformy.' : 'Only platform administrators can manage sign-in settings.'}</p></AppShell>;
 
   return (
     <AppShell
@@ -185,14 +114,14 @@ export default function IdentitySettingsPage() {
     >
       <div style={{ padding: '24px', maxWidth: '1100px', margin: '0 auto' }}>
         {/* Title & Action Bar */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div className={styles.providerToolbar}>
           <div>
             <h1 style={{ fontSize: '18px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Users size={18} style={{ color: 'var(--accent-active)' }} />
               {t('admin.identityProviders')}
             </h1>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Configure enterprise directory synchronization and OpenID Connect single sign-on.
+              {cs ? 'Nastavte přihlášení přes školní adresář a přiřazení skupin k týmům.' : 'Configure directory sign-in and assign groups to exercise teams.'}
             </p>
           </div>
 
@@ -200,7 +129,7 @@ export default function IdentitySettingsPage() {
             <button
               type="button"
               className="btn-secondary"
-              onClick={() => { setEditingLdap(null); setLdapBindPassword(''); setIsLdapModalOpen(true); }}
+              onClick={() => { setEditingLdap(null); setFeedback(null); setIsLdapModalOpen(true); }}
               style={{ fontSize: '11px', height: '30px' }}
             >
               <Plus size={12} /> {t('admin.addLdap')}
@@ -216,32 +145,8 @@ export default function IdentitySettingsPage() {
           </div>
         </div>
 
-        {/* Break-glass Warning Banner */}
-        <div
-          style={{
-            background: 'rgba(56, 189, 248, 0.05)',
-            border: '1px solid rgba(56, 189, 248, 0.25)',
-            borderRadius: 'var(--radius-sm)',
-            padding: '12px 16px',
-            marginBottom: '20px',
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: '12px',
-            fontSize: '12px',
-          }}
-        >
-          <Shield size={16} style={{ color: 'var(--accent-active)', marginTop: '2px', flexShrink: 0 }} />
-          <div>
-            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Break-Glass Operational Resilience</div>
-            <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>
-              {t('auth.breakGlass')}. External SSO or LDAP outages never lock out local administrators. All sensitive bind passwords and client secrets are AES-256-GCM envelope-encrypted.
-            </div>
-          </div>
-        </div>
-
         {feedback && <p role={feedback.error ? 'alert' : 'status'} style={{ padding: '12px', color: feedback.error ? 'var(--status-critical)' : 'var(--text-primary)' }}>{feedback.message}</p>}
 
-        {/* Provider List */}
         <div
           style={{
             background: 'var(--bg-panel)',
@@ -250,10 +155,8 @@ export default function IdentitySettingsPage() {
             overflow: 'hidden',
           }}
         >
-          <div
+          <div className={styles.providerTableHead}
             style={{
-              display: 'grid',
-              gridTemplateColumns: '2fr 1fr 1fr 1fr 100px',
               padding: '10px 16px',
               background: 'var(--bg-surface)',
               borderBottom: '1px solid var(--border-default)',
@@ -264,24 +167,23 @@ export default function IdentitySettingsPage() {
               letterSpacing: '0.05em',
             }}
           >
-            <div>Provider / Endpoint</div>
-            <div>Category</div>
-            <div>Secret Storage</div>
-            <div>Status</div>
-            <div style={{ textAlign: 'right' }}>Actions</div>
+            <div>{cs ? 'Poskytovatel / adresa' : 'Provider / endpoint'}</div>
+            <div>{cs ? 'Typ' : 'Type'}</div>
+            <div>{cs ? 'Uložené heslo' : 'Stored credential'}</div>
+            <div>{cs ? 'Stav' : 'Status'}</div>
+            <div style={{ textAlign: 'right' }}>{cs ? 'Akce' : 'Actions'}</div>
           </div>
 
-          {providers.length === 0 ? (
+          {loading ? <p role="status" style={{ padding: '12px 16px' }}>{cs ? 'Načítání…' : 'Loading…'}</p> : providers.length === 0 ? (
             <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
-              No external identity providers configured. Only LOCAL database accounts are currently active.
+              {cs ? 'Zatím je dostupné pouze přihlášení místním účtem.' : 'Only local accounts are available for sign-in.'}
             </div>
           ) : (
             providers.map((p) => (
               <div
                 key={p.id}
+                className={styles.providerRow}
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: '2fr 1fr 1fr 1fr 100px',
                   alignItems: 'center',
                   padding: '12px 16px',
                   borderBottom: '1px solid var(--border-subtle)',
@@ -314,10 +216,10 @@ export default function IdentitySettingsPage() {
                 <div>
                   {p.hasSecretConfigured ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--status-success)', fontSize: '11px' }}>
-                      <CheckCircle2 size={12} /> Encrypted
+                      <CheckCircle2 size={12} /> {cs ? 'Uloženo' : 'Stored'}
                     </span>
                   ) : (
-                    <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>None</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{cs ? 'Chybí' : 'None'}</span>
                   )}
                 </div>
 
@@ -341,12 +243,12 @@ export default function IdentitySettingsPage() {
                   </button>
                 </div>
 
-                <div style={{ textAlign: 'right' }}>
+                <div className={styles.providerActions}>
                   {p.category === 'LDAP' && (
                     <>
-                      <button type="button" className="btn-ghost" onClick={() => editLdap(p)} aria-label={`Upravit ${p.name}`}><Pencil size={14} /></button>
-                      <button type="button" className="btn-ghost" disabled={testingId === p.id} onClick={() => handleTest(p.id)} title="Ověří formát konfigurace; nepřipojuje se k adresáři">
-                        {testingId === p.id ? 'Ověřuji…' : 'Ověřit konfiguraci'}
+                      <button type="button" className="btn-ghost" onClick={() => { setEditingLdap(p); setFeedback(null); setIsLdapModalOpen(true); }} aria-label={cs ? `Upravit LDAP · ${p.name}` : `Edit LDAP · ${p.name}`} title={cs ? 'Upravit LDAP' : 'Edit LDAP'}><Pencil size={14} /> {cs ? 'Upravit LDAP' : 'Edit LDAP'}</button>
+                      <button type="button" className="btn-ghost" disabled={testingId === p.id} onClick={() => handleTest(p.id)} title={cs ? 'Zkontroluje pravidla a formát nastavení' : 'Check configuration and rules'}>
+                        {testingId === p.id ? '…' : (cs ? 'Ověřit konfiguraci' : 'Check settings')}
                       </button>
                     </>
                   )}
@@ -360,7 +262,7 @@ export default function IdentitySettingsPage() {
                       padding: '4px',
                       color: 'var(--status-danger)',
                     }}
-                    title="Delete provider"
+                    aria-label={cs ? `Odstranit ${p.name}` : `Delete ${p.name}`}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -370,91 +272,11 @@ export default function IdentitySettingsPage() {
           )}
         </div>
 
-        {/* Modal: Add LDAP */}
-        {isLdapModalOpen && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(0, 0, 0, 0.7)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 100,
-            }}
-          >
-            <div
-              style={{
-                width: '520px',
-                background: 'var(--bg-panel)',
-                border: '1px solid var(--border-default)',
-                borderRadius: 'var(--radius-md)',
-                padding: '24px',
-                maxHeight: '90vh',
-                overflowY: 'auto',
-              }}
-            >
-              <h2 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '16px' }}>Configure LDAP / Active Directory</h2>
-              {feedback?.error && <p role="alert">{feedback.message}</p>}
-              <form onSubmit={handleSaveLdap} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Display Name</label>
-                  <input value={ldapName} onChange={(e) => setLdapName(e.target.value)} required />
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>LDAP URL</label>
-                  <input value={ldapUrl} onChange={(e) => setLdapUrl(e.target.value)} placeholder="ldap://10.0.0.1:389" required />
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Transport security</label>
-                  <select value={ldapTransportSecurity} onChange={(e) => setLdapTransportSecurity(e.target.value as typeof ldapTransportSecurity)}>
-                    <option value="NONE">Nešifrované LDAP (pouze localhost)</option>
-                    <option value="LDAPS">LDAPS (ověření certifikátu)</option>
-                    <option value="STARTTLS">StartTLS (ověření certifikátu)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Bind DN</label>
-                  <input value={ldapBindDn} onChange={(e) => setLdapBindDn(e.target.value)} required />
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Bind Password (Encrypted)</label>
-                  <input type="password" value={ldapBindPassword} onChange={(e) => setLdapBindPassword(e.target.value)} placeholder="••••••••••••" />
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Base DN</label>
-                  <input value={ldapBaseDn} onChange={(e) => setLdapBaseDn(e.target.value)} required />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <div>
-                    <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>User Filter</label>
-                    <input value={ldapUserFilter} onChange={(e) => setLdapUserFilter(e.target.value)} required />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Username Attr</label>
-                    <input value={ldapUsernameAttr} onChange={(e) => setLdapUsernameAttr(e.target.value)} required />
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                  <input type="checkbox" id="ldapJit" checked={ldapJit} onChange={(e) => setLdapJit(e.target.checked)} />
-                  <label htmlFor="ldapJit" style={{ fontSize: '12px' }}>Enable Just-In-Time (JIT) User Provisioning</label>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-                  <button type="button" className="btn-ghost" onClick={() => setIsLdapModalOpen(false)}>Cancel</button>
-                  <button type="submit" className="btn-primary" disabled={submitting}>Save Provider</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
+        {isLdapModalOpen && <LdapProviderForm provider={editingLdap} onClose={() => setIsLdapModalOpen(false)} onSaved={() => {
+          setIsLdapModalOpen(false);
+          setFeedback({ error: false, message: cs ? 'Nastavení LDAP bylo uloženo.' : 'LDAP settings saved.' });
+          void fetchProviders();
+        }} />}
 
         {/* Modal: Add OIDC */}
         {isOidcModalOpen && (

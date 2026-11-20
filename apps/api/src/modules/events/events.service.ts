@@ -9,6 +9,7 @@ import { eq, and, desc, inArray, isNull, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { validateEventRolePermissions } from './event-role-permissions.js';
 import { SearchIndexerService } from '../search/search-indexer.service.js';
 import {
   events,
@@ -512,7 +513,7 @@ export class EventsService {
 
     const [updated] = await this.db
       .update(eventMemberships)
-      .set({ status: data.status, updatedAt: new Date() })
+      .set({ status: data.status, ldapDeactivatedBy: null, updatedAt: new Date() })
       .where(eq(eventMemberships.id, membershipId))
       .returning();
 
@@ -742,33 +743,19 @@ export class EventsService {
   }
 
   async assignMembershipToUnit(eventId: string, unitId: string, membershipId: string) {
-    await this.getEvent(eventId);
-
-    const [unit] = await this.db
-      .select({ id: organizationalUnits.id })
-      .from(organizationalUnits)
-      .where(
-        and(
-          eq(organizationalUnits.id, unitId),
-          eq(organizationalUnits.eventId, eventId)
-        )
-      )
-      .limit(1);
-
-    if (!unit) {
-      throw new NotFoundException(`Unit '${unitId}' not found in this event`);
-    }
-
-    const [created] = await this.db
-      .insert(membershipUnitAssignments)
-      .values({
-        membershipId,
-        unitId,
-      })
-      .onConflictDoNothing()
-      .returning();
-
-    return created ?? { membershipId, unitId };
+    return this.db.transaction(async tx => {
+      const [unit] = await tx.select({ id: organizationalUnits.id }).from(organizationalUnits)
+        .where(and(eq(organizationalUnits.id, unitId), eq(organizationalUnits.eventId, eventId), isNull(organizationalUnits.archivedAt)))
+        .for('share');
+      if (!unit) throw new NotFoundException('Unit not found in this event');
+      const [membership] = await tx.select({ id: eventMemberships.id }).from(eventMemberships)
+        .where(and(eq(eventMemberships.id, membershipId), eq(eventMemberships.eventId, eventId), eq(eventMemberships.status, 'ACTIVE')))
+        .for('update');
+      if (!membership) throw new NotFoundException('Active membership not found in this event');
+      const [created] = await tx.insert(membershipUnitAssignments).values({ membershipId, unitId })
+        .onConflictDoNothing().returning();
+      return created ?? { membershipId, unitId };
+    });
   }
 
   async getUnitCapabilities(eventId: string, unitId: string) {
@@ -888,24 +875,6 @@ export class EventsService {
     );
   }
 
-  private validateEventRolePermissions(permissions: Array<{ permissionKey: string; scope: string }>): void {
-    const known = new Set<string>(Object.values(Permissions));
-    const platformOnly = new Set<string>([
-      Permissions.PLATFORM_MANAGE, Permissions.EVENT_CREATE,
-      Permissions.IDENTITY_MANAGE, Permissions.INTEGRATION_MANAGE,
-    ]);
-    const scopes = new Set<string>(['EVENT', 'UNIT', 'OWN', 'ASSIGNED']);
-    const seen = new Set<string>();
-    for (const permission of permissions) {
-      if (!known.has(permission.permissionKey) || platformOnly.has(permission.permissionKey) || !scopes.has(permission.scope)) {
-        throw new BadRequestException('Event roles may contain only known event permissions with an event, unit, own or assigned scope');
-      }
-      const key = `${permission.permissionKey}:${permission.scope}`;
-      if (seen.has(key)) throw new BadRequestException('Duplicate role permission');
-      seen.add(key);
-    }
-  }
-
   private async assertEventRoleManager(eventId: string, actorUserId?: string): Promise<void> {
     if (!actorUserId) throw new ForbiddenException('An authenticated role manager is required');
     const [actor] = await this.db.select({ id: users.id, email: users.email, displayName: users.displayName, status: users.status })
@@ -917,7 +886,7 @@ export class EventsService {
   async createRole(eventId: string, data: CreateRoleRequest, actorUserId?: string, requestId?: string) {
     await this.assertEventRoleManager(eventId, actorUserId);
     await this.getEvent(eventId);
-    this.validateEventRolePermissions(data.permissions ?? []);
+    validateEventRolePermissions(data.permissions ?? []);
     return this.db.transaction(async (tx) => {
       // Serialize same-event role creation, including retries, without changing
       // or deleting legacy roles already maintained by an administrator.
@@ -942,7 +911,7 @@ export class EventsService {
 
   async updateRole(eventId: string, roleId: string, data: UpdateRoleRequest, actorUserId?: string, requestId?: string) {
     await this.assertEventRoleManager(eventId, actorUserId);
-    if (data.permissions) this.validateEventRolePermissions(data.permissions);
+    if (data.permissions) validateEventRolePermissions(data.permissions);
     return this.db.transaction(async (tx) => {
       const [role] = await tx.select().from(roles)
         .where(and(eq(roles.id, roleId), eq(roles.eventId, eventId))).limit(1).for('update');
@@ -982,7 +951,7 @@ export class EventsService {
       if (!role) throw new NotFoundException('Role not found in this event');
       const permissions = await tx.select({ permissionKey: rolePermissions.permissionKey, scope: rolePermissions.scope })
         .from(rolePermissions).where(eq(rolePermissions.roleId, role.id));
-      this.validateEventRolePermissions(permissions);
+      validateEventRolePermissions(permissions);
       const [membership] = await tx.select({ id: eventMemberships.id, userId: eventMemberships.userId })
         .from(eventMemberships).innerJoin(users, eq(users.id, eventMemberships.userId))
         .where(and(

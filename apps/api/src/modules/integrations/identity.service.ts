@@ -158,10 +158,9 @@ export class IdentityService {
     if (bindPassword !== undefined && typeof bindPassword !== 'string') throw new BadRequestException('Invalid bind password');
 
     const db = this.databaseService.client;
-    try { await resolveLdapMappings(db, config.groupMappings ?? []); }
-    catch (error) { throw new BadRequestException((error as Error).message); }
+    const groupMappings = await resolveLdapMappings(db, config.groupMappings ?? []);
     const providerId = id ?? generateId();
-    const safeConfig = { ...config };
+    const safeConfig = { ...config, groupMappings };
     delete (safeConfig as any).bindPassword;
 
     const now = new Date();

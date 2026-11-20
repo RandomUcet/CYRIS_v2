@@ -1,4 +1,5 @@
-import { pgTable, uuid, varchar, text, timestamp, jsonb, boolean, integer, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { pgTable, uuid, varchar, text, timestamp, jsonb, boolean, integer, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
 import { generateId } from '@cyris/shared';
 import { users } from './users.js';
 import { events } from './events.js';
@@ -41,6 +42,7 @@ export const integrations = pgTable(
     name: varchar('name', { length: 128 }).notNull(),
     category: varchar('category', { length: 64 }).notNull().default(IntegrationCategory.AI_PROVIDER),
     providerType: varchar('provider_type', { length: 64 }).notNull(), // e.g. 'OPENAI_COMPATIBLE'
+    systemProfile: varchar('system_profile', { length: 32 }).$type<'DGX_SPARK'>(),
     enabled: boolean('enabled').notNull().default(false),
     status: varchar('status', { length: 32 }).notNull().default(IntegrationStatus.NOT_CONFIGURED),
     config: jsonb('config').notNull().default('{}'), // Non-sensitive settings (endpoint, model, timeout, tls)
@@ -52,6 +54,11 @@ export const integrations = pgTable(
   (table) => ({
     categoryIdx: index('integrations_category_idx').on(table.category),
     enabledIdx: index('integrations_enabled_idx').on(table.enabled),
+    systemProfileIdx: uniqueIndex('integrations_system_profile_idx').on(table.systemProfile),
+    activeAiIdx: uniqueIndex('integrations_active_ai_idx').on(table.category)
+      .where(sql`${table.category} = 'AI_PROVIDER' AND ${table.enabled}`),
+    systemProfileCheck: check('integrations_system_profile_check', sql`${table.systemProfile} IS NULL OR
+      (${table.systemProfile} = 'DGX_SPARK' AND ${table.category} = 'AI_PROVIDER' AND ${table.providerType} = 'OPENAI_COMPATIBLE')`),
   })
 );
 

@@ -1,13 +1,37 @@
 import { z } from 'zod';
 
 export const LdapGroupMappingSchema = z.object({
-  ldapGroup: z.string().min(1),
-  roleSlug: z.string().min(1),
+  ldapGroup: z.string().trim().min(1).max(2048),
+  roleSlug: z.string().trim().min(1).max(128),
   eventId: z.string().uuid().optional(),
-  unitSlug: z.string().optional(),
+  unitSlug: z.string().trim().max(128).optional(),
 });
 
 export type LdapGroupMapping = z.infer<typeof LdapGroupMappingSchema>;
+
+export const LdapTeamAssignmentSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('DIRECTORY') }).strict(),
+  z.object({ mode: z.literal('MANUAL'), unitId: z.string().uuid(), roleId: z.string().uuid() }).strict(),
+  z.object({ mode: z.literal('UNASSIGNED') }).strict(),
+]);
+export type LdapTeamAssignment = z.infer<typeof LdapTeamAssignmentSchema>;
+
+export const LdapTeamAccountQuerySchema = z.object({
+  eventId: z.string().uuid(),
+  q: z.string().trim().max(160).optional(),
+  unassigned: z.enum(['true', 'false']).optional(),
+});
+
+export interface LdapTeamAccount {
+  identityId: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  providerName: string;
+  membershipStatus: 'ACTIVE' | 'INACTIVE' | null;
+  units: { id: string; name: string }[];
+  assignment: LdapTeamAssignment;
+}
 
 export const LdapConfigSchema = z.object({
   displayName: z.string().min(1).max(128),

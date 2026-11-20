@@ -1,0 +1,96 @@
+.page {
+  display: grid;
+  gap: 1rem;
+  max-width: 64rem;
+  width: 100%;
+  margin-inline: auto;
+  padding: clamp(1rem, 3vw, 2rem);
+  color: var(--text-primary);
+}
+.page :is(button, input, summary):focus-visible { outline: 2px solid var(--accent-active); outline-offset: 3px; }
+.card, .others, .dialog {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+.card { min-width: 0; padding: clamp(1rem, 3vw, 1.5rem); }
+.header, .title, .actions, .switchRow, .switch, .checkRow, .checkMeta, .footer {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+}
+.header, .switchRow, .checkRow { justify-content: space-between; flex-wrap: wrap; }
+.title > svg { color: var(--accent-primary); flex-shrink: 0; }
+.title h2, .dialog h2 { font-size: 1.09rem; line-height: 1.4; margin: 0; letter-spacing: -.012em; }
+.actions, .checkMeta { flex-wrap: wrap; }
+.switchRow { padding: 1rem 0; border-bottom: 1px solid var(--border-subtle); }
+.controlLabel, .diagnostics h3 { font-size: .87rem; font-weight: 650; }
+.switch { position: relative; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; inset: 0; margin: 0; cursor: pointer; }
+.switch input:disabled { cursor: wait; }
+.switch input:focus-visible + .switchTrack { outline: 2px solid var(--accent-active); outline-offset: 3px; }
+.switchTrack {
+  display: inline-flex;
+  align-items: center;
+  width: 2.25rem;
+  height: 1.35rem;
+  flex-shrink: 0;
+  padding: .12rem;
+  background: var(--text-muted);
+  border: 1px solid transparent;
+  border-radius: 1rem;
+}
+.switchTrack::before {
+  content: '';
+  display: block;
+  width: .97rem;
+  height: .97rem;
+  border-radius: 50%;
+  background: white;
+}
+.switch input:checked + .switchTrack { background: var(--accent-primary); }
+.switch input:checked + .switchTrack::before { margin-inline-start: auto; }
+.switchState { font-size: .82rem; min-width: 3.4rem; }
+.help, .checkMeta time, .dialog small, .settings { color: var(--text-secondary); font-size: .78rem; }
+.help { margin: .25rem 0 0; }
+.endpoints { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: .9rem; margin: 0; padding: 1rem 0; }
+.endpoints dt { margin-bottom: .3rem; color: var(--text-secondary); font-weight: 600; font-size: .77rem; }
+.endpoints dd, .testResults dd { margin: 0; }
+.endpoints code { display: block; overflow-wrap: anywhere; font-size: .8rem; font-family: var(--font-mono, monospace); }
+.endpoints .address { color: var(--text-secondary); font-size: .75rem; margin-top: .17rem; }
+.diagnostics { border-top: 1px solid var(--border-subtle); padding-top: 1rem; }
+.diagnostics h3 { margin: 0 0 .3rem; }
+.checkStatus { font-weight: 600; font-size: .79rem; color: var(--text-secondary); }
+.checkStatus[data-state='OPERATIONAL'] { color: var(--status-success); }
+.checkStatus[data-state='DEGRADED'] { color: var(--status-warning); }
+.checkStatus[data-state='ERROR'], .error { color: var(--status-danger); }
+.error { font-size: .83rem; margin: .6rem 0 0; overflow-wrap: anywhere; }
+.testResults { display: flex; flex-wrap: wrap; gap: .3rem 1.2rem; margin: .65rem 0 0; }
+.testResults > div { display: flex; gap: .4rem; font-size: .78rem; }
+.testResults dt { color: var(--text-secondary); }
+.others > summary, .settings > summary { cursor: pointer; font-weight: 600; }
+.others > summary { padding: .95rem 1.1rem; font-size: .88rem; }
+.othersBody { display: grid; gap: .8rem; padding: 0 1.1rem 1rem; }
+.othersBody > button { justify-self: start; }
+.settings { margin: 0 0 1rem; }
+.settings dl { display: flex; flex-wrap: wrap; gap: .7rem 1.3rem; margin: .5rem 0 0; }
+.settings dd { margin: .15rem 0 0; color: var(--text-primary); }
+.dialog {
+  position: fixed; inset: 0; margin: auto; width: min(30rem, calc(100% - 2rem));
+  max-height: 88vh; overflow-y: auto; padding: 1.2rem; box-shadow: var(--shadow-lg);
+}
+.dialog::backdrop { background: rgba(6, 17, 28, .5); }
+.dialog fieldset { display: grid; gap: .8rem; border: 0; padding: 0; margin: 1rem 0; min-width: 0; }
+.dialog label:not(.checkbox) { display: grid; gap: .3rem; font-size: .8rem; font-weight: 600; }
+.dialog input:not([type='checkbox']) {
+  width: 100%; padding: .5rem .65rem; border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+  background: var(--bg-canvas); color: var(--text-primary); font: inherit; font-weight: 400;
+}
+.dialog small { font-weight: 400; }
+.checkbox { display: flex; align-items: center; gap: .5rem; font-size: .8rem; }
+.footer { justify-content: flex-end; padding-top: .8rem; }
+@media (forced-colors: active) {
+  .switchTrack { border-color: ButtonText; }
+  .switchTrack::before { background: ButtonText; }
+}

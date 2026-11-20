@@ -57,7 +57,7 @@ All sensitive identity provider credentials (LDAP `BIND_PASSWORD` and OIDC `CLIE
 - **URL & TLS**: `ldap://` or `ldaps://` endpoint with startTLS or LDAPS verification.
 - **Service Bind**: `bindDn` and encrypted `bindPassword` used to search the directory tree.
 - **Search Parameters**: `baseDn`, `userFilter` (e.g. `(&(objectClass=user)(sAMAccountName={username}))`), attribute mappings for `username`, `email`, and `displayName`.
-- **Group Mapping (Optional)**: `groupBaseDn` and `groupFilter` for mapping Active Directory security groups to initial CYRIS roles and unit memberships.
+- **Group mapping**: Search `groupBaseDn` using `groupFilter`. For each rule, enter the group CN or its full DN and select an exercise, team and exercise role under **Identity Providers**. The full DN distinguishes groups with the same CN in different organizational units.
 
 ### Safe Authentication Flow
 1. **Bind**: API connects to LDAP using configured service account.
@@ -81,10 +81,15 @@ All sensitive identity provider credentials (LDAP `BIND_PASSWORD` and OIDC `CLIE
 
 ## 5. Just-In-Time (JIT) Provisioning & Principle of Least Privilege
 
-When JIT provisioning is enabled on an external provider:
-- Successful external authentication of a first-time user automatically registers a CYRIS user profile.
-- **Least Privilege Guarantee**: New JIT users receive **no automatic event memberships** and **no administrative roles**. An exercise administrator must assign the user to specific events, units, or workspaces.
-- External directory membership does not automatically grant sovereign CYRIS platform permissions.
+With JIT enabled, successful first authentication creates a CYRIS user. Each LDAP
+login reconciles memberships granted by the configured rules. An unmatched user
+can sign in and wait for an exercise assignment. Platform administrators can
+assign that person to a team in a specific exercise, restore group-based placement,
+or exclude the person from LDAP placement for that exercise. The separate grants
+made through ordinary membership administration keep their own lifecycle.
+
+LDAP mappings grant exercise roles. See the [administrator handbook](../prirucka-spravce.md)
+for the login flow, individual overrides and offboarding.
 
 ---
 

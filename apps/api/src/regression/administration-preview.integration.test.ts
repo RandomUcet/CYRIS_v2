@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { and, eq } from 'drizzle-orm';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, type ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import {
   getDbClient, closeDatabaseConnection, users, events, eventMemberships, organizationalUnits,
   membershipUnitAssignments, roles, roleAssignments, rolePermissions, auditEvents, userPreferences, scenarioClocks,
@@ -11,8 +12,10 @@ import { generateId, Permissions } from '@cyris/shared';
 import { MembershipResponseSchema, AssignRoleRequestSchema } from '@cyris/contracts';
 import { DatabaseService } from '../modules/database/database.service.js';
 import { AuthorizationService } from '../modules/authorization/authorization.service.js';
+import { PermissionsGuard } from '../modules/authorization/guards/permissions.guard.js';
 import { AuditService } from '../modules/audit/audit.service.js';
 import { EventsService } from '../modules/events/events.service.js';
+import { EventTemplatesController } from '../modules/events/event-templates.controller.js';
 import { SearchIndexerService } from '../modules/search/search-indexer.service.js';
 import { SearchAuthzService } from '../modules/search/search-authz.service.js';
 import { AuthService } from '../modules/auth/auth.service.js';
@@ -167,6 +170,28 @@ test('event administration and read-only participant preview against isolated Po
       assert.ok(records.some((row) => row.action === 'auth.view_as.read'));
       assert.ok(records.some((row) => row.action === 'auth.view_as.blocked'));
       assert.ok(records.every((row) => row.actorUserId === admin.id));
+    });
+
+    await t.test('only a platform administrator can add missing team templates to the requested exercise', async () => {
+      const controller = new EventTemplatesController(database, audit, indexer);
+      const permissions = new PermissionsGuard(new Reflector(), authz, audit);
+      const req = { user: organizer, headers: {}, params: { eventId: eventA }, id: generateId() } as unknown as CyrisRequest;
+      const ctx = {
+        getClass: () => EventTemplatesController, getHandler: () => controller.initialize,
+        switchToHttp: () => ({ getRequest: () => req }),
+      } as unknown as ExecutionContext;
+      await assert.rejects(permissions.canActivate(ctx), ForbiddenException);
+      req.user = admin;
+      assert.equal(await permissions.canActivate(ctx), true);
+      const results = await Promise.all([controller.initialize(eventA, admin, req), controller.initialize(eventA, admin, req)]);
+      assert.deepEqual(results.map(r => r.unitsCreated).sort(), [0, 7]);
+      assert.deepEqual(results.map(r => r.rolesCreated).sort(), [0, 7]);
+      assert.ok(results.every(r => r.eventId === eventA));
+      assert.equal((await db.select().from(organizationalUnits).where(eq(organizationalUnits.eventId, eventB))).length, 0);
+      const records = await db.select().from(auditEvents).where(and(eq(auditEvents.eventId, eventA), eq(auditEvents.action, 'event.team_templates.initialized')));
+      assert.equal(records.length, 2);
+      assert.ok(records.every(row => row.actorUserId === admin.id));
+      await assert.rejects(controller.initialize(generateId(), admin, req), NotFoundException);
     });
 
     await t.test('expiry and revoked rights fail closed; the original actor can still exit', async () => {

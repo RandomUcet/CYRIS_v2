@@ -6,6 +6,8 @@ import { AuditService } from '../audit/audit.service.js';
 import { integrationSecrets, AuditOutcome } from '@cyris/db';
 import { generateId, parseMasterKey, encryptSecret, decryptSecret } from '@cyris/shared';
 
+type Transaction = Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0];
+
 @Injectable()
 export class IntegrationSecretService implements OnModuleInit {
   private readonly logger = new Logger(IntegrationSecretService.name);
@@ -37,14 +39,15 @@ export class IntegrationSecretService implements OnModuleInit {
     integrationId: string,
     secretKey: string,
     plaintext: string,
-    actorUserId?: string
+    actorUserId?: string,
+    txClient?: Transaction
   ): Promise<void> {
     if (typeof plaintext !== 'string' || plaintext.length === 0) {
       throw new Error('Secret value cannot be empty');
     }
 
     const payload = encryptSecret(plaintext, this.masterKeyBuffer, 1);
-    const db = this.databaseService.client;
+    const db = txClient ?? this.databaseService.client;
 
     await db
       .insert(integrationSecrets)
@@ -74,6 +77,7 @@ export class IntegrationSecretService implements OnModuleInit {
     // Record audit WITHOUT the secret or ciphertext
     await this.auditService.record({
       action: 'integration.secret.updated',
+      txClient,
       category: 'SECURITY',
       actorUserId: actorUserId ?? null,
       resourceType: 'integration',
@@ -125,8 +129,8 @@ export class IntegrationSecretService implements OnModuleInit {
   /**
    * Checks whether a secret is configured for an integration without decrypting it.
    */
-  async hasSecret(integrationId: string, secretKey: string): Promise<boolean> {
-    const db = this.databaseService.client;
+  async hasSecret(integrationId: string, secretKey: string, txClient?: Transaction): Promise<boolean> {
+    const db = txClient ?? this.databaseService.client;
     const [row] = await db
       .select({ id: integrationSecrets.id })
       .from(integrationSecrets)
@@ -147,9 +151,10 @@ export class IntegrationSecretService implements OnModuleInit {
   async deleteSecret(
     integrationId: string,
     secretKey: string,
-    actorUserId?: string
+    actorUserId?: string,
+    txClient?: Transaction
   ): Promise<void> {
-    const db = this.databaseService.client;
+    const db = txClient ?? this.databaseService.client;
     await db
       .delete(integrationSecrets)
       .where(
@@ -161,6 +166,7 @@ export class IntegrationSecretService implements OnModuleInit {
 
     await this.auditService.record({
       action: 'integration.secret.deleted',
+      txClient,
       category: 'SECURITY',
       actorUserId: actorUserId ?? null,
       resourceType: 'integration',

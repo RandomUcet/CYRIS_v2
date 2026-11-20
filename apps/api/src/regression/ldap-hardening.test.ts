@@ -81,6 +81,24 @@ test('LDAPS uses verified immediate TLS without StartTLS', async () => {
   for (const call of calls.filter((call) => call.operation === 'create')) assert.equal((call.value as any).tlsOptions.rejectUnauthorized, true);
 });
 
+test('group search records full directory object DNs and all CNs from the configured group base', async () => {
+  const requests: Array<[string, string | undefined]> = [];
+  const factory: LdapClientFactory = () => ({
+    async bind() {}, async startTLS() {}, async unbind() {},
+    async search(baseDn, options) {
+      requests.push([baseDn, options.filter?.toString()]);
+      return { searchReferences: [], searchEntries: baseDn === 'ou=groups,dc=test'
+        ? [{ dn: 'cn=Blue,ou=groups,dc=test', cn: ['Blue', 'Team Blue'] }]
+        : [{ dn: 'cn=Operator,dc=test', cn: 'Operator', mail: 'operator@example.test' }] };
+    },
+  });
+  const user = await authenticateDirectoryUser({ ...base, groupBaseDn: 'ou=groups,dc=test' },
+    'operator', 'secret', 'bind', factory);
+  assert.deepEqual(user?.groups, ['Blue', 'Team Blue']);
+  assert.deepEqual(user?.groupDns, ['cn=Blue,ou=groups,dc=test']);
+  assert.deepEqual(requests[1], ['ou=groups,dc=test', '(|(member=cn=Operator,dc=test)(memberUid=operator))']);
+});
+
 test('ambiguous results and missing service secret cannot authenticate; invalid user bind closes connections', async () => {
   const ambiguous = directory({ ambiguous: true });
   assert.equal(await authenticateDirectoryUser(base, 'operator', 'password', 'service-password', ambiguous.factory), null);
@@ -106,20 +124,21 @@ function fakeDb(rows: unknown[][]) {
   const db: any = {
     select() {
       const chain: any = {};
-      for (const method of ['from', 'where', 'innerJoin']) chain[method] = () => chain;
-      chain.limit = async () => rows.shift() ?? [];
+      for (const method of ['from', 'where', 'innerJoin', 'limit', 'for']) chain[method] = () => chain;
+      chain.then = (resolve: (value: unknown[]) => void) => resolve(rows.shift() ?? []);
       return chain;
     },
     insert() { writes.push('insert'); throw new Error('Unexpected insert'); },
     update() { writes.push('update'); throw new Error('Unexpected update'); },
     delete() { writes.push('delete'); throw new Error('Unexpected delete'); },
     transaction(fn: (tx: any) => unknown) { return fn(db); },
+    execute: async () => [], // first-login transaction lock
   };
   return { db, writes };
 }
 
 test('JIT cannot take over a local account by claiming its email address', async () => {
-  const { db, writes } = fakeDb([[{ id: 'provider-a', config: base }], [], [{ id: 'local-admin' }]]);
+  const { db, writes } = fakeDb([[{ id: 'provider-a', config: base }], [{ config: base }], [], [{ id: 'local-admin' }]]);
   class TestProvider extends LdapIdentityProvider {
     protected override async authenticateDirectory() { return { dn: 'cn=operator', email: 'admin@example.test', displayName: 'Operator', groups: [] }; }
   }

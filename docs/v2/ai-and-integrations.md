@@ -7,7 +7,7 @@
 
 ## 1. Core Architectural Boundary & The DGX Spark Principle
 
-CYRIS v2 implements an isolated, air-gapped integration boundary for artificial intelligence compute. During development and operational deployment, CYRIS does **not** assume continuous access to dedicated hardware, and the system is fully functional when **zero** AI providers are configured.
+CYRIS calls inference services through the API gateway. The built-in DGX Spark profile is present after migration. Core exercise workflows remain available while the provider is disabled or the CYLAB network is offline.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -36,7 +36,7 @@ CYRIS v2 implements an isolated, air-gapped integration boundary for artificial 
                                │ HTTP / TLS (Private Network)
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                  Future NVIDIA DGX Spark                    │
+│                     NVIDIA DGX Spark                        │
 │           (vLLM / NIM / OpenAI-Compatible Server)           │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -104,12 +104,12 @@ so they do not need hidden reasoning budget. Catch Me Up and Timeline Explain
 retain reasoning because they synthesize operational context and causal chains.
 Reasoning is never returned as user-visible text or persisted in provenance.
 
-Example DGX Spark configuration:
+The managed CYLAB profile uses these values:
 
 ```text
-endpoint:          http://<SPARK_IP>:8000/v1
+endpoint:          http://10.15.69.2:8000/v1
 chatModel:         nvidia/Qwen3.8-27B-NVFP4
-embeddingEndpoint: http://<SPARK_IP>:8001/v1
+embeddingEndpoint: http://10.15.69.2:8001/v1
 embeddingModel:    Qwen/Qwen3-Embedding-8B
 timeoutSeconds:    120
 tlsVerify:         true
@@ -228,22 +228,14 @@ Every AI invocation records auditable metadata in the `ai_runs` table:
 
 ---
 
-## 7. Connecting Future NVIDIA DGX Spark
+## 7. Connecting the CYLAB Spark
 
-When DGX Spark is powered on and configured with NVIDIA NIM or vLLM:
+Copy [the setup script](../../deploy/spark/setup.sh) to the Spark and run
+`bash ~/cyris-spark.sh` when logged in to the device. To run a short completion
+and compute one embedding, use `bash ~/cyris-spark.sh test`.
 
-1. Log into CYRIS as Platform Administrator (`admin@cyris.local`).
-2. Navigate to **Administration → Settings → Integrations → Intelligence / AI**.
-3. Click **Add AI Provider**:
-   - **Display Name**: `NVIDIA DGX Spark`
-   - **Provider Type**: `OPENAI_COMPATIBLE`
-   - **Endpoint URL**: `https://spark.cylab.local/v1` (or internal IP)
-   - **Chat Model**: Name of loaded model (e.g. `meta/llama-3.1-70b-instruct`)
-   - **API Key**: Optional (leave empty if DGX Spark private network requires no auth)
-   - **Timeout**: `60` or `120` seconds
-   - **TLS Verification**: Enabled (or uncheck if using a private self-signed certificate)
-   - Check **Set as Active AI Provider for CYRIS**.
-4. Click **Test Connection**:
-   - CYRIS probes `/models` or issues a 1-token test completion.
-   - Verifies network route, latency, and model availability.
-5. Save the configuration. CYRIS Intelligence is immediately live across all operational workspaces.
+In **Administration → Integrations & AI** open **CYRIS DGX Spark**. Test the
+connection from the API server and switch the provider on when both runtimes
+respond. The same switch suspends CYRIS requests while the device is in use
+elsewhere. The [administrator handbook](../prirucka-spravce.md) includes the
+copy command, network checks and per-service logs.

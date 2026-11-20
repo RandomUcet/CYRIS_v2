@@ -1,7 +1,7 @@
 import { pgTable, uuid, varchar, text, timestamp, uniqueIndex, foreignKey, jsonb } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { generateId } from '@cyris/shared';
-import { users } from './users.js';
+import { userIdentities, users } from './users.js';
 
 export const EventStatus = {
   DRAFT: 'DRAFT',
@@ -52,6 +52,7 @@ export const eventMemberships = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     status: varchar('status', { length: 32 }).notNull().default(MembershipStatus.ACTIVE),
+    ldapDeactivatedBy: uuid('ldap_deactivated_by').references(() => userIdentities.id, { onDelete: 'set null' }),
     joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -68,6 +68,7 @@ export const AIProviderResponseSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   providerType: z.string(),
+  systemProfile: z.literal('DGX_SPARK').nullable().default(null),
   enabled: z.boolean(),
   status: z.string(),
   endpoint: z.string(),

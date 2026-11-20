@@ -30,6 +30,39 @@ import {
 import { CAPABILITY_CATALOG } from '@cyris/contracts';
 import { COMMON_TIMEZONES, SUPPORTED_LOCALES } from '@/lib/i18n';
 
+function EventTemplateAction({ eventId, onApplied }: { eventId: string; onApplied: () => void }) {
+  const { locale } = usePreferences();
+  const cs = locale === 'cs';
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [failed, setFailed] = useState(false);
+  const initialize = async () => {
+    setSaving(true);
+    setMessage('');
+    setFailed(false);
+    try {
+      const response = await apiClient.initializeTeamTemplates(eventId);
+      if (!response.ok || !response.data) throw new Error(response.error);
+      const { rolesCreated, unitsCreated } = response.data;
+      setMessage(rolesCreated || unitsCreated
+        ? (cs ? `Přidáno · týmy +${unitsCreated}, role +${rolesCreated}` : `Added · teams +${unitsCreated}, roles +${rolesCreated}`)
+        : (cs ? 'Všechny týmy a role už jsou připravené.' : 'All teams and roles are already in place.'));
+      if (unitsCreated) onApplied();
+    } catch (err) {
+      setFailed(true);
+      setMessage((err instanceof Error && err.message) || (cs ? 'Týmy a role se nepodařilo doplnit.' : 'Unable to add the exercise teams and roles.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <div style={{ marginBottom: '12px' }}>
+    <button type="button" className="btn btn-secondary" disabled={saving} onClick={initialize}>
+      {saving ? (cs ? 'Doplňuji…' : 'Adding…') : (cs ? 'Doplnit týmy a role' : 'Add missing teams and roles')}
+    </button>
+    {message && <p role={failed ? 'alert' : 'status'}>{message}</p>}
+  </div>;
+}
+
 interface EventItem {
   id: string;
   name: string;
@@ -55,9 +88,10 @@ const LIFECYCLE_OPTIONS: Array<{ value: string; label: string; description: stri
 
 export default function AdminEventsPage() {
   const router = useRouter();
-  const { hasPermission } = useAuth();
+  const { hasPermission, isPlatformAdmin } = useAuth();
   const { selectEvent, currentEvent } = useEvent();
-  const { formatDate, formatTime, t } = usePreferences();
+  const { formatDate, formatTime, t, locale } = usePreferences();
+  const cs = locale === 'cs';
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,6 +142,8 @@ export default function AdminEventsPage() {
   const [inspectingEvent, setInspectingEvent] = useState<EventItem | null>(null);
   const [eventUnits, setEventUnits] = useState<any[]>([]);
   const [unitsLoading, setUnitsLoading] = useState(false);
+  const [unitsError, setUnitsError] = useState('');
+  const [unitsRevision, setUnitsRevision] = useState(0);
   const [editingUnitCaps, setEditingUnitCaps] = useState<any | null>(null);
   const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
   const [savingCaps, setSavingCaps] = useState(false);
@@ -301,21 +337,28 @@ export default function AdminEventsPage() {
   };
 
   // Open Units & Capabilities Inspector
-  const openUnitsInspector = async (event: EventItem) => {
+  const openUnitsInspector = (event: EventItem) => {
     setInspectingEvent(event);
+    setEventUnits([]);
     setUnitsLoading(true);
+    setUnitsError('');
     setEditingUnitCaps(null);
-    try {
-      const res = await apiClient.getEventUnits(event.id);
-      if (res.ok && res.data) {
-        setEventUnits(res.data);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setUnitsLoading(false);
-    }
   };
+  const inspectedId = inspectingEvent?.id;
+  useEffect(() => {
+    if (!inspectedId) return;
+    let current = true;
+    setUnitsError('');
+    setUnitsLoading(true);
+    apiClient.getEventUnits(inspectedId).then(result => {
+      if (!current) return;
+      if (result.ok && result.data) setEventUnits(result.data);
+      else setUnitsError(result.error || (cs ? 'Týmy se nepodařilo načíst.' : 'Unable to load teams.'));
+    }).catch(() => {
+      if (current) setUnitsError(cs ? 'Týmy se nepodařilo načíst.' : 'Unable to load teams.');
+    }).finally(() => { if (current) setUnitsLoading(false); });
+    return () => { current = false; };
+  }, [inspectedId, unitsRevision, cs]);
 
   // Open unit capability configuration
   const openUnitCapsEditor = async (unit: any) => {
@@ -462,10 +505,11 @@ export default function AdminEventsPage() {
               <button
                 onClick={() => openUnitsInspector(item)}
                 className="btn btn-secondary"
-                title="Configure units and capabilities"
+                title={cs ? 'Nastavit týmy cvičení' : 'Configure exercise teams'}
                 style={{ fontSize: '11px', padding: '3px 7px' }}
               >
                 <Building2 size={12} />
+                {cs ? 'Týmy' : 'Teams'}
               </button>
               <button
                 onClick={() => openDuplicateModal(item)}
@@ -1176,7 +1220,7 @@ export default function AdminEventsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Building2 size={16} color="var(--accent-primary)" />
                   <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                    Organizational Structure & Capabilities — {inspectingEvent.name}
+                    {cs ? 'Týmy' : 'Teams'} · {inspectingEvent.name}
                   </span>
                 </div>
                 <button
@@ -1188,8 +1232,12 @@ export default function AdminEventsPage() {
               </div>
 
               <div style={{ padding: '16px', overflowY: 'auto', flex: 1 }}>
+                {isPlatformAdmin && !editingUnitCaps && <EventTemplateAction key={inspectingEvent.id}
+                  eventId={inspectingEvent.id} onApplied={() => setUnitsRevision(value => value + 1)} />}
                 {unitsLoading ? (
-                  <LoadingState message="Loading organizational units..." />
+                  <LoadingState message={cs ? 'Načítám týmy…' : 'Loading teams…'} />
+                ) : unitsError ? (
+                  <ErrorState message={unitsError} onRetry={() => setUnitsRevision(value => value + 1)} />
                 ) : editingUnitCaps ? (
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
@@ -1255,8 +1303,7 @@ export default function AdminEventsPage() {
                   </div>
                 ) : eventUnits.length === 0 ? (
                   <EmptyState
-                    title="No organizational units defined"
-                    description="This exercise edition has no assigned organizational units yet."
+                    title={cs ? 'Cvičení zatím nemá týmy' : 'This exercise has no teams yet'}
                   />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

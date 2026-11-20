@@ -189,9 +189,9 @@ CYRIS v2 supports hybrid multi-provider enterprise identity:
 - **LDAP / Active Directory**: School/military AD directory search and bind.
 - **OIDC**: Standards-compliant SSO with PKCE, state/nonce validation, and JIT provisioning.
 
-Configure providers at **Administration → Settings → Integrations → Identity**.
+Configure directory providers at **Administration → Identity Providers**.
 All bind passwords and client secrets are encrypted using `CYRIS_MASTER_KEY` via AES-256-GCM.
-See [enterprise-identity.md](file:///Users/mac/Documents/Projekty/CYRIS_v2/docs/v2/enterprise-identity.md) for full setup instructions.
+See the [administrator handbook](../prirucka-spravce.md) for directory group rules and individual team placement.
 
 ---
 
@@ -206,11 +206,8 @@ Deploy CYRIS behind a reverse proxy (Caddy or Nginx) terminating TLS:
 
 ## 7. Connecting NVIDIA DGX Spark
 
-When DGX Spark is available on the exercise network:
-1. Ensure the DGX Spark host is reachable over HTTP/HTTPS from the CYRIS server.
-2. In CYRIS, log in as `admin@cyris.local`.
-3. Open **Administration → Settings → Integrations → Intelligence / AI**.
-4. Configure the endpoint URL (e.g. `https://spark.cylab.local/v1`) and chat model identifier.
-5. Click **Test Connection** to confirm latency, network path, and model readiness.
-6. Toggle **Enable**. Intelligence assistance is instantly available to operators.
+The database migration creates **CYRIS DGX Spark**. From a host with access to
+the CYLAB network, copy [the setup script](../../deploy/spark/setup.sh) to the
+device. Follow the [administrator handbook](../prirucka-spravce.md) to start
+the two runtimes, verify the connection from CYRIS and enable the profile.
 
