@@ -118,6 +118,13 @@ fixtures.
 
 ## Troubleshooting
 
+On macOS, if Node fails to start in a new terminal with a missing Homebrew
+library (for example, `libsimdjson`), run `brew install node@22`.
+`pnpm dev` and the team preview commands try that installation when the
+Node on your PATH cannot start. If pnpm itself cannot start, run
+`bash scripts/preview-teams.sh --list` from the project directory to read
+previously created team credentials.
+
 ```bash
 docker compose ps --all
 docker compose logs --tail=100 postgres redis typesense minio minio-init mailpit

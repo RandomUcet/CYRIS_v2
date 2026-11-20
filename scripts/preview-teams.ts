@@ -40,7 +40,12 @@ async function createCredentials() {
 
 async function main() {
   if (process.argv.includes('--list')) {
-    const { accounts } = await readCredentials();
+    const { accounts } = await readCredentials().catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error('V tomto adresáři zatím nejsou týmová hesla. Spusťte CYRIS_TEAM_PREVIEW=1 pnpm dev a počkejte na přípravu týmů.');
+      }
+      throw error;
+    });
     for (const { name, login } of previewTeams) {
       console.log(`${name}\n  ${previewTeamEmail(login)}  ${accounts[login]!.password}\n`);
     }

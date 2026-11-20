@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 source "$ROOT_DIR/scripts/dev-runtime.sh"
+use_dev_node
 
 log() { printf '\n[CYRIS] %s\n' "$1"; }
 fail() { printf '\n[CYRIS] ERROR: %s\n' "$1" >&2; exit 1; }
