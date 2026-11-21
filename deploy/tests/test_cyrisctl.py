@@ -162,3 +162,36 @@ class Operations(unittest.TestCase):
                 ctl.cmd_github_login(self.args)
         self.assertEqual(token.read_text(), "previous-token")
         self.docker.assert_not_called()
+
+    def test_backup_restores_exact_running_services_without_start_wait(self):
+        """v2.1.0 regression: an unsupported start flag aborted backup after pause."""
+        services = ["postgres", "redis", "typesense", "minio", "gateway"]
+        self.docker.reset_mock()
+        def compose(*args, **kwargs):
+            if args and args[0] == "start" and "--wait" in args:
+                raise subprocess.CalledProcessError(1, args, stderr="unknown flag: --wait")
+            return Mock(returncode=0, stdout="\n".join(services))
+        self.docker.side_effect = compose
+        with patch.object(ctl, "running_services", return_value=services):
+            archive = ctl.cmd_backup(self.args)
+        self.assertTrue(archive.is_file())
+        calls = [call.args for call in self.docker.call_args_list]
+        self.assertIn(("stop", *services), calls)
+        self.assertIn(("up", "-d", "--no-deps", "--no-recreate",
+                       "--wait", "--wait-timeout", "240", *services), calls)
+        for args in calls:
+            self.assertFalse(args and args[0] == "start" and "--wait" in args)
+        ctl.cmd_backup_verify(argparse.Namespace(backup=str(archive)))
+
+    def test_backup_restarts_services_even_if_snapshot_write_fails(self):
+        """An archive-write error must still trigger the service restart path."""
+        services = ["postgres", "redis"]
+        self.docker.reset_mock()
+        self.docker.return_value.stdout = "\n".join(services)
+        with patch.object(ctl, "running_services", return_value=services), \
+             patch.object(ctl, "add_snapshot_path", side_effect=OSError("disk unavailable")):
+            with self.assertRaisesRegex(OSError, "disk unavailable"):
+                ctl.cmd_backup(self.args)
+        calls = [call.args for call in self.docker.call_args_list]
+        self.assertEqual(calls[-1], ("up", "-d", "--no-deps", "--no-recreate",
+                                     "--wait", "--wait-timeout", "240", *services))
