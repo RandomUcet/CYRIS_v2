@@ -61,9 +61,11 @@ export class RegistryService {
   }
 
   private async assertMediaEvent(eventId:string,resourceId:string) {
-    const [resource]=await this.db.select({id:resources.id,eventId:resources.eventId}).from(resources)
+    const [resource]=await this.db.select({id:resources.id,eventId:resources.eventId,type:resources.resourceType}).from(resources)
       .where(eq(resources.id,resourceId)).limit(1);
-    if(!resource||resource.eventId!==eventId)throw new NotFoundException('Registry resource not found in this exercise');
+    const validTypes=new Set(['person','organisation','location','vehicle','device','weapon']);
+    if(!resource||resource.eventId!==eventId||!validTypes.has(resource.type))
+      throw new NotFoundException('Registry resource not found in this exercise');
   }
 
   async uploadPrimaryMedia(eventId:string, resourceId: string, payload: { filename?: string; mimeType?: string; data?: string }, user: AuthenticatedUser) {
