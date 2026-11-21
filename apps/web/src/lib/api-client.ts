@@ -1569,7 +1569,10 @@ export class CyrisApiClient {
         const errJson = (await res.json().catch(() => ({}))) as { message?: string };
         return { ok: false, error: errJson.message || `HTTP ${res.status}` };
       }
-      const data = (await res.json()) as T;
+      // A successful DELETE commonly returns HTTP 204 with an empty body.
+      // Treat that as success; parse JSON only when the server actually sends it.
+      const raw = await res.text();
+      const data = raw ? (JSON.parse(raw) as T) : undefined;
       return { ok: true, data };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
