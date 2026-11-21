@@ -1242,66 +1242,68 @@ kbd {
   font-family: var(--font-mono);
 }
 
+/* Medical workspace design tokens apply on screen as well as print. */
+/* Keep medical operations consistent with the light institutional workspace. */
+.medical-workspace .bg-slate-950,
+.medical-workspace .bg-slate-900,
+.medical-workspace .bg-slate-800 {
+  background-color: var(--bg-panel) !important;
+}
+
+.medical-workspace .bg-slate-950\/70,
+.medical-workspace .bg-slate-950\/50,
+.medical-workspace .bg-slate-950\/20,
+.medical-workspace .bg-slate-800\/40,
+.medical-workspace .bg-purple-950\/20 {
+  background-color: var(--bg-surface) !important;
+}
+
+.medical-workspace .border-slate-800,
+.medical-workspace .border-slate-700,
+.medical-workspace .divide-slate-800\/60 {
+  border-color: var(--border-default) !important;
+}
+
+.medical-workspace .text-slate-100,
+.medical-workspace .text-slate-200,
+.medical-workspace .text-slate-300,
+.medical-workspace .text-slate-400,
+.medical-workspace .text-slate-500,
+.medical-workspace .text-slate-600 {
+  color: var(--text-secondary) !important;
+}
+
+.medical-workspace .text-slate-100,
+.medical-workspace .text-slate-200 {
+  color: var(--text-primary) !important;
+}
+
+.medical-workspace .text-rose-400,
+.medical-workspace .text-rose-500,
+.medical-workspace .text-amber-500,
+.medical-workspace .text-indigo-500 {
+  color: var(--accent-primary) !important;
+}
+
+.medical-workspace .bg-rose-600,
+.medical-workspace .bg-amber-600,
+.medical-workspace .bg-indigo-600,
+.medical-workspace .bg-blue-600 {
+  background-color: var(--accent-primary) !important;
+}
+
+.medical-workspace .hover\:bg-rose-500:hover,
+.medical-workspace .hover\:bg-amber-500:hover,
+.medical-workspace .hover\:bg-indigo-500:hover,
+.medical-workspace .hover\:bg-blue-500:hover {
+  background-color: var(--accent-hover) !important;
+}
+
 @media print {
   body * {
     visibility: hidden;
   }
 
-  /* Keep medical operations consistent with the light institutional workspace. */
-  .medical-workspace .bg-slate-950,
-  .medical-workspace .bg-slate-900,
-  .medical-workspace .bg-slate-800 {
-    background-color: var(--bg-panel) !important;
-  }
-
-  .medical-workspace .bg-slate-950\/70,
-  .medical-workspace .bg-slate-950\/50,
-  .medical-workspace .bg-slate-950\/20,
-  .medical-workspace .bg-slate-800\/40,
-  .medical-workspace .bg-purple-950\/20 {
-    background-color: var(--bg-surface) !important;
-  }
-
-  .medical-workspace .border-slate-800,
-  .medical-workspace .border-slate-700,
-  .medical-workspace .divide-slate-800\/60 {
-    border-color: var(--border-default) !important;
-  }
-
-  .medical-workspace .text-slate-100,
-  .medical-workspace .text-slate-200,
-  .medical-workspace .text-slate-300,
-  .medical-workspace .text-slate-400,
-  .medical-workspace .text-slate-500,
-  .medical-workspace .text-slate-600 {
-    color: var(--text-secondary) !important;
-  }
-
-  .medical-workspace .text-slate-100,
-  .medical-workspace .text-slate-200 {
-    color: var(--text-primary) !important;
-  }
-
-  .medical-workspace .text-rose-400,
-  .medical-workspace .text-rose-500,
-  .medical-workspace .text-amber-500,
-  .medical-workspace .text-indigo-500 {
-    color: var(--accent-primary) !important;
-  }
-
-  .medical-workspace .bg-rose-600,
-  .medical-workspace .bg-amber-600,
-  .medical-workspace .bg-indigo-600,
-  .medical-workspace .bg-blue-600 {
-    background-color: var(--accent-primary) !important;
-  }
-
-  .medical-workspace .hover\:bg-rose-500:hover,
-  .medical-workspace .hover\:bg-amber-500:hover,
-  .medical-workspace .hover\:bg-indigo-500:hover,
-  .medical-workspace .hover\:bg-blue-500:hover {
-    background-color: var(--accent-hover) !important;
-  }
   .printable-area, .printable-area * {
     visibility: visible;
   }
