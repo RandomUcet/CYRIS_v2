@@ -12,6 +12,7 @@ import { TimelineView } from '@/components/common/TimelineView';
 import { RelationshipGraph } from '@/components/common/RelationshipGraph';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
+import styles from './registry-detail.module.css';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import {
@@ -358,12 +359,12 @@ export default function RegistryEntityDetailPage() {
           identifier={entityData.identifier || id}
           title={getEntityTitle()}
           status={<span className="badge badge-neutral">{entityType.slice(0, -1).toUpperCase()}</span>}
-          priority={<span className="badge badge-neutral">REGISTRY RECORD</span>}
-          classification={<span className="badge badge-neutral">RESTRICTED INTELLIGENCE</span>}
+          priority={<span className="badge badge-neutral">{tr('ZÁZNAM REGISTRU', 'REGISTRY RECORD')}</span>}
+          classification={<span className="badge badge-neutral">{tr('Viditelnost', 'Visibility')}: {entityData.visibility ?? '—'}</span>}
           actions={
             <div style={{ display: 'flex', gap: '8px' }}>
               <Link href={`/events/${eventId}/registry`} className="btn btn-ghost" style={{ fontSize: '12px' }}>
-                Back to Registry
+                {tr('Zpět do registru', 'Back to registry')}
               </Link>
               {canEdit && <button
                 onClick={() => { setEditData({ ...entityData }); setEditOpen(true); }}
@@ -387,9 +388,9 @@ export default function RegistryEntityDetailPage() {
         {/* Tabs */}
         <RecordTabs
           tabs={[
-            { id: 'overview', label: 'Entity Profile', icon: <Database size={14} /> },
-            { id: 'relations', label: 'Relationship Graph', count: relationships.length, icon: <Share2 size={14} /> },
-            { id: 'timeline', label: 'Operational Activity', count: timelineItems.length, icon: <Clock size={14} /> },
+            { id: 'overview', label: tr('Profil záznamu', 'Entity profile'), icon: <Database size={14} /> },
+            { id: 'relations', label: tr('Vazby', 'Relationship graph'), count: relationships.length, icon: <Share2 size={14} /> },
+            { id: 'timeline', label: tr('Aktivita', 'Operational activity'), count: timelineItems.length, icon: <Clock size={14} /> },
           ]}
           activeTab={activeTab}
           onChange={(tab) => setActiveTab(tab as any)}
@@ -458,7 +459,7 @@ export default function RegistryEntityDetailPage() {
                       marginBottom: '14px',
                     }}
                   >
-                    Canonical Intelligence Profile
+                    {tr('Údaje registru', 'Registry profile')}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
@@ -580,7 +581,7 @@ export default function RegistryEntityDetailPage() {
                   }}
                 >
                   <div style={{ fontSize: '13px', color: 'var(--color-text-dim)' }}>
-                    Intelligence topology and relationships centered on this entity.
+                    {tr('Vazby a souvislosti, které se vztahují k tomuto záznamu.', 'Connections and relationships associated with this record.')}
                   </div>
                   {canLink && <button
                     onClick={() => setShowRelModal(true)}
@@ -605,7 +606,7 @@ export default function RegistryEntityDetailPage() {
             {activeTab === 'timeline' && (
               <div>
                 <div style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--color-text-dim)' }}>
-                  Chronological activity associated with this entity.
+                  {tr('Chronologický přehled událostí souvisejících se záznamem.', 'Chronological activity associated with this record.')}
                 </div>
                 {timelineLoading ? (
                   <LoadingState message="Reconstructing entity timeline..." />
@@ -680,7 +681,7 @@ export default function RegistryEntityDetailPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Share2 size={15} color="var(--color-accent-ops)" />
                   <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                    Connect Graph Link
+                    {tr('Propojit záznamy', 'Connect graph records')}
                   </span>
                 </div>
                 <button
@@ -694,7 +695,7 @@ export default function RegistryEntityDetailPage() {
               <form onSubmit={handleAddRelationship} style={{ padding: '18px' }}>
                 <div style={{ marginBottom: '14px' }}>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                    Target Registry Record *
+                    {tr('Cílový záznam registru', 'Target registry record')} *
                   </label>
                   <select
                     required
@@ -704,7 +705,7 @@ export default function RegistryEntityDetailPage() {
                     style={{ width: '100%' }}
                     autoFocus
                   >
-                    <option value="">Select a record</option>
+                    <option value="">{tr('Vyberte záznam', 'Select a record')}</option>
                     {relationshipTargets.map((target) => (
                       <option key={target.id} value={target.id}>{target.label}</option>
                     ))}
@@ -718,7 +719,7 @@ export default function RegistryEntityDetailPage() {
 
                 <div style={{ marginBottom: '18px' }}>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                    Relationship Type
+                    {tr('Typ vazby', 'Relationship type')}
                   </label>
                   <select
                     value={relType}
@@ -742,7 +743,7 @@ export default function RegistryEntityDetailPage() {
                     className="btn btn-secondary"
                     disabled={addingRel}
                   >
-                    Cancel
+                    {tr('Zrušit', 'Cancel')}
                   </button>
                   <button type="submit" className="btn btn-primary" disabled={addingRel || targetResourceId === id}>
                     {addingRel ? tr('Propojuji…','Connecting…') : tr('Vytvořit vazbu','Connect link')}
@@ -754,8 +755,8 @@ export default function RegistryEntityDetailPage() {
         )}
         {editOpen && canEdit && (
           <div className="modal-backdrop">
-            <div className="modal-content" style={{ maxWidth: 640, maxHeight: '90vh', overflowY: 'auto' }}>
-              <div className="modal-header"><h2>Edit {entityType.slice(0, -1)}</h2><button className="btn btn-ghost" onClick={() => setEditOpen(false)}><X size={16} /></button></div>
+            <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="registry-edit-title" style={{ maxWidth: 640, maxHeight: '90vh', overflowY: 'auto' }}>
+              <div className="modal-header"><h2 id="registry-edit-title">{tr('Upravit záznam', 'Edit record')}</h2><button className="btn btn-ghost" onClick={() => setEditOpen(false)}><X size={16} /></button></div>
               <form onSubmit={handleSave} style={{ display: 'grid', gap: 12 }}>
                 {saveError && <div role="alert" style={{ color: 'var(--color-danger)', fontSize: 12 }}>{saveError}</div>}
                 {(editFields[entityType] || []).map(([key, label]) => (
@@ -766,21 +767,21 @@ export default function RegistryEntityDetailPage() {
                 ))}
                 {entityType === 'persons' && (['emails', 'phones'] as const).map((kind) => (
                   <fieldset key={kind} style={{ border: '1px solid var(--color-border-subtle)', padding: 10 }}>
-                    <legend style={{ fontSize: 12, fontWeight: 600 }}>{kind === 'emails' ? 'Email addresses' : 'Phone numbers'}</legend>
+                    <legend style={{ fontSize: 12, fontWeight: 600 }}>{kind === 'emails' ? tr('E-mailové adresy','Email addresses') : tr('Telefonní čísla','Phone numbers')}</legend>
                     {(Array.isArray(editData[kind]) ? editData[kind] : []).map((contact: any, index: number) => (
-                      <div key={`${kind}-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr 110px auto auto', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                      <div key={`${kind}-${index}`} className={styles.contactRow}>
                         <input className="input-field" value={contact.value || ''} placeholder={kind === 'emails' ? 'name@example.test' : '+420 …'} onChange={(event) => updateContact(kind, index, 'value', event.target.value)} />
-                        <input className="input-field" value={contact.label || ''} placeholder="Label" onChange={(event) => updateContact(kind, index, 'label', event.target.value)} />
-                        <label style={{ fontSize: 11, whiteSpace: 'nowrap' }}><input type="checkbox" checked={contact.primary === true} onChange={(event) => updateContact(kind, index, 'primary', event.target.checked)} /> Primary</label>
+                        <input className="input-field" value={contact.label || ''} placeholder={tr('Popisek', 'Label')} onChange={(event) => updateContact(kind, index, 'label', event.target.value)} />
+                        <label style={{ fontSize: 11, whiteSpace: 'nowrap' }}><input type="checkbox" checked={contact.primary === true} onChange={(event) => updateContact(kind, index, 'primary', event.target.checked)} /> {tr('Hlavní', 'Primary')}</label>
                         <button className="btn btn-ghost" type="button" onClick={() => removeContact(kind, index)} aria-label={`Remove ${kind.slice(0, -1)}`}><X size={14} /></button>
                       </div>
                     ))}
-                    <button className="btn btn-secondary" type="button" onClick={() => addContact(kind)}>+ Add {kind === 'emails' ? 'email' : 'phone'}</button>
+                    <button className="btn btn-secondary" type="button" onClick={() => addContact(kind)}>+ {kind === 'emails' ? tr('Přidat e-mail','Add email') : tr('Přidat telefon','Add phone')}</button>
                   </fieldset>
                 ))}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                  <button type="button" className="btn btn-secondary" onClick={() => setEditOpen(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setEditOpen(false)}>{tr('Zrušit', 'Cancel')}</button>
+                  <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Ukládám…', 'Saving…') : tr('Uložit změny', 'Save changes')}</button>
                 </div>
               </form>
             </div>
