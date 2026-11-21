@@ -31,6 +31,7 @@ import { PreferencesModule } from './modules/preferences/preferences.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { ScenarioDataModule } from './modules/scenario-data/scenario-data.module.js';
 
+import { JsocModule } from './modules/jsoc/jsoc.module.js';
 import { SupportModule } from './modules/support/support.module.js';
 
 @Module({
@@ -64,6 +65,7 @@ import { SupportModule } from './modules/support/support.module.js';
     CommandModule,
     DisruptionsModule,
     SupportModule,
+    JsocModule,
     PreferencesModule,
     NotificationsModule,
     ScenarioDataModule,
