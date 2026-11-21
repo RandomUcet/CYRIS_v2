@@ -9,23 +9,19 @@ import {usePreferences} from '@/contexts/PreferencesContext';
 import {apiClient} from '@/lib/api-client';
 import type {NotificationItem,NotificationListResponse} from '@cyris/contracts';
 import styles from './NotificationCenter.module.css';
-
-/** Only render same-origin navigation; notifications are data, not trusted links. */
-export function safeNotificationHref(value:string|null|undefined):string|null {
-  if(!value || !value.startsWith('/') || value.startsWith('//') ||
-    value.includes('\\') || /[\u0000-\u001f\u007f]/.test(value)) return null;
-  return value;
-}
+import {safeNotificationHref} from '@/lib/notification-navigation';
 
 export function NotificationCenter(){
   const {t,formatTime}=usePreferences();
   const {selectedEvent}=useEvent();
   const {viewAs}=useAuth();
   const hostRef=useRef<HTMLDivElement>(null);
+  const triggerRef=useRef<HTMLButtonElement>(null);
   const requestRef=useRef(0);
   const currentEventRef=useRef(selectedEvent?.id);
   currentEventRef.current=selectedEvent?.id;
   const titleId=useId();
+  const panelId=useId();
   const [open,setOpen]=useState(false);
   const [data,setData]=useState<NotificationListResponse>({unreadCount:0,newItems:[],earlierItems:[]});
   const [loading,setLoading]=useState(true);
@@ -66,7 +62,7 @@ export function NotificationCenter(){
       if(hostRef.current && !hostRef.current.contains(event.target as Node))setOpen(false);
     }
     function onKeyDown(event:KeyboardEvent){
-      if(event.key==='Escape'){setOpen(false);}
+      if(event.key==='Escape'){setOpen(false);triggerRef.current?.focus();}
     }
     document.addEventListener('pointerdown',onPointerDown);
     document.addEventListener('keydown',onKeyDown);
@@ -138,16 +134,16 @@ export function NotificationCenter(){
   }
 
   return <div className={styles.host} ref={hostRef}>
-    <button type="button" className={styles.trigger}
+    <button ref={triggerRef} type="button" className={styles.trigger}
       aria-label={t('notification.openCenter')} title={t('notification.openCenter')}
-      aria-expanded={open} aria-haspopup="dialog" aria-controls={open?titleId:undefined}
+      aria-expanded={open} aria-haspopup="dialog" aria-controls={open?panelId:undefined}
       onClick={()=>setOpen(v=>!v)}>
       <Bell size={16} aria-hidden="true"/>
       {data.unreadCount>0&&<span className={styles.counter} aria-label={String(data.unreadCount)}>
         {data.unreadCount>99?'99+':data.unreadCount}
       </span>}
     </button>
-    {open&&<section className={styles.panel} role="dialog" aria-modal="false" aria-labelledby={titleId}>
+    {open&&<section id={panelId} className={styles.panel} role="dialog" aria-modal="false" aria-labelledby={titleId}>
       <header className={styles.header}>
         <h2 id={titleId}>{t('notification.title')}</h2>
         <div className={styles.headerActions}>
@@ -161,7 +157,7 @@ export function NotificationCenter(){
             <RefreshCw size={15}/>
           </button>
           <button type="button" className={styles.iconButton} aria-label={t('notification.closeCenter')}
-            title={t('notification.closeCenter')} onClick={()=>setOpen(false)}>
+            title={t('notification.closeCenter')} onClick={()=>{setOpen(false);triggerRef.current?.focus();}}>
             <X size={16}/>
           </button>
         </div>
