@@ -860,6 +860,18 @@ export class WorkspaceResolverService {
       }
     }
 
+    // JSOC visibility is derived from both capability and permission, not just a team name.
+    // EXCON can also inspect and generate the exercise-only telemetry.
+    const canGenerateJsoc=await this.authzService.authorize({
+      user,permission:Permissions.SCENARIO_MANAGE,context:{eventId},
+    });
+    if(canGenerateJsoc||(capabilities.includes(UnitCapabilityKeys.TECHNICAL_OPERATIONS)&&canReadForensics)){
+      sections.push({
+        id:'jsoc-section',title:'Technical Simulation',
+        items:[{id:'nav-jsoc-logs',label:'JSOC simulated logs',href:`/events/${eventId}/jsoc`,iconKey:'cpu'}],
+      });
+    }
+
     // --- ADMINISTRATION SECTION ---
     if (canAdmin) {
       const adminSection: WorkspaceNavSection = {

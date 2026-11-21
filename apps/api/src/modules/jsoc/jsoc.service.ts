@@ -1,5 +1,5 @@
 import {Injectable,ForbiddenException,NotFoundException,ConflictException} from '@nestjs/common';
-import {and,desc,eq,ilike,isNull,sql} from 'drizzle-orm';
+import {and,desc,eq,isNull,sql} from 'drizzle-orm';
 import {
   jsocSyntheticLogs,events,eventMemberships,MembershipStatus,
   membershipUnitAssignments,organizationalUnits,unitCapabilities
