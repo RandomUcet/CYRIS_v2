@@ -36,7 +36,7 @@ function SearchPicker({eventId,cs,label,value,onChange}:{
           setItems(result.data.filter(r=>r.eventId===eventId).map(record=>({
             id:record.entityType+':'+record.id, canonicalId:record.id,
             title:record.label, subtitle:record.identifier??undefined,
-            type:record.entityType,eventId,highlights:[],
+            type:record.entityType,eventId,highlights:[],tags:[],
           })));
           setError('');
         }else {setItems([]);setError(result.error||'Search unavailable');}
