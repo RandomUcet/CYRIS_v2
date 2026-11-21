@@ -1,7 +1,6 @@
 'use client';
 
 import React, {useCallback,useEffect,useId,useRef,useState} from 'react';
-import Link from 'next/link';
 import {Bell,Check,CheckCheck,ExternalLink,RefreshCw,X} from 'lucide-react';
 import {useAuth} from '@/contexts/AuthContext';
 import {useEvent} from '@/contexts/EventContext';
@@ -127,9 +126,9 @@ export function NotificationCenter(){
       </div>
       <p className={styles.itemTitle}>{itemTitle(item)}</p>
       {detailText&&<p className={styles.itemDetail}>{detailText}</p>}
-      {href&&<Link href={href} className={styles.actionLink} onClick={()=>setOpen(false)}>
+      {href&&<a href={href} className={styles.actionLink} onClick={()=>setOpen(false)}>
         {t('action.open')} <ExternalLink size={12}/>
-      </Link>}
+      </a>}
     </li>;
   }
 
