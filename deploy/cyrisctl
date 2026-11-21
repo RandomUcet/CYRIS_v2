@@ -1081,11 +1081,16 @@ def cmd_github_login(args):
         raise ValueError("Missing GitHub credentials")
     github_get("", token=token)
     release = github_release(token=token)
+    # Test credentials in an isolated Docker config first. A 403 must not
+    # overwrite the root user's previously working Docker registry credentials.
+    with tempfile.TemporaryDirectory(prefix="cyris-ghcr-auth-") as temp:
+        isolated = dict(os.environ, DOCKER_CONFIG=temp)
+        subprocess.run(["docker", "login", "ghcr.io", "--username", username, "--password-stdin"],
+                       input=token, text=True, check=True, env=isolated)
+        version = verify_release_registry_access(release, token=token, docker_env=isolated)
+    # Commit root Docker credentials and the private-release token only on success.
     subprocess.run(["docker", "login", "ghcr.io", "--username", username, "--password-stdin"],
                    input=token, text=True, check=True)
-    # Docker login alone does not grant permission to read private GHCR packages.
-    version = verify_release_registry_access(release, token=token)
-    # Do not replace a previously working token if any package returns 403.
     atomic_file(Path(CYRIS_ETC, "github.token"), token.encode(), 0o600)
     print(f"GitHub Release and all three private GHCR packages verified for v{version}.")
 
@@ -1127,14 +1132,14 @@ def release_settings(manifest, version):
     return settings
 
 
-def verify_release_registry_access(release, token=None):
+def verify_release_registry_access(release, token=None, docker_env=None):
     """Verify read access to each digest-pinned image without downloading its layers."""
     version = release["tag_name"].removeprefix("v")
     manifest = json.loads(release_asset(release, "release-manifest.json", token=token))
     settings = release_settings(manifest, version)
     for service in APP_SERVICES:
         image = settings[f"CYRIS_{service.upper()}_IMAGE"]
-        result = run_command(["docker", "manifest", "inspect", image], check=False)
+        result = run_command(["docker", "manifest", "inspect", image], check=False, env=docker_env)
         if result.returncode != 0:
             raise ValueError(
                 f"GHCR access check failed for {service} image of v{version}. "
