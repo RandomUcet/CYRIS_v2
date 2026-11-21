@@ -56,6 +56,8 @@ export default function RegistryEntityDetailPage() {
   // Add Relationship Modal
   const [showRelModal, setShowRelModal] = useState(false);
   const [targetResourceId, setTargetResourceId] = useState('');
+  const [targetQuery, setTargetQuery] = useState('');
+  const [searchingTargets, setSearchingTargets] = useState(false);
   const [relType, setRelType] = useState('RELATED_TO');
   const [addingRel, setAddingRel] = useState(false);
   const [relationshipError, setRelationshipError] = useState<string | null>(null);
@@ -125,36 +127,33 @@ export default function RegistryEntityDetailPage() {
     }
   }, [id, activeTab]);
 
+  // Search only visible records in the selected exercise, without downloading
+  // every person, organisation and device into the user's browser.
   useEffect(() => {
-    if (!showRelModal) return;
-    let cancelled = false;
-    Promise.all([
-      apiClient.getPersons(eventId),
-      apiClient.getOrganisations(eventId),
-      apiClient.getLocations(eventId),
-      apiClient.getVehicles(eventId),
-      apiClient.getDevices(eventId),
-      apiClient.getWeapons(eventId),
-    ]).then((responses) => {
-      if (cancelled) return;
-      const targets = responses.flatMap((response, index) => {
-        if (!response.ok || !Array.isArray(response.data)) return [];
-        const typeLabels = ['Person', 'Organisation', 'Location', 'Vehicle', 'Device', 'Weapon'];
-        return response.data
-          .filter((item: any) => item.id !== id)
-          .map((item: any) => ({
-            id: item.id,
-            label: `${item.identifier || item.id.slice(0, 8)} — ${item.displayName || item.name || item.label || item.addressText || typeLabels[index]}`,
-          }));
-      });
-      setRelationshipTargets(targets);
-    }).catch(() => {
-      if (!cancelled) setRelationshipError('Unable to load relationship targets.');
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [eventId, id, showRelModal]);
+    if (!showRelModal || targetQuery.trim().length < 2) {
+      setRelationshipTargets([]);
+      setSearchingTargets(false);
+      return;
+    }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setSearchingTargets(true);
+      void apiClient.searchRegistryRecords(eventId, targetQuery.trim()).then((response) => {
+        if (!active) return;
+        if (response.ok && response.data) {
+          setRelationshipTargets(response.data.filter((target) => target.id !== id).map((target) => ({
+            id: target.id, label: `${target.identifier || target.entityType} — ${target.label}`,
+          })));
+        } else {
+          setRelationshipTargets([]);
+          setRelationshipError(response.error || 'Could not search the registry');
+        }
+      }).catch((err) => {
+        if (active) setRelationshipError(err instanceof Error ? err.message : String(err));
+      }).finally(() => { if (active) setSearchingTargets(false); });
+    }, 260);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [eventId, id, showRelModal, targetQuery]);
 
   const handleAddRelationship = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,6 +168,7 @@ export default function RegistryEntityDetailPage() {
       if (res.ok) {
         setShowRelModal(false);
         setTargetResourceId('');
+        setTargetQuery('');
         fetchEntityDetails();
       } else {
         setRelationshipError(res.error || 'Failed to create relationship');
@@ -697,19 +697,34 @@ export default function RegistryEntityDetailPage() {
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
                     {tr('Cílový záznam registru', 'Target registry record')} *
                   </label>
+                  <input type="search" className="input-field" autoFocus maxLength={80}
+                    value={targetQuery} onChange={(e) => {
+                      setTargetQuery(e.target.value);
+                      setTargetResourceId('');
+                      setRelationshipError(null);
+                    }} placeholder={tr('Hledat podle jména, názvu nebo identifikátoru…', 'Search by name, label or identifier…')}
+                    aria-label={tr('Hledat cíl vazby', 'Search relationship target')}
+                    style={{ width: '100%', marginBottom: 8 }} />
+                  {searchingTargets && <p role="status" className={styles.relationSearchHelp}>
+                    {tr('Hledám záznamy…', 'Searching records…')}</p>}
                   <select
                     required
                     value={targetResourceId}
                     onChange={(e) => setTargetResourceId(e.target.value)}
                     className="select-field"
                     style={{ width: '100%' }}
-                    autoFocus
+                    disabled={!relationshipTargets.length}
                   >
-                    <option value="">{tr('Vyberte záznam', 'Select a record')}</option>
+                    <option value="">{targetQuery.trim().length < 2
+                      ? tr('Nejprve zadejte alespoň dva znaky', 'Enter at least two characters')
+                      : tr('Vyberte odpovídající záznam', 'Select a matching record')}</option>
                     {relationshipTargets.map((target) => (
                       <option key={target.id} value={target.id}>{target.label}</option>
                     ))}
                   </select>
+                  {!searchingTargets && targetQuery.trim().length >= 2 && relationshipTargets.length === 0
+                    && !relationshipError && <p className={styles.relationSearchHelp}>
+                      {tr('Žádné dostupné záznamy. Zkuste jiný výraz.', 'No accessible records found. Try another search.')}</p>}
                 </div>
                 {relationshipError && (
                   <div role="alert" style={{ marginBottom: '14px', color: 'var(--color-danger)', fontSize: '12px' }}>
@@ -745,7 +760,7 @@ export default function RegistryEntityDetailPage() {
                   >
                     {tr('Zrušit', 'Cancel')}
                   </button>
-                  <button type="submit" className="btn btn-primary" disabled={addingRel || targetResourceId === id}>
+                  <button type="submit" className="btn btn-primary" disabled={addingRel || !targetResourceId || targetResourceId === id}>
                     {addingRel ? tr('Propojuji…','Connecting…') : tr('Vytvořit vazbu','Connect link')}
                   </button>
                 </div>

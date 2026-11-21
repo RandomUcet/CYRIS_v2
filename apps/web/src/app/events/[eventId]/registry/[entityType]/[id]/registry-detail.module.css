@@ -4,3 +4,5 @@
 .contactRow>button{justify-self:end}
 @media(max-width:640px){.contactRow{grid-template-columns:minmax(0,1fr) 85px 36px;gap:6px}.contactRow>label{grid-column:1/3;grid-row:2}.contactRow>button{grid-column:3;grid-row:1}}
 @media(max-width:380px){.contactRow{grid-template-columns:minmax(0,1fr) 32px}.contactRow>input:nth-child(2){grid-column:1;grid-row:2}.contactRow>label{grid-column:1;grid-row:3}.contactRow>button{grid-column:2;grid-row:1}}
+
+.relationSearchHelp{font-size:12px;color:var(--text-secondary);margin:5px 0 8px;line-height:1.45}
