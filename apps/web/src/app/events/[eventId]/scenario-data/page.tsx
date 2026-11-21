@@ -7,6 +7,7 @@ import type { ScenarioDataRequest, ScenarioDataPreview, ScenarioDataCounts, Scen
 import { AppShell } from '@/components/layout/AppShell';
 import { apiClient } from '@/lib/api-client';
 import styles from './scenario-data.module.css';
+import { ScenarioBatchMediaManager } from './ScenarioBatchMediaManager';
 
 const presets = {
   SMALL: { persons: 40, organisations: 6, locations: 12, vehicles: 20, devices: 25, weapons: 5 },
@@ -29,6 +30,7 @@ export default function ScenarioDataPage() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [draft, setDraft] = useState<Batch | null>(null);
   const [detail, setDetail] = useState<Batch | null>(null);
+  const [mediaBatch, setMediaBatch] = useState<Batch | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const paused = useRef(false);
@@ -42,6 +44,7 @@ export default function ScenarioDataPage() {
     scope.current = eventId;
     setSeed(freshSeed());
     setDetail(null);
+    setMediaBatch(null);
     setDraft(null);
     setPreview(null);
     setBatches([]);
@@ -96,7 +99,8 @@ export default function ScenarioDataPage() {
     const r = draft ? await apiClient.publishScenarioDraft(eventId, draft.id) : await apiClient.generateScenarioData(eventId, { ...payload, previewToken: preview?.previewToken });
     if (!r.ok || !r.data) throw Error(r.error ?? 'Generation failed');
     if(scope.current!==eventId) return;
-    setMessage(`${r.data.identifier} added to the registry.`);
+    setMessage(`${r.data.identifier} added to the registry. You can now assign images to individual records below.`);
+    setMediaBatch(r.data);
     setPreview(null);
     setDraft(null);
     setSeed(freshSeed());
@@ -165,6 +169,9 @@ export default function ScenarioDataPage() {
         {batches.length === 0 && <p>No datasets yet.</p>}
         {batches.map(b => <div className={styles.batch} key={b.id}>
           <span><button type="button" onClick={() => setDetail(detail?.id === b.id ? null : b)}>{b.identifier}</button> · {b.source === 'SPARK' ? 'Spark' : 'Local'} · {b.status.toLowerCase()}<small>{total(b.configuration)} records · seed {b.seed}{b.brief && ` · ${b.brief}`}</small></span>
+          {b.status === 'COMPLETED' && <button type="button" disabled={busy} aria-expanded={mediaBatch?.id===b.id} onClick={() => {
+            setMediaBatch(current=>current?.id===b.id?null:b);
+          }}>{mediaBatch?.id === b.id ? 'Close image manager' : 'Manage record images'}</button>}
           {b.status === 'DRAFT' && <button disabled={busy} onClick={() => void action(async () => {
             const r = await apiClient.getScenarioDataBatch(eventId, b.id);
             if (!r.ok || !r.data) throw Error(r.error ?? 'Draft unavailable');
@@ -183,6 +190,7 @@ export default function ScenarioDataPage() {
             if (draft?.id === b.id) setDraft(null);
           })}>{b.status === 'DRAFT' ? 'Discard' : 'Clean up'}</button>}
         </div>)}
+        {mediaBatch && mediaBatch.eventId===eventId && mediaBatch.status==='COMPLETED' && <ScenarioBatchMediaManager eventId={eventId} batch={mediaBatch} />}
         {detail && <aside><h3>{detail.identifier}</h3><p>{detail.preset} · generator v{detail.generatorVersion} · {detail.relationshipCount} relationships · {new Date(detail.createdAt).toLocaleString()}</p><p>{keys.map(k => `${detail.configuration[k]} ${k}`).join(' · ')}</p></aside>}
       </section>
     </main>
