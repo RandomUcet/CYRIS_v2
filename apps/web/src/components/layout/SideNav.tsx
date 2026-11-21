@@ -329,7 +329,14 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
         </div>
       </div>
 
-      {!collapsed && <footer className="workspace-brand-footer"><span>CzechCybertron</span><CylabLogo /></footer>}
+      {!collapsed && <footer className="workspace-brand-footer">
+        <span>CzechCybertron
+          <small style={{display:'block',fontSize:10,fontWeight:500,marginTop:2}} title="CYRIS build version">
+            CYRIS {process.env.NEXT_PUBLIC_CYRIS_VERSION || 'v2'}
+          </small>
+        </span>
+        <CylabLogo />
+      </footer>}
     </nav>
   );
 }
