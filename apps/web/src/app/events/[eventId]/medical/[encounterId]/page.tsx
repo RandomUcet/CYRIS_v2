@@ -32,13 +32,67 @@ import type {
 } from '@cyris/contracts';
 import { TriageBadge } from '@/components/medical/TriageBadge';
 
+const medicalDialogTranslations: Record<string, string> = {
+  "Assign Triage Category": "Nastavit kategorii třídění",
+  "Triage Category": "Kategorie třídění",
+  "Clinical Justification / Note": "Zdůvodnění / poznámka",
+  "Justification for category change...": "Důvod změny kategorie…",
+  "Record Observation / Vital": "Zaznamenat vitální funkce",
+  "Observation Type": "Druh pozorování",
+  "Value": "Hodnota",
+  "Unit": "Jednotka",
+  "Observation Note": "Poznámka k pozorování",
+  "e.g. 115": "Např. 115",
+  "e.g. bpm": "Např. tepů/min",
+  "e.g. Tachycardia following chemical inhalation": "Např. tachykardie po inhalaci",
+  "Record Medical Intervention": "Zaznamenat zdravotnický zákrok",
+  "Intervention Type": "Druh zákroku",
+  "Description": "Popis zákroku",
+  "Outcome": "Výsledek",
+  "e.g. OXYGEN_ADMINISTRATION, DECONTAMINATION": "Např. OXYGEN_ADMINISTRATION, DECONTAMINATION",
+  "Details of procedure performed...": "Popište provedený zákrok…",
+  "e.g. STABILIZED, IMPROVED, UNCHANGED": "Např. STABILIZED, IMPROVED, UNCHANGED",
+  "Transfer Casualty Disposition": "Předání pacienta",
+  "Destination Disposition": "Místo předání",
+  "Transfer Notes / Handoff Summary": "Předávací zpráva",
+  "Receiving team, transport callsign, vital trends...": "Přebírající tým, transport a vývoj vitálních funkcí…",
+  "Field Aid Station": "Polní ošetřovna",
+  "Ambulance Transport": "Převoz sanitkou",
+  "General Hospital / Trauma Center": "Nemocnice / traumatologické centrum",
+  "Morgue (Deceased)": "Márnice (zemřelý)",
+  "Discharged / Returned to Duty": "Propuštěn / návrat do služby",
+  "Cancel": "Zrušit",
+  "Set Triage": "Uložit třídění",
+  "Updating...": "Ukládám…",
+  "Save Observation": "Uložit pozorování",
+  "Saving...": "Ukládám…",
+  "Record Procedure": "Uložit zákrok",
+  "Recording...": "Ukládám…",
+  "Execute Transfer": "Potvrdit předání",
+  "Transferring...": "Předávám…",
+  "Close": "Zavřít",
+  "IMMEDIATE (Red - Life-threatening)": "Okamžitě (červená – ohrožení života)",
+  "DELAYED (Yellow - Serious)": "Odloženě (žlutá – závažný stav)",
+  "MINOR (Green - Walking wounded)": "Lehké (zelená – chodící ranění)",
+  "EXPECTANT (Black - Non-viable)": "Velmi závažné (černá)",
+  "UNKNOWN": "Neurčeno",
+  "HEART_RATE (bpm)": "Srdeční frekvence (tepů/min)",
+  "BLOOD_PRESSURE (e.g. 120/80)": "Krevní tlak (např. 120/80)",
+  "SPO2 (%)": "Saturace kyslíkem (%)",
+  "TEMPERATURE (°C)": "Tělesná teplota (°C)",
+  "RESPIRATORY_RATE (/min)": "Dechová frekvence (/min)",
+  "GCS (Glasgow Coma Scale)": "GCS (Glasgowská škála bezvědomí)",
+  "OTHER": "Jiné"
+};
+
 export default function MedicalDetailPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
   const encounterId = params.encounterId as string;
   const { user, hasPermission } = useAuth();
-  const { formatTime } = usePreferences();
+  const {formatTime, locale} = usePreferences();
+  const trDialog = (value: string): string => locale === 'cs' ? medicalDialogTranslations[value] ?? value : value;
 
   const [encounter, setEncounter] = useState<MedicalEncounterDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -581,62 +635,63 @@ export default function MedicalDetailPage() {
 
       {/* Set Triage Modal */}
       {showTriageModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+        <div className="dialog-overlay medical-dialog-overlay" role="presentation">
           <form
             onSubmit={handleTriageSubmit}
-            className="bg-slate-900 border border-slate-700 rounded-lg max-w-md w-full p-5 shadow-2xl space-y-4"
+            className="dialog-surface medical-dialog-surface" role="dialog" aria-modal="true" aria-labelledby="triage-dialog-title"
           >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h4 className="font-semibold text-slate-100 text-sm">Assign Triage Category</h4>
+            <div className="dialog-header medical-dialog-header">
+              <h4 id="triage-dialog-title">{trDialog('Assign Triage Category')}</h4>
               <button
                 type="button"
                 onClick={() => setShowTriageModal(false)}
-                className="text-slate-400 hover:text-white"
+                className="medical-dialog-dismiss" aria-label={trDialog("Close")}
               >
                 <X size={16} />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <div className="dialog-body medical-dialog-body">
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Triage Category</label>
+                <label className="medical-dialog-label">{trDialog("Triage Category")}</label>
                 <select
                   value={newTriage}
                   onChange={(e) => setNewTriage(e.target.value as MedicalTriageCategory)}
-                  className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 font-mono focus:outline-none focus:border-rose-500"
+                  className="medical-dialog-control"
                 >
-                  <option value="IMMEDIATE">IMMEDIATE (Red - Life-threatening)</option>
-                  <option value="DELAYED">DELAYED (Yellow - Serious)</option>
-                  <option value="MINOR">MINOR (Green - Walking wounded)</option>
-                  <option value="EXPECTANT">EXPECTANT (Black - Non-viable)</option>
-                  <option value="UNKNOWN">UNKNOWN</option>
+                  <option value="IMMEDIATE">{trDialog("IMMEDIATE (Red - Life-threatening)")}</option>
+                  <option value="DELAYED">{trDialog("DELAYED (Yellow - Serious)")}</option>
+                  <option value="MINOR">{trDialog("MINOR (Green - Walking wounded)")}</option>
+                  <option value="EXPECTANT">{trDialog("EXPECTANT (Black - Non-viable)")}</option>
+                  <option value="UNKNOWN">{trDialog("UNKNOWN")}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Clinical Justification / Note</label>
+                <label className="medical-dialog-label">{trDialog("Clinical Justification / Note")}</label>
                 <textarea
                   value={triageNote}
                   onChange={(e) => setTriageNote(e.target.value)}
                   rows={3}
-                  placeholder="Justification for category change..."
-                  className="w-full p-2 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-rose-500"
+                  placeholder={trDialog("Justification for category change...")}
+                  className="medical-dialog-control"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            {actionError && <p className="medical-dialog-error" role="alert">{actionError}</p>}
+            <div className="dialog-footer medical-dialog-footer">
               <button
                 type="button"
                 onClick={() => setShowTriageModal(false)}
-                className="px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded transition"
+                className="btn btn-secondary"
               >
-                Cancel
+                {trDialog("Cancel")}
               </button>
               <button
                 type="submit"
                 disabled={actionPending}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded transition"
+                className="btn btn-primary"
               >
                 {actionPending ? 'Updating...' : 'Set Triage'}
               </button>
@@ -647,25 +702,25 @@ export default function MedicalDetailPage() {
 
       {/* Record Observation Modal */}
       {showObservationModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+        <div className="dialog-overlay medical-dialog-overlay" role="presentation">
           <form
             onSubmit={handleObservationSubmit}
-            className="bg-slate-900 border border-slate-700 rounded-lg max-w-md w-full p-5 shadow-2xl space-y-4"
+            className="dialog-surface medical-dialog-surface" role="dialog" aria-modal="true" aria-labelledby="observation-dialog-title"
           >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h4 className="font-semibold text-slate-100 text-sm">Record Observation / Vital</h4>
+            <div className="dialog-header medical-dialog-header">
+              <h4 id="observation-dialog-title">{trDialog('Record Observation / Vital')}</h4>
               <button
                 type="button"
                 onClick={() => setShowObservationModal(false)}
-                className="text-slate-400 hover:text-white"
+                className="medical-dialog-dismiss" aria-label={trDialog("Close")}
               >
                 <X size={16} />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <div className="dialog-body medical-dialog-body">
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Observation Type</label>
+                <label className="medical-dialog-label">{trDialog("Observation Type")}</label>
                 <select
                   value={obsForm.observationType}
                   onChange={(e) => {
@@ -679,66 +734,67 @@ export default function MedicalDetailPage() {
                     else if (t === 'GCS') u = 'points';
                     setObsForm({ ...obsForm, observationType: t, unit: u });
                   }}
-                  className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 font-mono focus:outline-none focus:border-rose-500"
+                  className="medical-dialog-control"
                 >
-                  <option value="HEART_RATE">HEART_RATE (bpm)</option>
-                  <option value="BLOOD_PRESSURE">BLOOD_PRESSURE (e.g. 120/80)</option>
-                  <option value="SPO2">SPO2 (%)</option>
-                  <option value="TEMPERATURE">TEMPERATURE (°C)</option>
-                  <option value="RESPIRATORY_RATE">RESPIRATORY_RATE (/min)</option>
-                  <option value="GCS">GCS (Glasgow Coma Scale)</option>
-                  <option value="OTHER">OTHER</option>
+                  <option value="HEART_RATE">{trDialog("HEART_RATE (bpm)")}</option>
+                  <option value="BLOOD_PRESSURE">{trDialog("BLOOD_PRESSURE (e.g. 120/80)")}</option>
+                  <option value="SPO2">{trDialog("SPO2 (%)")}</option>
+                  <option value="TEMPERATURE">{trDialog("TEMPERATURE (°C)")}</option>
+                  <option value="RESPIRATORY_RATE">{trDialog("RESPIRATORY_RATE (/min)")}</option>
+                  <option value="GCS">{trDialog("GCS (Glasgow Coma Scale)")}</option>
+                  <option value="OTHER">{trDialog("OTHER")}</option>
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="medical-dialog-two-col">
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">Value <span className="text-rose-400">*</span></label>
+                  <label className="medical-dialog-label">{trDialog("Value")} <span className="medical-required">*</span></label>
                   <input
                     type="text"
                     value={obsForm.value}
                     onChange={(e) => setObsForm({ ...obsForm, value: e.target.value })}
-                    placeholder="e.g. 115"
+                    placeholder={trDialog("e.g. 115")}
                     className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-rose-500 font-mono"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">Unit</label>
+                  <label className="medical-dialog-label">{trDialog("Unit")}</label>
                   <input
                     type="text"
                     value={obsForm.unit || ''}
                     onChange={(e) => setObsForm({ ...obsForm, unit: e.target.value })}
-                    placeholder="e.g. bpm"
+                    placeholder={trDialog("e.g. bpm")}
                     className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-rose-500 font-mono"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Observation Note</label>
+                <label className="medical-dialog-label">{trDialog("Observation Note")}</label>
                 <input
                   type="text"
                   value={obsForm.note || ''}
                   onChange={(e) => setObsForm({ ...obsForm, note: e.target.value })}
-                  placeholder="e.g. Tachycardia following chemical inhalation"
-                  className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-rose-500"
+                  placeholder={trDialog("e.g. Tachycardia following chemical inhalation")}
+                  className="medical-dialog-control"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            {actionError && <p className="medical-dialog-error" role="alert">{actionError}</p>}
+            <div className="dialog-footer medical-dialog-footer">
               <button
                 type="button"
                 onClick={() => setShowObservationModal(false)}
-                className="px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded transition"
+                className="btn btn-secondary"
               >
-                Cancel
+                {trDialog("Cancel")}
               </button>
               <button
                 type="submit"
                 disabled={actionPending}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded transition"
+                className="btn btn-primary"
               >
                 {actionPending ? 'Saving...' : 'Save Observation'}
               </button>
@@ -749,71 +805,72 @@ export default function MedicalDetailPage() {
 
       {/* Record Intervention Modal */}
       {showInterventionModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+        <div className="dialog-overlay medical-dialog-overlay" role="presentation">
           <form
             onSubmit={handleInterventionSubmit}
-            className="bg-slate-900 border border-slate-700 rounded-lg max-w-md w-full p-5 shadow-2xl space-y-4"
+            className="dialog-surface medical-dialog-surface" role="dialog" aria-modal="true" aria-labelledby="intervention-dialog-title"
           >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h4 className="font-semibold text-slate-100 text-sm">Record Medical Intervention</h4>
+            <div className="dialog-header medical-dialog-header">
+              <h4 id="intervention-dialog-title">{trDialog('Record Medical Intervention')}</h4>
               <button
                 type="button"
                 onClick={() => setShowInterventionModal(false)}
-                className="text-slate-400 hover:text-white"
+                className="medical-dialog-dismiss" aria-label={trDialog("Close")}
               >
                 <X size={16} />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <div className="dialog-body medical-dialog-body">
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Intervention Type</label>
+                <label className="medical-dialog-label">{trDialog("Intervention Type")}</label>
                 <input
                   type="text"
                   value={intForm.interventionType}
                   onChange={(e) => setIntForm({ ...intForm, interventionType: e.target.value })}
-                  placeholder="e.g. OXYGEN_ADMINISTRATION, DECONTAMINATION"
-                  className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 font-mono focus:outline-none focus:border-rose-500"
+                  placeholder={trDialog("e.g. OXYGEN_ADMINISTRATION, DECONTAMINATION")}
+                  className="medical-dialog-control"
                   required
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Description <span className="text-rose-400">*</span></label>
+                <label className="medical-dialog-label">{trDialog("Description")} <span className="medical-required">*</span></label>
                 <textarea
                   value={intForm.description}
                   onChange={(e) => setIntForm({ ...intForm, description: e.target.value })}
                   rows={3}
-                  placeholder="Details of procedure performed..."
-                  className="w-full p-2 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-rose-500"
+                  placeholder={trDialog("Details of procedure performed...")}
+                  className="medical-dialog-control"
                   required
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Outcome</label>
+                <label className="medical-dialog-label">{trDialog("Outcome")}</label>
                 <input
                   type="text"
                   value={intForm.outcome || ''}
                   onChange={(e) => setIntForm({ ...intForm, outcome: e.target.value })}
-                  placeholder="e.g. STABILIZED, IMPROVED, UNCHANGED"
-                  className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 font-mono focus:outline-none focus:border-rose-500"
+                  placeholder={trDialog("e.g. STABILIZED, IMPROVED, UNCHANGED")}
+                  className="medical-dialog-control"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            {actionError && <p className="medical-dialog-error" role="alert">{actionError}</p>}
+            <div className="dialog-footer medical-dialog-footer">
               <button
                 type="button"
                 onClick={() => setShowInterventionModal(false)}
-                className="px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded transition"
+                className="btn btn-secondary"
               >
-                Cancel
+                {trDialog("Cancel")}
               </button>
               <button
                 type="submit"
                 disabled={actionPending}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded transition"
+                className="btn btn-primary"
               >
                 {actionPending ? 'Recording...' : 'Record Procedure'}
               </button>
@@ -824,62 +881,63 @@ export default function MedicalDetailPage() {
 
       {/* Transfer Casualty Modal */}
       {showTransferModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+        <div className="dialog-overlay medical-dialog-overlay" role="presentation">
           <form
             onSubmit={handleTransferSubmit}
-            className="bg-slate-900 border border-slate-700 rounded-lg max-w-md w-full p-5 shadow-2xl space-y-4"
+            className="dialog-surface medical-dialog-surface" role="dialog" aria-modal="true" aria-labelledby="transfer-dialog-title"
           >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h4 className="font-semibold text-slate-100 text-sm">Transfer Casualty Disposition</h4>
+            <div className="dialog-header medical-dialog-header">
+              <h4 id="transfer-dialog-title">{trDialog('Transfer Casualty Disposition')}</h4>
               <button
                 type="button"
                 onClick={() => setShowTransferModal(false)}
-                className="text-slate-400 hover:text-white"
+                className="medical-dialog-dismiss" aria-label={trDialog("Close")}
               >
                 <X size={16} />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <div className="dialog-body medical-dialog-body">
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Destination Disposition</label>
+                <label className="medical-dialog-label">{trDialog("Destination Disposition")}</label>
                 <select
                   value={transferForm.disposition}
                   onChange={(e) => setTransferForm({ ...transferForm, disposition: e.target.value })}
-                  className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-200 font-mono focus:outline-none focus:border-rose-500"
+                  className="medical-dialog-control"
                 >
-                  <option value="AID_STATION">Field Aid Station</option>
-                  <option value="AMBULANCE">Ambulance Transport</option>
-                  <option value="HOSPITAL">General Hospital / Trauma Center</option>
-                  <option value="MORGUE">Morgue (Deceased)</option>
-                  <option value="DISCHARGED">Discharged / Returned to Duty</option>
+                  <option value="AID_STATION">{trDialog("Field Aid Station")}</option>
+                  <option value="AMBULANCE">{trDialog("Ambulance Transport")}</option>
+                  <option value="HOSPITAL">{trDialog("General Hospital / Trauma Center")}</option>
+                  <option value="MORGUE">{trDialog("Morgue (Deceased)")}</option>
+                  <option value="DISCHARGED">{trDialog("Discharged / Returned to Duty")}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">Transfer Notes / Handoff Summary</label>
+                <label className="medical-dialog-label">{trDialog("Transfer Notes / Handoff Summary")}</label>
                 <textarea
                   value={transferForm.transferNotes || ''}
                   onChange={(e) => setTransferForm({ ...transferForm, transferNotes: e.target.value })}
                   rows={3}
-                  placeholder="Receiving team, transport callsign, vital trends..."
-                  className="w-full p-2 bg-slate-950 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-rose-500"
+                  placeholder={trDialog("Receiving team, transport callsign, vital trends...")}
+                  className="medical-dialog-control"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            {actionError && <p className="medical-dialog-error" role="alert">{actionError}</p>}
+            <div className="dialog-footer medical-dialog-footer">
               <button
                 type="button"
                 onClick={() => setShowTransferModal(false)}
-                className="px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded transition"
+                className="btn btn-secondary"
               >
-                Cancel
+                {trDialog("Cancel")}
               </button>
               <button
                 type="submit"
                 disabled={actionPending}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded transition"
+                className="btn btn-primary"
               >
                 {actionPending ? 'Transferring...' : 'Execute Transfer'}
               </button>
