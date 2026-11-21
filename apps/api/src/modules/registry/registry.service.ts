@@ -75,28 +75,28 @@ export class RegistryService {
     const [personRows,organisationRows,locationRows,vehicleRows,deviceRows,weaponRows]=await Promise.all([
       this.db.select({id:persons.id,identifier:persons.identifier,label:persons.displayName})
         .from(persons).innerJoin(resources,eq(persons.id,resources.id))
-        .where(and(eq(resources.eventId,eventId),ilike(persons.displayName,pattern)))
+        .where(and(eq(resources.eventId,eventId),or(ilike(persons.displayName,pattern),ilike(persons.identifier,pattern))))
         .orderBy(asc(persons.displayName)).limit(cap),
       this.db.select({id:organisations.id,identifier:organisations.identifier,label:organisations.name})
         .from(organisations).innerJoin(resources,eq(organisations.id,resources.id))
-        .where(and(eq(resources.eventId,eventId),ilike(organisations.name,pattern)))
+        .where(and(eq(resources.eventId,eventId),or(ilike(organisations.name,pattern),ilike(organisations.identifier,pattern))))
         .orderBy(asc(organisations.name)).limit(cap),
       this.db.select({id:locations.id,identifier:locations.identifier,label:locations.name})
         .from(locations).innerJoin(resources,eq(locations.id,resources.id))
-        .where(and(eq(resources.eventId,eventId),or(ilike(locations.name,pattern),ilike(locations.city,pattern))))
+        .where(and(eq(resources.eventId,eventId),or(ilike(locations.name,pattern),ilike(locations.city,pattern),ilike(locations.identifier,pattern))))
         .orderBy(asc(locations.name)).limit(cap),
       this.db.select({id:vehicles.id,identifier:vehicles.identifier,label:vehicles.label})
         .from(vehicles).innerJoin(resources,eq(vehicles.id,resources.id))
-        .where(and(eq(resources.eventId,eventId),or(ilike(vehicles.label,pattern),ilike(vehicles.registrationPlate,pattern))))
+        .where(and(eq(resources.eventId,eventId),or(ilike(vehicles.label,pattern),ilike(vehicles.registrationPlate,pattern),ilike(vehicles.identifier,pattern))))
         .orderBy(asc(vehicles.label)).limit(cap),
       this.db.select({id:devices.id,identifier:devices.identifier,label:devices.label})
         .from(devices).innerJoin(resources,eq(devices.id,resources.id))
-        .where(and(eq(resources.eventId,eventId),or(ilike(devices.label,pattern),ilike(devices.hostname,pattern))))
+        .where(and(eq(resources.eventId,eventId),or(ilike(devices.label,pattern),ilike(devices.hostname,pattern),ilike(devices.identifier,pattern))))
         .orderBy(asc(devices.label)).limit(cap),
       this.db.select({id:weapons.id,identifier:weapons.identifier,
         label:sql<string>`trim(concat_ws(' ', ${weapons.category}, ${weapons.manufacturer}, ${weapons.model}))`})
         .from(weapons).innerJoin(resources,eq(weapons.id,resources.id))
-        .where(and(eq(resources.eventId,eventId),or(ilike(weapons.category,pattern),ilike(weapons.manufacturer,pattern),ilike(weapons.model,pattern))))
+        .where(and(eq(resources.eventId,eventId),or(ilike(weapons.category,pattern),ilike(weapons.manufacturer,pattern),ilike(weapons.model,pattern),ilike(weapons.identifier,pattern))))
         .orderBy(asc(weapons.category)).limit(cap),
     ]);
     const candidates=[
