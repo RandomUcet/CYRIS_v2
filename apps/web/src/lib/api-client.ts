@@ -110,6 +110,7 @@ import type {
   SparkDraftRequest,
   ScenarioDataBatchResponse,
   ScenarioBatchMediaList,
+  RegistryPickerResult,
   JsocLogQuery,
   JsocLogPage,
   GenerateJsocLogs,
@@ -366,6 +367,12 @@ export class CyrisApiClient {
   }
   async cleanupScenarioData(eventId: string, batchId: string) {
     return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/batches/${batchId}/cleanup`, {});
+  }
+
+  /** Canonical, event-scoped relationship picker. No Typesense dependency. */
+  async searchRegistryRecords(eventId:string,query:string){
+    return this.fetchJson<RegistryPickerResult[]>(
+      `/events/${eventId}/registry/search?q=${encodeURIComponent(query)}&limit=20`);
   }
 
   async getPersons(eventId: string) {

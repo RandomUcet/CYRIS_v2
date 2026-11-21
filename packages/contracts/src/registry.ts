@@ -301,3 +301,18 @@ export const WeaponResponseSchema = z.object({
   updatedAt: z.string(),
 });
 export type WeaponResponse = z.infer<typeof WeaponResponseSchema>;
+
+/** Event-isolated selector for creating relationships without a search index. */
+export const RegistryPickerQuerySchema = z.object({
+  q: z.string().trim().min(2).max(80),
+  limit: z.coerce.number().int().min(1).max(30).default(20),
+});
+export type RegistryPickerQuery = z.infer<typeof RegistryPickerQuerySchema>;
+export const RegistryPickerResultSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  entityType: z.enum(['persons','organisations','locations','vehicles','devices','weapons']),
+  identifier: z.string().nullable(),
+  label: z.string(),
+});
+export type RegistryPickerResult = z.infer<typeof RegistryPickerResultSchema>;

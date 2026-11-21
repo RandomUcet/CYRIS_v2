@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, asc, and, or, ilike, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
@@ -41,6 +41,8 @@ import type {
   CreateWeaponRequest,
   UpdateWeaponRequest,
   WeaponResponse,
+  RegistryPickerQuery,
+  RegistryPickerResult,
 } from '@cyris/contracts';
 
 @Injectable()
@@ -58,6 +60,62 @@ export class RegistryService {
 
   private get db() {
     return this.databaseService.client;
+  }
+
+
+  /**
+   * Secure, bounded link picker independent of search-index readiness.
+   * Only returns canonical records the authenticated user can actually read.
+   * No unfiltered counts, owner metadata or hidden record titles are emitted.
+   */
+  async searchPicker(eventId:string, query:RegistryPickerQuery, user:AuthenticatedUser):Promise<RegistryPickerResult[]>{
+    const pattern='%'+query.q+'%';
+    // Limit the candidate work per entity type; never scan unrestricted whole-table results into JS.
+    const cap=Math.min(90,Math.max(20,query.limit*3));
+    const [personRows,organisationRows,locationRows,vehicleRows,deviceRows,weaponRows]=await Promise.all([
+      this.db.select({id:persons.id,identifier:persons.identifier,label:persons.displayName})
+        .from(persons).innerJoin(resources,eq(persons.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),ilike(persons.displayName,pattern)))
+        .orderBy(asc(persons.displayName)).limit(cap),
+      this.db.select({id:organisations.id,identifier:organisations.identifier,label:organisations.name})
+        .from(organisations).innerJoin(resources,eq(organisations.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),ilike(organisations.name,pattern)))
+        .orderBy(asc(organisations.name)).limit(cap),
+      this.db.select({id:locations.id,identifier:locations.identifier,label:locations.name})
+        .from(locations).innerJoin(resources,eq(locations.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),or(ilike(locations.name,pattern),ilike(locations.city,pattern))))
+        .orderBy(asc(locations.name)).limit(cap),
+      this.db.select({id:vehicles.id,identifier:vehicles.identifier,label:vehicles.label})
+        .from(vehicles).innerJoin(resources,eq(vehicles.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),or(ilike(vehicles.label,pattern),ilike(vehicles.registrationPlate,pattern))))
+        .orderBy(asc(vehicles.label)).limit(cap),
+      this.db.select({id:devices.id,identifier:devices.identifier,label:devices.label})
+        .from(devices).innerJoin(resources,eq(devices.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),or(ilike(devices.label,pattern),ilike(devices.hostname,pattern))))
+        .orderBy(asc(devices.label)).limit(cap),
+      this.db.select({id:weapons.id,identifier:weapons.identifier,
+        label:sql<string>`trim(concat_ws(' ', ${weapons.category}, ${weapons.manufacturer}, ${weapons.model}))`})
+        .from(weapons).innerJoin(resources,eq(weapons.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),or(ilike(weapons.category,pattern),ilike(weapons.manufacturer,pattern),ilike(weapons.model,pattern))))
+        .orderBy(asc(weapons.category)).limit(cap),
+    ]);
+    const candidates=[
+      ...personRows.map(row=>({...row,entityType:'persons' as const})),
+      ...organisationRows.map(row=>({...row,entityType:'organisations' as const})),
+      ...locationRows.map(row=>({...row,entityType:'locations' as const})),
+      ...vehicleRows.map(row=>({...row,entityType:'vehicles' as const})),
+      ...deviceRows.map(row=>({...row,entityType:'devices' as const})),
+      ...weaponRows.map(row=>({...row,entityType:'weapons' as const})),
+    ].sort((a,b)=>a.label.localeCompare(b.label));
+    const visible:RegistryPickerResult[]=[];
+    for(const candidate of candidates){
+      if(visible.length>=query.limit)break;
+      if(await this.resourceAccessService.canAccessResource(user,candidate.id,Permissions.REGISTRY_READ)){
+        visible.push({id:candidate.id,eventId,entityType:candidate.entityType,
+          identifier:candidate.identifier,label:candidate.label});
+      }
+    }
+    return visible;
   }
 
   private async assertMediaEvent(eventId:string,resourceId:string) {

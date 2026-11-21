@@ -9,6 +9,8 @@ import {
   UseGuards,
   BadRequestException,
   Res,
+  Query,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
@@ -28,12 +30,28 @@ import {
   UpdateDeviceRequestSchema,
   CreateWeaponRequestSchema,
   UpdateWeaponRequestSchema,
+  RegistryPickerQuerySchema,
 } from '@cyris/contracts';
 
 @Controller('events/:eventId/registry')
 @UseGuards(AuthGuard)
 export class RegistryController {
   constructor(private readonly registryService: RegistryService) {}
+
+  /**
+   * Query the canonical registry rather than Typesense projections.
+   * Results are filtered by the requesting principal's resource-read rights.
+   */
+  @Get('search')
+  searchRegistry(
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Query() query: unknown,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    const parsed = RegistryPickerQuerySchema.safeParse(query ?? {});
+    if (!parsed.success) throw new BadRequestException('Enter at least two search characters (maximum 80).');
+    return this.registryService.searchPicker(eventId, parsed.data, user);
+  }
 
   // --- Persons ---
 
