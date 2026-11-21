@@ -12,6 +12,7 @@ import { TimelineView } from '@/components/common/TimelineView';
 import { RelationshipGraph } from '@/components/common/RelationshipGraph';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
+import styles from './registry-detail.module.css';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import {
@@ -35,8 +36,12 @@ export default function RegistryEntityDetailPage() {
   const eventId = params.eventId as string;
   const entityType = params.entityType as string; // persons, organisations, vehicles, devices, locations, weapons
   const id = params.id as string;
-  const { hasPermission } = useAuth();
-  const { formatTime, formatDate } = usePreferences();
+  const { hasPermission, isPlatformAdmin, viewAs } = useAuth();
+  const { formatTime, formatDate, locale } = usePreferences();
+  const cs = locale === 'cs';
+  const tr = (cz: string, en: string) => cs ? cz : en;
+  const canEdit = !viewAs && (isPlatformAdmin || hasPermission('registry.update', eventId));
+  const canLink = !viewAs && (isPlatformAdmin || hasPermission('registry.relationship.manage', eventId));
 
   const [activeTab, setActiveTab] = useState<'overview' | 'relations' | 'timeline'>('overview');
   const [loading, setLoading] = useState(true);
@@ -51,6 +56,8 @@ export default function RegistryEntityDetailPage() {
   // Add Relationship Modal
   const [showRelModal, setShowRelModal] = useState(false);
   const [targetResourceId, setTargetResourceId] = useState('');
+  const [targetQuery, setTargetQuery] = useState('');
+  const [searchingTargets, setSearchingTargets] = useState(false);
   const [relType, setRelType] = useState('RELATED_TO');
   const [addingRel, setAddingRel] = useState(false);
   const [relationshipError, setRelationshipError] = useState<string | null>(null);
@@ -120,40 +127,37 @@ export default function RegistryEntityDetailPage() {
     }
   }, [id, activeTab]);
 
+  // Search only visible records in the selected exercise, without downloading
+  // every person, organisation and device into the user's browser.
   useEffect(() => {
-    if (!showRelModal) return;
-    let cancelled = false;
-    Promise.all([
-      apiClient.getPersons(eventId),
-      apiClient.getOrganisations(eventId),
-      apiClient.getLocations(eventId),
-      apiClient.getVehicles(eventId),
-      apiClient.getDevices(eventId),
-      apiClient.getWeapons(eventId),
-    ]).then((responses) => {
-      if (cancelled) return;
-      const targets = responses.flatMap((response, index) => {
-        if (!response.ok || !Array.isArray(response.data)) return [];
-        const typeLabels = ['Person', 'Organisation', 'Location', 'Vehicle', 'Device', 'Weapon'];
-        return response.data
-          .filter((item: any) => item.id !== id)
-          .map((item: any) => ({
-            id: item.id,
-            label: `${item.identifier || item.id.slice(0, 8)} — ${item.displayName || item.name || item.label || item.addressText || typeLabels[index]}`,
-          }));
-      });
-      setRelationshipTargets(targets);
-    }).catch(() => {
-      if (!cancelled) setRelationshipError('Unable to load relationship targets.');
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [eventId, id, showRelModal]);
+    if (!showRelModal || targetQuery.trim().length < 2) {
+      setRelationshipTargets([]);
+      setSearchingTargets(false);
+      return;
+    }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setSearchingTargets(true);
+      void apiClient.searchRegistryRecords(eventId, targetQuery.trim()).then((response) => {
+        if (!active) return;
+        if (response.ok && response.data) {
+          setRelationshipTargets(response.data.filter((target) => target.id !== id).map((target) => ({
+            id: target.id, label: `${target.identifier || target.entityType} — ${target.label}`,
+          })));
+        } else {
+          setRelationshipTargets([]);
+          setRelationshipError(response.error || 'Could not search the registry');
+        }
+      }).catch((err) => {
+        if (active) setRelationshipError(err instanceof Error ? err.message : String(err));
+      }).finally(() => { if (active) setSearchingTargets(false); });
+    }, 260);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [eventId, id, showRelModal, targetQuery]);
 
   const handleAddRelationship = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!targetResourceId.trim()) return;
+    if (!canLink || !targetResourceId.trim() || targetResourceId === id) return;
     setAddingRel(true);
     setRelationshipError(null);
     try {
@@ -164,6 +168,7 @@ export default function RegistryEntityDetailPage() {
       if (res.ok) {
         setShowRelModal(false);
         setTargetResourceId('');
+        setTargetQuery('');
         fetchEntityDetails();
       } else {
         setRelationshipError(res.error || 'Failed to create relationship');
@@ -177,6 +182,7 @@ export default function RegistryEntityDetailPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEdit) return;
     setSaving(true);
     setSaveError(null);
     const payload = Object.fromEntries(Object.entries(editData).filter(([key, value]) => !['id', 'eventId', 'identifier', 'createdAt', 'updatedAt', 'visibility', 'owningUnitId'].includes(key) && value !== null));
@@ -219,8 +225,15 @@ export default function RegistryEntityDetailPage() {
   };
 
   const handleMediaUpload = async (file: File) => {
-    setMediaBusy(true);
+    if (!canEdit || mediaBusy) return;
     setMediaError(null);
+    const formats = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+    if (!formats.has(file.type) || !file.size || file.size > 5 * 1024 * 1024) {
+      setMediaError(tr('Použijte JPEG, PNG, WebP nebo GIF o velikosti maximálně 5 MB.',
+        'Use a JPEG, PNG, WebP or GIF image up to 5 MB.'));
+      return;
+    }
+    setMediaBusy(true);
     try {
       const data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -245,6 +258,8 @@ export default function RegistryEntityDetailPage() {
   };
 
   const handleMediaRemove = async () => {
+    if (!canEdit || mediaBusy ||
+      !window.confirm(tr('Odstranit obrázek tohoto záznamu?', 'Remove this record image?'))) return;
     setMediaBusy(true);
     setMediaError(null);
     try {
@@ -260,6 +275,7 @@ export default function RegistryEntityDetailPage() {
   };
 
   const handleRemoveRelationship = async (relationshipId: string) => {
+    if (!canLink || !window.confirm(tr('Opravdu odstranit tuto vazbu?', 'Remove this relationship?'))) return;
     setRelationshipError(null);
     const result = await apiClient.removeRelationship(eventId, relationshipId);
     if (result.ok) await fetchEntityDetails();
@@ -343,20 +359,20 @@ export default function RegistryEntityDetailPage() {
           identifier={entityData.identifier || id}
           title={getEntityTitle()}
           status={<span className="badge badge-neutral">{entityType.slice(0, -1).toUpperCase()}</span>}
-          priority={<span className="badge badge-neutral">REGISTRY RECORD</span>}
-          classification={<span className="badge badge-neutral">RESTRICTED INTELLIGENCE</span>}
+          priority={<span className="badge badge-neutral">{tr('ZÁZNAM REGISTRU', 'REGISTRY RECORD')}</span>}
+          classification={<span className="badge badge-neutral">{tr('Viditelnost', 'Visibility')}: {entityData.visibility ?? '—'}</span>}
           actions={
             <div style={{ display: 'flex', gap: '8px' }}>
               <Link href={`/events/${eventId}/registry`} className="btn btn-ghost" style={{ fontSize: '12px' }}>
-                Back to Registry
+                {tr('Zpět do registru', 'Back to registry')}
               </Link>
-              <button
+              {canEdit && <button
                 onClick={() => { setEditData({ ...entityData }); setEditOpen(true); }}
                 className="btn btn-secondary"
                 style={{ fontSize: '12px' }}
               >
-                Edit record
-              </button>
+                {tr('Upravit záznam', 'Edit record')}
+              </button>}
               <button
                 onClick={() => setInspectorOpen(!inspectorOpen)}
                 className={`btn ${inspectorOpen ? 'btn-secondary' : 'btn-ghost'}`}
@@ -372,9 +388,9 @@ export default function RegistryEntityDetailPage() {
         {/* Tabs */}
         <RecordTabs
           tabs={[
-            { id: 'overview', label: 'Entity Profile', icon: <Database size={14} /> },
-            { id: 'relations', label: 'Relationship Graph', count: relationships.length, icon: <Share2 size={14} /> },
-            { id: 'timeline', label: 'Operational Activity', count: timelineItems.length, icon: <Clock size={14} /> },
+            { id: 'overview', label: tr('Profil záznamu', 'Entity profile'), icon: <Database size={14} /> },
+            { id: 'relations', label: tr('Vazby', 'Relationship graph'), count: relationships.length, icon: <Share2 size={14} /> },
+            { id: 'timeline', label: tr('Aktivita', 'Operational activity'), count: timelineItems.length, icon: <Clock size={14} /> },
           ]}
           activeTab={activeTab}
           onChange={(tab) => setActiveTab(tab as any)}
@@ -394,10 +410,11 @@ export default function RegistryEntityDetailPage() {
                     padding: '18px 22px',
                   }}
                 >
-                  {['persons', 'vehicles', 'devices', 'weapons'].includes(entityType) && (
+                  {['persons', 'organisations', 'locations', 'vehicles', 'devices', 'weapons'].includes(entityType) && (
                     <div style={{ marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
                       <div style={{ width: 72, height: 72, borderRadius: 6, overflow: 'hidden', background: 'var(--color-bg-panel)', border: '1px solid var(--color-border-subtle)', display: 'grid', placeItems: 'center', color: 'var(--color-text-dim)', fontSize: 20 }}>
                         <img
+                          key={mediaVersion}
                           src={`${apiClient.getRegistryPrimaryMediaUrl(eventId, id)}?v=${mediaVersion}`}
                           alt=""
                           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -406,15 +423,15 @@ export default function RegistryEntityDetailPage() {
                         {getEntityTitle().slice(0, 1).toUpperCase()}
                       </div>
                       <div>
-                        <div style={{ fontSize: 12, fontWeight: 600 }}>Primary image</div>
-                        <div style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>Available only to users with Registry access.</div>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{tr('Hlavní obrázek', 'Primary image')}</div>
+                        <div style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>{tr('Přístupné pouze uživatelům s oprávněním k registru.', 'Visible only to users with registry access.')}</div>
                       </div>
-                      {hasPermission('registry.manage') && (
+                      {canEdit && (
                         <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
                           <input
                             ref={mediaInputRef}
                             type="file"
-                            accept="image/*"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
                             hidden
                             onChange={(event) => {
                               const file = event.target.files?.[0];
@@ -422,10 +439,10 @@ export default function RegistryEntityDetailPage() {
                             }}
                           />
                           <button className="btn btn-secondary" type="button" disabled={mediaBusy} onClick={() => mediaInputRef.current?.click()}>
-                            {mediaBusy ? 'Working…' : 'Upload / Replace'}
+                            {mediaBusy ? tr('Zpracovávám…','Working…') : tr('Nahrát / nahradit','Upload / replace')}
                           </button>
                           <button className="btn btn-ghost" type="button" disabled={mediaBusy} onClick={() => void handleMediaRemove()}>
-                            Remove
+                            {tr('Odstranit','Remove')}
                           </button>
                         </div>
                       )}
@@ -442,7 +459,7 @@ export default function RegistryEntityDetailPage() {
                       marginBottom: '14px',
                     }}
                   >
-                    Canonical Intelligence Profile
+                    {tr('Údaje registru', 'Registry profile')}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
@@ -539,9 +556,10 @@ export default function RegistryEntityDetailPage() {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: '11px', color: 'var(--color-text-dim)' }}>{formatDate(rel.createdAt)}</span>
-                            <button className="btn btn-ghost" type="button" style={{ padding: 2 }} onClick={() => void handleRemoveRelationship(rel.id)} aria-label="Remove relationship">
+                            {canLink && <button className="btn btn-ghost" type="button" style={{ padding: 2 }} onClick={() => void handleRemoveRelationship(rel.id)}
+                              aria-label={tr('Odstranit vazbu', 'Remove relationship')}>
                               <X size={13} />
-                            </button>
+                            </button>}
                           </div>
                         </div>
                       ))
@@ -563,15 +581,15 @@ export default function RegistryEntityDetailPage() {
                   }}
                 >
                   <div style={{ fontSize: '13px', color: 'var(--color-text-dim)' }}>
-                    Intelligence topology and relationships centered on this entity.
+                    {tr('Vazby a souvislosti, které se vztahují k tomuto záznamu.', 'Connections and relationships associated with this record.')}
                   </div>
-                  <button
+                  {canLink && <button
                     onClick={() => setShowRelModal(true)}
                     className="btn btn-primary"
                     style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   >
-                    <Plus size={14} /> Establish Graph Link
-                  </button>
+                    <Plus size={14} /> {tr('Vytvořit vazbu','Establish graph link')}
+                  </button>}
                 </div>
 
                 <RelationshipGraph
@@ -588,7 +606,7 @@ export default function RegistryEntityDetailPage() {
             {activeTab === 'timeline' && (
               <div>
                 <div style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--color-text-dim)' }}>
-                  Chronological activity associated with this entity.
+                  {tr('Chronologický přehled událostí souvisejících se záznamem.', 'Chronological activity associated with this record.')}
                 </div>
                 {timelineLoading ? (
                   <LoadingState message="Reconstructing entity timeline..." />
@@ -615,16 +633,17 @@ export default function RegistryEntityDetailPage() {
               <button
                 onClick={() => setShowRelModal(true)}
                 className="btn btn-secondary"
-                style={{ width: '100%', justifyContent: 'center' }}
+                style={{ width: '100%', justifyContent: 'center', display: canLink ? undefined : 'none' }}
+                disabled={!canLink}
               >
-                Establish Link
+                {tr('Vytvořit vazbu','Establish link')}
               </button>
             }
           />
         </div>
 
         {/* Modal: Add Relationship */}
-        {showRelModal && (
+        {showRelModal && canLink && (
           <div
             style={{
               position: 'fixed',
@@ -662,7 +681,7 @@ export default function RegistryEntityDetailPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Share2 size={15} color="var(--color-accent-ops)" />
                   <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                    Connect Graph Link
+                    {tr('Propojit záznamy', 'Connect graph records')}
                   </span>
                 </div>
                 <button
@@ -676,21 +695,37 @@ export default function RegistryEntityDetailPage() {
               <form onSubmit={handleAddRelationship} style={{ padding: '18px' }}>
                 <div style={{ marginBottom: '14px' }}>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                    Target Registry Record *
+                    {tr('Cílový záznam registru', 'Target registry record')} *
                   </label>
+                  <input type="search" className="input-field" autoFocus maxLength={80}
+                    value={targetQuery} onChange={(e) => {
+                      setTargetQuery(e.target.value);
+                      setTargetResourceId('');
+                      setRelationshipTargets([]);
+                      setRelationshipError(null);
+                    }} placeholder={tr('Hledat podle jména, názvu nebo identifikátoru…', 'Search by name, label or identifier…')}
+                    aria-label={tr('Hledat cíl vazby', 'Search relationship target')}
+                    style={{ width: '100%', marginBottom: 8 }} />
+                  {searchingTargets && <p role="status" className={styles.relationSearchHelp}>
+                    {tr('Hledám záznamy…', 'Searching records…')}</p>}
                   <select
                     required
                     value={targetResourceId}
                     onChange={(e) => setTargetResourceId(e.target.value)}
                     className="select-field"
                     style={{ width: '100%' }}
-                    autoFocus
+                    disabled={!relationshipTargets.length}
                   >
-                    <option value="">Select a record</option>
+                    <option value="">{targetQuery.trim().length < 2
+                      ? tr('Nejprve zadejte alespoň dva znaky', 'Enter at least two characters')
+                      : tr('Vyberte odpovídající záznam', 'Select a matching record')}</option>
                     {relationshipTargets.map((target) => (
                       <option key={target.id} value={target.id}>{target.label}</option>
                     ))}
                   </select>
+                  {!searchingTargets && targetQuery.trim().length >= 2 && relationshipTargets.length === 0
+                    && !relationshipError && <p className={styles.relationSearchHelp}>
+                      {tr('Žádné dostupné záznamy. Zkuste jiný výraz.', 'No accessible records found. Try another search.')}</p>}
                 </div>
                 {relationshipError && (
                   <div role="alert" style={{ marginBottom: '14px', color: 'var(--color-danger)', fontSize: '12px' }}>
@@ -700,7 +735,7 @@ export default function RegistryEntityDetailPage() {
 
                 <div style={{ marginBottom: '18px' }}>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                    Relationship Type
+                    {tr('Typ vazby', 'Relationship type')}
                   </label>
                   <select
                     value={relType}
@@ -724,20 +759,20 @@ export default function RegistryEntityDetailPage() {
                     className="btn btn-secondary"
                     disabled={addingRel}
                   >
-                    Cancel
+                    {tr('Zrušit', 'Cancel')}
                   </button>
-                  <button type="submit" className="btn btn-primary" disabled={addingRel}>
-                    {addingRel ? 'Connecting...' : 'Connect Link'}
+                  <button type="submit" className="btn btn-primary" disabled={addingRel || !targetResourceId || targetResourceId === id}>
+                    {addingRel ? tr('Propojuji…','Connecting…') : tr('Vytvořit vazbu','Connect link')}
                   </button>
                 </div>
               </form>
             </div>
           </div>
         )}
-        {editOpen && (
+        {editOpen && canEdit && (
           <div className="modal-backdrop">
-            <div className="modal-content" style={{ maxWidth: 640, maxHeight: '90vh', overflowY: 'auto' }}>
-              <div className="modal-header"><h2>Edit {entityType.slice(0, -1)}</h2><button className="btn btn-ghost" onClick={() => setEditOpen(false)}><X size={16} /></button></div>
+            <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="registry-edit-title" style={{ maxWidth: 640, maxHeight: '90vh', overflowY: 'auto' }}>
+              <div className="modal-header"><h2 id="registry-edit-title">{tr('Upravit záznam', 'Edit record')}</h2><button className="btn btn-ghost" onClick={() => setEditOpen(false)}><X size={16} /></button></div>
               <form onSubmit={handleSave} style={{ display: 'grid', gap: 12 }}>
                 {saveError && <div role="alert" style={{ color: 'var(--color-danger)', fontSize: 12 }}>{saveError}</div>}
                 {(editFields[entityType] || []).map(([key, label]) => (
@@ -748,21 +783,21 @@ export default function RegistryEntityDetailPage() {
                 ))}
                 {entityType === 'persons' && (['emails', 'phones'] as const).map((kind) => (
                   <fieldset key={kind} style={{ border: '1px solid var(--color-border-subtle)', padding: 10 }}>
-                    <legend style={{ fontSize: 12, fontWeight: 600 }}>{kind === 'emails' ? 'Email addresses' : 'Phone numbers'}</legend>
+                    <legend style={{ fontSize: 12, fontWeight: 600 }}>{kind === 'emails' ? tr('E-mailové adresy','Email addresses') : tr('Telefonní čísla','Phone numbers')}</legend>
                     {(Array.isArray(editData[kind]) ? editData[kind] : []).map((contact: any, index: number) => (
-                      <div key={`${kind}-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr 110px auto auto', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                      <div key={`${kind}-${index}`} className={styles.contactRow}>
                         <input className="input-field" value={contact.value || ''} placeholder={kind === 'emails' ? 'name@example.test' : '+420 …'} onChange={(event) => updateContact(kind, index, 'value', event.target.value)} />
-                        <input className="input-field" value={contact.label || ''} placeholder="Label" onChange={(event) => updateContact(kind, index, 'label', event.target.value)} />
-                        <label style={{ fontSize: 11, whiteSpace: 'nowrap' }}><input type="checkbox" checked={contact.primary === true} onChange={(event) => updateContact(kind, index, 'primary', event.target.checked)} /> Primary</label>
+                        <input className="input-field" value={contact.label || ''} placeholder={tr('Popisek', 'Label')} onChange={(event) => updateContact(kind, index, 'label', event.target.value)} />
+                        <label style={{ fontSize: 11, whiteSpace: 'nowrap' }}><input type="checkbox" checked={contact.primary === true} onChange={(event) => updateContact(kind, index, 'primary', event.target.checked)} /> {tr('Hlavní', 'Primary')}</label>
                         <button className="btn btn-ghost" type="button" onClick={() => removeContact(kind, index)} aria-label={`Remove ${kind.slice(0, -1)}`}><X size={14} /></button>
                       </div>
                     ))}
-                    <button className="btn btn-secondary" type="button" onClick={() => addContact(kind)}>+ Add {kind === 'emails' ? 'email' : 'phone'}</button>
+                    <button className="btn btn-secondary" type="button" onClick={() => addContact(kind)}>+ {kind === 'emails' ? tr('Přidat e-mail','Add email') : tr('Přidat telefon','Add phone')}</button>
                   </fieldset>
                 ))}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                  <button type="button" className="btn btn-secondary" onClick={() => setEditOpen(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setEditOpen(false)}>{tr('Zrušit', 'Cancel')}</button>
+                  <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? tr('Ukládám…', 'Saving…') : tr('Uložit změny', 'Save changes')}</button>
                 </div>
               </form>
             </div>

@@ -150,6 +150,11 @@ export class ResourceService {
    * and requests search reindexing for both related resources.
    */
   async createRelationship(params: CreateRelationshipParams): Promise<ResourceRelationshipItem> {
+    // Self-links create misleading graph loops and may break downstream traversals.
+    // Enforce this in the domain service, not only in the browser form.
+    if (params.sourceResourceId === params.targetResourceId) {
+      throw new BadRequestException('A resource cannot be related to itself');
+    }
     if (!params.txClient) {
       return this.databaseService.client.transaction((tx) =>
         this.createRelationship({ ...params, txClient: tx })

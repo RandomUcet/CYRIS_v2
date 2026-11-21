@@ -26,13 +26,20 @@ function SearchPicker({eventId,cs,label,value,onChange}:{
   const [error,setError]=useState('');
   useEffect(()=>{setQuery('');setItems([]);setError('');onChange(null);},[eventId]);
   useEffect(()=>{
-    if(value||query.trim().length<2){setItems([]);setPending(false);return;}
+    // Never offer stale results from a previous search term.
+    setItems([]);
+    if(value||query.trim().length<2){setPending(false);return;}
     let active=true;const timer=window.setTimeout(()=>{
       setPending(true);
-      void apiClient.search(query.trim(),{eventId,limit:20}).then(result=>{
+      void apiClient.searchRegistryRecords(eventId,query.trim()).then(result=>{
         if(!active)return;
         if(result.ok&&result.data){
-          setItems(result.data.results.filter(r=>r.eventId===eventId));
+          // Registry responses contain only records readable in this exercise.
+          setItems(result.data.filter(r=>r.eventId===eventId).map(record=>({
+            id:record.entityType+':'+record.id, canonicalId:record.id,
+            title:record.label, subtitle:record.identifier??undefined,
+            type:record.entityType,eventId,highlights:[],tags:[],
+          })));
           setError('');
         }else {setItems([]);setError(result.error||'Search unavailable');}
       }).catch(e=>{if(active){setItems([]);setError(String(e));}})
@@ -47,7 +54,7 @@ function SearchPicker({eventId,cs,label,value,onChange}:{
         onChange={event=>{if(value)onChange(null);setQuery(event.target.value);}}
         aria-label={label}
         placeholder={cs?'Zadejte alespoň 2 znaky…':'Enter at least 2 characters…'}
-        maxLength={100}/>
+        maxLength={80}/>
     </div></label>
     {value?<div className={styles.chosen}>
       <span><strong>{value.title}</strong><small>{value.type} · {value.subtitle||value.canonicalId.slice(0,8)}</small></span>

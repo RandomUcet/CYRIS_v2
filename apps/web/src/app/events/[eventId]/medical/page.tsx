@@ -38,7 +38,7 @@ export default function MedicalPage() {
   const eventId = params.eventId as string;
   const initialView = searchParams.get('view') || 'active';
 
-  const { hasPermission } = useAuth();
+  const { hasPermission, isPlatformAdmin, viewAs } = useAuth();
 
   const [encounters, setEncounters] = useState<MedicalEncounterItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,7 +78,7 @@ export default function MedicalPage() {
     triageCategory: 'UNKNOWN',
   });
 
-  const canCreate = hasPermission('medical.create');
+  const canCreate = !viewAs && (isPlatformAdmin || hasPermission('medical.create', eventId));
 
   const fetchEncounters = async () => {
     setLoading(true);
