@@ -118,6 +118,10 @@ import type {
   CommandReadinessSnapshot,
   ChangeCommandDefconRequest,
   DisruptionSnapshot,
+  OperationalHold,
+  CreateOperationalHold,
+  RestoreOperationalHold,
+  CurrentOperationalHolds,
   CreateDisruptionRequest,
   RestoreDisruptionRequest,
   ParticipantDisruptionStatus,
@@ -1411,6 +1415,19 @@ export class CyrisApiClient {
     payload: ChangeCommandDefconRequest
   ): Promise<{ ok: boolean; data?: CommandDefconSnapshot; error?: string }> {
     return this.postJson<CommandDefconSnapshot>(`/events/${eventId}/command/defcon`, payload);
+  }
+
+  async listOperationalHolds(eventId: string): Promise<{ok:boolean; data?:OperationalHold[]; error?:string}> {
+    return this.fetchJson<OperationalHold[]>('/events/' + encodeURIComponent(eventId) + '/operational-holds');
+  }
+  async getOperationalHoldsCurrent(eventId: string): Promise<{ok:boolean; data?:CurrentOperationalHolds; error?:string}> {
+    return this.fetchJson<CurrentOperationalHolds>('/events/' + encodeURIComponent(eventId) + '/operational-holds/current');
+  }
+  async createOperationalHold(eventId: string, payload: CreateOperationalHold): Promise<{ok:boolean; data?:OperationalHold; error?:string}> {
+    return this.postJson<OperationalHold>('/events/' + encodeURIComponent(eventId) + '/operational-holds', payload);
+  }
+  async restoreOperationalHold(eventId: string, holdId: string, payload: RestoreOperationalHold): Promise<{ok:boolean; data?:OperationalHold; error?:string}> {
+    return this.postJson<OperationalHold>('/events/' + encodeURIComponent(eventId) + '/operational-holds/' + encodeURIComponent(holdId) + '/restore', payload);
   }
 
   async listDisruptions(eventId: string): Promise<{ ok: boolean; data?: DisruptionSnapshot[]; error?: string }> {

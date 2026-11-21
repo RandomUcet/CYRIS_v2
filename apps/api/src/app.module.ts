@@ -27,6 +27,7 @@ import { MedicalModule } from './modules/medical/medical.module.js';
 import { EvaluationModule } from './modules/evaluation/evaluation.module.js';
 import { CommandModule } from './modules/command/command.module.js';
 import { DisruptionsModule } from './modules/disruptions/disruptions.module.js';
+import { OperationalHoldsModule } from './modules/operational-holds/operational-holds.module.js';
 import { PreferencesModule } from './modules/preferences/preferences.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { ScenarioDataModule } from './modules/scenario-data/scenario-data.module.js';
@@ -64,6 +65,7 @@ import { SupportModule } from './modules/support/support.module.js';
     EvaluationModule,
     CommandModule,
     DisruptionsModule,
+    OperationalHoldsModule,
     SupportModule,
     JsocModule,
     PreferencesModule,

@@ -24,6 +24,7 @@ export * from './evaluation.js';
 export * from './command.js';
 export * from './command-defcon.js';
 export * from './disruptions.js';
+export * from './operational-holds.js';
 export * from './preferences.js';
 export * from './notifications.js';
 export * from './service-status.js';

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { EmptyState, LoadingState } from '@/components/common/StateViews';
 import { ModuleAvailabilityPanel } from '@/components/admin/ModuleAvailabilityPanel';
+import { OperationalHoldsPanel } from '@/components/admin/OperationalHoldsPanel';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvent } from '@/contexts/EventContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
@@ -27,7 +28,7 @@ export default function ModuleAvailabilityPage() {
           {events.map(event => <option key={event.id} value={event.id}>{event.name}</option>)}
         </select>
       </label>
-      {loadingEvents ? <LoadingState /> : currentEvent ? <ModuleAvailabilityPanel key={currentEvent.id} eventId={currentEvent.id} /> :
+      {loadingEvents ? <LoadingState /> : currentEvent ? <><OperationalHoldsPanel key={'holds-' + currentEvent.id} eventId={currentEvent.id} /><ModuleAvailabilityPanel key={'modules-' + currentEvent.id} eventId={currentEvent.id} /></> :
         <EmptyState title={events.length ? (cs ? 'Vyberte událost' : 'Select an event') : (cs ? 'Žádné události' : 'No events')}
           description={events.length ? (cs ? 'Zobrazí se nastavení dostupnosti a historie změn pro vybranou událost.' : 'Choose an event to see its service availability settings and history.') : (cs ? 'Pro nastavení modulů nejprve vytvořte událost.' : 'Create an event to configure module availability.')}
           action={events.length ? undefined : <Link href="/admin/events" className="btn btn-secondary">{cs ? 'Správa událostí' : 'Manage events'}</Link>} />}
