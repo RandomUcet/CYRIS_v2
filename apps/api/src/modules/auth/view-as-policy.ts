@@ -9,7 +9,7 @@ const eventReads = new Set([
   '/timeline', '/support', '/documents', '/briefings', '/incidents', '/cases', '/evidence',
   '/evaluation/objectives', '/evaluation/observations', '/evaluation/after-action',
   '/medical', '/medical/operational-summary', '/lab', '/lab/units',
-  '/forensics', '/indicators', '/court', '/registry/persons', '/registry/organisations',
+  '/jsoc/logs', '/forensics', '/indicators', '/court', '/registry/persons', '/registry/organisations',
   '/registry/locations', '/registry/vehicles', '/registry/devices', '/registry/weapons',
 ]);
 export function isPreviewReadAllowed(method: string, route: string, eventId: string | undefined, selectedEvent: string): boolean {

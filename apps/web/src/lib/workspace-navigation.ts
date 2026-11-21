@@ -25,6 +25,8 @@ const cs: Record<string,string> = {
   "Analysis": "Laboratoř",
   "Chemical Analysis": "Chemické analýzy",
   "Forensics / Technical": "Digitální forenzní analýza",
+  "Technical Simulation": "Technická simulace",
+  "JSOC simulated logs": "Simulované logy JSOC",
   "Analyses": "Analýzy",
   "Indicators": "Indikátory",
   "Medical": "Zdravotnictví",

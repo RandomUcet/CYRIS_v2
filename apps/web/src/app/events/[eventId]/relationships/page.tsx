@@ -4,6 +4,7 @@ import {useParams} from 'next/navigation';
 import {RefreshCw,Share2,Filter} from 'lucide-react';
 import {AppShell} from '@/components/layout/AppShell';
 import {RelationshipGraph} from '@/components/common/RelationshipGraph';
+import {RelationshipComposer} from '@/components/common/RelationshipComposer';
 import {LoadingState,EmptyState,ErrorState} from '@/components/common/StateViews';
 import {apiClient} from '@/lib/api-client';
 import {usePreferences} from '@/contexts/PreferencesContext';
@@ -61,6 +62,7 @@ export default function DedicatedRelationshipsPage(){
           </select>
         </label>
       </header>
+      <RelationshipComposer eventId={eventId} onCreated={()=>setRevision(v=>v+1)} />
       <p className="relationships-count" role="status">
         {tr('Zobrazené vazby','Visible relationships')}: <strong>{visible.length}</strong>
         {filter!=='ALL'&&<button type="button" onClick={()=>setFilter('ALL')}>{tr('Vymazat filtr','Clear filter')}</button>}

@@ -1,0 +1,32 @@
+.page{padding:22px 26px;display:flex;flex-direction:column;gap:18px;min-width:0;width:100%;max-width:1500px;margin:0 auto}
+.banner{display:flex;gap:18px;align-items:center;flex-wrap:wrap;background:var(--bg-panel);border:1px solid var(--border-default);border-left:4px solid var(--cylab-orange);border-radius:6px;padding:14px 16px}
+.simulation{display:inline-flex;align-items:center;gap:9px;white-space:nowrap;font-weight:750;font-size:12px;color:var(--text-primary)}
+.banner p,.heading p,.generator p{flex:1;min-width:230px;font-size:13px;line-height:1.6;color:var(--text-secondary)}
+.heading{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+.heading h2{font-size:18px;display:flex;align-items:center;gap:9px;margin:0 0 5px}.heading h2 svg{color:var(--accent-primary)}
+.generator{border:1px solid var(--border-default);background:var(--bg-panel);padding:18px;border-radius:8px;display:flex;flex-direction:column;gap:12px}
+.generator h3{font-size:15px}.generatorFields{display:grid;grid-template-columns:minmax(0,2fr) minmax(110px,1fr) minmax(135px,1fr);gap:12px}
+.generator label,.filters label{display:flex;flex-direction:column;gap:6px;color:var(--text-secondary);font-size:12px;font-weight:650;min-width:0}
+.generator input,.filters input,.filters select{min-height:37px;width:100%;background:var(--bg-inset);border:1px solid var(--border-default);color:var(--text-primary);border-radius:5px;padding:7px 10px}
+.buttons{display:flex;justify-content:flex-end;gap:10px}
+.filters{display:flex;flex-wrap:wrap;align-items:end;gap:12px;padding:14px;border:1px solid var(--border-default);background:var(--bg-panel);border-radius:7px}
+.filters label{min-width:170px}.filters .search{flex:1;min-width:220px}.search>div{display:flex;align-items:center;gap:7px;background:var(--bg-inset);padding-left:10px;border:1px solid var(--border-default);border-radius:5px}.search input{border:0}
+.content{border:1px solid var(--border-default);background:var(--bg-panel);border-radius:8px;overflow:hidden}
+.count{font-size:12px;padding:12px 14px;color:var(--text-secondary)}.count strong{color:var(--text-primary)}
+.tableWrap{overflow-x:auto}.table{width:100%;border-collapse:collapse;text-align:left;font-size:13px;min-width:800px}
+.table th{background:var(--bg-surface);font-size:12px;font-weight:650;padding:11px 13px;color:var(--text-secondary)}
+.table td{border-top:1px solid var(--border-subtle);padding:12px 13px;color:var(--text-secondary)}
+.table td:first-child{white-space:nowrap;font-size:12px;font-variant-numeric:tabular-nums}
+.table tr[data-selected=true]{background:var(--bg-active)}
+.table td button{display:block;text-align:left;border:0;padding:0;color:var(--text-primary);background:transparent;font-weight:600;line-height:1.45}.table td button:hover{text-decoration:underline}
+.table code,.detail code{font-family:var(--font-mono);font-size:12px;overflow-wrap:anywhere}
+.severity{font-size:11px;font-weight:700;border:1px solid currentColor;padding:3px 7px;display:inline-flex;border-radius:4px;white-space:nowrap}
+.severity[data-severity=INFO],.severity[data-severity=LOW]{color:var(--text-secondary)}
+.severity[data-severity=MEDIUM]{color:#93601d}.severity[data-severity=HIGH],.severity[data-severity=CRITICAL]{color:#b22e38}
+.pagination{padding:12px 14px;border-top:1px solid var(--border-default);display:flex;gap:12px;align-items:center;justify-content:center;font-size:12px}
+.detail{padding:18px;border-top:1px solid var(--border-default);background:var(--bg-surface)}
+.detail header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px}.detail h3{font-size:15px}.detail header button{background:transparent;color:var(--accent-primary);border:0}
+.detail dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.detail dl div{min-width:0}.detail dt{font-size:11px;color:var(--text-secondary);margin-bottom:5px}.detail dd{font-size:13px;color:var(--text-primary);overflow-wrap:anywhere}
+.error{background:var(--status-danger-bg);color:var(--status-danger);padding:11px 14px;border-radius:6px}
+.notice{background:var(--status-success-bg);color:var(--text-primary);padding:11px 14px;border-radius:6px}
+@media(max-width:800px){.page{padding:14px}.generatorFields{grid-template-columns:1fr}.detail dl{grid-template-columns:1fr}.heading>button{width:100%}}

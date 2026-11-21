@@ -110,6 +110,9 @@ import type {
   SparkDraftRequest,
   ScenarioDataBatchResponse,
   ScenarioBatchMediaList,
+  JsocLogQuery,
+  JsocLogPage,
+  GenerateJsocLogs,
   CommandDefconSnapshot,
   CommandReadinessSnapshot,
   ChangeCommandDefconRequest,
@@ -332,6 +335,17 @@ export class CyrisApiClient {
   async previewScenarioData(eventId: string, payload: ScenarioDataRequest) {
     return this.postJson<ScenarioDataPreview>(`/events/${eventId}/scenario-data/preview`, payload);
   }
+  listJsocLogs(eventId:string,query:JsocLogQuery){
+    const params=new URLSearchParams({page:String(query.page),limit:String(query.limit)});
+    if(query.category)params.set('category',query.category);
+    if(query.severity)params.set('severity',query.severity);
+    if(query.search)params.set('search',query.search);
+    return this.fetchJson<JsocLogPage>(`/events/${eventId}/jsoc/logs?${params}`);
+  }
+  generateJsocLogs(eventId:string,input:GenerateJsocLogs){
+    return this.postJson<{created:number;simulation:true}>(`/events/${eventId}/jsoc/generate`,input);
+  }
+
   async getScenarioDataBatches(eventId: string) {
     return this.fetchJson<ScenarioDataBatchResponse[]>(`/events/${eventId}/scenario-data/batches`);
   }
