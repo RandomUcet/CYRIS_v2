@@ -58,6 +58,7 @@ const cs: Record<string,string> = {
   "Roles & Perms": "Role a oprávnění",
   "Roles & Permissions": "Role a oprávnění",
   "Audit Log": "Auditní záznamy",
+  "System health": "Zdraví systému",
   "Identity Providers": "Poskytovatelé identity",
   "Integrations & AI": "Integrace a AI",
   "Settings": "Nastavení",

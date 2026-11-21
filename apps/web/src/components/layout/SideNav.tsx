@@ -131,6 +131,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
       { id: 'nav-admin-users', label: 'Users & Access', href: '/admin/users', iconKey: 'users' },
       { id: 'nav-admin-roles', label: 'Roles & Perms', href: '/admin/roles', iconKey: 'key' },
       { id: 'nav-admin-audit', label: 'Audit Log', href: '/admin/audit', iconKey: 'shield' },
+      { id: 'nav-admin-system-health', label: 'System health', href: '/admin/health', iconKey: 'activity' },
       { id: 'nav-admin-modules', label: 'Module availability', href: '/admin/settings/modules', iconKey: 'activity' },
       { id: 'nav-admin-identity', label: 'Identity Providers', href: '/admin/settings/identity', iconKey: 'users' },
       { id: 'nav-admin-integrations', label: 'Integrations & AI', href: '/admin/settings/integrations/ai', iconKey: 'sliders' },
