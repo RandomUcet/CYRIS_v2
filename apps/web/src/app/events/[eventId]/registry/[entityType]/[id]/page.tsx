@@ -35,8 +35,12 @@ export default function RegistryEntityDetailPage() {
   const eventId = params.eventId as string;
   const entityType = params.entityType as string; // persons, organisations, vehicles, devices, locations, weapons
   const id = params.id as string;
-  const { hasPermission } = useAuth();
-  const { formatTime, formatDate } = usePreferences();
+  const { hasPermission, isPlatformAdmin, viewAs } = useAuth();
+  const { formatTime, formatDate, locale } = usePreferences();
+  const cs = locale === 'cs';
+  const tr = (cz: string, en: string) => cs ? cz : en;
+  const canEdit = !viewAs && (isPlatformAdmin || hasPermission('registry.update', eventId));
+  const canLink = !viewAs && (isPlatformAdmin || hasPermission('registry.relationship.manage', eventId));
 
   const [activeTab, setActiveTab] = useState<'overview' | 'relations' | 'timeline'>('overview');
   const [loading, setLoading] = useState(true);
@@ -153,7 +157,7 @@ export default function RegistryEntityDetailPage() {
 
   const handleAddRelationship = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!targetResourceId.trim()) return;
+    if (!canLink || !targetResourceId.trim() || targetResourceId === id) return;
     setAddingRel(true);
     setRelationshipError(null);
     try {
@@ -177,6 +181,7 @@ export default function RegistryEntityDetailPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEdit) return;
     setSaving(true);
     setSaveError(null);
     const payload = Object.fromEntries(Object.entries(editData).filter(([key, value]) => !['id', 'eventId', 'identifier', 'createdAt', 'updatedAt', 'visibility', 'owningUnitId'].includes(key) && value !== null));
@@ -219,8 +224,15 @@ export default function RegistryEntityDetailPage() {
   };
 
   const handleMediaUpload = async (file: File) => {
-    setMediaBusy(true);
+    if (!canEdit || mediaBusy) return;
     setMediaError(null);
+    const formats = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+    if (!formats.has(file.type) || !file.size || file.size > 5 * 1024 * 1024) {
+      setMediaError(tr('Použijte JPEG, PNG, WebP nebo GIF o velikosti maximálně 5 MB.',
+        'Use a JPEG, PNG, WebP or GIF image up to 5 MB.'));
+      return;
+    }
+    setMediaBusy(true);
     try {
       const data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -245,6 +257,8 @@ export default function RegistryEntityDetailPage() {
   };
 
   const handleMediaRemove = async () => {
+    if (!canEdit || mediaBusy ||
+      !window.confirm(tr('Odstranit obrázek tohoto záznamu?', 'Remove this record image?'))) return;
     setMediaBusy(true);
     setMediaError(null);
     try {
@@ -260,6 +274,7 @@ export default function RegistryEntityDetailPage() {
   };
 
   const handleRemoveRelationship = async (relationshipId: string) => {
+    if (!canLink || !window.confirm(tr('Opravdu odstranit tuto vazbu?', 'Remove this relationship?'))) return;
     setRelationshipError(null);
     const result = await apiClient.removeRelationship(eventId, relationshipId);
     if (result.ok) await fetchEntityDetails();
@@ -350,13 +365,13 @@ export default function RegistryEntityDetailPage() {
               <Link href={`/events/${eventId}/registry`} className="btn btn-ghost" style={{ fontSize: '12px' }}>
                 Back to Registry
               </Link>
-              <button
+              {canEdit && <button
                 onClick={() => { setEditData({ ...entityData }); setEditOpen(true); }}
                 className="btn btn-secondary"
                 style={{ fontSize: '12px' }}
               >
-                Edit record
-              </button>
+                {tr('Upravit záznam', 'Edit record')}
+              </button>}
               <button
                 onClick={() => setInspectorOpen(!inspectorOpen)}
                 className={`btn ${inspectorOpen ? 'btn-secondary' : 'btn-ghost'}`}
@@ -394,10 +409,11 @@ export default function RegistryEntityDetailPage() {
                     padding: '18px 22px',
                   }}
                 >
-                  {['persons', 'vehicles', 'devices', 'weapons'].includes(entityType) && (
+                  {['persons', 'organisations', 'locations', 'vehicles', 'devices', 'weapons'].includes(entityType) && (
                     <div style={{ marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
                       <div style={{ width: 72, height: 72, borderRadius: 6, overflow: 'hidden', background: 'var(--color-bg-panel)', border: '1px solid var(--color-border-subtle)', display: 'grid', placeItems: 'center', color: 'var(--color-text-dim)', fontSize: 20 }}>
                         <img
+                          key={mediaVersion}
                           src={`${apiClient.getRegistryPrimaryMediaUrl(eventId, id)}?v=${mediaVersion}`}
                           alt=""
                           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -406,15 +422,15 @@ export default function RegistryEntityDetailPage() {
                         {getEntityTitle().slice(0, 1).toUpperCase()}
                       </div>
                       <div>
-                        <div style={{ fontSize: 12, fontWeight: 600 }}>Primary image</div>
-                        <div style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>Available only to users with Registry access.</div>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{tr('Hlavní obrázek', 'Primary image')}</div>
+                        <div style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>{tr('Přístupné pouze uživatelům s oprávněním k registru.', 'Visible only to users with registry access.')}</div>
                       </div>
-                      {hasPermission('registry.manage') && (
+                      {canEdit && (
                         <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
                           <input
                             ref={mediaInputRef}
                             type="file"
-                            accept="image/*"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
                             hidden
                             onChange={(event) => {
                               const file = event.target.files?.[0];
@@ -422,10 +438,10 @@ export default function RegistryEntityDetailPage() {
                             }}
                           />
                           <button className="btn btn-secondary" type="button" disabled={mediaBusy} onClick={() => mediaInputRef.current?.click()}>
-                            {mediaBusy ? 'Working…' : 'Upload / Replace'}
+                            {mediaBusy ? tr('Zpracovávám…','Working…') : tr('Nahrát / nahradit','Upload / replace')}
                           </button>
                           <button className="btn btn-ghost" type="button" disabled={mediaBusy} onClick={() => void handleMediaRemove()}>
-                            Remove
+                            {tr('Odstranit','Remove')}
                           </button>
                         </div>
                       )}
@@ -539,9 +555,10 @@ export default function RegistryEntityDetailPage() {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: '11px', color: 'var(--color-text-dim)' }}>{formatDate(rel.createdAt)}</span>
-                            <button className="btn btn-ghost" type="button" style={{ padding: 2 }} onClick={() => void handleRemoveRelationship(rel.id)} aria-label="Remove relationship">
+                            {canLink && <button className="btn btn-ghost" type="button" style={{ padding: 2 }} onClick={() => void handleRemoveRelationship(rel.id)}
+                              aria-label={tr('Odstranit vazbu', 'Remove relationship')}>
                               <X size={13} />
-                            </button>
+                            </button>}
                           </div>
                         </div>
                       ))
@@ -565,13 +582,13 @@ export default function RegistryEntityDetailPage() {
                   <div style={{ fontSize: '13px', color: 'var(--color-text-dim)' }}>
                     Intelligence topology and relationships centered on this entity.
                   </div>
-                  <button
+                  {canLink && <button
                     onClick={() => setShowRelModal(true)}
                     className="btn btn-primary"
                     style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   >
-                    <Plus size={14} /> Establish Graph Link
-                  </button>
+                    <Plus size={14} /> {tr('Vytvořit vazbu','Establish graph link')}
+                  </button>}
                 </div>
 
                 <RelationshipGraph
@@ -615,16 +632,17 @@ export default function RegistryEntityDetailPage() {
               <button
                 onClick={() => setShowRelModal(true)}
                 className="btn btn-secondary"
-                style={{ width: '100%', justifyContent: 'center' }}
+                style={{ width: '100%', justifyContent: 'center', display: canLink ? undefined : 'none' }}
+                disabled={!canLink}
               >
-                Establish Link
+                {tr('Vytvořit vazbu','Establish link')}
               </button>
             }
           />
         </div>
 
         {/* Modal: Add Relationship */}
-        {showRelModal && (
+        {showRelModal && canLink && (
           <div
             style={{
               position: 'fixed',
@@ -726,15 +744,15 @@ export default function RegistryEntityDetailPage() {
                   >
                     Cancel
                   </button>
-                  <button type="submit" className="btn btn-primary" disabled={addingRel}>
-                    {addingRel ? 'Connecting...' : 'Connect Link'}
+                  <button type="submit" className="btn btn-primary" disabled={addingRel || targetResourceId === id}>
+                    {addingRel ? tr('Propojuji…','Connecting…') : tr('Vytvořit vazbu','Connect link')}
                   </button>
                 </div>
               </form>
             </div>
           </div>
         )}
-        {editOpen && (
+        {editOpen && canEdit && (
           <div className="modal-backdrop">
             <div className="modal-content" style={{ maxWidth: 640, maxHeight: '90vh', overflowY: 'auto' }}>
               <div className="modal-header"><h2>Edit {entityType.slice(0, -1)}</h2><button className="btn btn-ghost" onClick={() => setEditOpen(false)}><X size={16} /></button></div>
