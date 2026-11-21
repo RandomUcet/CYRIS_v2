@@ -161,7 +161,7 @@ export class ScenarioDataService {
     if (batch.status !== ScenarioDataBatchStatus.COMPLETED) throw new ConflictException('Only published batches can have registry images');
     let rows: Array<{id:string;identifier:string|null;label:string;mediaId:string|null}>;
     switch (query.kind) {
-      case 'persons': return this.databaseService.client.select({
+      case 'persons': rows=await this.databaseService.client.select({
         id: persons.id, identifier: persons.identifier,
         label: persons.displayName, mediaId: registryMedia.id,
       }).from(persons)
@@ -170,7 +170,8 @@ export class ScenarioDataService {
         .where(and(eq(persons.generationBatchId, batchId),eq(persons.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
         .orderBy(asc(persons.identifier), asc(persons.id))
         .limit(query.limit + 1).offset((query.page - 1) * query.limit);
-      case 'organisations': return this.databaseService.client.select({
+        break;
+      case 'organisations': rows=await this.databaseService.client.select({
         id: organisations.id, identifier: organisations.identifier,
         label: organisations.name, mediaId: registryMedia.id,
       }).from(organisations)
@@ -179,7 +180,8 @@ export class ScenarioDataService {
         .where(and(eq(organisations.generationBatchId, batchId),eq(organisations.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
         .orderBy(asc(organisations.identifier), asc(organisations.id))
         .limit(query.limit + 1).offset((query.page - 1) * query.limit);
-      case 'locations': return this.databaseService.client.select({
+        break;
+      case 'locations': rows=await this.databaseService.client.select({
         id: locations.id, identifier: locations.identifier,
         label: locations.name, mediaId: registryMedia.id,
       }).from(locations)
@@ -188,7 +190,8 @@ export class ScenarioDataService {
         .where(and(eq(locations.generationBatchId, batchId),eq(locations.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
         .orderBy(asc(locations.identifier), asc(locations.id))
         .limit(query.limit + 1).offset((query.page - 1) * query.limit);
-      case 'vehicles': return this.databaseService.client.select({
+        break;
+      case 'vehicles': rows=await this.databaseService.client.select({
         id: vehicles.id, identifier: vehicles.identifier,
         label: vehicles.label, mediaId: registryMedia.id,
       }).from(vehicles)
@@ -197,7 +200,8 @@ export class ScenarioDataService {
         .where(and(eq(vehicles.generationBatchId, batchId),eq(vehicles.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
         .orderBy(asc(vehicles.identifier), asc(vehicles.id))
         .limit(query.limit + 1).offset((query.page - 1) * query.limit);
-      case 'devices': return this.databaseService.client.select({
+        break;
+      case 'devices': rows=await this.databaseService.client.select({
         id: devices.id, identifier: devices.identifier,
         label: devices.label, mediaId: registryMedia.id,
       }).from(devices)
@@ -206,7 +210,8 @@ export class ScenarioDataService {
         .where(and(eq(devices.generationBatchId, batchId),eq(devices.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
         .orderBy(asc(devices.identifier), asc(devices.id))
         .limit(query.limit + 1).offset((query.page - 1) * query.limit);
-      case 'weapons': return this.databaseService.client.select({
+        break;
+      case 'weapons': rows=await this.databaseService.client.select({
         id: weapons.id, identifier: weapons.identifier,
         label: sql<string>`concat_ws(' ', weapons.category, weapons.manufacturer, weapons.model)`, mediaId: registryMedia.id,
       }).from(weapons)
@@ -215,6 +220,7 @@ export class ScenarioDataService {
         .where(and(eq(weapons.generationBatchId, batchId),eq(weapons.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
         .orderBy(asc(weapons.identifier), asc(weapons.id))
         .limit(query.limit + 1).offset((query.page - 1) * query.limit);
+        break;
       default: throw new BadRequestException('Unsupported registry type');
     }
     return {
