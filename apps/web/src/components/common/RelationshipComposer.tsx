@@ -26,7 +26,9 @@ function SearchPicker({eventId,cs,label,value,onChange}:{
   const [error,setError]=useState('');
   useEffect(()=>{setQuery('');setItems([]);setError('');onChange(null);},[eventId]);
   useEffect(()=>{
-    if(value||query.trim().length<2){setItems([]);setPending(false);return;}
+    // Never offer stale results from a previous search term.
+    setItems([]);
+    if(value||query.trim().length<2){setPending(false);return;}
     let active=true;const timer=window.setTimeout(()=>{
       setPending(true);
       void apiClient.searchRegistryRecords(eventId,query.trim()).then(result=>{

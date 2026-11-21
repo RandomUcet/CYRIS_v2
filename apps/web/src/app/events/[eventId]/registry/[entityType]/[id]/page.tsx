@@ -701,6 +701,7 @@ export default function RegistryEntityDetailPage() {
                     value={targetQuery} onChange={(e) => {
                       setTargetQuery(e.target.value);
                       setTargetResourceId('');
+                      setRelationshipTargets([]);
                       setRelationshipError(null);
                     }} placeholder={tr('Hledat podle jména, názvu nebo identifikátoru…', 'Search by name, label or identifier…')}
                     aria-label={tr('Hledat cíl vazby', 'Search relationship target')}
