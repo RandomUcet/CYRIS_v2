@@ -290,21 +290,23 @@ export class RegistryController {
   }
 
   @Post(':resourceId/primary-media')
-  async uploadPrimaryMedia(@Param('resourceId') resourceId: string, @Body() body: { filename?: string; mimeType?: string; data?: string }, @CurrentUser() user: AuthenticatedUser) {
-    return this.registryService.uploadPrimaryMedia(resourceId, body, user);
+  async uploadPrimaryMedia(@Param('eventId') eventId:string,@Param('resourceId') resourceId: string, @Body() body: { filename?: string; mimeType?: string; data?: string }, @CurrentUser() user: AuthenticatedUser) {
+    return this.registryService.uploadPrimaryMedia(eventId,resourceId, body, user);
   }
 
   @Get(':resourceId/primary-media')
-  async getPrimaryMedia(@Param('resourceId') resourceId: string, @CurrentUser() user: AuthenticatedUser, @Res() reply: FastifyReply) {
-    const media = await this.registryService.getPrimaryMedia(resourceId, user);
+  async getPrimaryMedia(@Param('eventId') eventId:string,@Param('resourceId') resourceId: string, @CurrentUser() user: AuthenticatedUser, @Res() reply: FastifyReply) {
+    const media = await this.registryService.getPrimaryMedia(eventId,resourceId,user);
     if (!media) return reply.code(204).send();
     reply.header('Content-Type', media.mimeType);
-    reply.header('Content-Disposition', `inline; filename="${media.filename}"`);
+    reply.header('X-Content-Type-Options','nosniff');
+    reply.header('Cache-Control','private, no-store');
+    reply.header('Content-Disposition', `inline; filename="${media.filename.replace(/[^A-Za-z0-9._-]/g,'_')}"`);
     return reply.send(Buffer.from(media.body));
   }
 
   @Delete(':resourceId/primary-media')
-  async removePrimaryMedia(@Param('resourceId') resourceId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.registryService.removePrimaryMedia(resourceId, user);
+  async removePrimaryMedia(@Param('eventId') eventId:string,@Param('resourceId') resourceId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.registryService.removePrimaryMedia(eventId,resourceId,user);
   }
 }

@@ -109,6 +109,7 @@ import type {
   ScenarioDataPreview,
   SparkDraftRequest,
   ScenarioDataBatchResponse,
+  ScenarioBatchMediaList,
   CommandDefconSnapshot,
   CommandReadinessSnapshot,
   ChangeCommandDefconRequest,
@@ -499,6 +500,12 @@ export class CyrisApiClient {
   }
   async updateWeapon(eventId: string, weaponId: string, data: any) {
     return this.patchJson<any>(`/events/${eventId}/registry/weapons/${weaponId}`, data);
+  }
+
+  async getScenarioBatchRecords(eventId:string,batchId:string,kind:ScenarioBatchMediaList['kind'],page=1) {
+    return this.fetchJson<ScenarioBatchMediaList>(
+      `/events/${eventId}/scenario-data/batches/${batchId}/records?kind=${encodeURIComponent(kind)}&page=${page}&limit=20`
+    );
   }
   async uploadRegistryPrimaryMedia(eventId: string, resourceId: string, payload: { filename: string; mimeType: string; data: string }) {
     return this.postJson<any>(`/events/${eventId}/registry/${resourceId}/primary-media`, payload);
