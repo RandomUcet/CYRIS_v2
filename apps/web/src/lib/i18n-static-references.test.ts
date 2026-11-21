@@ -20,11 +20,12 @@ function sourceFiles(dir:string):string[]{
 test('every literal t(key) reference resolves in all four supported UI locales',()=>{
   const missing:string[]=[];
   let references=0;
+  // A concatenated prefix such as t('serviceStatus.impact.' + mode) is dynamic, not a missing literal key.
   for(const path of sourceFiles(webSourceRoot)){
     const source=readFileSync(path,'utf8');
-    for(const match of source.matchAll(/\bt\s*\(\s*['"]([A-Za-z][\w.-]+)['"]/g)){
+    for(const match of source.matchAll(/\bt\s*\(\s*(['"])([A-Za-z][\w.-]+)\1\s*(?=[,)])/g)){
       references++;
-      const key=match[1];
+      const key=match[2];
       const line=source.slice(0,match.index).split('\n').length;
       for(const locale of ['en','cs','de','pl'] as const){
         if(!Object.hasOwn(translations[locale],key)){
