@@ -357,12 +357,12 @@ export default function MedicalPage() {
         >
           <form
             onSubmit={handleCreateEncounter}
-            className="dialog-surface"
+            className="dialog-surface medical-dialog-surface"
             role="dialog"
             aria-modal="true"
             aria-labelledby="medical-encounter-dialog-title"
           >
-            <div className="dialog-header flex items-center justify-between">
+            <div className="dialog-header medical-dialog-header">
               <h3 id="medical-encounter-dialog-title" className="font-semibold text-sm flex items-center gap-2">
                 <Heart size={16} />
                 {t('medical.receive')}
@@ -378,12 +378,12 @@ export default function MedicalPage() {
             </div>
 
             {createError && (
-              <div className="mx-[18px] mt-4 p-2.5 bg-red-50 border border-red-200 rounded text-red-700 text-xs">
+              <div className="medical-dialog-error" role="alert">
                 {createError}
               </div>
             )}
 
-            <div className="dialog-body space-y-3 text-xs">
+            <div className="dialog-body medical-dialog-body">
               <div>
                 <label className="block font-medium text-slate-300 mb-1">{tr("Chief Complaint")}</label>
                 <input
@@ -435,7 +435,7 @@ export default function MedicalPage() {
               </div>
             </div>
 
-            <div className="dialog-footer flex justify-end gap-2">
+            <div className="dialog-footer medical-dialog-footer">
               <button
                 type="button"
                 onClick={() => setShowCreateModal(false)}
