@@ -49,6 +49,11 @@ jobs:
         run: |
           VERSION=$(cat deploy/VERSION)
           [[ "$VERSION" =~ ^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$ ]]
+          # Do not publish stable images with pre-release application version metadata.
+          if [[ "$(cat VERSION)" != "$VERSION" ]]; then
+            echo "Root VERSION must match deploy/VERSION for stable release." >&2
+            exit 1
+          fi
           git fetch --unshallow --tags origin main
           if [[ $GITHUB_REF_TYPE == tag ]]; then
             [[ $GITHUB_REF_NAME == "v$VERSION" ]]

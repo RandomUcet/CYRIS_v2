@@ -33,6 +33,36 @@ V okně údržby spusť `sudo cyrisctl update`, poté `sudo cyrisctl status`.
 Pokud chybí GnuPG, doinstaluj ho pomocí `sudo apt-get install gpg`.
 Příkaz `versions` potřebuje dokončené vydání v GitHub Releases. Chyba 404 může znamenat i chybějící přístup k soukromému vydání.
 
+## Vývoj výhradně na GitHubu a GHCR preflight
+
+Repozitář `RandomUcet/CYRIS_v2` je výhradním zdrojem kódu. Server nebere kód
+z vývojových větví, ale až z **publikovaného stabilního GitHub Releasu**.
+Ten obsahuje ověřený manifest s digesty tří obrazů.
+
+Příkaz `sudo cyrisctl github verify` bezpečně zkontroluje, zda server smí číst
+**všechny tři** privátní obrazy (`cyris-api`, `cyris-worker`, `cyris-web`).
+Používá manifest-inspect, nestahuje vrstvy, nezastavuje služby a nic nemění v datech.
+Je dostupný od vydání s touto opravou; na starém serveru nejprve použij
+`sudo cyrisctl self-update` po publikaci vydání.
+
+```bash
+sudo cyrisctl github login
+sudo cyrisctl github verify
+sudo cyrisctl versions
+# Po schválení nové verze a zálohy:
+sudo cyrisctl update --version v2.1.0
+sudo cyrisctl status
+sudo cyrisctl doctor --full
+```
+
+**Problém 403 Forbidden:** I úspěšné `docker login ghcr.io` může skončit 403 při
+pokusu o čtení package manifestu. Soukromé GitHub Packages mají vlastní ACL.
+Servisní účet musí mít přístup ke všem třem balíčkům; klasický PAT potřebuje
+`read:packages` a pro privátní repozitář také `repo`. V GitHub UI ověř
+`Packages → balíček → Package settings → Manage access`, povolení účtu a
+expiraci tokenu. Při chybě se release nezmění a databáze se nemigruje.
+Neřeš 403 změnou SHA nebo vypnutím kontroly manifestu.
+
 ## Vydání a aktualizace
 
 Vývoj a kontrola změn probíhají v pull requestech do main. Vydání vzniká změnou
