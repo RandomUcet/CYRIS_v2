@@ -170,6 +170,11 @@ export class RegistryService {
     const [media] = await this.db.select().from(registryMedia).where(eq(registryMedia.resourceId, resourceId)).limit(1);
     if (!media) return null;
     const object = await this.storageService.getObject(media.objectKey, media.bucket);
+    // Older registry uploads could contain SVG or other active image content.
+    // Re-validate stored bytes on every read, including administrator View As.
+    if (!validRegistryImage(media.mimeType, object.body)) {
+      throw new NotFoundException('Registry image is not a supported raster file');
+    }
     return { ...object, mimeType: media.mimeType, filename: media.filename };
   }
 
