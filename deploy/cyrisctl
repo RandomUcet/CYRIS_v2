@@ -1080,20 +1080,24 @@ def cmd_github_login(args):
     if not username or not token:
         raise ValueError("Missing GitHub credentials")
     github_get("", token=token)
+    release = github_release(token=token)
     subprocess.run(["docker", "login", "ghcr.io", "--username", username, "--password-stdin"],
                    input=token, text=True, check=True)
+    # Docker login alone does not grant permission to read private GHCR packages.
+    version = verify_release_registry_access(release, token=token)
+    # Do not replace a previously working token if any package returns 403.
     atomic_file(Path(CYRIS_ETC, "github.token"), token.encode(), 0o600)
-    print("GitHub repository and registry login verified.")
+    print(f"GitHub Release and all three private GHCR packages verified for v{version}.")
 
 
-def github_release(version=None):
+def github_release(version=None, token=None):
     endpoint = "/releases/latest"
     if version:
         version = version.removeprefix("v")
         if not re.fullmatch(VERSION_PATTERN, version):
             raise ValueError("Expected a stable vMAJOR.MINOR.PATCH release")
         endpoint = "/releases/tags/v" + version
-    release = json.loads(github_get(endpoint))
+    release = json.loads(github_get(endpoint, token=token))
     tag = release["tag_name"]
     if (release["draft"] or release["prerelease"] or not re.fullmatch("v" + VERSION_PATTERN, tag)
             or (version and tag != "v" + version)):
@@ -1101,11 +1105,11 @@ def github_release(version=None):
     return release
 
 
-def release_asset(release, name):
+def release_asset(release, name, token=None):
     asset = next((a for a in release["assets"] if a["name"] == name), None)
     if not asset or not isinstance(asset["id"], int):
         raise ValueError(f"Missing release asset: {name}")
-    data = github_get(f"/releases/assets/{asset['id']}", "application/octet-stream")
+    data = github_get(f"/releases/assets/{asset['id']}", "application/octet-stream", token=token)
     if asset.get("digest") != "sha256:" + hashlib.sha256(data).hexdigest():
         raise ValueError(f"Missing or incorrect GitHub digest: {name}")
     return data
@@ -1121,6 +1125,34 @@ def release_settings(manifest, version):
             raise ValueError(f"Expected a digest-pinned {service} image")
         settings[f"CYRIS_{service.upper()}_IMAGE"] = image
     return settings
+
+
+def verify_release_registry_access(release, token=None):
+    """Verify read access to each digest-pinned image without downloading its layers."""
+    version = release["tag_name"].removeprefix("v")
+    manifest = json.loads(release_asset(release, "release-manifest.json", token=token))
+    settings = release_settings(manifest, version)
+    for service in APP_SERVICES:
+        image = settings[f"CYRIS_{service.upper()}_IMAGE"]
+        result = run_command(["docker", "manifest", "inspect", image], check=False)
+        if result.returncode != 0:
+            raise ValueError(
+                f"GHCR access check failed for {service} image of v{version}. "
+                "Docker login is not proof of private package permission. "
+                "Grant the GitHub service account read access to cyris-api, "
+                "cyris-worker and cyris-web; use a classic PAT with read:packages "
+                "and repo access to the private release. "
+                "Run sudo cyrisctl github login again. "
+                "The application and its data have not been modified."
+            )
+    return version
+
+
+def cmd_github_verify(args):
+    """Read-only preflight; no service restart, image pull or database mutation."""
+    release = github_release()
+    version = verify_release_registry_access(release)
+    print(f"PASS: private GitHub Release v{version} and all three GHCR images are accessible.")
 
 
 def cmd_versions(args):
@@ -1324,7 +1356,9 @@ def main():
     p_self_update.set_defaults(func=cmd_self_update)
 
     login = subparsers.add_parser("github", help="Configure private GitHub Releases and GHCR access")
-    login.add_subparsers(required=True).add_parser("login").set_defaults(func=cmd_github_login)
+    github_sub = login.add_subparsers(required=True)
+    github_sub.add_parser("login", help="Authenticate and verify private image access").set_defaults(func=cmd_github_login)
+    github_sub.add_parser("verify", help="Read-only verification of GitHub and GHCR access").set_defaults(func=cmd_github_verify)
 
     # config
     p_config = subparsers.add_parser("config", help="Manage production configuration")
