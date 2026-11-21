@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { publicReadinessChanged } from './team-displays.js';
+import { defconLevelChanged, publicReadinessChanged } from './team-displays.js';
 import { acceptDefconSnapshot } from './defcon-live.js';
 import type { CommandDefconSnapshot } from '@cyris/contracts';
 
@@ -43,5 +43,26 @@ describe('team display alerts', () => {
   });
   it('catches a change and return to the same level between polls', () => {
     assert.equal(publicReadinessChanged(state, { ...state, revision: 8 }), true);
+  });
+});
+
+describe('DEFCON audio alerts', () => {
+  const eventId = '00000000-0000-0000-0000-000000000001';
+  const before = snapshot(eventId, 7);
+  it('ignores initial load, re-enable, reconnect and unchanged snapshots', () => {
+    assert.equal(defconLevelChanged(null, before), false);
+    assert.equal(defconLevelChanged(before, before), false);
+    assert.equal(defconLevelChanged(before, { ...before }), false);
+    assert.equal(defconLevelChanged(before, { ...before, revision: 8, publicMessage: 'New bulletin' }), false);
+    assert.equal(defconLevelChanged(before, { ...before, revision: 8, level: 3 }), false);
+    assert.equal(defconLevelChanged(before, { ...before, revision: 6, level: 2 }), false);
+  });
+  it('only alerts to a confirmed new level in the same event', () => {
+    assert.equal(defconLevelChanged(before, { ...before, revision: 8, level: 2 }), true);
+    assert.equal(defconLevelChanged(before, { ...before, revision: 8, level: 4, eventId: 'another-event' }), false);
+    assert.equal(defconLevelChanged({ ...before, level: null, initialized: false }, { ...before, revision: 8, level: 2 }), false);
+    assert.equal(defconLevelChanged(before, { ...before, revision: 8, level: null, initialized: false }), false);
+    // A change and return between polling snapshots is not observable without history.
+    assert.equal(defconLevelChanged(before, { ...before, revision: 9, level: before.level }), false);
   });
 });

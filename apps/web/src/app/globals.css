@@ -1897,3 +1897,46 @@ a.my-work-item { color: inherit; text-decoration: none; }
     flex-wrap: wrap;
   }
 }
+
+
+/* Medical record dialogs use semantic layout independent of legacy utility classes. */
+.medical-dialog-overlay { z-index: 1100; }
+.medical-dialog-surface { width: min(100%, 560px); max-height: calc(100dvh - 28px); }
+.medical-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.medical-dialog-header h4, .medical-dialog-header h3 { font-size: 16px; font-weight: 650; line-height: 1.4; color: var(--text-primary); }
+.medical-dialog-dismiss { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--border-default); border-radius: 5px; color: var(--text-secondary); background: var(--bg-panel); }
+.medical-dialog-body { display: grid; gap: 15px; min-height: 0; overflow-y: auto; padding: 20px; }
+.medical-dialog-body > div { min-width: 0; }
+.medical-dialog-body :is(label, .medical-dialog-label) { display: block; font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+.medical-dialog-body :is(input,select,textarea), .medical-dialog-body .medical-dialog-control { width: 100%; max-width: 100%; min-width: 0; min-height: 39px; padding: 9px 11px; border: 1px solid var(--border-default); border-radius: 5px; font-size: 14px; color: var(--text-primary); background: var(--bg-inset); }
+.medical-dialog-body textarea { resize: vertical; min-height: 88px; }
+.medical-dialog-body :is(input,select,textarea):focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.medical-dialog-two-col { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.medical-dialog-two-col > div { min-width: 0; }
+.medical-dialog-footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.medical-dialog-footer button { min-height: 36px; padding: 8px 15px; }
+.medical-dialog-error { margin: 0 20px 12px; padding: 11px 13px; border: 1px solid var(--status-danger); border-radius: 6px; font-size: 13px; color: var(--status-danger); background: var(--bg-panel); overflow-wrap: anywhere; }
+.medical-required { color: var(--status-danger); }
+@media(max-width: 520px) {
+  .medical-dialog-two-col { grid-template-columns: minmax(0,1fr); }
+  .medical-dialog-body { padding: 14px; }
+  .medical-dialog-header,.medical-dialog-footer { padding: 12px 14px; }
+  .medical-dialog-overlay { padding: 8px; }
+  .medical-dialog-surface { max-height: calc(100dvh - 16px); }
+}
+
+
+/* Consolidated relationship graph workspace: one inspector inside the graph. */
+.relationships-page{padding:20px 26px;min-height:0;flex:1;display:flex;flex-direction:column;gap:14px}
+.relationships-header{display:flex;align-items:end;justify-content:space-between;flex-wrap:wrap;gap:18px}
+.relationships-summary{display:flex;align-items:start;gap:12px;max-width:710px}
+.relationships-summary>svg{color:var(--accent-primary);flex-shrink:0;margin-top:2px}
+.relationships-summary h2{font-size:16px;color:var(--text-primary);margin:0 0 5px}
+.relationships-summary p{font-size:13px;line-height:1.5;color:var(--text-secondary)}
+.relationships-filter{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--text-secondary)}
+.relationships-filter select{min-width:155px;min-height:38px;color:var(--text-primary);background:var(--bg-panel)}
+.relationships-count{font-size:12px;color:var(--text-secondary);display:flex;gap:7px;align-items:center}
+.relationships-count strong{color:var(--text-primary)}
+.relationships-count button{margin-left:10px;color:var(--accent-primary);background:transparent;border:0;text-decoration:underline}
+.relationships-stage{flex:1;min-height:450px;height:min(70vh,800px);overflow:hidden;border-radius:8px}
+@media(max-width:700px){.relationships-page{padding:14px}.relationships-stage{min-height:340px;height:60vh}.relationships-header{align-items:stretch}.relationships-filter select{flex:1;min-width:130px}}
