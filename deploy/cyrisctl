@@ -1139,7 +1139,10 @@ def verify_release_registry_access(release, token=None, docker_env=None):
     settings = release_settings(manifest, version)
     for service in APP_SERVICES:
         image = settings[f"CYRIS_{service.upper()}_IMAGE"]
-        result = run_command(["docker", "manifest", "inspect", image], check=False, env=docker_env)
+        # docker manifest is experimental on some Docker CLI versions.
+        # Enable the client command for this one read-only registry probe only.
+        inspect_env = dict(docker_env or os.environ, DOCKER_CLI_EXPERIMENTAL="enabled")
+        result = run_command(["docker", "manifest", "inspect", image], check=False, env=inspect_env)
         if result.returncode != 0:
             raise ValueError(
                 f"GHCR access check failed for {service} image of v{version}. "
