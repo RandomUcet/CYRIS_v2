@@ -16,7 +16,10 @@ import type { AuditEventItem as AuditEntry } from '@cyris/contracts';
 
 export default function AdminAuditPage() {
   const { hasPermission } = useAuth();
-  const { formatTime } = usePreferences();
+  const { formatTime, formatDate, locale } = usePreferences();
+  const cs=locale==='cs';
+  const tr=(cz:string,en:string)=>cs?cz:en;
+  const displayDate=(stamp:string)=>stamp?formatDate(stamp)+' · '+formatTime(stamp):'—';
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -67,17 +70,17 @@ export default function AdminAuditPage() {
 
   const columns: Column<AuditEntry>[] = [
     {
-      header: 'Timestamp',
+      header: tr('Datum a čas','Date and time'),
       accessor: (item) => (
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-dim)' }}>
-          {formatTime(item.occurredAt)}
+          <time dateTime={item.occurredAt} title={item.occurredAt}>{displayDate(item.occurredAt)}</time>
         </span>
       ),
       sortKey: 'occurredAt',
-      width: '160px',
+      width: '200px',
     },
     {
-      header: 'Category',
+      header: tr('Kategorie','Category'),
       accessor: (item) => (
         <span
           style={{
@@ -97,7 +100,7 @@ export default function AdminAuditPage() {
       width: '120px',
     },
     {
-      header: 'Action Executed',
+      header: tr('Provedená akce','Action Executed'),
       accessor: (item) => (
         <span style={{ fontWeight: 600, color: 'var(--color-text-main)', fontSize: '12px' }}>
           {item.action}
@@ -106,16 +109,16 @@ export default function AdminAuditPage() {
       sortKey: 'action',
     },
     {
-      header: 'Actor User',
+      header: tr('Uživatel / aktér','Actor User'),
       accessor: (item) => (
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-dim)' }}>
-          {item.actorUserId ? item.actorUserId.slice(0, 8) : 'System Worker'}
+          {item.actorUserId ? item.actorUserId.slice(0, 8) : tr('Systém','System')}
         </span>
       ),
       width: '130px',
     },
     {
-      header: 'Target Resource',
+      header: tr('Cílový záznam','Target Resource'),
       accessor: (item) => (
         item.resourceId ? (
           <RecordIdentifier id={item.resourceId} prefix="" />
@@ -126,10 +129,10 @@ export default function AdminAuditPage() {
       width: '130px',
     },
     {
-      header: 'Origin IP',
+      header: tr('IP adresa původu','Origin IP'),
       accessor: (item) => (
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-dim)' }}>
-          {item.ipAddress || '127.0.0.1'}
+          {item.ipAddress || '—'}
         </span>
       ),
       width: '110px',
@@ -140,7 +143,7 @@ export default function AdminAuditPage() {
     <AppShell
       breadcrumbs={[
         { label: 'Administration' },
-        { label: 'Security & System Audit' },
+        { label: tr('Bezpečnostní audit','Security & System Audit') },
       ]}
     >
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -168,10 +171,10 @@ export default function AdminAuditPage() {
               }}
             >
               <ShieldAlert size={18} color="var(--color-accent-ops)" />
-              Institutional Security & Audit Trail
+              {tr('Bezpečnostní audit a historie změn','Security & audit history')}
             </h1>
             <p style={{ margin: '3px 0 0 0', fontSize: '11px', color: 'var(--color-text-dim)' }}>
-              Immutable operational audit logs. Denser, utilitarian system record with forensic payload inspector.
+              {tr('Neměnné auditní záznamy provozu. Detail každé události obsahuje uložené metainformace.','Immutable operational audit history with stored event metadata.')}
             </p>
           </div>
 
@@ -182,7 +185,7 @@ export default function AdminAuditPage() {
               style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 10px', fontSize: '12px' }}
             >
               <RefreshCw size={13} className={loading ? 'spin' : ''} />
-              Refresh Logs
+              {tr('Obnovit záznamy','Refresh logs')}
             </button>
           </div>
         </div>
@@ -192,18 +195,18 @@ export default function AdminAuditPage() {
           <FilterBar
             searchValue={search}
             onSearchChange={setSearch}
-            searchPlaceholder="Search action, actor, resource or IP address..."
+            searchPlaceholder={tr('Hledat akci, uživatele, záznam nebo IP adresu…','Search action, user, resource or IP address…')}
             filters={[
               {
-                label: 'Category',
+                label: tr('Kategorie','Category'),
                 value: categoryFilter,
                 options: [
-                  { label: 'All Categories', value: '' },
-                  { label: 'Auth', value: 'AUTH' },
-                  { label: 'Investigation', value: 'INVESTIGATION' },
-                  { label: 'Evidence', value: 'EVIDENCE' },
-                  { label: 'Laboratory', value: 'LABORATORY' },
-                  { label: 'Admin', value: 'ADMIN' },
+                  { label: tr('Všechny kategorie','All Categories'), value: '' },
+                  { label: tr('Přihlášení','Auth'), value: 'AUTH' },
+                  { label: tr('Vyšetřování','Investigation'), value: 'INVESTIGATION' },
+                  { label: tr('Důkazy','Evidence'), value: 'EVIDENCE' },
+                  { label: tr('Laboratoř','Laboratory'), value: 'LABORATORY' },
+                  { label: tr('Administrace','Admin'), value: 'ADMIN' },
                 ],
                 onChange: setCategoryFilter,
               },
@@ -221,14 +224,14 @@ export default function AdminAuditPage() {
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
               <div style={{ padding: '40px' }}>
-                <LoadingState message="Querying immutable audit logs..." />
+                <LoadingState message={tr('Načítám auditní záznamy…','Loading audit records…')} />
               </div>
             ) : error ? (
               <div style={{ padding: '40px' }}>
                 <ErrorState message={error} onRetry={fetchAudit} />
               </div>
             ) : entries.length === 0 ? (
-              <EmptyState title="Audit register is empty" description="No system audit records found." />
+              <EmptyState title={tr('Žádné auditní záznamy','Audit register is empty')} description={tr('Zatím nebyla nalezena žádná zaznamenaná událost.','No audit records found.')} />
             ) : (
               <DataTable
                 columns={columns}
@@ -264,14 +267,14 @@ export default function AdminAuditPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <FileCode size={14} color="var(--color-accent-ops)" />
                   <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                    Audit Record Inspector
+                    {tr('Detail auditní události','Audit record inspector')}
                   </span>
                 </div>
                 <button
                   onClick={() => setSelectedEntry(null)}
                   style={{ background: 'none', border: 'none', color: 'var(--color-text-dim)', cursor: 'pointer', fontSize: '11px' }}
                 >
-                  Close
+                  {tr('Zavřít','Close')}
                 </button>
               </div>
 
@@ -297,30 +300,30 @@ export default function AdminAuditPage() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px', marginBottom: '16px' }}>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>Record ID: </span>
+                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('ID záznamu','Record ID')}: </span>
                     <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.id}</span>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>Timestamp: </span>
-                    <span>{formatTime(selectedEntry.occurredAt)}</span>
+                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('Datum a čas','Timestamp')}: </span>
+                    <span>{displayDate(selectedEntry.occurredAt)}</span>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>Actor User ID: </span>
+                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('ID aktéra','Actor user ID')}: </span>
                     <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.actorUserId || 'SYSTEM'}</span>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>Target Resource: </span>
+                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('Cílový záznam','Target resource')}: </span>
                     <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.resourceId || 'N/A'}</span>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>Client IP: </span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.ipAddress || '127.0.0.1'}</span>
+                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('IP klienta','Client IP')}: </span>
+                    <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.ipAddress || '—'}</span>
                   </div>
                 </div>
 
                 <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '12px' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-dim)', marginBottom: '8px' }}>
-                    Audit Payload & Diff
+                    {tr('Metainformace události','Audit payload and diff')}
                   </div>
                   <pre
                     style={{
