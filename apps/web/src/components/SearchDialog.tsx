@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiClient } from '@/lib/api-client';
+import { useRouter } from 'next/navigation';
+import { parseSearchHighlight, safeSearchResultRoute } from '@/lib/search-result-safety';
 import type { SearchResultItem, SearchResponse } from '@cyris/contracts';
 
 interface SearchDialogProps {
@@ -10,6 +12,7 @@ interface SearchDialogProps {
 }
 
 export function SearchDialog({ isOpen, onClose }: SearchDialogProps) {
+  const router = useRouter();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -74,11 +77,13 @@ export function SearchDialog({ isOpen, onClose }: SearchDialogProps) {
   };
 
   const handleSelectResult = (item: SearchResultItem) => {
-    const route = item.route || `/${item.type}s/${item.canonicalId}`;
-    setSelectedResultFeedback(`Navigating to ${route} (${item.title})`);
-    setTimeout(() => {
-      onClose();
-    }, 400);
+    const route = safeSearchResultRoute(item.route);
+    if (!route) {
+      setSelectedResultFeedback('This result has no safe, available destination.');
+      return;
+    }
+    onClose();
+    router.push(route);
   };
 
   // Keyboard navigation
@@ -203,10 +208,11 @@ export function SearchDialog({ isOpen, onClose }: SearchDialogProps) {
                 )}
 
                 {item.highlights && item.highlights.length > 0 && (
-                  <div
-                    className="search-item-highlights"
-                    dangerouslySetInnerHTML={{ __html: item.highlights[0] || '' }}
-                  />
+                  <div className="search-item-highlights">
+                    {parseSearchHighlight(item.highlights[0] || '').map((part, partIndex) =>
+                      part.highlighted ? <mark key={partIndex}>{part.text}</mark> : <span key={partIndex}>{part.text}</span>
+                    )}
+                  </div>
                 )}
 
                 <div className="search-item-route">
