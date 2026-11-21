@@ -1,229 +1,128 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { AppShell } from '@/components/layout/AppShell';
-import { DataTable, Column } from '@/components/common/DataTable';
-import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
-import { apiClient } from '@/lib/api-client';
-import { useEvent } from '@/contexts/EventContext';
-import { Shield, RefreshCw, KeyRound, Check } from 'lucide-react';
+import {useEffect,useMemo,useState} from 'react';
+import {KeyRound,RefreshCw,Search,Shield,ShieldOff} from 'lucide-react';
+import type {RoleResponse} from '@cyris/contracts';
+import {AppShell} from '@/components/layout/AppShell';
+import {useEvent} from '@/contexts/EventContext';
+import {usePreferences} from '@/contexts/PreferencesContext';
+import {apiClient} from '@/lib/api-client';
+import {EmptyState,ErrorState,LoadingState} from '@/components/common/StateViews';
+import {rolePermissionKeys,roleScopes} from '@/lib/role-catalog';
+import styles from './roles.module.css';
 
-interface RoleItem {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  permissions?: Array<string | { permissionKey?: string; key?: string; scope?: string }>;
-  createdAt: string;
-}
+export default function AdminRolesPage(){
+  const {currentEvent,events,selectEvent,loadingEvents}=useEvent();
+  const {locale}=usePreferences();
+  const cs=locale==='cs',tr=(cz:string,en:string)=>cs?cz:en;
+  const [roles,setRoles]=useState<RoleResponse[]>([]);
+  const [loadedEvent,setLoadedEvent]=useState('');
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState('');
+  const [query,setQuery]=useState('');
+  const [revision,setRevision]=useState(0);
 
-export default function AdminRolesPage() {
-  const { currentEvent, events, selectEvent } = useEvent();
-  const [roles, setRoles] = useState<RoleItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchRoles = async () => {
-    if (!currentEvent?.id) {
-      setLoading(false);
-      return;
-    }
+  useEffect(()=>{
+    let alive=true;
+    setRoles([]);setLoadedEvent('');setError('');
+    if(!currentEvent?.id){setLoading(false);return;}
+    const eventId=currentEvent.id;
     setLoading(true);
-    setError(null);
-    try {
-      const res = await apiClient.getRoles(currentEvent.id);
-      if (res.ok && res.data) {
-        setRoles(res.data);
-      } else {
-        setError(res.error || 'Failed to load roles');
+    void apiClient.getRoles(eventId).then(result=>{
+      if(!alive)return;
+      if(!result.ok||!Array.isArray(result.data)){
+        setError(result.error||'Unable to retrieve roles');return;
       }
-    } catch (err: any) {
-      setError(err.message || 'Network error');
-    } finally {
-      setLoading(false);
-    }
-  };
+      setRoles(result.data as RoleResponse[]);
+      setLoadedEvent(eventId);
+    }).catch(err=>{if(alive)setError(err instanceof Error?err.message:String(err))})
+      .finally(()=>{if(alive)setLoading(false)});
+    return ()=>{alive=false};
+  },[currentEvent?.id,revision]);
 
-  useEffect(() => {
-    if (!currentEvent?.id && events.length > 0) {
-      selectEvent(events[0].id);
-    } else {
-      void fetchRoles();
-    }
-  }, [currentEvent?.id, events]);
+  const records=loadedEvent===currentEvent?.id?roles:[];
+  const matching=useMemo(()=>{
+    const text=query.trim().toLocaleLowerCase();
+    if(!text)return records;
+    return records.filter(r=>[r.name,r.slug,r.description??'',...rolePermissionKeys(r.permissions),...roleScopes(r.permissions)]
+      .some(part=>part.toLocaleLowerCase().includes(text)));
+  },[records,query]);
 
-  const columns: Column<RoleItem>[] = [
-    {
-      header: 'Role Code',
-      accessor: (item) => (
-        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--color-text-main)', fontSize: '12px' }}>
-          {item.slug}
-        </span>
-      ),
-      sortKey: 'slug',
-      width: '180px',
-    },
-    {
-      header: 'Role Title & Description',
-      accessor: (item) => (
-        <div>
-          <div style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>{item.name}</div>
-          {item.description && (
-            <div style={{ fontSize: '11px', color: 'var(--color-text-dim)' }}>{item.description}</div>
-          )}
-        </div>
-      ),
-      sortKey: 'name',
-    },
-    {
-      header: 'Scope',
-      accessor: (item) => (
-        <span
-          style={{
-            fontSize: '10px',
-            fontWeight: 700,
-            padding: '2px 6px',
-            background: 'var(--color-bg-subtle)',
-            border: '1px solid var(--color-border-subtle)',
-            borderRadius: '3px',
-            color: 'var(--color-accent-ops)',
-          }}
-        >
-          {Array.from(new Set((item.permissions ?? []).flatMap(p => typeof p === 'string' || !p.scope ? [] : [p.scope]))).join(' · ') || '—'}
-        </span>
-      ),
-      width: '120px',
-    },
-    {
-      header: 'Granted Permissions',
-      accessor: (item) => {
-        const perms = (item.permissions || []).map((permission) =>
-          typeof permission === 'string' ? permission : permission.permissionKey || permission.key || String(permission)
-        );
-        if (perms.length === 0) return <span style={{ color: 'var(--color-text-dim)', fontSize: '11px' }}>Standard</span>;
-        return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '400px' }}>
-            {perms.slice(0, 4).map((p) => (
-              <span
-                key={p}
-                style={{
-                  fontSize: '10px',
-                  fontFamily: 'var(--font-mono)',
-                  padding: '1px 5px',
-                  background: 'var(--color-bg-panel)',
-                  border: '1px solid var(--color-border-subtle)',
-                  borderRadius: '2px',
-                  color: 'var(--color-text-muted)',
-                }}
-              >
-                {p}
-              </span>
-            ))}
-            {perms.length > 4 && (
-              <span style={{ fontSize: '10px', color: 'var(--color-text-dim)' }}>
-                +{perms.length - 4} more
-              </span>
-            )}
-          </div>
-        );
-      },
-    },
-  ];
-
-  return (
-    <AppShell
-      breadcrumbs={[
-        { label: 'Administration' },
-        { label: 'Roles & Permissions' },
-      ]}
-    >
-      <div style={{ padding: '20px 24px' }}>
-        {/* Header */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '16px',
-            borderBottom: '1px solid var(--color-border-subtle)',
-            paddingBottom: '16px',
-          }}
-        >
+  return <AppShell title={tr('Role a oprávnění','Roles and permissions')}
+    breadcrumbs={[{label:tr('Administrace','Administration'),href:'/admin'},{label:tr('Role a oprávnění','Roles and permissions')}]}>
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <div className={styles.heading}>
+          <KeyRound size={23} aria-hidden="true"/>
           <div>
-            <h1
-              style={{
-                margin: 0,
-                fontSize: '20px',
-                fontWeight: 700,
-                color: 'var(--color-text-main)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                letterSpacing: '-0.01em',
-              }}
-            >
-              <KeyRound size={20} color="var(--color-accent-ops)" />
-              Security Roles & Atomic Permission Catalogs
-            </h1>
-            <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--color-text-dim)' }}>
-              Named bundles of atomic permissions evaluating under contextual predicates (PLATFORM, EVENT, UNIT, ASSIGNED, OWN).
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {events.length > 0 && (
-              <select
-                value={currentEvent?.id || ''}
-                onChange={(e) => selectEvent(e.target.value)}
-                style={{
-                  fontSize: '11px',
-                  padding: '4px 8px',
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-default)',
-                  borderRadius: 'var(--radius-xs)',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                }}
-              >
-                {events.map((ev) => (
-                  <option key={ev.id} value={ev.id}>
-                    {ev.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            <button
-              onClick={fetchRoles}
-              className="btn btn-secondary"
-              title="Refresh roles"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-            >
-              <RefreshCw size={14} className={loading ? 'spin' : ''} />
-              Refresh
-            </button>
+            <h1>{tr('Role a oprávnění','Roles and permissions')}</h1>
+            <p>{tr('Zobrazuje skutečně přidělená oprávnění a jejich rozsahy ve vybraném cvičení. Žádné oprávnění se nepředpokládá.','Shows actual permission grants and scopes in the selected exercise. No grant is inferred.')}</p>
           </div>
         </div>
-
-        {/* Content */}
-        {loading ? (
-          <LoadingState message="Loading security role catalog..." />
-        ) : error ? (
-          <ErrorState message={error} onRetry={fetchRoles} />
-        ) : roles.length === 0 ? (
-          <EmptyState
-            title="No roles registered"
-            description="No security roles defined for this event."
-          />
-        ) : (
-          <div style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-            <DataTable
-              columns={columns}
-              data={roles}
-              keyExtractor={(item) => item.id}
-            />
-          </div>
-        )}
-      </div>
-    </AppShell>
-  );
+        <div className={styles.toolbar}>
+          <label>{tr('Cvičení','Exercise')}
+            <select value={currentEvent?.id??''} onChange={e=>selectEvent(e.target.value)} disabled={loadingEvents||!events.length}>
+              <option value="" disabled>{tr('Vyberte cvičení','Select an exercise')}</option>
+              {events.map(event=><option value={event.id} key={event.id}>{event.name}</option>)}
+            </select>
+          </label>
+          <button type="button" className="btn btn-secondary" disabled={!currentEvent?.id||loading}
+            onClick={()=>setRevision(v=>v+1)}><RefreshCw size={15}/>{tr('Obnovit','Refresh')}</button>
+        </div>
+      </header>
+      {currentEvent?.id&&<div className={styles.summary}>
+        <div><span>{tr('Role','Roles')}</span><strong>{records.length}</strong></div>
+        <div><span>{tr('Celkem přidělených oprávnění v katalogu','Catalog permission entries')}</span>
+          <strong>{records.reduce((sum,r)=>sum+(r.permissions?.length??0),0)}</strong></div>
+        <label><Search size={15} aria-hidden="true"/>
+          <input value={query} maxLength={120} onChange={e=>setQuery(e.target.value)}
+            placeholder={tr('Hledat roli, rozsah nebo oprávnění…','Search role, scope or permission…')}
+            aria-label={tr('Hledat role','Search roles')}/>
+        </label>
+      </div>}
+      {loadingEvents||loading?<LoadingState message={tr('Načítám katalog rolí…','Loading role catalog…')}/>:
+        !currentEvent?<EmptyState icon={<Shield size={25}/>}
+          title={tr('Vyberte cvičení','Select an exercise')}
+          description={tr('Každé cvičení má vlastní role. Vyberte ho nahoře.','Each exercise has its own roles. Choose one above.')}/>:
+        error?<ErrorState message={error} onRetry={()=>setRevision(v=>v+1)}/>:
+        records.length===0?<EmptyState icon={<ShieldOff size={25}/>}
+          title={tr('Žádné role','No roles registered')}
+          description={tr('Pro toto cvičení dosud nebyly vytvořeny žádné role.','No roles have been created for this exercise.')}/>:
+        matching.length===0?<EmptyState icon={<Search size={25}/>}
+          title={tr('Žádná shoda','No matching roles')}
+          description={tr('Změňte vyhledávaný výraz.','Try another search term.')}/>:
+        <section className={styles.tableWrap} aria-label={tr('Katalog rolí','Role catalog')}>
+          <table>
+            <thead><tr>
+              <th>{tr('Kód role','Role code')}</th>
+              <th>{tr('Název a popis','Name and description')}</th>
+              <th>{tr('Rozsah oprávnění','Permission scope')}</th>
+              <th>{tr('Přidělená oprávnění','Granted permissions')}</th>
+            </tr></thead>
+            <tbody>{matching.map(role=>{
+              const scopes=roleScopes(role.permissions);
+              const permissions=rolePermissionKeys(role.permissions);
+              return <tr key={role.id}>
+                <td><code>{role.slug}</code></td>
+                <td><strong>{role.name}</strong>{role.description&&<p>{role.description}</p>}</td>
+                <td><div className={styles.scopes}>
+                  {scopes.length?scopes.map(scope=><span className={styles.scope} key={scope}>{scope}</span>):
+                    <span className={styles.emptyScope}>{tr('Bez přidělených oprávnění','No granted permissions')}</span>}
+                </div></td>
+                <td>{permissions.length===0?
+                  <span className={styles.emptyScope}>{tr('Žádná oprávnění','No permissions')}</span>:
+                  <details className={styles.details}>
+                    <summary>{permissions.length} {tr('oprávnění','permissions')}</summary>
+                    <ul>{role.permissions.map((grant,index)=><li key={grant.permissionKey+':'+grant.scope+':'+index}>
+                      <code>{grant.permissionKey}</code><span>{grant.scope}</span>
+                    </li>)}</ul>
+                  </details>}
+                </td>
+              </tr>;
+            })}</tbody>
+          </table>
+          <footer>{tr('Zobrazené role','Displayed roles')}: {matching.length} / {records.length}</footer>
+        </section>}
+    </div>
+  </AppShell>;
 }
