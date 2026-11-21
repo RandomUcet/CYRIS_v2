@@ -85,3 +85,23 @@ export type ScenarioWorld = { [K in keyof typeof ScenarioRowSchemas]: z.infer<(t
 export const ScenarioDraftPosition = z.object({ prepared: z.number().int().nonnegative() });
 
 export const ScenarioLinkSlots = z.array(z.number().int().nonnegative()).max(4);
+
+// Browse already-published synthetic registry records from a generation batch.
+// Images are uploaded using the existing registry primary-media authorization.
+export const ScenarioBatchMediaQuerySchema = z.object({
+  kind: z.enum(['persons', 'organisations', 'locations', 'vehicles', 'devices', 'weapons']),
+  page: z.coerce.number().int().min(1).max(100000).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type ScenarioBatchMediaQuery = z.infer<typeof ScenarioBatchMediaQuerySchema>;
+export const ScenarioBatchMediaListSchema = z.object({
+  kind: ScenarioBatchMediaQuerySchema.shape.kind,
+  page: z.number().int().positive(),
+  limit: z.number().int().positive(),
+  hasMore: z.boolean(),
+  records: z.array(z.object({
+    id: z.string().uuid(), identifier: z.string().nullable(),
+    label: z.string(), hasImage: z.boolean(),
+  })),
+});
+export type ScenarioBatchMediaList = z.infer<typeof ScenarioBatchMediaListSchema>;

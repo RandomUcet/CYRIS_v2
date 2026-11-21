@@ -18,7 +18,7 @@ const adminLinks = [
 ];
 
 export default function AdminOverviewPage() {
-  const { t } = usePreferences();
+  const { t,locale } = usePreferences();
   const { events } = useEvent();
   const { isPlatformAdmin } = useAuth();
 
@@ -63,6 +63,11 @@ export default function AdminOverviewPage() {
               </span>
             </Link>
           ))}
+          {isPlatformAdmin && <Link className="admin-overview-row" href="/admin/health">
+            <span className="admin-overview-row-icon"><Activity size={18}/></span>
+            <span><strong>{locale==='cs'?'Zdraví systému':'System health'}</strong>
+              <small>{locale==='cs'?'Skutečný stav API a provozních závislostí. Nejde o DEFCON ani simulované odstávky.':'Actual API and dependency health; separate from DEFCON and exercise disruptions.'}</small></span>
+          </Link>}
         </div>
         </section>
       </div>

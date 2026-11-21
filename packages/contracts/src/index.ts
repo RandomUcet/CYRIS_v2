@@ -31,3 +31,5 @@ export * from './identity.js';
 
 export * from './support.js';
 export * from './preview-teams.js';
+
+export * from './jsoc.js';

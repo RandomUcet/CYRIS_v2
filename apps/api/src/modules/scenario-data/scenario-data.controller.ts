@@ -1,9 +1,9 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { ScenarioDataService } from './scenario-data.service.js';
-import { ScenarioDraftPosition, ScenarioDataRequestSchema, SparkDraftRequestSchema } from '@cyris/contracts';
+import { ScenarioDraftPosition, ScenarioDataRequestSchema, SparkDraftRequestSchema, ScenarioBatchMediaQuerySchema } from '@cyris/contracts';
 
 @Controller('events/:eventId/scenario-data')
 @UseGuards(AuthGuard)
@@ -25,6 +25,18 @@ export class ScenarioDataController {
   @Get('batches/:batchId')
   get(@Param('eventId') eventId: string, @Param('batchId') batchId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.service.get(eventId, batchId, user);
+  }
+
+  @Get('batches/:batchId/records')
+  batchRecords(
+    @Param('eventId', ParseUUIDPipe) eventId:string,
+    @Param('batchId', ParseUUIDPipe) batchId:string,
+    @Query() query:unknown,
+    @CurrentUser() user:AuthenticatedUser
+  ) {
+    const parsed=ScenarioBatchMediaQuerySchema.safeParse(query);
+    if(!parsed.success) throw new BadRequestException('Invalid generated-record page');
+    return this.service.listBatchRecords(eventId,batchId,parsed.data,user);
   }
 
   @Post('spark-drafts')

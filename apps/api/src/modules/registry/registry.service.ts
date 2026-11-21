@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, asc, and, or, ilike, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
@@ -21,6 +21,7 @@ import {
   type ResourceVisibilityValue,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
+import {validRegistryImage,REGISTRY_IMAGE_BYTES_MAX} from './registry-image-policy.js';
 import type {
   CreatePersonRequest,
   UpdatePersonRequest,
@@ -40,6 +41,8 @@ import type {
   CreateWeaponRequest,
   UpdateWeaponRequest,
   WeaponResponse,
+  RegistryPickerQuery,
+  RegistryPickerResult,
 } from '@cyris/contracts';
 
 @Injectable()
@@ -59,13 +62,82 @@ export class RegistryService {
     return this.databaseService.client;
   }
 
-  async uploadPrimaryMedia(resourceId: string, payload: { filename?: string; mimeType?: string; data?: string }, user: AuthenticatedUser) {
-    await this.resourceAccessService.assertCanAccessResource(user, resourceId, Permissions.REGISTRY_UPDATE);
-    if (!payload.filename || !payload.data || !payload.mimeType?.startsWith('image/')) {
-      throw new BadRequestException('An image filename, MIME type, and base64 data are required');
+
+  /**
+   * Secure, bounded link picker independent of search-index readiness.
+   * Only returns canonical records the authenticated user can actually read.
+   * No unfiltered counts, owner metadata or hidden record titles are emitted.
+   */
+  async searchPicker(eventId:string, query:RegistryPickerQuery, user:AuthenticatedUser):Promise<RegistryPickerResult[]>{
+    const pattern='%'+query.q+'%';
+    // Limit the candidate work per entity type; never scan unrestricted whole-table results into JS.
+    const cap=Math.min(90,Math.max(20,query.limit*3));
+    const [personRows,organisationRows,locationRows,vehicleRows,deviceRows,weaponRows]=await Promise.all([
+      this.db.select({id:persons.id,identifier:persons.identifier,label:persons.displayName})
+        .from(persons).innerJoin(resources,eq(persons.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),or(ilike(persons.displayName,pattern),ilike(persons.identifier,pattern))))
+        .orderBy(asc(persons.displayName)).limit(cap),
+      this.db.select({id:organisations.id,identifier:organisations.identifier,label:organisations.name})
+        .from(organisations).innerJoin(resources,eq(organisations.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),or(ilike(organisations.name,pattern),ilike(organisations.identifier,pattern))))
+        .orderBy(asc(organisations.name)).limit(cap),
+      this.db.select({id:locations.id,identifier:locations.identifier,label:locations.name})
+        .from(locations).innerJoin(resources,eq(locations.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),or(ilike(locations.name,pattern),ilike(locations.city,pattern),ilike(locations.identifier,pattern))))
+        .orderBy(asc(locations.name)).limit(cap),
+      this.db.select({id:vehicles.id,identifier:vehicles.identifier,label:vehicles.label})
+        .from(vehicles).innerJoin(resources,eq(vehicles.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),or(ilike(vehicles.label,pattern),ilike(vehicles.registrationPlate,pattern),ilike(vehicles.identifier,pattern))))
+        .orderBy(asc(vehicles.label)).limit(cap),
+      this.db.select({id:devices.id,identifier:devices.identifier,label:devices.label})
+        .from(devices).innerJoin(resources,eq(devices.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),or(ilike(devices.label,pattern),ilike(devices.hostname,pattern),ilike(devices.identifier,pattern))))
+        .orderBy(asc(devices.label)).limit(cap),
+      this.db.select({id:weapons.id,identifier:weapons.identifier,
+        label:sql<string>`trim(concat_ws(' ', ${weapons.category}, ${weapons.manufacturer}, ${weapons.model}))`})
+        .from(weapons).innerJoin(resources,eq(weapons.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),or(ilike(weapons.category,pattern),ilike(weapons.manufacturer,pattern),ilike(weapons.model,pattern),ilike(weapons.identifier,pattern))))
+        .orderBy(asc(weapons.category)).limit(cap),
+    ]);
+    const candidates=[
+      ...personRows.map(row=>({...row,entityType:'persons' as const})),
+      ...organisationRows.map(row=>({...row,entityType:'organisations' as const})),
+      ...locationRows.map(row=>({...row,entityType:'locations' as const})),
+      ...vehicleRows.map(row=>({...row,entityType:'vehicles' as const})),
+      ...deviceRows.map(row=>({...row,entityType:'devices' as const})),
+      ...weaponRows.map(row=>({...row,entityType:'weapons' as const})),
+    ].sort((a,b)=>a.label.localeCompare(b.label));
+    const visible:RegistryPickerResult[]=[];
+    for(const candidate of candidates){
+      if(visible.length>=query.limit)break;
+      if(await this.resourceAccessService.canAccessResource(user,candidate.id,Permissions.REGISTRY_READ)){
+        visible.push({id:candidate.id,eventId,entityType:candidate.entityType,
+          identifier:candidate.identifier,label:candidate.label});
+      }
     }
-    const data = Buffer.from(payload.data, 'base64');
-    if (data.byteLength > 5 * 1024 * 1024) throw new BadRequestException('Registry images must be 5 MB or smaller');
+    return visible;
+  }
+
+  private async assertMediaEvent(eventId:string,resourceId:string) {
+    const [resource]=await this.db.select({id:resources.id,eventId:resources.eventId,type:resources.resourceType}).from(resources)
+      .where(eq(resources.id,resourceId)).limit(1);
+    const validTypes=new Set(['person','organisation','location','vehicle','device','weapon']);
+    if(!resource||resource.eventId!==eventId||!validTypes.has(resource.type))
+      throw new NotFoundException('Registry resource not found in this exercise');
+  }
+
+  async uploadPrimaryMedia(eventId:string, resourceId: string, payload: { filename?: string; mimeType?: string; data?: string }, user: AuthenticatedUser) {
+    await this.assertMediaEvent(eventId,resourceId);
+    await this.resourceAccessService.assertCanAccessResource(user,resourceId,Permissions.REGISTRY_UPDATE);
+    if(!payload.filename||!payload.data||!payload.mimeType||payload.filename.length>200){
+      throw new BadRequestException('Image filename, MIME type and base64 data are required');
+    }
+    if(payload.data.length>Math.ceil(REGISTRY_IMAGE_BYTES_MAX*4/3)+8 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(payload.data)){
+      throw new BadRequestException('Invalid image data or image larger than 5 MB');
+    }
+    const data=Buffer.from(payload.data,'base64');
+    if(!validRegistryImage(payload.mimeType,data))throw new BadRequestException('Unsupported image format or image larger than 5 MB');
+
     const key = `registry/${resourceId}/primary-${Date.now()}-${payload.filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const stored = await this.storageService.putObject(key, data, payload.mimeType);
     const [previous] = await this.db.select().from(registryMedia).where(eq(registryMedia.resourceId, resourceId)).limit(1);
@@ -92,15 +164,22 @@ export class RegistryService {
     return { filename: payload.filename, mimeType: payload.mimeType, byteSize: data.byteLength };
   }
 
-  async getPrimaryMedia(resourceId: string, user: AuthenticatedUser) {
+  async getPrimaryMedia(eventId:string, resourceId: string, user: AuthenticatedUser) {
+    await this.assertMediaEvent(eventId,resourceId);
     await this.resourceAccessService.assertCanAccessResource(user, resourceId, Permissions.REGISTRY_READ);
     const [media] = await this.db.select().from(registryMedia).where(eq(registryMedia.resourceId, resourceId)).limit(1);
     if (!media) return null;
     const object = await this.storageService.getObject(media.objectKey, media.bucket);
+    // Older registry uploads could contain SVG or other active image content.
+    // Re-validate stored bytes on every read, including administrator View As.
+    if (!validRegistryImage(media.mimeType, object.body)) {
+      throw new NotFoundException('Registry image is not a supported raster file');
+    }
     return { ...object, mimeType: media.mimeType, filename: media.filename };
   }
 
-  async removePrimaryMedia(resourceId: string, user: AuthenticatedUser) {
+  async removePrimaryMedia(eventId:string, resourceId: string, user: AuthenticatedUser) {
+    await this.assertMediaEvent(eventId,resourceId);
     await this.resourceAccessService.assertCanAccessResource(user, resourceId, Permissions.REGISTRY_UPDATE);
     const [media] = await this.db.delete(registryMedia).where(eq(registryMedia.resourceId, resourceId)).returning();
     if (media) await this.storageService.deleteObject(media.objectKey, media.bucket);

@@ -8,7 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useEvent } from '@/contexts/EventContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { useReadiness } from '@/contexts/ReadinessContext';
-import { levels, publicReadinessChanged, teamBrand, type DisplayTeam } from './team-displays';
+import { defconLevelChanged, levels, teamBrand, type DisplayTeam } from './team-displays';
 import styles from './TeamWallboard.module.css';
 
 const cities = [
@@ -70,7 +70,7 @@ function SignalBoard({ eventId, team, cs }: BoardProps & { cs: boolean }) {
   }, []);
 
   useEffect(() => {
-    const changed = publicReadinessChanged(previous.current, state);
+    const changed = defconLevelChanged(previous.current, state);
     previous.current = state;
     if (changed && sound && audio.current) {
       audio.current.currentTime = 0;
@@ -87,8 +87,21 @@ function SignalBoard({ eventId, team, cs }: BoardProps & { cs: boolean }) {
     player.pause();
     player.currentTime = 0;
     if (sound) { setSound(false); return; }
-    try { await player.play(); setSound(true); }
-    catch { setFeedback(tr('Zvuk není dostupný. Zkuste ho povolit znovu.', 'Sound unavailable. Try enabling it again.')); }
+    // Prime audio permission using a *silent* playback within the user's gesture.
+    // Enabling sound must not emit an alert; alerts belong to DEFCON changes.
+    player.muted = true;
+    try {
+      await player.play();
+      player.pause();
+      player.currentTime = 0;
+      player.muted = false;
+      setSound(true);
+    } catch {
+      player.pause();
+      player.muted = false;
+      setSound(false);
+      setFeedback(tr('Zvuk není dostupný. Zkuste ho povolit znovu.', 'Sound unavailable. Try enabling it again.'));
+    }
   }
   async function toggleFull() {
     setFeedback('');
@@ -101,7 +114,7 @@ function SignalBoard({ eventId, team, cs }: BoardProps & { cs: boolean }) {
 
   const isPublic = !team;
   const title = team?.name ?? 'Czech Cybertron';
-  const soundLabel = sound ? tr('Vypnout zvuk', 'Mute') : tr('Zapnout a vyzkoušet zvuk', 'Enable and test sound');
+  const soundLabel = sound ? tr('Vypnout zvuk', 'Mute') : tr('Zapnout upozornění na změny DEFCON', 'Enable DEFCON change alerts');
   const fullLabel = full ? tr('Ukončit celou obrazovku', 'Exit fullscreen') : tr('Celá obrazovka', 'Fullscreen');
   const status = stale ? tr('Spojení přerušeno', 'Disconnected') : state ? 'LIVE' : tr('Připojování…', 'Connecting…');
   const unknownLevel = state ? tr('Stupeň neurčen', 'Level not set') : stale ? tr('Stav nedostupný', 'State unavailable') : tr('Načítám stav…', 'Loading state…');

@@ -18,3 +18,27 @@ test('preview forbids all mutation verbs, unknown routes and out-of-event servic
   assert.equal(allow('GET','/search',undefined,'e'),false);
   assert.equal(allow('GET','/notifications',undefined,'e'),false);
 });
+
+test('View As may inspect authorized registry details but cannot mutate or switch exercise',()=>{
+  const safe=[
+    '/events/:eventId/relationships',
+    '/events/:eventId/resources/:resourceId',
+    '/events/:eventId/resources/:resourceId/relationships',
+    '/events/:eventId/registry/persons/:personId',
+    '/events/:eventId/registry/organisations/:orgId',
+    '/events/:eventId/registry/locations/:locId',
+    '/events/:eventId/registry/vehicles/:vehicleId',
+    '/events/:eventId/registry/devices/:deviceId',
+    '/events/:eventId/registry/weapons/:weaponId',
+    '/events/:eventId/registry/:resourceId/primary-media',
+  ];
+  for(const path of safe){
+    assert.equal(allow('GET',path,'exercise-a','exercise-a'),true,path);
+    assert.equal(allow('GET',path,'exercise-b','exercise-a'),false,path+' cross-event');
+    for(const method of ['POST','PUT','PATCH','DELETE']){
+      assert.equal(allow(method,path,'exercise-a','exercise-a'),false,method+' '+path);
+    }
+  }
+  assert.equal(allow('GET','/events/:eventId/registry/search','exercise-a','exercise-a'),false);
+  assert.equal(allow('GET','/events/:eventId/registry/persons/:personId/private','exercise-a','exercise-a'),false);
+});

@@ -109,6 +109,11 @@ import type {
   ScenarioDataPreview,
   SparkDraftRequest,
   ScenarioDataBatchResponse,
+  ScenarioBatchMediaList,
+  RegistryPickerResult,
+  JsocLogQuery,
+  JsocLogPage,
+  GenerateJsocLogs,
   CommandDefconSnapshot,
   CommandReadinessSnapshot,
   ChangeCommandDefconRequest,
@@ -331,6 +336,17 @@ export class CyrisApiClient {
   async previewScenarioData(eventId: string, payload: ScenarioDataRequest) {
     return this.postJson<ScenarioDataPreview>(`/events/${eventId}/scenario-data/preview`, payload);
   }
+  listJsocLogs(eventId:string,query:JsocLogQuery){
+    const params=new URLSearchParams({page:String(query.page),limit:String(query.limit)});
+    if(query.category)params.set('category',query.category);
+    if(query.severity)params.set('severity',query.severity);
+    if(query.search)params.set('search',query.search);
+    return this.fetchJson<JsocLogPage>(`/events/${eventId}/jsoc/logs?${params}`);
+  }
+  generateJsocLogs(eventId:string,input:GenerateJsocLogs){
+    return this.postJson<{created:number;simulation:true}>(`/events/${eventId}/jsoc/generate`,input);
+  }
+
   async getScenarioDataBatches(eventId: string) {
     return this.fetchJson<ScenarioDataBatchResponse[]>(`/events/${eventId}/scenario-data/batches`);
   }
@@ -351,6 +367,12 @@ export class CyrisApiClient {
   }
   async cleanupScenarioData(eventId: string, batchId: string) {
     return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/batches/${batchId}/cleanup`, {});
+  }
+
+  /** Canonical, event-scoped relationship picker. No Typesense dependency. */
+  async searchRegistryRecords(eventId:string,query:string){
+    return this.fetchJson<RegistryPickerResult[]>(
+      `/events/${eventId}/registry/search?q=${encodeURIComponent(query)}&limit=20`);
   }
 
   async getPersons(eventId: string) {
@@ -499,6 +521,12 @@ export class CyrisApiClient {
   }
   async updateWeapon(eventId: string, weaponId: string, data: any) {
     return this.patchJson<any>(`/events/${eventId}/registry/weapons/${weaponId}`, data);
+  }
+
+  async getScenarioBatchRecords(eventId:string,batchId:string,kind:ScenarioBatchMediaList['kind'],page=1) {
+    return this.fetchJson<ScenarioBatchMediaList>(
+      `/events/${eventId}/scenario-data/batches/${batchId}/records?kind=${encodeURIComponent(kind)}&page=${page}&limit=20`
+    );
   }
   async uploadRegistryPrimaryMedia(eventId: string, resourceId: string, payload: { filename: string; mimeType: string; data: string }) {
     return this.postJson<any>(`/events/${eventId}/registry/${resourceId}/primary-media`, payload);
@@ -1541,7 +1569,10 @@ export class CyrisApiClient {
         const errJson = (await res.json().catch(() => ({}))) as { message?: string };
         return { ok: false, error: errJson.message || `HTTP ${res.status}` };
       }
-      const data = (await res.json()) as T;
+      // A successful DELETE commonly returns HTTP 204 with an empty body.
+      // Treat that as success; parse JSON only when the server actually sends it.
+      const raw = await res.text();
+      const data = raw ? (JSON.parse(raw) as T) : undefined;
       return { ok: true, data };
     } catch (err) {
       return { ok: false, error: (err as Error).message };

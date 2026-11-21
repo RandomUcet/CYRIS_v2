@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvent } from '@/contexts/EventContext';
@@ -30,12 +30,32 @@ interface TopBarProps {
 }
 
 export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcrumbs = [] }: TopBarProps) {
-  const { currentUser, isPlatformAdmin, hasPermission, logout } = useAuth();
+  const { currentUser, isPlatformAdmin, hasPermission, logout, viewAs } = useAuth();
   const { selectedEvent } = useEvent();
   const { locale, timezone, setLocale, setTimezone, t } = usePreferences();
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [logoutError, setLogoutError] = useState(false);
+  const userMenuRootRef = useRef<HTMLDivElement>(null);
+  const userMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!isUserMenuOpen) return;
+    const outside = (event: PointerEvent) => {
+      if (!userMenuRootRef.current?.contains(event.target as Node)) setIsUserMenuOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsUserMenuOpen(false);
+        userMenuTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [isUserMenuOpen]);
   const { snapshot: readiness, stale: readinessStale } = useReadiness();
 
   return (
@@ -155,14 +175,16 @@ export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcr
             <kbd style={{ fontSize: '9px', padding: '1px 4px' }}>⌘K</kbd>
           </button>
 
-          {/* Operational Notification Center */}
-          <NotificationCenter />
+          {/* View As cannot read or change personal notifications; hide them entirely. */}
+          {!viewAs && <NotificationCenter />}
 
           {currentUser && (
-            <div style={{ position: 'relative' }}>
+            <div ref={userMenuRootRef} style={{ position: 'relative' }}>
               <button
+                ref={userMenuTriggerRef}
                 type="button"
                 onClick={() => setIsUserMenuOpen((p) => !p)}
+                aria-haspopup="dialog"
                 aria-expanded={isUserMenuOpen}
                 className="workspace-user-button"
                 style={{
@@ -198,6 +220,9 @@ export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcr
                     zIndex: 50,
                   }}
                   className="workspace-user-menu"
+                  role="dialog"
+                  aria-modal={false}
+                  aria-label={t('pref.userPreferences')}
                 >
                   <div style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)', marginBottom: '8px' }}>
                     <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)' }}>

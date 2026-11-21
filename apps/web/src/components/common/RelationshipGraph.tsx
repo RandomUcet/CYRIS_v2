@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import cytoscape from 'cytoscape';
 import { ZoomIn, ZoomOut, Maximize2, Filter, ExternalLink } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import {usePreferences} from '@/contexts/PreferencesContext';
+import {relationshipRecordHref} from '@/lib/relationship-routing';
 
 export interface GraphNode {
   id: string;
@@ -62,6 +64,8 @@ export function RelationshipGraph({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
   const router = useRouter();
+  const {locale}=usePreferences();
+  const cs=locale==='cs';
 
   const [activeEdgeFilter, setActiveEdgeFilter] = useState<string>('');
   const [inspectedNode, setInspectedNode] = useState<GraphNode | null>(null);
@@ -295,19 +299,8 @@ export function RelationshipGraph({
     cyRef.current.zoom(cyRef.current.zoom() * 0.8);
   };
 
-  const handleOpenRecord = () => {
-    if (!inspectedNode) return;
-    if (inspectedNode.route) {
-      router.push(inspectedNode.route);
-    } else if (eventId) {
-      const t = inspectedNode.type;
-      if (t === 'case') router.push(`/events/${eventId}/cases/${inspectedNode.id}`);
-      else if (t === 'incident') router.push(`/events/${eventId}/incidents/${inspectedNode.id}`);
-      else if (t === 'evidence') router.push(`/events/${eventId}/evidence/${inspectedNode.id}`);
-      else if (t === 'lab_analysis') router.push(`/events/${eventId}/lab/${inspectedNode.id}`);
-      else router.push(`/events/${eventId}/registry`);
-    }
-  };
+  const recordHref = inspectedNode && eventId ? relationshipRecordHref(eventId, inspectedNode) : null;
+  const handleOpenRecord=()=>{if(recordHref)router.push(recordHref);};
 
   return (
     <div
@@ -337,13 +330,13 @@ export function RelationshipGraph({
           border: '1px solid var(--border-default)',
         }}
       >
-        <button type="button" onClick={handleFit} className="btn-ghost" title="Fit to Viewport" style={{ padding: '4px' }}>
+        <button type="button" onClick={handleFit} className="btn-ghost" title={cs ? "Přizpůsobit zobrazení" : "Fit to viewport"} aria-label={cs ? "Přizpůsobit zobrazení" : "Fit to viewport"} style={{ padding: '4px' }}>
           <Maximize2 size={14} />
         </button>
-        <button type="button" onClick={handleZoomIn} className="btn-ghost" title="Zoom In" style={{ padding: '4px' }}>
+        <button type="button" onClick={handleZoomIn} className="btn-ghost" title={cs ? "Přiblížit" : "Zoom in"} aria-label={cs ? "Přiblížit" : "Zoom in"} style={{ padding: '4px' }}>
           <ZoomIn size={14} />
         </button>
-        <button type="button" onClick={handleZoomOut} className="btn-ghost" title="Zoom Out" style={{ padding: '4px' }}>
+        <button type="button" onClick={handleZoomOut} className="btn-ghost" title={cs ? "Oddálit" : "Zoom out"} aria-label={cs ? "Oddálit" : "Zoom out"} style={{ padding: '4px' }}>
           <ZoomOut size={14} />
         </button>
 
@@ -355,7 +348,7 @@ export function RelationshipGraph({
               onChange={(e) => setActiveEdgeFilter(e.target.value)}
               style={{ height: '24px', fontSize: '11px', padding: '1px 6px' }}
             >
-              <option value="">All Relationships</option>
+              <option value="">{cs ? "Všechny typy vazeb" : "All relationships"}</option>
               {availableEdgeTypes.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
@@ -382,7 +375,7 @@ export function RelationshipGraph({
           flexWrap: 'wrap',
         }}
       >
-        <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Entities:</span>
+        <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{cs ? "Entity:" : "Entities:"}</span>
         {Object.entries(TYPE_COLORS).map(([type, color]) => (
           <div key={type} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: color }} />
@@ -431,14 +424,14 @@ export function RelationshipGraph({
             UUID: <code>{inspectedNode.id.slice(0, 13)}…</code>
           </div>
 
-          <button
+          {recordHref ? <button
             type="button"
             className="btn-primary"
             onClick={handleOpenRecord}
             style={{ width: '100%', fontSize: '11px', padding: '4px 8px', marginTop: '4px' }}
           >
-            <ExternalLink size={12} /> Open Canonical Record
-          </button>
+            <ExternalLink size={12} /> {cs ? "Otevřít záznam" : "Open record"}
+          </button> : <small style={{color:'var(--text-muted)'}}>{cs ? 'Pro tento typ záznamu není dostupný odkaz.' : 'No linked page for this record type.'}</small>}
         </div>
       )}
 

@@ -290,6 +290,10 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
 
     // Notifications
     'notification.title': 'NOTIFICATIONS',
+    'notification.openCenter': 'Open notifications',
+    'notification.closeCenter': 'Close notifications',
+    'notification.loadError': 'Notifications could not be loaded. Previous entries may be outdated.',
+    'notification.actionError': 'Unable to update the notification. Try again.',
     'notification.new': 'NEW',
     'notification.earlier': 'EARLIER',
     'notification.empty': 'No notifications requiring attention',
@@ -593,6 +597,10 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
 
     // Notifications
     'notification.title': 'NOTIFIKACE',
+    'notification.openCenter': 'Otevřít oznámení',
+    'notification.closeCenter': 'Zavřít oznámení',
+    'notification.loadError': 'Nepodařilo se načíst oznámení. Zobrazené údaje mohou být zastaralé.',
+    'notification.actionError': 'Oznámení se nepodařilo upravit. Zkuste to znovu.',
     'notification.new': 'NOVÉ',
     'notification.earlier': 'DŘÍVĚJŠÍ',
     'notification.empty': 'Žádné notifikace vyžadující pozornost',
@@ -625,6 +633,28 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
   },
 
   de: {
+    // Shared workspace/help/status messages (kept in parity with EN + CS).
+    'myWork.subtitle': 'Für diese Übung freigegebene Aufgaben.',
+    'myWork.emptyTitle': 'Keine verfügbaren Aufgaben',
+    'myWork.emptyDescription': 'Zugewiesene Aufgaben und Analysen erscheinen hier, sobald sie in dieser Übung für Sie verfügbar sind.',
+    'myWork.nextAction': 'Nächster Schritt: Details öffnen',
+    'myWork.previous': 'Zurück',
+    'myWork.next': 'Weiter',
+    'myWork.page': 'Seite',
+    'serviceStatus.title': 'Dienststatus',
+    'serviceStatus.subtitle': 'Aktuelle Verfügbarkeit der Dienste in Ihrem Arbeitsbereich.',
+    'serviceStatus.loading': 'Dienststatus wird abgerufen…',
+    'serviceStatus.state.operational': 'Betriebsbereit',
+    'serviceStatus.state.planned': 'Geplante Wartung',
+    'serviceStatus.state.active': 'Eingeschränkter Dienst',
+    'serviceStatus.state.expired': 'Abgelaufen',
+    'serviceStatus.state.restored': 'Wiederhergestellt',
+    'serviceStatus.impact.none': 'Betriebsbereit',
+    'serviceStatus.impact.read_only': 'Nur lesen',
+    'serviceStatus.impact.degraded': 'Eingeschränkt',
+    'serviceStatus.impact.unavailable': 'Nicht verfügbar',
+    'workspace.help': 'Hilfe zum Arbeitsbereich',
+    'workspace.helpCopy': 'Öffnen Sie „Meine Arbeit“ für aktuelle Aufgaben. Hilfe und Dienststatus finden Sie unter „Support“.',
     'nav.modules': 'Modulverfügbarkeit',
     'admin.overview.modules': 'Verfügbarkeit von Diensten für Übungen, Teams und Teilnehmende verwalten.',
     // Navigation
@@ -875,6 +905,10 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
 
     // Notifications
     'notification.title': 'BENACHRICHTIGUNGEN',
+    'notification.openCenter': 'Benachrichtigungen öffnen',
+    'notification.closeCenter': 'Benachrichtigungen schließen',
+    'notification.loadError': 'Benachrichtigungen konnten nicht geladen werden. Die angezeigten Einträge sind möglicherweise veraltet.',
+    'notification.actionError': 'Benachrichtigung konnte nicht aktualisiert werden. Bitte erneut versuchen.',
     'notification.new': 'NEU',
     'notification.earlier': 'FRÜHER',
     'notification.empty': 'Keine Benachrichtigungen vorhanden',
@@ -907,6 +941,28 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
   },
 
   pl: {
+    // Shared workspace/help/status messages (kept in parity with EN + CS).
+    'myWork.subtitle': 'Zadania dostępne w ramach tego ćwiczenia zgodnie z uprawnieniami.',
+    'myWork.emptyTitle': 'Brak dostępnych zadań',
+    'myWork.emptyDescription': 'Przypisane zadania i analizy pojawią się tutaj, gdy zostaną udostępnione w tym ćwiczeniu.',
+    'myWork.nextAction': 'Następny krok: otwórz szczegóły',
+    'myWork.previous': 'Poprzednia',
+    'myWork.next': 'Następna',
+    'myWork.page': 'Strona',
+    'serviceStatus.title': 'Stan usług',
+    'serviceStatus.subtitle': 'Bieżąca dostępność usług w Twoim obszarze roboczym.',
+    'serviceStatus.loading': 'Sprawdzanie stanu usług…',
+    'serviceStatus.state.operational': 'Dostępna',
+    'serviceStatus.state.planned': 'Planowana konserwacja',
+    'serviceStatus.state.active': 'Ograniczona dostępność',
+    'serviceStatus.state.expired': 'Wygasła',
+    'serviceStatus.state.restored': 'Przywrócona',
+    'serviceStatus.impact.none': 'Dostępna',
+    'serviceStatus.impact.read_only': 'Tylko do odczytu',
+    'serviceStatus.impact.degraded': 'Tryb ograniczony',
+    'serviceStatus.impact.unavailable': 'Niedostępna',
+    'workspace.help': 'Pomoc dotycząca obszaru roboczego',
+    'workspace.helpCopy': 'Otwórz „Moja praca”, aby zobaczyć przydzielone zadania. Pomoc i stan usług znajdziesz w sekcji „Wsparcie”.',
     'nav.modules': 'Dostępność modułów',
     'admin.overview.modules': 'Zarządzanie dostępnością usług dla ćwiczeń, zespołów i uczestników.',
     // Navigation
@@ -1157,6 +1213,10 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
 
     // Notifications
     'notification.title': 'POWIADOMIENIA',
+    'notification.openCenter': 'Otwórz powiadomienia',
+    'notification.closeCenter': 'Zamknij powiadomienia',
+    'notification.loadError': 'Nie udało się pobrać powiadomień. Widoczne dane mogą być nieaktualne.',
+    'notification.actionError': 'Nie udało się zaktualizować powiadomienia. Spróbuj ponownie.',
     'notification.new': 'NOWE',
     'notification.earlier': 'WCZEŚNIEJSZE',
     'notification.empty': 'Brak powiadomień wymagających uwagi',

@@ -9,6 +9,8 @@ import {
   UseGuards,
   BadRequestException,
   Res,
+  Query,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
@@ -28,12 +30,28 @@ import {
   UpdateDeviceRequestSchema,
   CreateWeaponRequestSchema,
   UpdateWeaponRequestSchema,
+  RegistryPickerQuerySchema,
 } from '@cyris/contracts';
 
 @Controller('events/:eventId/registry')
 @UseGuards(AuthGuard)
 export class RegistryController {
   constructor(private readonly registryService: RegistryService) {}
+
+  /**
+   * Query the canonical registry rather than Typesense projections.
+   * Results are filtered by the requesting principal's resource-read rights.
+   */
+  @Get('search')
+  searchRegistry(
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Query() query: unknown,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    const parsed = RegistryPickerQuerySchema.safeParse(query ?? {});
+    if (!parsed.success) throw new BadRequestException('Enter at least two search characters (maximum 80).');
+    return this.registryService.searchPicker(eventId, parsed.data, user);
+  }
 
   // --- Persons ---
 
@@ -290,21 +308,23 @@ export class RegistryController {
   }
 
   @Post(':resourceId/primary-media')
-  async uploadPrimaryMedia(@Param('resourceId') resourceId: string, @Body() body: { filename?: string; mimeType?: string; data?: string }, @CurrentUser() user: AuthenticatedUser) {
-    return this.registryService.uploadPrimaryMedia(resourceId, body, user);
+  async uploadPrimaryMedia(@Param('eventId') eventId:string,@Param('resourceId') resourceId: string, @Body() body: { filename?: string; mimeType?: string; data?: string }, @CurrentUser() user: AuthenticatedUser) {
+    return this.registryService.uploadPrimaryMedia(eventId,resourceId, body, user);
   }
 
   @Get(':resourceId/primary-media')
-  async getPrimaryMedia(@Param('resourceId') resourceId: string, @CurrentUser() user: AuthenticatedUser, @Res() reply: FastifyReply) {
-    const media = await this.registryService.getPrimaryMedia(resourceId, user);
+  async getPrimaryMedia(@Param('eventId') eventId:string,@Param('resourceId') resourceId: string, @CurrentUser() user: AuthenticatedUser, @Res() reply: FastifyReply) {
+    const media = await this.registryService.getPrimaryMedia(eventId,resourceId,user);
     if (!media) return reply.code(204).send();
     reply.header('Content-Type', media.mimeType);
-    reply.header('Content-Disposition', `inline; filename="${media.filename}"`);
+    reply.header('X-Content-Type-Options','nosniff');
+    reply.header('Cache-Control','private, no-store');
+    reply.header('Content-Disposition', `inline; filename="${media.filename.replace(/[^A-Za-z0-9._-]/g,'_')}"`);
     return reply.send(Buffer.from(media.body));
   }
 
   @Delete(':resourceId/primary-media')
-  async removePrimaryMedia(@Param('resourceId') resourceId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.registryService.removePrimaryMedia(resourceId, user);
+  async removePrimaryMedia(@Param('eventId') eventId:string,@Param('resourceId') resourceId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.registryService.removePrimaryMedia(eventId,resourceId,user);
   }
 }

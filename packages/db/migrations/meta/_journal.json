@@ -169,6 +169,13 @@
       "when": 1792608000000,
       "tag": "0023_ldap_event_roles_only",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792609000000,
+      "tag": "0024_jsoc_synthetic_logs",
+      "breakpoints": true
     }
   ]
 }

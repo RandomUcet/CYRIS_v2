@@ -124,3 +124,41 @@ class Operations(unittest.TestCase):
                 else:
                     with self.assertRaises(ValueError):
                         ctl.release_asset(rel, "asset")
+
+
+    def test_ghcr_verify_inspects_all_three_images_by_digest(self):
+        images = {s: f"ghcr.io/randomucet/cyris-{s}@sha256:" + "a"*64 for s in ctl.APP_SERVICES}
+        release = {"tag_name": "v2.0.3"}
+        manifest = json.dumps({"version": "2.0.3", "images": images}).encode()
+        with patch.object(ctl, "release_asset", return_value=manifest) as asset, \
+             patch.object(ctl, "run_command", return_value=Mock(returncode=0)) as runner:
+            self.assertEqual(ctl.verify_release_registry_access(release), "2.0.3")
+        asset.assert_called_once_with(release, "release-manifest.json", token=None)
+        self.assertEqual([call.args[0] for call in runner.call_args_list],
+                         [["docker", "manifest", "inspect", images[s]] for s in ctl.APP_SERVICES])
+        self.docker.assert_not_called()
+
+    def test_ghcr_denial_does_not_mutate_running_app(self):
+        images = {s: f"ghcr.io/randomucet/cyris-{s}@sha256:" + "a"*64 for s in ctl.APP_SERVICES}
+        release = {"tag_name": "v2.0.3"}
+        manifest = json.dumps({"version": "2.0.3", "images": images}).encode()
+        with patch.object(ctl, "release_asset", return_value=manifest), \
+             patch.object(ctl, "run_command", return_value=Mock(returncode=1, stderr="403 Forbidden")):
+            with self.assertRaisesRegex(ValueError, "GHCR access check failed"):
+                ctl.verify_release_registry_access(release)
+        self.docker.assert_not_called()
+        self.assertFalse(Path(ctl.CYRIS_ETC, "github.token").exists())
+
+    def test_github_login_rejects_token_if_package_access_denied(self):
+        token = Path(ctl.CYRIS_ETC, "github.token")
+        token.write_text("previous-token")
+        with patch("builtins.input", return_value="service-robot"), \
+             patch.object(ctl.getpass, "getpass", return_value="candidate-token"), \
+             patch.object(ctl, "github_get", return_value=b"{}"), \
+             patch.object(ctl, "github_release", return_value={"tag_name": "v2.0.3"}), \
+             patch.object(ctl.subprocess, "run", return_value=Mock(returncode=0)), \
+             patch.object(ctl, "verify_release_registry_access", side_effect=ValueError("403 Forbidden")):
+            with self.assertRaisesRegex(ValueError, "403 Forbidden"):
+                ctl.cmd_github_login(self.args)
+        self.assertEqual(token.read_text(), "previous-token")
+        self.docker.assert_not_called()

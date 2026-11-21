@@ -59,3 +59,18 @@ export function teamIdentity(team: DisplayTeam): [string, string] {
 export function publicReadinessChanged(last: CommandReadinessSnapshot | null, next: CommandReadinessSnapshot | null) {
   return Boolean(last && next && next.initialized && last.eventId === next.eventId && next.revision > last.revision);
 }
+
+// Audio must react to an actual level transition, never to acknowledgement,
+// a changed public message, reconnect or simply enabling the sound control.
+// History is not exposed in the public readiness snapshot; intermediate
+// transitions missed between polls cannot reliably be reconstructed.
+export function defconLevelChanged(last: CommandReadinessSnapshot | null, next: CommandReadinessSnapshot | null): boolean {
+  return Boolean(
+    last && next &&
+    last.eventId === next.eventId &&
+    last.initialized && next.initialized &&
+    last.level !== null && next.level !== null &&
+    next.revision > last.revision &&
+    next.level !== last.level
+  );
+}
