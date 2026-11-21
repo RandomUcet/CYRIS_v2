@@ -11,6 +11,7 @@ import {AuthorizationService} from '../authorization/authorization.service.js';
 import {AuditService} from '../audit/audit.service.js';
 import type {AuthenticatedUser} from '../auth/session.service.js';
 import {createSyntheticJsocLogs} from './jsoc-fixture.js';
+import {canAccessSimulatedTelemetry} from './jsoc-access-policy.js';
 
 @Injectable()
 export class JsocService {
@@ -41,7 +42,8 @@ export class JsocService {
         isNull(organizationalUnits.archivedAt),
         eq(unitCapabilities.capabilityKey,'technical_operations'),
       )).limit(1);
-    if(!technical||!await this.authz.authorize({user,permission:Permissions.FORENSICS_READ,context:{eventId}})){
+    const forensicsRead=await this.authz.authorize({user,permission:Permissions.FORENSICS_READ,context:{eventId}});
+    if(!canAccessSimulatedTelemetry(false,Boolean(technical),forensicsRead)){
       throw new ForbiddenException('JSOC exercise telemetry requires technical unit membership and forensics.read');
     }
     return false;
