@@ -290,6 +290,10 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
 
     // Notifications
     'notification.title': 'NOTIFICATIONS',
+    'notification.openCenter': 'Open notifications',
+    'notification.closeCenter': 'Close notifications',
+    'notification.loadError': 'Notifications could not be loaded. Previous entries may be outdated.',
+    'notification.actionError': 'Unable to update the notification. Try again.',
     'notification.new': 'NEW',
     'notification.earlier': 'EARLIER',
     'notification.empty': 'No notifications requiring attention',
@@ -593,6 +597,10 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
 
     // Notifications
     'notification.title': 'NOTIFIKACE',
+    'notification.openCenter': 'Otevřít oznámení',
+    'notification.closeCenter': 'Zavřít oznámení',
+    'notification.loadError': 'Nepodařilo se načíst oznámení. Zobrazené údaje mohou být zastaralé.',
+    'notification.actionError': 'Oznámení se nepodařilo upravit. Zkuste to znovu.',
     'notification.new': 'NOVÉ',
     'notification.earlier': 'DŘÍVĚJŠÍ',
     'notification.empty': 'Žádné notifikace vyžadující pozornost',
@@ -897,6 +905,10 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
 
     // Notifications
     'notification.title': 'BENACHRICHTIGUNGEN',
+    'notification.openCenter': 'Benachrichtigungen öffnen',
+    'notification.closeCenter': 'Benachrichtigungen schließen',
+    'notification.loadError': 'Benachrichtigungen konnten nicht geladen werden. Die angezeigten Einträge sind möglicherweise veraltet.',
+    'notification.actionError': 'Benachrichtigung konnte nicht aktualisiert werden. Bitte erneut versuchen.',
     'notification.new': 'NEU',
     'notification.earlier': 'FRÜHER',
     'notification.empty': 'Keine Benachrichtigungen vorhanden',
@@ -1201,6 +1213,10 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
 
     // Notifications
     'notification.title': 'POWIADOMIENIA',
+    'notification.openCenter': 'Otwórz powiadomienia',
+    'notification.closeCenter': 'Zamknij powiadomienia',
+    'notification.loadError': 'Nie udało się pobrać powiadomień. Widoczne dane mogą być nieaktualne.',
+    'notification.actionError': 'Nie udało się zaktualizować powiadomienia. Spróbuj ponownie.',
     'notification.new': 'NOWE',
     'notification.earlier': 'WCZEŚNIEJSZE',
     'notification.empty': 'Brak powiadomień wymagających uwagi',
