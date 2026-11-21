@@ -11,6 +11,13 @@ const eventReads = new Set([
   '/medical', '/medical/operational-summary', '/lab', '/lab/units',
   '/jsoc/logs', '/forensics', '/indicators', '/court', '/registry/persons', '/registry/organisations',
   '/registry/locations', '/registry/vehicles', '/registry/devices', '/registry/weapons',
+  // Event-scoped detail GET routes: each controller enforces resource access and eventId.
+  // Never use a wildcard here; unknown detail routes remain denied.
+  '/relationships', '/resources/:resourceId', '/resources/:resourceId/relationships',
+  '/registry/persons/:personId', '/registry/organisations/:orgId',
+  '/registry/locations/:locId', '/registry/vehicles/:vehicleId',
+  '/registry/devices/:deviceId', '/registry/weapons/:weaponId',
+  '/registry/:resourceId/primary-media',
 ]);
 export function isPreviewReadAllowed(method: string, route: string, eventId: string | undefined, selectedEvent: string): boolean {
   if (method !== 'GET') return false;
