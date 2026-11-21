@@ -30,7 +30,7 @@ export function operationHoldModules(route: string, method: string): { eventRout
   if (!eventRoute && !isRootResource) return null;
 
   // Break-glass recovery and user support must never be trapped behind the pause.
-  if (eventRoute && ['operational-holds', 'support', 'service-status', 'disruptions'].includes(segments[3] ?? '')) return null;
+  if (eventRoute && ['operational-holds', 'support', 'service-status'].includes(segments[3] ?? '')) return null;
   const mapped = serviceRouteChecks(path, method).map(item => item.module);
   let extra: ServiceModule | null = null;
   const candidate = segments[3] ?? '';
