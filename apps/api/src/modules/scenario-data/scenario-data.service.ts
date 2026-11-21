@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Injectable, BadRequestException, ConflictException, ForbiddenException, BadGatewayException, HttpException, ServiceUnavailableException } from '@nestjs/common';
-import { and, desc, eq, getTableColumns, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { IdentifierAllocatorService } from '../resources/identifier-allocator.service.js';
@@ -21,13 +21,14 @@ import {
   devices,
   weapons,
   resources,
+  registryMedia,
   resourceRelationships,
   outboxEvents,
   OutboxStatus,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
 import { ScenarioLinkSlots } from '@cyris/contracts';
-import type { ScenarioDataCounts, SparkDraftRequest, ScenarioDataRequest, ScenarioDataPreview, ScenarioDataBatchResponse } from '@cyris/contracts';
+import type { ScenarioDataCounts, SparkDraftRequest, ScenarioDataRequest, ScenarioDataPreview, ScenarioDataBatchResponse, ScenarioBatchMediaQuery, ScenarioBatchMediaList } from '@cyris/contracts';
 
 const GENERATOR_VERSION = 2;
 const PRESETS: Record<string, ScenarioDataCounts> = {
@@ -144,6 +145,85 @@ export class ScenarioDataService {
       .where(and(eq(scenarioDataBatches.id, batchId), eq(scenarioDataBatches.eventId, eventId))).limit(1);
     if (!row) throw new BadRequestException('Generation batch not found');
     return this.response(row);
+  }
+
+
+  /**
+   * Lists only synthetic rows from one completed batch and the selected event.
+   * No draft details, other exercises, or sensitive S3 object keys are returned.
+   */
+  async listBatchRecords(eventId: string, batchId: string, query: ScenarioBatchMediaQuery, user: AuthenticatedUser): Promise<ScenarioBatchMediaList> {
+    await this.assertManage(eventId,user);
+    const [batch] = await this.databaseService.client.select({status:scenarioDataBatches.status})
+      .from(scenarioDataBatches)
+      .where(and(eq(scenarioDataBatches.id,batchId),eq(scenarioDataBatches.eventId,eventId))).limit(1);
+    if (!batch) throw new BadRequestException('Generation batch not found');
+    if (batch.status !== ScenarioDataBatchStatus.COMPLETED) throw new ConflictException('Only published batches can have registry images');
+    let rows: Array<{id:string;identifier:string|null;label:string;mediaId:string|null}>;
+    switch (query.kind) {
+      case 'persons': return this.databaseService.client.select({
+        id: persons.id, identifier: persons.identifier,
+        label: persons.displayName, mediaId: registryMedia.id,
+      }).from(persons)
+        .innerJoin(resources, eq(persons.id, resources.id))
+        .leftJoin(registryMedia, eq(registryMedia.resourceId, persons.id))
+        .where(and(eq(persons.generationBatchId, batchId),eq(persons.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
+        .orderBy(asc(persons.identifier), asc(persons.id))
+        .limit(query.limit + 1).offset((query.page - 1) * query.limit);
+      case 'organisations': return this.databaseService.client.select({
+        id: organisations.id, identifier: organisations.identifier,
+        label: organisations.name, mediaId: registryMedia.id,
+      }).from(organisations)
+        .innerJoin(resources, eq(organisations.id, resources.id))
+        .leftJoin(registryMedia, eq(registryMedia.resourceId, organisations.id))
+        .where(and(eq(organisations.generationBatchId, batchId),eq(organisations.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
+        .orderBy(asc(organisations.identifier), asc(organisations.id))
+        .limit(query.limit + 1).offset((query.page - 1) * query.limit);
+      case 'locations': return this.databaseService.client.select({
+        id: locations.id, identifier: locations.identifier,
+        label: locations.name, mediaId: registryMedia.id,
+      }).from(locations)
+        .innerJoin(resources, eq(locations.id, resources.id))
+        .leftJoin(registryMedia, eq(registryMedia.resourceId, locations.id))
+        .where(and(eq(locations.generationBatchId, batchId),eq(locations.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
+        .orderBy(asc(locations.identifier), asc(locations.id))
+        .limit(query.limit + 1).offset((query.page - 1) * query.limit);
+      case 'vehicles': return this.databaseService.client.select({
+        id: vehicles.id, identifier: vehicles.identifier,
+        label: vehicles.label, mediaId: registryMedia.id,
+      }).from(vehicles)
+        .innerJoin(resources, eq(vehicles.id, resources.id))
+        .leftJoin(registryMedia, eq(registryMedia.resourceId, vehicles.id))
+        .where(and(eq(vehicles.generationBatchId, batchId),eq(vehicles.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
+        .orderBy(asc(vehicles.identifier), asc(vehicles.id))
+        .limit(query.limit + 1).offset((query.page - 1) * query.limit);
+      case 'devices': return this.databaseService.client.select({
+        id: devices.id, identifier: devices.identifier,
+        label: devices.label, mediaId: registryMedia.id,
+      }).from(devices)
+        .innerJoin(resources, eq(devices.id, resources.id))
+        .leftJoin(registryMedia, eq(registryMedia.resourceId, devices.id))
+        .where(and(eq(devices.generationBatchId, batchId),eq(devices.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
+        .orderBy(asc(devices.identifier), asc(devices.id))
+        .limit(query.limit + 1).offset((query.page - 1) * query.limit);
+      case 'weapons': return this.databaseService.client.select({
+        id: weapons.id, identifier: weapons.identifier,
+        label: sql<string>`concat_ws(' ', weapons.category, weapons.manufacturer, weapons.model)`, mediaId: registryMedia.id,
+      }).from(weapons)
+        .innerJoin(resources, eq(weapons.id, resources.id))
+        .leftJoin(registryMedia, eq(registryMedia.resourceId, weapons.id))
+        .where(and(eq(weapons.generationBatchId, batchId),eq(weapons.provenance,'SYNTHETIC'),eq(resources.eventId,eventId)))
+        .orderBy(asc(weapons.identifier), asc(weapons.id))
+        .limit(query.limit + 1).offset((query.page - 1) * query.limit);
+      default: throw new BadRequestException('Unsupported registry type');
+    }
+    return {
+      kind: query.kind, page: query.page, limit: query.limit,
+      hasMore: rows.length > query.limit,
+      records: rows.slice(0,query.limit).map(row=>({
+        id: row.id, identifier: row.identifier, label: row.label, hasImage: row.mediaId !== null,
+      })),
+    };
   }
 
   private async existingNames(eventId: string, db: Tx | DatabaseService['client'] = this.databaseService.client) {
