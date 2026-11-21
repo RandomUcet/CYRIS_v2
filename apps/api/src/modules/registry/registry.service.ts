@@ -21,6 +21,7 @@ import {
   type ResourceVisibilityValue,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
+import {validRegistryImage,REGISTRY_IMAGE_BYTES_MAX} from './registry-image-policy.js';
 import type {
   CreatePersonRequest,
   UpdatePersonRequest,
@@ -59,13 +60,24 @@ export class RegistryService {
     return this.databaseService.client;
   }
 
-  async uploadPrimaryMedia(resourceId: string, payload: { filename?: string; mimeType?: string; data?: string }, user: AuthenticatedUser) {
-    await this.resourceAccessService.assertCanAccessResource(user, resourceId, Permissions.REGISTRY_UPDATE);
-    if (!payload.filename || !payload.data || !payload.mimeType?.startsWith('image/')) {
-      throw new BadRequestException('An image filename, MIME type, and base64 data are required');
+  private async assertMediaEvent(eventId:string,resourceId:string) {
+    const [resource]=await this.db.select({id:resources.id,eventId:resources.eventId}).from(resources)
+      .where(eq(resources.id,resourceId)).limit(1);
+    if(!resource||resource.eventId!==eventId)throw new NotFoundException('Registry resource not found in this exercise');
+  }
+
+  async uploadPrimaryMedia(eventId:string, resourceId: string, payload: { filename?: string; mimeType?: string; data?: string }, user: AuthenticatedUser) {
+    await this.assertMediaEvent(eventId,resourceId);
+    await this.resourceAccessService.assertCanAccessResource(user,resourceId,Permissions.REGISTRY_UPDATE);
+    if(!payload.filename||!payload.data||!payload.mimeType||payload.filename.length>200){
+      throw new BadRequestException('Image filename, MIME type and base64 data are required');
     }
-    const data = Buffer.from(payload.data, 'base64');
-    if (data.byteLength > 5 * 1024 * 1024) throw new BadRequestException('Registry images must be 5 MB or smaller');
+    if(payload.data.length>Math.ceil(REGISTRY_IMAGE_BYTES_MAX*4/3)+8 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(payload.data)){
+      throw new BadRequestException('Invalid image data or image larger than 5 MB');
+    }
+    const data=Buffer.from(payload.data,'base64');
+    if(!validRegistryImage(payload.mimeType,data))throw new BadRequestException('Unsupported image format or image larger than 5 MB');
+
     const key = `registry/${resourceId}/primary-${Date.now()}-${payload.filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const stored = await this.storageService.putObject(key, data, payload.mimeType);
     const [previous] = await this.db.select().from(registryMedia).where(eq(registryMedia.resourceId, resourceId)).limit(1);
@@ -92,7 +104,8 @@ export class RegistryService {
     return { filename: payload.filename, mimeType: payload.mimeType, byteSize: data.byteLength };
   }
 
-  async getPrimaryMedia(resourceId: string, user: AuthenticatedUser) {
+  async getPrimaryMedia(eventId:string, resourceId: string, user: AuthenticatedUser) {
+    await this.assertMediaEvent(eventId,resourceId);
     await this.resourceAccessService.assertCanAccessResource(user, resourceId, Permissions.REGISTRY_READ);
     const [media] = await this.db.select().from(registryMedia).where(eq(registryMedia.resourceId, resourceId)).limit(1);
     if (!media) return null;
@@ -100,7 +113,8 @@ export class RegistryService {
     return { ...object, mimeType: media.mimeType, filename: media.filename };
   }
 
-  async removePrimaryMedia(resourceId: string, user: AuthenticatedUser) {
+  async removePrimaryMedia(eventId:string, resourceId: string, user: AuthenticatedUser) {
+    await this.assertMediaEvent(eventId,resourceId);
     await this.resourceAccessService.assertCanAccessResource(user, resourceId, Permissions.REGISTRY_UPDATE);
     const [media] = await this.db.delete(registryMedia).where(eq(registryMedia.resourceId, resourceId)).returning();
     if (media) await this.storageService.deleteObject(media.objectKey, media.bucket);
