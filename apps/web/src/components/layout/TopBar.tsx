@@ -30,7 +30,7 @@ interface TopBarProps {
 }
 
 export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcrumbs = [] }: TopBarProps) {
-  const { currentUser, isPlatformAdmin, hasPermission, logout } = useAuth();
+  const { currentUser, isPlatformAdmin, hasPermission, logout, viewAs } = useAuth();
   const { selectedEvent } = useEvent();
   const { locale, timezone, setLocale, setTimezone, t } = usePreferences();
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
@@ -175,8 +175,8 @@ export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcr
             <kbd style={{ fontSize: '9px', padding: '1px 4px' }}>⌘K</kbd>
           </button>
 
-          {/* Operational Notification Center */}
-          <NotificationCenter />
+          {/* View As cannot read or change personal notifications; hide them entirely. */}
+          {!viewAs && <NotificationCenter />}
 
           {currentUser && (
             <div ref={userMenuRootRef} style={{ position: 'relative' }}>
