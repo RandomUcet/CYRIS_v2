@@ -48,6 +48,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify deployment control utility is executable
+        run: test -x deploy/cyrisctl
+
       - name: Validate release version consistency
         run: node scripts/check-version.mjs
 
