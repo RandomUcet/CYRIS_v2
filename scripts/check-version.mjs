@@ -27,6 +27,11 @@ export function checkVersion(base=root){
     if(current.version!==releaseVersion)
       throw new Error('Version mismatch: '+path+' has '+current.version+' (expected '+releaseVersion+')');
   }
+  if(!releaseVersion.includes('-')){
+    const deployed=join(base,'deploy','VERSION');
+    if(!existsSync(deployed)||readFileSync(deployed,'utf8').trim()!==releaseVersion)
+      throw new Error('Stable release must match deploy/VERSION');
+  }
   return {version:releaseVersion,checked:packages.length};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
