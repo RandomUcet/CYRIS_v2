@@ -663,9 +663,12 @@ export class CyrisApiClient {
     return this.fetchJson<EventAfterActionReport>(
       '/events/' + encodeURIComponent(eventId) + '/after-action-report');
   }
-  getEventPurgePreview(eventId: string) {
+  getEventPurgePreview(eventId: string, resourceTypes?: string[]) {
+    const suffix = resourceTypes && resourceTypes.length
+      ? '?resourceTypes=' + encodeURIComponent(resourceTypes.join(','))
+      : '';
     return this.fetchJson<EventPurgePreview>(
-      '/events/' + encodeURIComponent(eventId) + '/purge-preview');
+      '/events/' + encodeURIComponent(eventId) + '/purge-preview' + suffix);
   }
   async getEvent(eventId: string) {
     return this.fetchJson<EventResponse>(`/events/${eventId}`);

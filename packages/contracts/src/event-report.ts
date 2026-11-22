@@ -13,6 +13,16 @@ export const EventAfterActionReportSchema = z.object({
   legalRequests: z.record(z.number().int().nonnegative()),
   auditCategories: z.record(z.number().int().nonnegative()),
   auditEvents: z.number().int().nonnegative(),
+  auditOutcomes: z.record(z.number().int().nonnegative()),
+  activeAuditOperators: z.number().int().nonnegative(),
+  operationalEvents: z.number().int().nonnegative(),
+  dailyActivity: z.array(z.object({
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    auditEvents: z.number().int().nonnegative(),
+    operationalEvents: z.number().int().nonnegative(),
+    denied: z.number().int().nonnegative(),
+    failures: z.number().int().nonnegative(),
+  })),
 });
 export type EventAfterActionReport = z.infer<typeof EventAfterActionReportSchema>;
 
@@ -22,6 +32,12 @@ export const EventPurgePreviewSchema = z.object({
   profiles: z.object({
     exerciseDataOnly: z.object({ description: z.string(), counts: z.record(z.number().int().nonnegative()) }),
     wholeEvent: z.object({ description: z.string(), counts: z.record(z.number().int().nonnegative()) }),
+  }),
+  selection: z.object({
+    resourceTypes: z.array(z.string()),
+    matchingResources: z.number().int().nonnegative(),
+    unselectedResources: z.number().int().nonnegative(),
+    inventoryCoverage: z.literal('DATABASE_RESOURCES_ONLY'),
   }),
   executable: z.literal(false),
   blockers: z.array(z.string()),
