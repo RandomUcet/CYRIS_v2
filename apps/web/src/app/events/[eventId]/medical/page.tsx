@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordIdentifier, StatusBadge } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
@@ -63,6 +64,7 @@ export default function MedicalPage() {
   // Create Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  useDialogAccessibility(showCreateModal, () => { if (!submitting) setShowCreateModal(false); });
   const [createError, setCreateError] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
     chiefComplaint: string;

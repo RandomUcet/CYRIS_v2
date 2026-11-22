@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordIdentifier, StatusBadge } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
@@ -142,6 +143,7 @@ export default function MedicalDetailPage() {
 
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  useDialogAccessibility(showTriageModal || showObservationModal || showInterventionModal || showTransferModal, () => { if (!actionPending) { setShowTriageModal(false); setShowObservationModal(false); setShowInterventionModal(false); setShowTransferModal(false); setActionError(null); } });
 
   const canTriage = hasPermission('medical.triage');
   const canObserve = hasPermission('medical.observe');

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordHeader } from '@/components/common/RecordHeader';
 import { RecordTabs, TabItem } from '@/components/common/RecordTabs';
 import { RecordInspector } from '@/components/common/RecordInspector';
@@ -102,6 +103,7 @@ export default function ForensicAnalysisDetailPage() {
     notes: '',
   });
   const [acqSubmitting, setAcqSubmitting] = useState(false);
+  useDialogAccessibility(showFindingModal || showAcquisitionModal, () => { if (!findingSubmitting && !acqSubmitting) { setShowFindingModal(false); setShowAcquisitionModal(false); } });
 
   // Permissions
   const canAccept = hasPermission('forensics.accept');
@@ -836,8 +838,8 @@ export default function ForensicAnalysisDetailPage() {
 
         {/* Modal: Add Finding */}
         {showFindingModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '540px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Record Forensic Finding" style={{ maxWidth: '540px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Record Forensic Finding</h3>
                 <button
@@ -936,8 +938,8 @@ export default function ForensicAnalysisDetailPage() {
 
         {/* Modal: Add Acquisition */}
         {showAcquisitionModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '560px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Record Forensic Acquisition" style={{ maxWidth: '560px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Record Forensic Acquisition</h3>
                 <button

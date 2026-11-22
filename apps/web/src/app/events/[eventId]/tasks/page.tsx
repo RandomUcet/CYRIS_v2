@@ -4,6 +4,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordIdentifier, StatusBadge, PriorityBadge } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
@@ -50,6 +51,7 @@ export default function TasksPage() {
   // Modal: Create Task
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
+  useDialogAccessibility(showCreateModal, () => { if (!createSubmitting) setShowCreateModal(false); });
   const [createError, setCreateError] = useState<string | null>(null);
   const [sourceContext, setSourceContext] = useState<string | null>(null);
   const [createForm, setCreateForm] = useState<{
@@ -416,12 +418,12 @@ export default function TasksPage() {
 
       {/* New Task Modal */}
       {canCreate && showCreateModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+        <div className="dialog-overlay dialog-overlay-top" role="presentation">
           <form
             onSubmit={handleCreateTask}
-            className="bg-slate-900 border border-slate-700 rounded-lg max-w-lg w-full p-5 shadow-2xl space-y-4"
+            className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Create Operational Task"
           >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="dialog-header">
               <h3 className="font-semibold text-slate-100 text-sm flex items-center gap-2">
                 <CheckSquare size={16} className="text-blue-400" />
                 {tr("Create Operational Task")}
@@ -441,7 +443,7 @@ export default function TasksPage() {
               </div>
             )}
 
-            <div className="space-y-3 text-xs">
+            <div className="dialog-body form-dialog-body">
               <div>
                 <label className="block font-medium text-slate-300 mb-1">
                   {tr("Title")} <span className="text-rose-400">*</span>
@@ -558,18 +560,18 @@ export default function TasksPage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="dialog-footer">
               <button
                 type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded transition"
+                className="btn btn-secondary"
               >
                 {tr("Cancel")}
               </button>
               <button
                 type="submit"
                 disabled={createSubmitting}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded transition"
+                className="btn btn-primary"
               >
                 {createSubmitting ? 'Creating...' : 'Create Task'}
               </button>

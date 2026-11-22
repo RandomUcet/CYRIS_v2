@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter, usePathname } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordIdentifier } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
@@ -60,6 +61,7 @@ export default function EvaluationPage() {
   const [newObjDesc, setNewObjDesc] = useState('');
   const [newObjWeight, setNewObjWeight] = useState('1.0');
   const [submittingObj, setSubmittingObj] = useState(false);
+  useDialogAccessibility(showAddObjModal, () => { if (!submittingObj) setShowAddObjModal(false); });
 
   const [locking, setLocking] = useState(false);
 
@@ -611,8 +613,8 @@ export default function EvaluationPage() {
 
       {/* New Objective Modal */}
       {showAddObjModal && (
-        <div className="modal-backdrop" onClick={() => setShowAddObjModal(false)}>
-          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+        <div className="modal-backdrop" role="presentation" onClick={() => setShowAddObjModal(false)}>
+          <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Add Evaluation Objective" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
               <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>
                 Add Evaluation Objective

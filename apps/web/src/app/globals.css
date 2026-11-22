@@ -1942,3 +1942,153 @@ a.my-work-item { color: inherit; text-decoration: none; }
 .relationships-count button{margin-left:10px;color:var(--accent-primary);background:transparent;border:0;text-decoration:underline}
 .relationships-stage{flex:1;min-height:450px;height:min(70vh,800px);overflow:hidden;border-radius:8px}
 @media(max-width:700px){.relationships-page{padding:14px}.relationships-stage{min-height:340px;height:60vh}.relationships-header{align-items:stretch}.relationships-filter select{flex:1;min-width:130px}}
+
+
+/* CYRIS V2 SHARED LEGACY DIALOG CONTRACT
+ * Court, Forensics and Evaluation use these classes. They previously had no
+ * definitions in the global styles, leaving those forms unpositioned.
+ * Do not rely on Tailwind utilities: the app does not load Tailwind CSS.
+ */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(8px, 2.5vw, 24px);
+  background: rgb(13 19 27 / 75%);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.modal-dialog {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: min(100%, 680px);
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 22px 70px rgb(0 0 0 / 38%);
+}
+.modal-header,
+.modal-footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--bg-panel);
+}
+.modal-header {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.modal-footer {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border-subtle);
+}
+.modal-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.modal-dialog > form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+.modal-dialog > form:has(> .modal-body) { overflow: hidden; }
+.modal-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.modal-dialog > form:not(:has(> .modal-body)) { padding: 18px 20px; }
+.modal-dialog :is(form, .modal-body, .modal-body > div) { min-width: 0; }
+.modal-dialog :is(.field-label, label.field-label) {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.modal-dialog :is(.field-input, .field-select, .field-textarea, .input-field, input, select, textarea) {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.modal-dialog textarea { min-height: 90px; resize: vertical; }
+.modal-dialog :is(input, select, textarea):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+.modal-dialog button { max-width: 100%; }
+.modal-footer .btn, .dialog-footer .btn { min-height: 36px; }
+.modal-dialog :is(.field-label, .field-input, .modal-title) { overflow-wrap: anywhere; }
+/* Surface controls for legacy Task and Laboratory overlays. */
+.form-dialog-surface { width: min(100%, 600px); }
+.form-dialog-surface > form,
+form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overflow: hidden; }
+.form-dialog-body {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  padding: 18px;
+}
+.form-dialog-body :is(input, select, textarea),
+.form-dialog-surface :is(input, select, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+.form-dialog-body label { display: block; margin-bottom: 5px; color: var(--text-secondary); font-weight: 600; }
+.form-dialog-body > div { min-width: 0; margin-bottom: 12px; }
+.form-dialog-body .grid.grid-cols-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.form-dialog-body .grid.grid-cols-2 > div { min-width: 0; }
+.form-dialog-body textarea { resize: vertical; }
+.form-dialog-body :is(input,select,textarea):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+@media (max-width: 600px) {
+  .modal-backdrop { align-items: flex-start; padding: 8px; }
+  .modal-dialog { width: 100%; max-height: calc(100dvh - 16px); }
+  .modal-header, .modal-footer { padding: 12px 14px; }
+  .modal-body, .modal-dialog > form:not(:has(> .modal-body)), .form-dialog-body { padding: 14px; }
+  .form-dialog-body .grid.grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
+}

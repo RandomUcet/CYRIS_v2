@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordHeader } from '@/components/common/RecordHeader';
 import { RecordTabs, TabItem } from '@/components/common/RecordTabs';
 import { RecordIdentifier, StatusBadge } from '@/components/common/Badges';
@@ -98,6 +99,7 @@ export default function CourtCaseDetailPage() {
   });
 
   const [modalSubmitting, setModalSubmitting] = useState(false);
+  useDialogAccessibility(showPartyModal || showChargeModal || showExhibitModal || showHearingModal || showFilingModal || showDecisionModal, () => { if (!modalSubmitting) { setShowPartyModal(false); setShowChargeModal(false); setShowExhibitModal(false); setShowHearingModal(false); setShowFilingModal(false); setShowDecisionModal(false); } });
 
   // Permissions
   const canUpdateCourt = hasPermission('court.update');
@@ -947,8 +949,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Add Party */}
         {showPartyModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '480px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Add Party to Matter" style={{ maxWidth: '480px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Add Party to Matter</h3>
                 <button
@@ -1013,8 +1015,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Add Charge */}
         {showChargeModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '480px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="File Charge" style={{ maxWidth: '480px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">File Charge</h3>
                 <button
@@ -1073,8 +1075,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Submit Exhibit */}
         {showExhibitModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '480px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Submit Evidence Exhibit" style={{ maxWidth: '480px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Submit Evidence Exhibit</h3>
                 <button
@@ -1124,8 +1126,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Schedule Hearing */}
         {showHearingModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '480px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Schedule Hearing" style={{ maxWidth: '480px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Schedule Hearing</h3>
                 <button
@@ -1174,8 +1176,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Record Filing */}
         {showFilingModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '480px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Record Court Filing" style={{ maxWidth: '480px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Record Court Filing</h3>
                 <button
@@ -1226,8 +1228,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Issue Decision */}
         {showDecisionModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '520px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Issue Judicial Decision" style={{ maxWidth: '520px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Issue Judicial Decision</h3>
                 <button
