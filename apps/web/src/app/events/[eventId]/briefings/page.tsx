@@ -8,7 +8,7 @@ import { RecordIdentifier } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import { RefreshCw, ExternalLink } from 'lucide-react';
+import { RefreshCw, ExternalLink, Printer } from 'lucide-react';
 import type {
   ParticipantBriefingsListResponse,
   ParticipantBriefing,
@@ -36,18 +36,20 @@ export default function BriefingsPage() {
   }, [eventId]);
 
   useEffect(() => {
-    loadBriefings();
+    void loadBriefings();
     const interval = setInterval(() => {
       loadBriefings(true);
     }, 5000);
     return () => clearInterval(interval);
-  }, [eventId]);
+  }, [loadBriefings]);
 
   const handleMarkRead = async (deliveryId: string) => {
     setActionLoadingId(deliveryId);
     const res = await apiClient.markBriefingRead(eventId, deliveryId);
     if (res.ok) {
       await loadBriefings(true);
+    } else {
+      setError(res.error || 'Failed to mark briefing as read');
     }
     setActionLoadingId(null);
   };
@@ -57,6 +59,8 @@ export default function BriefingsPage() {
     const res = await apiClient.acknowledgeBriefing(eventId, deliveryId);
     if (res.ok) {
       await loadBriefings(true);
+    } else {
+      setError(res.error || 'Failed to acknowledge briefing');
     }
     setActionLoadingId(null);
   };
@@ -72,17 +76,30 @@ export default function BriefingsPage() {
       ]}
       title="Operational Briefings"
       actions={
-        <button
-          onClick={() => void loadBriefings()}
-          className="btn btn-secondary"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
-        >
-          <RefreshCw size={13} className={loading ? 'spin' : ''} />
-          Refresh
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Link href={`/events/${eventId}/briefings/print`} target="_blank" rel="noopener noreferrer"
+            className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+            <Printer size={13} /> Print / PDF
+          </Link>
+          <button
+            type="button"
+            onClick={() => void loadBriefings()}
+            className="btn btn-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
+          >
+            <RefreshCw size={13} className={loading ? 'spin' : ''} />
+            Refresh
+          </button>
+        </div>
       }
     >
       <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '1000px' }}>
+        {error && briefingsData && (
+          <div role="alert" style={{ padding: '12px 16px', border: '1px solid var(--color-status-warning)', borderRadius: '6px' }}>
+            Could not update briefings: {error}{' '}
+            <button type="button" onClick={() => void loadBriefings()} className="btn btn-secondary">Retry</button>
+          </div>
+        )}
         {loading && !briefingsData ? (
           <LoadingState message="Loading operational briefings..." />
         ) : error && !briefingsData ? (
