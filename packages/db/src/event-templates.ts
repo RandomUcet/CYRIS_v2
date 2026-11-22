@@ -154,7 +154,7 @@ export const canonicalUnits = [
     capabilities: [UnitCapabilityKeys.COURT_PROCEEDINGS] },
 ];
 
-const legalRoleTemplates = [
+export const legalRoleTemplates = [
   {
     slug: 'statni-zastupce', name: 'Státní zástupce / Prosecutor',
     description: 'Prepares prosecution, files charges and motions, requests case evidence and expert reports. Cannot issue judicial decisions.',

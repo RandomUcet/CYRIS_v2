@@ -1,6 +1,7 @@
 export * from './health.js';
 export * from './auth.js';
 export * from './events.js';
+export * from './event-report.js';
 export * from './units.js';
 export * from './roles.js';
 export * from './audit.js';

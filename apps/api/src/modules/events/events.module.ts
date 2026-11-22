@@ -6,18 +6,23 @@ import { UnitsController } from './units.controller.js';
 import { RolesController } from './roles.controller.js';
 import { WorkspaceController } from './workspace.controller.js';
 import { EventsService } from './events.service.js';
+import { EventAfterActionService } from './event-after-action.service.js';
+import { EventAfterActionController } from './event-after-action.controller.js';
+import { AuthorizationModule } from '../authorization/authorization.module.js';
 import { WorkspaceResolverService } from './workspace-resolver.service.js';
 
 @Module({
+  imports: [AuthorizationModule],
   controllers: [
     EventsController,
+    EventAfterActionController,
     EventTemplatesController,
     MembershipsController,
     UnitsController,
     RolesController,
     WorkspaceController,
   ],
-  providers: [EventsService, WorkspaceResolverService],
+  providers: [EventsService, WorkspaceResolverService, EventAfterActionService],
   exports: [EventsService, WorkspaceResolverService],
 })
 export class EventsModule {}

@@ -6,6 +6,8 @@ import type {
   CurrentUserResponse,
   CreateSupportRequest, SupportInbox, SupportInboxQuery, SupportMessageInput, SupportAssistInput, SupportAssistResult, SupportAssignee, AssignSupportRequest,
   EventResponse,
+  EventAfterActionReport,
+  EventPurgePreview,
   LoginRequest,
   SearchResponse,
   AIProviderResponse,
@@ -656,6 +658,14 @@ export class CyrisApiClient {
   }
   async getRoles(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/roles`);
+  }
+  getEventAfterActionReport(eventId: string) {
+    return this.fetchJson<EventAfterActionReport>(
+      '/events/' + encodeURIComponent(eventId) + '/after-action-report');
+  }
+  getEventPurgePreview(eventId: string) {
+    return this.fetchJson<EventPurgePreview>(
+      '/events/' + encodeURIComponent(eventId) + '/purge-preview');
   }
   async getEvent(eventId: string) {
     return this.fetchJson<EventResponse>(`/events/${eventId}`);
