@@ -17,7 +17,7 @@ export const EventAfterActionReportSchema = z.object({
   activeAuditOperators: z.number().int().nonnegative(),
   operationalEvents: z.number().int().nonnegative(),
   dailyActivity: z.array(z.object({
-    day: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     auditEvents: z.number().int().nonnegative(),
     operationalEvents: z.number().int().nonnegative(),
     denied: z.number().int().nonnegative(),

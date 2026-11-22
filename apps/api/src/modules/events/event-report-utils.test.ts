@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeActivityDays, previewResourceSelection } from './event-report-utils.js';
+import { EventAfterActionReportSchema } from '@cyris/contracts';
 
 test('after-action UTC totals are sorted, aggregate duplicate day rows and never expose content',()=>{
   const daily=mergeActivityDays([
@@ -31,4 +32,12 @@ test('non-destructive purge preview reports only direct resource counts and reje
   assert.equal(all.unselectedResources,0);
   assert.throws(()=>previewResourceSelection(counts,['other']),/Invalid/);
   assert.throws(()=>previewResourceSelection(counts,Array(2001).fill('device')),/safety cap|Invalid/);
+});
+
+test('UTC date validation accepts ISO days but rejects backslash escape strings',()=>{
+  const value={ day:'2026-11-22',auditEvents:1,operationalEvents:0,denied:0,failures:0 };
+  const schema=EventAfterActionReportSchema.shape.dailyActivity;
+  assert.equal(schema.safeParse([value]).success,true);
+  assert.equal(schema.safeParse([{...value,day:'\\\\d{4}-11-22'}]).success,false);
+  assert.equal(schema.safeParse([{...value,day:'2026/11/22'}]).success,false);
 });
