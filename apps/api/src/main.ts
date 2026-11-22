@@ -25,6 +25,8 @@ async function bootstrap(): Promise<void> {
 
   const fastifyAdapter = new FastifyAdapter({
     logger: false,
+    // Accommodate 5 MiB raster image base64 payloads. Per-route service validates magic, size and permission.
+    bodyLimit: 8 * 1024 * 1024,
     genReqId: (req: any) => sanitizeRequestId(req.headers['x-request-id']),
     requestIdHeader: 'x-request-id',
   });

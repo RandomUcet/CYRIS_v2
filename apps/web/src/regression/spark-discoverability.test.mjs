@@ -6,6 +6,7 @@ test('Spark generation is directly discoverable and does not imply draft image u
   assert.ok(page.includes("setMode('SPARK')"));
   assert.ok(page.includes("aria-pressed={mode==='SPARK'}"));
   assert.ok(page.includes('DGX Spark · AI'));
-  assert.ok(page.includes('draft image attachments are still in development'));
+  assert.ok(page.includes('Attach images directly to records inside the draft'));
   assert.ok(page.includes('<ScenarioBatchMediaManager'));
+  assert.ok(page.includes('<ScenarioDraftMediaManager'));
 });

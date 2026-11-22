@@ -183,6 +183,13 @@
       "when": 1792610000000,
       "tag": "0025_operational_holds",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792611000000,
+      "tag": "0026_scenario_draft_media",
+      "breakpoints": true
     }
   ]
 }

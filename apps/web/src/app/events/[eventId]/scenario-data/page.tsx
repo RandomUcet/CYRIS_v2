@@ -9,6 +9,7 @@ import { apiClient } from '@/lib/api-client';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import styles from './scenario-data.module.css';
 import { ScenarioBatchMediaManager } from './ScenarioBatchMediaManager';
+import { ScenarioDraftMediaManager } from './ScenarioDraftMediaManager';
 
 const limitByKind:Record<keyof ScenarioDataCounts,number>={persons:5000,organisations:500,locations:1000,vehicles:2500,devices:5000,weapons:1000};
 const presets = {
@@ -146,7 +147,7 @@ export default function ScenarioDataPage() {
                 <small>{tr('Generujte data podle popisu cvičení s kontrolou konceptu','Generate scenario-aware data from your briefing and review the draft')}</small>
               </button>
             </div>
-            {mode==='SPARK' && <p className={styles.sparkHint} role="status">{tr('Spark připravuje záznamy po částech. Koncept nejprve zkontrolujete, pak jej zveřejníte. Obrázky lze nyní přiřadit po zveřejnění; nahrávání přímo do konceptu se ještě vyvíjí.','Spark prepares draft records in batches for review before publishing. Images can currently be assigned after publishing; draft image attachments are still in development.')}</p>}
+            {mode==='SPARK' && <p className={styles.sparkHint} role="status">{tr('Spark připravuje záznamy po částech. Koncept nejprve zkontrolujete, pak jej zveřejníte. Obrázky lze nyní přiřadit přímo k jednotlivým záznamům v rozpracovaném konceptu. Při publikaci se automaticky uloží do registru.','Spark prepares draft records in batches for review before publishing. Attach images directly to records inside the draft. On publication they become registry images automatically.')}</p>}
             {mode === 'SPARK' && <label>{tr('Scénářové zadání','Scenario brief')}<textarea value={brief} maxLength={1200} rows={4} placeholder={tr('Železniční depo v Pardubicích během střídání směn. Zahrňte zaměstnance, dodavatele a jejich techniku.','A rail depot in Pardubice during a shift change. Include contractors, dispatchers and their equipment.')} onChange={e => {
               configure();
               setBrief(e.target.value);
@@ -189,6 +190,7 @@ export default function ScenarioDataPage() {
           {(complete || (preview && !draft)) && <button disabled={busy} className={styles.primary} onClick={() => void action(publish)}>{tr('Zveřejnit v registru','Add to registry')}</button>}
         </section>
       </div>
+      {draft && draft.status === 'DRAFT' && <ScenarioDraftMediaManager eventId={eventId} batch={draft} />}
       <p role="status">{message || (busy ? tr('Pracuji…','Working…') : '')}</p>
       <section><h2>{tr('Historie generování','Generation history')}</h2>
         {batches.length === 0 && <p>{tr('Zatím nebyla vytvořena žádná sada.','No datasets yet.')}</p>}

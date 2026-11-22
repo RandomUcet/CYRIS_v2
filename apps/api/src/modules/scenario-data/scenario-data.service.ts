@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Injectable, BadRequestException, ConflictException, ForbiddenException, BadGatewayException, HttpException, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, ForbiddenException, BadGatewayException, HttpException, ServiceUnavailableException, Logger } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
@@ -9,9 +9,11 @@ import { emptyWorld, fullName, kinds, localWorld, nameKey, rowSchemas, samples, 
 import { SearchIndexerService } from '../search/search-indexer.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
+import { StorageService } from '../storage/storage.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
   scenarioDataBatches,
+  scenarioDraftMedia,
   ScenarioDataBatchStatus,
   events,
   persons,
@@ -73,6 +75,7 @@ const personDetails = (world: World) => world.persons.slice(0, 4).map(p => ({ na
 
 @Injectable()
 export class ScenarioDataService {
+  private readonly logger = new Logger(ScenarioDataService.name);
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly resourceService: ResourceService,
@@ -81,6 +84,7 @@ export class ScenarioDataService {
     private readonly searchIndexerService: SearchIndexerService,
     private readonly auditService: AuditService,
     private readonly authorizationService: AuthorizationService,
+    private readonly storageService: StorageService,
   ) { }
 
   private async assertManage(eventId: string, user: AuthenticatedUser) {
@@ -419,6 +423,23 @@ export class ScenarioDataService {
       await tx.insert(weapons).values({ id, identifier: key('WPN', i), ...row, serialNumber: 'PROP-' + key('WPN', i), ...provenance });
       await addSearch('weapon', id);
     }
+    // Draft media metadata becomes permanent atomically with the new registry
+    // records. Binary objects are already in private MinIO; no payload reaches AI.
+    const stagedImages = await tx.select().from(scenarioDraftMedia)
+      .where(and(eq(scenarioDraftMedia.eventId, eventId), eq(scenarioDraftMedia.batchId, batchId)));
+    if (stagedImages.length) {
+      const mediaRows = stagedImages.map(image => {
+        const recordIds = ids[image.kind];
+        const resourceId = recordIds?.[image.recordIndex];
+        if (!resourceId) throw new ConflictException('A staged image references a missing generated record');
+        return {
+          id: generateId(), resourceId, objectKey: image.objectKey, bucket: image.bucket,
+          filename: image.filename, mimeType: image.mimeType, byteSize: String(image.byteSize),
+        };
+      });
+      await tx.insert(registryMedia).values(mediaRows);
+      await tx.delete(scenarioDraftMedia).where(eq(scenarioDraftMedia.batchId, batchId));
+    }
     const links: Array<[string, string, string]> = [];
     if (draftLinks) {
       for (const link of draftLinks) links.push([ids[link.source]![link.index]!, ids[link.target]![link.targetIndex]!, link.relation]);
@@ -447,7 +468,8 @@ export class ScenarioDataService {
 
   async cleanup(eventId: string, batchId: string, user: AuthenticatedUser) {
     await this.assertManage(eventId, user);
-    return this.databaseService.client.transaction(async (tx) => {
+    const objectsToDelete: Array<{key:string;bucket:string}> = [];
+    const result = await this.databaseService.client.transaction(async (tx) => {
       await this.lockEvent(tx, eventId);
       const [batch] = await tx.select().from(scenarioDataBatches).where(and(eq(scenarioDataBatches.id, batchId), eq(scenarioDataBatches.eventId, eventId))).limit(1);
       if (!batch) throw new BadRequestException('Generation batch not found');
@@ -478,6 +500,18 @@ export class ScenarioDataService {
         if (external[0]) throw new ForbiddenException('This dataset is currently referenced by operational records.');
       }
 
+      // Removing a generated batch must also clean up its private S3 objects.
+      // Only delete objects after the enclosing DB transaction commits.
+      const staged = await tx.delete(scenarioDraftMedia).where(and(
+        eq(scenarioDraftMedia.eventId, eventId), eq(scenarioDraftMedia.batchId, batchId),
+      )).returning({ key: scenarioDraftMedia.objectKey, bucket: scenarioDraftMedia.bucket });
+      objectsToDelete.push(...staged);
+      if (ids.length) {
+        const storedMedia = await tx.select({ key: registryMedia.objectKey, bucket: registryMedia.bucket })
+          .from(registryMedia).where(inArray(registryMedia.resourceId, ids));
+        objectsToDelete.push(...storedMedia);
+      }
+
       if (ids.length) {
         await tx.delete(resources).where(inArray(resources.id, ids));
         for (const entity of entityIds) {
@@ -489,5 +523,10 @@ export class ScenarioDataService {
       await this.auditService.record({ action: 'scenario_data.batch.cleaned', category: 'scenario_data', eventId, actorUserId: user.id, resourceType: 'scenario_data_batch', resourceId: batchId, txClient: tx, metadata: { batchId, removedEntities: ids.length } });
       return this.response(cleaned!);
     });
+    for (const object of objectsToDelete) {
+      try { await this.storageService.deleteObject(object.key, object.bucket); }
+      catch (error) { this.logger.warn('Could not remove a discarded scenario image from object storage'); }
+    }
+    return result;
   }
 }

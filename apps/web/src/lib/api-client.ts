@@ -110,6 +110,9 @@ import type {
   SparkDraftRequest,
   ScenarioDataBatchResponse,
   ScenarioBatchMediaList,
+  ScenarioDraftRecordList,
+  ScenarioDraftMediaUpload,
+  ScenarioDraftMediaItem,
   RegistryPickerResult,
   JsocLogQuery,
   JsocLogPage,
@@ -534,6 +537,36 @@ export class CyrisApiClient {
       `/events/${eventId}/scenario-data/batches/${batchId}/records?kind=${encodeURIComponent(kind)}&page=${page}&limit=20`
     );
   }
+  async getScenarioDraftRecords(eventId: string, batchId: string,
+    kind: ScenarioDraftRecordList['kind'], page = 1) {
+    return this.fetchJson<ScenarioDraftRecordList>(
+      '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' + encodeURIComponent(batchId) +
+      '/draft-records?kind=' + encodeURIComponent(kind) + '&page=' + page + '&limit=20',
+    );
+  }
+  async getScenarioDraftMedia(eventId: string, batchId: string) {
+    return this.fetchJson<ScenarioDraftMediaItem[]>(
+      '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' + encodeURIComponent(batchId) + '/draft-media',
+    );
+  }
+  async uploadScenarioDraftMedia(eventId: string, batchId: string, payload: ScenarioDraftMediaUpload) {
+    return this.postJson<ScenarioDraftMediaItem>(
+      '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' + encodeURIComponent(batchId) + '/draft-media',
+      payload,
+    );
+  }
+  async removeScenarioDraftMedia(eventId: string, batchId: string,
+    kind: ScenarioDraftRecordList['kind'], index: number) {
+    return this.deleteJson<{ success: boolean }>(
+      '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' + encodeURIComponent(batchId) +
+      '/draft-media?kind=' + encodeURIComponent(kind) + '&index=' + index,
+    );
+  }
+  getScenarioDraftImageUrl(eventId: string, batchId: string, kind: ScenarioDraftRecordList['kind'], index: number) {
+    return this.baseUrl + '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' +
+      encodeURIComponent(batchId) + '/draft-image?kind=' + encodeURIComponent(kind) + '&index=' + index;
+  }
+
   async uploadRegistryPrimaryMedia(eventId: string, resourceId: string, payload: { filename: string; mimeType: string; data: string }) {
     return this.postJson<any>(`/events/${eventId}/registry/${resourceId}/primary-media`, payload);
   }
