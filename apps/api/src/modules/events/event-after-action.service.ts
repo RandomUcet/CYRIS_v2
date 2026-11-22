@@ -1,11 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 import {
   events, eventMemberships, resources, courtCases, medicalEncounters, operationalTasks,
-  supportRequests, auditEvents, courtRequests,
+  supportRequests, auditEvents, courtRequests, activityEvents,
 } from '@cyris/db';
 import { Permissions } from '@cyris/shared';
 import type { EventAfterActionReport, EventPurgePreview } from '@cyris/contracts';
+import { mergeActivityDays, previewResourceSelection } from './event-report-utils.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { DatabaseService } from '../database/database.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
@@ -25,8 +26,12 @@ export class EventAfterActionService {
   }
   async report(eventId: string, actor: AuthenticatedUser): Promise<EventAfterActionReport> {
     const event = await this.getForAdmin(eventId, actor);
+    // All time buckets are UTC; never infer a device timezone from request headers.
+    const utcAuditDay = sql<string>`to_char(${auditEvents.occurredAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`;
+    const utcOperationsDay = sql<string>`to_char(${activityEvents.occurredAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`;
     const [membership, resourceTypes, caseStatuses, medicalStatuses, taskStatuses,
-      supportStatuses, requestStatuses, auditCategories] = await Promise.all([
+      supportStatuses, requestStatuses, auditCategories, auditOutcomeRows,
+      auditDailyRows, operationalDailyRows, operatorRows] = await Promise.all([
       this.db.select({ count: sql<number>`count(*)::integer` }).from(eventMemberships)
         .where(eq(eventMemberships.eventId,eventId)),
       this.db.select({ key: resources.resourceType, count: sql<number>`count(*)::integer` }).from(resources)
@@ -43,6 +48,19 @@ export class EventAfterActionService {
         .where(eq(courtRequests.eventId,eventId)).groupBy(courtRequests.status),
       this.db.select({ key: auditEvents.category, count: sql<number>`count(*)::integer` }).from(auditEvents)
         .where(eq(auditEvents.eventId,eventId)).groupBy(auditEvents.category),
+      this.db.select({ key: auditEvents.outcome, count: sql<number>`count(*)::integer` }).from(auditEvents)
+        .where(eq(auditEvents.eventId,eventId)).groupBy(auditEvents.outcome),
+      this.db.select({
+        day: utcAuditDay,
+        auditEvents: sql<number>`count(*)::integer`,
+        denied: sql<number>`count(*) FILTER (WHERE ${auditEvents.outcome} = 'DENIED')::integer`,
+        failures: sql<number>`count(*) FILTER (WHERE ${auditEvents.outcome} = 'FAILURE')::integer`,
+      }).from(auditEvents).where(eq(auditEvents.eventId,eventId)).groupBy(utcAuditDay),
+      this.db.select({
+        day: utcOperationsDay, operationalEvents: sql<number>`count(*)::integer`,
+      }).from(activityEvents).where(eq(activityEvents.eventId,eventId)).groupBy(utcOperationsDay),
+      this.db.select({ activeAuditOperators: sql<number>`count(DISTINCT ${auditEvents.actorUserId})::integer` })
+        .from(auditEvents).where(eq(auditEvents.eventId,eventId)),
     ]);
     const categories = grouped(auditCategories);
     return {
@@ -54,25 +72,49 @@ export class EventAfterActionService {
       supportStatus: grouped(supportStatuses), legalRequests: grouped(requestStatuses),
       auditCategories: categories,
       auditEvents: Object.values(categories).reduce((sum, value) => sum + value, 0),
+      auditOutcomes: grouped(auditOutcomeRows),
+      activeAuditOperators: Number(operatorRows[0]?.activeAuditOperators ?? 0),
+      operationalEvents: operationalDailyRows.reduce((sum,row)=>sum + Number(row.operationalEvents),0),
+      dailyActivity: mergeActivityDays(
+        auditDailyRows.map(row=>({
+          day:row.day, auditEvents:Number(row.auditEvents),
+          denied:Number(row.denied), failures:Number(row.failures),
+        })),
+        operationalDailyRows.map(row=>({
+          day:row.day, operationalEvents:Number(row.operationalEvents),
+        })),
+      ),
     };
   }
-  async purgePreview(eventId: string, actor: AuthenticatedUser): Promise<EventPurgePreview> {
+  async purgePreview(eventId: string, actor: AuthenticatedUser, selectedResourceTypes?: string[]): Promise<EventPurgePreview> {
     const report = await this.report(eventId, actor);
     const current = await this.getForAdmin(eventId, actor);
+    let selection: ReturnType<typeof previewResourceSelection>;
+    try {
+      selection = previewResourceSelection(report.resources, selectedResourceTypes);
+    } catch {
+      throw new BadRequestException('Requested resource category does not exist in this event');
+    }
     return {
       eventId, eventName: report.eventName, status: report.status,
       generatedAt: new Date().toISOString(), executable: false,
       profiles: {
         exerciseDataOnly: {
           description: 'Simulation records only: never implicitly delete users, event membership, role assignments or audit trail.',
-          counts: { ...report.resources, formalLegalRequests: Object.values(report.legalRequests).reduce((a,b)=>a+b,0) },
+          counts: selection.directlyCounted,
         },
         wholeEvent: {
           description: 'All event-linked records, assignments, files and object store references. Must use verified encrypted backup and staged inventory.',
           counts: { ...report.resources, eventMemberships: report.membershipCount, auditEvents: report.auditEvents },
         },
       },
+      selection: {
+        resourceTypes: selection.resourceTypes, matchingResources: selection.matchingResources,
+        unselectedResources: selection.unselectedResources,
+        inventoryCoverage: 'DATABASE_RESOURCES_ONLY',
+      },
       blockers: [
+        'Inventory includes directly counted database resources only; it is NOT a verified dependency graph or an executable deletion plan.',
         ...(current.status === 'ACTIVE' ? ['Active exercises must be closed and archived before any cleanup.'] : []),
         'An authenticated, verified off-host encrypted backup is required before irreversible cleanup.',
         'Object storage and external integration artifacts must be inventoried and removed safely.',

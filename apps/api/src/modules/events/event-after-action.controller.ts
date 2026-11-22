@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
 import { Permissions, PermissionScopes } from '@cyris/shared';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
 import { PermissionsGuard } from '../authorization/guards/permissions.guard.js';
@@ -19,7 +19,16 @@ export class EventAfterActionController {
   }
   @Get('purge-preview')
   @Header('Cache-Control','private, no-store')
-  purgePreview(@Param('eventId',ParseUUIDPipe) eventId: string, @CurrentUser() actor: AuthenticatedUser) {
-    return this.reports.purgePreview(eventId, actor);
+  purgePreview(@Param('eventId',ParseUUIDPipe) eventId: string, @CurrentUser() actor: AuthenticatedUser,
+    @Query('resourceTypes') rawTypes: unknown) {
+    if (rawTypes !== undefined && (typeof rawTypes !== 'string' || rawTypes.length > 2048)) {
+      throw new BadRequestException('Invalid resource selection');
+    }
+    const selectedTypes = rawTypes ? (rawTypes as string).split(',') : undefined;
+    if (selectedTypes && (selectedTypes.length > 200 ||
+      selectedTypes.some(type=>type.length === 0 || type.length > 64))) {
+      throw new BadRequestException('Invalid selected resource types');
+    }
+    return this.reports.purgePreview(eventId, actor, selectedTypes);
   }
 }
