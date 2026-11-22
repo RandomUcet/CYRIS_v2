@@ -22,6 +22,7 @@ import {
   X,
   Activity,
   ArrowRight,
+  Printer,
 } from 'lucide-react';
 import type {
   MedicalEncounterItem,
@@ -29,6 +30,7 @@ import type {
   MedicalEncounterStatus,
 } from '@cyris/contracts';
 import { TriageBadge } from '@/components/medical/TriageBadge';
+import { filterMedicalRunSheet } from '@/lib/medical-run-sheet';
 
 export default function MedicalPage() {
   const { formatTime, t, locale } = usePreferences();
@@ -114,33 +116,15 @@ export default function MedicalPage() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [showCreateModal, submitting]);
 
-  const filteredEncounters = useMemo(() => {
-    return encounters.filter((e) => {
-      if (search) {
-        const q = search.toLowerCase();
-        const matches =
-          e.medicalNumber.toLowerCase().includes(q) ||
-          (e.chiefComplaint && e.chiefComplaint.toLowerCase().includes(q)) ||
-          (e.personDisplayName && e.personDisplayName.toLowerCase().includes(q)) ||
-          (e.assignedUnitName && e.assignedUnitName.toLowerCase().includes(q));
-        if (!matches) return false;
-      }
+  // The screen and the authenticated printable run sheet use identical filters.
+  const filteredEncounters = useMemo(() => filterMedicalRunSheet(encounters, {
+    view: activeTab, search, triage: triageFilter,
+  }), [encounters, search, triageFilter, activeTab]);
 
-      if (triageFilter && e.triageCategory !== triageFilter) return false;
-
-      if (activeTab === 'active') {
-        return ['RECEIVED', 'TRIAGED', 'UNDER_CARE', 'STABILIZED'].includes(e.status);
-      }
-      if (activeTab === 'triage') {
-        return e.status === 'TRIAGED' || e.triageCategory === 'IMMEDIATE';
-      }
-      if (activeTab === 'transfers') {
-        return e.status === 'TRANSFERRED' || Boolean(e.transferredAt);
-      }
-
-      return true;
-    });
-  }, [encounters, search, triageFilter, activeTab]);
+  const printQuery = new URLSearchParams({ view: activeTab });
+  if (search.trim()) printQuery.set('search', search.trim());
+  if (triageFilter) printQuery.set('triage', triageFilter);
+  const printHref = `/events/${eventId}/medical/print?${printQuery.toString()}`;
 
   const handleCreateEncounter = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,7 +166,12 @@ export default function MedicalPage() {
       title={t('page.medical.title')}
       breadcrumbs={[{ label: t('nav.medical'), href: `/events/${eventId}/medical` }]}
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <a href={printHref} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition">
+            <Printer size={13} />
+            {locale === 'cs' ? 'Tisk přehledu / PDF' : 'Print run sheet / PDF'}
+          </a>
           <button
             onClick={fetchEncounters}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition"
@@ -285,8 +274,8 @@ export default function MedicalPage() {
             description={t('empty.medical.desc')}
           />
         ) : (
-          <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow">
-            <table className="w-full text-left text-xs border-collapse">
+          <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-x-auto shadow" role="region" aria-label={locale === 'cs' ? 'Zdravotnické záznamy' : 'Medical encounters'} tabIndex={0}>
+            <table className="w-full min-w-[940px] text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-950/70 border-b border-slate-800 text-slate-400 uppercase font-mono tracking-wider text-[11px]">
                   <th className="py-2.5 px-3 w-28">{tr("Identifier")}</th>
