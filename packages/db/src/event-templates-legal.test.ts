@@ -15,7 +15,7 @@ test('Prosecutor and judge have separate exercise permissions; court decisions s
   assert.ok(judge.has(Permissions.COURT_DECISION_CREATE));
   assert.ok(judge.has(Permissions.COURT_EXHIBIT_DECIDE));
   assert.equal(judge.has(Permissions.COURT_CHARGE_MANAGE),false);
-  assert.equal(judge.has(Permissions.COURT_REQUEST_RESPOND),false);
+  assert.equal(judge.has(Permissions.COURT_REQUEST_RESPOND),true);
   assert.ok(liaison.has(Permissions.COURT_REQUEST_RESPOND));
   for(const role of legalRoleTemplates){
     assert.ok(role.permissions.every(p=>p.scope===PermissionScopes.EVENT));

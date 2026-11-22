@@ -175,7 +175,7 @@ export const legalRoleTemplates = [
       Permissions.COURT_EXHIBIT_READ, Permissions.COURT_EXHIBIT_DECIDE,
       Permissions.COURT_HEARING_MANAGE, Permissions.COURT_FILING_READ,
       Permissions.COURT_DECISION_READ, Permissions.COURT_DECISION_CREATE,
-      Permissions.COURT_REQUEST_READ, Permissions.COURT_REQUEST_CREATE,
+      Permissions.COURT_REQUEST_READ, Permissions.COURT_REQUEST_CREATE, Permissions.COURT_REQUEST_RESPOND,
       Permissions.DOCUMENT_READ, Permissions.CASE_READ, Permissions.EVIDENCE_READ,
       Permissions.REGISTRY_READ,
     ].map(key => ({ key, scope: PermissionScopes.EVENT })),
