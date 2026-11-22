@@ -20,6 +20,8 @@ test('medical print view retrieves existing patient record only with authenticat
 test('admin report is distinct from real irreversible purge and has printable aggregate output',()=>{
   const p=readFileSync(new URL('../app/admin/events/[eventId]/report/page.tsx',import.meta.url),'utf8');
   assert.ok(p.includes('getEventAfterActionReport(id)'));
-  assert.ok(p.includes('getEventPurgePreview(id)'));
+  assert.ok(p.includes('getEventPurgePreview(id,selectedResourceTypes)'));
+  assert.ok(p.includes('setSelectedResourceTypes'));
+  assert.ok(p.includes('nikoli vazby, soubory, fronty a externí indexy'));
   assert.ok(p.includes('Operace mazání jsou z bezpečnostních důvodů zatím uzamčené'));
 });
