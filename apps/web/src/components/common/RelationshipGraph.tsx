@@ -34,6 +34,8 @@ export interface RelationshipGraphProps {
   onNodeSelect?: (node: any) => void;
   height?: string;
   eventId?: string;
+  /** Disable redundant in-graph type filter when workspace already provides filtering. */
+  showTypeFilter?: boolean;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -60,6 +62,7 @@ export function RelationshipGraph({
   onNodeSelect,
   height = '500px',
   eventId,
+  showTypeFilter = true,
 }: RelationshipGraphProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
@@ -340,7 +343,7 @@ export function RelationshipGraph({
           <ZoomOut size={14} />
         </button>
 
-        {availableEdgeTypes.length > 0 && (
+        {showTypeFilter && availableEdgeTypes.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', borderLeft: '1px solid var(--border-default)', paddingLeft: '8px', marginLeft: '4px' }}>
             <Filter size={12} style={{ color: 'var(--text-muted)' }} />
             <select

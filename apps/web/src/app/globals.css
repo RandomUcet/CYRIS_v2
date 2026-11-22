@@ -2123,3 +2123,33 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
   outline: 2px solid var(--border-focus);
   outline-offset: 2px;
 }
+
+
+/* Search + relation type are complementary filters; keep controls usable on mobile. */
+.relationships-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  min-width: min(100%, 240px);
+}
+.relationships-search input {
+  width: clamp(170px, 18vw, 270px);
+  max-width: 100%;
+  min-height: 38px;
+  padding: 6px 9px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+}
+.relationships-search input:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+@media(max-width:650px) {
+  .relationships-search { width: 100%; }
+  .relationships-search input { flex: 1 1 180px; width: auto; }
+}
