@@ -325,6 +325,10 @@ export default function MedicalDetailPage() {
       ]}
       actions={
         <div className="flex items-center gap-2">
+          <a href={'/events/' + eventId + '/medical/' + encounterId + '/print'}
+            target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+            <FileText size={14}/> Vytisknout zdravotnickou zprávu
+          </a>
           <button
             onClick={fetchEncounter}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition"

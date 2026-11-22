@@ -2153,3 +2153,17 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
   .relationships-search { width: 100%; }
   .relationships-search input { flex: 1 1 180px; width: auto; }
 }
+
+/* Isolated, permission-gated court / medical / event after-action print sheets.
+ * Browser print includes only the authenticated record loaded into the sheet.
+ */
+@media print {
+  body:has(.cyris-print-root) * { visibility: hidden !important; }
+  body .cyris-print-root, body .cyris-print-root * { visibility: visible !important; }
+  body .cyris-print-root {
+    position: absolute !important; inset: 0 auto auto 0 !important;
+    width: 100% !important; max-width: none !important; margin: 0 !important;
+    padding: 0 !important; background: white !important; box-shadow: none !important;
+    color: black !important; min-height: 0 !important;
+  }
+}

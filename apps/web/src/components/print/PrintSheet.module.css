@@ -1,0 +1,17 @@
+.sheet{max-width:960px;margin:2rem auto;padding:32px 36px;background:white;color:#17202d;
+font:14px/1.55 system-ui,Arial,sans-serif;min-height:100vh;box-shadow:0 8px 34px #0002}
+.toolbar{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.toolbar button{cursor:pointer;border:1px solid #95a3b5;border-radius:6px;background:#f2f4f7;color:#142132;padding:9px 14px}
+.header{border-bottom:2px solid #223044;padding-bottom:15px;margin-bottom:20px}
+.header h1{font-size:27px;margin:8px 0}.header p{margin:4px 0}
+.simulation{letter-spacing:.08em;font-size:11px;font-weight:800;color:#8b391e}
+.generated{color:#566274;font-size:11px}
+.section{margin:20px 0;break-inside:avoid-page}
+.section h2{font-size:16px;background:#f3f5f7;padding:6px 10px;border-left:4px solid #365779}
+.section p{white-space:pre-wrap;overflow-wrap:anywhere}
+.field{display:grid;grid-template-columns:minmax(150px,28%) minmax(0,1fr);gap:12px;border-bottom:1px solid #dde1e6;padding:7px 3px}
+.field dt{font-weight:700;color:#445165}.field dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.footer{border-top:1px solid #bdc8d3;margin-top:30px;padding-top:12px;font-size:11px;color:#647080}
+@page{size:A4;margin:15mm}
+@media print{.toolbar{display:none!important}.section{break-inside:auto}}
+@media(max-width:650px){.sheet{padding:16px;margin:0}.field{grid-template-columns:minmax(0,1fr);gap:1px}}

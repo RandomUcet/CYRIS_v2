@@ -26,6 +26,7 @@ import {
   Globe,
   Clock,
   Building2,
+  BarChart3,
   Shield,
 } from 'lucide-react';
 import { CAPABILITY_CATALOG } from '@cyris/contracts';
@@ -494,6 +495,12 @@ export default function AdminEventsPage() {
             <ArrowRight size={12} color="var(--accent-active)" />
             {t('action.enter')}
           </button>
+          {isPlatformAdmin && <button className="btn btn-secondary"
+            title={cs?'Statistiky, závěrečný report a náhled promazání':'Statistics, after-action report and cleanup preview'}
+            onClick={() => router.push('/admin/events/' + item.id + '/report')}
+            style={{fontSize:'11px',padding:'3px 7px'}}>
+            <BarChart3 size={12}/> {cs?'Report':'Report'}
+          </button>}
           {canManage && (
             <>
               <button

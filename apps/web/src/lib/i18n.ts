@@ -303,6 +303,8 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'notification.evidenceTransfer': 'Evidence transferred to your unit',
     'notification.labReady': 'Laboratory analysis ready for approval',
     'notification.medicalAssign': 'Medical operational assignment',
+    'notification.courtRequestCreated': 'New legal request for your team',
+    'notification.courtRequestResponded': 'Response received to your legal request',
 
     // Authentication & Administration
     'auth.signIn': 'Sign in to CYRIS',
@@ -610,6 +612,8 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'notification.evidenceTransfer': 'Důkaz byl předán vaší jednotce',
     'notification.labReady': 'Laboratorní analýza je připravena ke schválení',
     'notification.medicalAssign': 'Zdravotnické operační přiřazení',
+    'notification.courtRequestCreated': 'Nová právní žádost pro váš tým',
+    'notification.courtRequestResponded': 'Přišla odpověď na vaši právní žádost',
 
     // Authentication & Administration
     'auth.signIn': 'Přihlášení do CYRIS',
@@ -918,6 +922,8 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'notification.evidenceTransfer': 'Asservat an Ihre Einheit übergeben',
     'notification.labReady': 'Laboranalyse bereit zur Freigabe',
     'notification.medicalAssign': 'Sanitätsdienstliche Zuweisung',
+    'notification.courtRequestCreated': 'Neue rechtliche Anfrage an Ihr Team',
+    'notification.courtRequestResponded': 'Antwort auf Ihre rechtliche Anfrage eingegangen',
 
     // Authentication & Administration
     'auth.signIn': 'Bei CYRIS anmelden',
@@ -1226,6 +1232,8 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'notification.evidenceTransfer': 'Dowód przekazany do Twojej jednostki',
     'notification.labReady': 'Analiza laboratoryjna gotowa do zatwierdzenia',
     'notification.medicalAssign': 'Medyczne zadanie operacyjne',
+    'notification.courtRequestCreated': 'Nowy wniosek prawny dla Twojego zespołu',
+    'notification.courtRequestResponded': 'Otrzymano odpowiedź na Twój wniosek prawny',
 
     // Authentication & Administration
     'auth.signIn': 'Zaloguj się do CYRIS',

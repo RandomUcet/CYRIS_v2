@@ -26,6 +26,8 @@ describe('administrative operational holds (not simulated disruptions)', () => {
     assert.deepEqual(operationHoldModules('/events/:eventId/registry/:id/primary-media', 'POST'), { eventRoute: true, modules: ['registry'] });
     assert.deepEqual(operationHoldModules('/events/:eventId/command/defcon', 'POST'), { eventRoute: true, modules: ['command'] });
     assert.deepEqual(operationHoldModules('/events/:eventId/scenario-data/:batchId/publish', 'POST'), { eventRoute: true, modules: ['scenario', 'registry'] });
+    assert.deepEqual(operationHoldModules('/events/:eventId/legal-requests/:id/reply', 'POST'),
+      { eventRoute: true, modules: ['court'] });
     assert.equal(operationHoldModules('/events/:eventId/medical', 'GET'), null);
     assert.deepEqual(operationHoldModules('/events/:eventId/disruptions', 'POST'), { eventRoute: true, modules: [] });
     assert.equal(operationHoldModules('/events/:eventId/support', 'POST'), null);

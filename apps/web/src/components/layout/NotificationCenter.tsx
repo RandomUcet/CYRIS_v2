@@ -98,6 +98,8 @@ export function NotificationCenter(){
       case 'evidence.transfer':return t('notification.evidenceTransfer');
       case 'lab.ready':return t('notification.labReady');
       case 'medical.assignment':return t('notification.medicalAssign');
+      case 'court.request.created':return t('notification.courtRequestCreated');
+      case 'court.request.responded':return t('notification.courtRequestResponded');
       case 'command.defcon':return 'DEFCON '+String(p.level??'?');
       default:return item.type.replace(/_/g,' ');
     }

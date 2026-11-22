@@ -226,6 +226,14 @@ export class WorkspaceResolverService {
       }),
     ]);
 
+    // Personal judicial roles must work even before a unit capability is assigned.
+    const [canFileCharges, canIssueJudicialDecisions] = await Promise.all([
+      this.authzService.authorize({ user, permission: Permissions.COURT_CHARGE_MANAGE, context: { eventId } }),
+      this.authzService.authorize({ user, permission: Permissions.COURT_DECISION_CREATE, context: { eventId } }),
+    ]);
+    const canReadLegalRequests = await this.authzService.authorize({
+      user, permission: Permissions.COURT_REQUEST_READ, context: { eventId },
+    });
     const canManageMembers = await this.authzService.authorize({ user, permission: Permissions.MEMBERSHIP_MANAGE, context: { eventId } });
     const canManageRoles = await this.authzService.authorize({ user, permission: Permissions.ROLE_MANAGE, context: { eventId } });
     const canAdmin = isPlatformAdmin || canManageUnits || canReadAudit || canManageMembers || canManageRoles;
@@ -683,7 +691,7 @@ export class WorkspaceResolverService {
       }
 
       // --- PROSECUTION & DEFENCE LEGAL SECTIONS ---
-      if ((hasProsecution || isPlatformAdmin) && canReadCourt) {
+      if ((hasProsecution || canFileCharges || isPlatformAdmin) && canReadCourt) {
         const legalSection: WorkspaceNavSection = {
           id: 'prosecution-section',
           title: 'Legal',
@@ -740,7 +748,7 @@ export class WorkspaceResolverService {
       }
 
       // --- COURT / JUDICIAL PROCEEDINGS SECTION ---
-      if ((hasCourt || isPlatformAdmin) && canReadCourt) {
+      if ((hasCourt || canIssueJudicialDecisions || isPlatformAdmin) && canReadCourt) {
         const courtSection: WorkspaceNavSection = {
           id: 'court-section',
           title: 'Court',
@@ -916,6 +924,19 @@ export class WorkspaceResolverService {
         iconKey: 'sliders',
       });
       sections.push(adminSection);
+    }
+
+    // Legal requests are also relevant to specialist liaisons without the
+    // Prosecution/Court unit capability. Permission remains server-authoritative.
+    if (canReadLegalRequests) {
+      const legalInbox: WorkspaceNavSection = {
+        id: 'legal-request-inbox', title: 'Právní spolupráce', items: [],
+      };
+      addItem(legalInbox, {
+        id: 'nav-legal-requests', label: 'Žádosti o důkazy a posudky',
+        href: '/events/' + eventId + '/legal-requests', iconKey: 'file-text',
+      });
+      sections.push(legalInbox);
     }
 
     return {

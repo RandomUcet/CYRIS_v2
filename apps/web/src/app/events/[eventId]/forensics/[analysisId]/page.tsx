@@ -352,7 +352,9 @@ export default function ForensicAnalysisDetailPage() {
               : []),
           ]}
           actions={
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <Link className="btn btn-secondary" href={'/events/'+eventId+'/forensics/'+analysisId+'/print'}
+                target="_blank" rel="noopener noreferrer">Vytisknout forenzní zprávu</Link>
               {analysis.status === 'REQUESTED' && canAccept && (
                 <button
                   className="btn btn-primary"

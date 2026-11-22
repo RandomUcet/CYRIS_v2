@@ -184,8 +184,8 @@ test('event administration and read-only participant preview against isolated Po
       req.user = admin;
       assert.equal(await permissions.canActivate(ctx), true);
       const results = await Promise.all([controller.initialize(eventA, admin, req), controller.initialize(eventA, admin, req)]);
-      assert.deepEqual(results.map(r => r.unitsCreated).sort(), [0, 7]);
-      assert.deepEqual(results.map(r => r.rolesCreated).sort(), [0, 7]);
+      assert.deepEqual(results.map(r => r.unitsCreated).sort(), [0, 8]);
+      assert.deepEqual(results.map(r => r.rolesCreated).sort(), [0, 10]);
       assert.ok(results.every(r => r.eventId === eventA));
       assert.equal((await db.select().from(organizationalUnits).where(eq(organizationalUnits.eventId, eventB))).length, 0);
       const records = await db.select().from(auditEvents).where(and(eq(auditEvents.eventId, eventA), eq(auditEvents.action, 'event.team_templates.initialized')));

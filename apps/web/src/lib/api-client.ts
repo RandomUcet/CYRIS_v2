@@ -6,6 +6,8 @@ import type {
   CurrentUserResponse,
   CreateSupportRequest, SupportInbox, SupportInboxQuery, SupportMessageInput, SupportAssistInput, SupportAssistResult, SupportAssignee, AssignSupportRequest,
   EventResponse,
+  EventAfterActionReport,
+  EventPurgePreview,
   LoginRequest,
   SearchResponse,
   AIProviderResponse,
@@ -52,6 +54,9 @@ import type {
   CourtFiling,
   CourtDecision,
   CourtTimelineEvent,
+  CourtRequestItem,
+  CreateCourtRequest,
+  ReplyCourtRequest,
   CreateCourtCaseRequest,
   UpdateCourtCaseStatusRequest,
   AddCourtCasePartyRequest,
@@ -654,6 +659,14 @@ export class CyrisApiClient {
   async getRoles(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/roles`);
   }
+  getEventAfterActionReport(eventId: string) {
+    return this.fetchJson<EventAfterActionReport>(
+      '/events/' + encodeURIComponent(eventId) + '/after-action-report');
+  }
+  getEventPurgePreview(eventId: string) {
+    return this.fetchJson<EventPurgePreview>(
+      '/events/' + encodeURIComponent(eventId) + '/purge-preview');
+  }
   async getEvent(eventId: string) {
     return this.fetchJson<EventResponse>(`/events/${eventId}`);
   }
@@ -1103,6 +1116,26 @@ export class CyrisApiClient {
     payload: CreateCourtDecisionRequest
   ): Promise<{ ok: boolean; data?: CourtDecision; error?: string }> {
     return this.postJson<CourtDecision>(`/events/${eventId}/court/${courtCaseId}/decisions`, payload);
+  }
+
+  listLegalRequests(eventId: string) {
+    return this.fetchJson<CourtRequestItem[]>('/events/' + encodeURIComponent(eventId) + '/legal-requests');
+  }
+  listCourtRequests(eventId: string, courtCaseId: string) {
+    return this.fetchJson<CourtRequestItem[]>(
+      '/events/' + encodeURIComponent(eventId) + '/court/' + encodeURIComponent(courtCaseId) + '/requests',
+    );
+  }
+  createCourtRequest(eventId: string, courtCaseId: string, input: CreateCourtRequest) {
+    return this.postJson<CourtRequestItem>(
+      '/events/' + encodeURIComponent(eventId) + '/court/' + encodeURIComponent(courtCaseId) + '/requests', input,
+    );
+  }
+  replyCourtRequest(eventId: string, courtCaseId: string, requestId: string, input: ReplyCourtRequest) {
+    return this.postJson<CourtRequestItem>(
+      '/events/' + encodeURIComponent(eventId) + '/court/' + encodeURIComponent(courtCaseId) +
+      '/requests/' + encodeURIComponent(requestId) + '/reply', input,
+    );
   }
 
   async getCourtTimeline(

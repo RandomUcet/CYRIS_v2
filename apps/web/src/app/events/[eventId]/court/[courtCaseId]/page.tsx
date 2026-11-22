@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { ResourcePicker } from '@/components/common/ResourcePicker';
+import { CourtRequestsPanel } from '@/components/court/CourtRequestsPanel';
 import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordHeader } from '@/components/common/RecordHeader';
 import { RecordTabs, TabItem } from '@/components/common/RecordTabs';
@@ -50,14 +51,15 @@ import type {
 export default function CourtCaseDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const eventId = params.eventId as string;
   const courtCaseId = params.courtCaseId as string;
   const { hasPermission } = useAuth();
   const { formatTime, formatDate } = usePreferences();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'parties' | 'charges' | 'exhibits' | 'hearings' | 'filings' | 'decisions' | 'timeline'
-  >('overview');
+    'overview' | 'parties' | 'charges' | 'exhibits' | 'hearings' | 'filings' | 'decisions' | 'timeline' | 'requests'
+  >(searchParams.get('tab') === 'requests' ? 'requests' : 'overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,6 +112,7 @@ export default function CourtCaseDetailPage() {
   const canManageHearing = hasPermission('court.hearing.manage');
   const canCreateFiling = hasPermission('court.filing.create');
   const canCreateDecision = hasPermission('court.decision.create');
+  const canReadRequests = hasPermission('court.request.read');
 
   const fetchCourtCaseDetails = async () => {
     setLoading(true);
@@ -377,6 +380,7 @@ export default function CourtCaseDetailPage() {
     { id: 'hearings', label: 'Hearings', count: courtCase.hearings?.length || 0, icon: <Clock size={14} /> },
     { id: 'filings', label: 'Filings', count: courtCase.filings?.length || 0, icon: <FileText size={14} /> },
     { id: 'decisions', label: 'Decisions', count: courtCase.decisions?.length || 0, icon: <Gavel size={14} /> },
+    ...(canReadRequests ? [{ id: 'requests', label: 'Žádosti o podklady', icon: <FileText size={14} /> }] : []),
     { id: 'timeline', label: 'Legal Progression', icon: <Clock size={14} /> },
   ];
 
@@ -404,7 +408,10 @@ export default function CourtCaseDetailPage() {
               : []),
           ]}
           actions={
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <Link className="btn btn-secondary" href={`/events/${eventId}/court/${courtCaseId}/print`} target="_blank" rel="noopener noreferrer">
+                <FileText size={14} /> { 'Vytisknout spis' }
+              </Link>
               {courtCase.status === 'PREPARATION' && canUpdateCourt && (
                 <button
                   className="btn btn-primary"
@@ -459,7 +466,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Tab Content */}
         <div style={{ marginTop: '16px' }}>
-          {/* TAB 1: OVERVIEW */}
+          {activeTab === 'requests' && canReadRequests && <CourtRequestsPanel eventId={eventId} courtCaseId={courtCaseId}/>}
+                    {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '16px' }}>
               <div className="card" style={{ padding: '20px' }}>

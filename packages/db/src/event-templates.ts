@@ -31,6 +31,7 @@ export const exerciseOrganizerPermissions = [
   Permissions.COURT_CHARGE_MANAGE, Permissions.COURT_EXHIBIT_READ, Permissions.COURT_EXHIBIT_SUBMIT,
   Permissions.COURT_EXHIBIT_DECIDE, Permissions.COURT_HEARING_MANAGE, Permissions.COURT_FILING_READ,
   Permissions.COURT_FILING_CREATE, Permissions.COURT_DECISION_CREATE, Permissions.COURT_DECISION_READ,
+  Permissions.COURT_REQUEST_READ, Permissions.COURT_REQUEST_CREATE, Permissions.COURT_REQUEST_RESPOND,
   Permissions.TASK_READ, Permissions.TASK_CREATE, Permissions.TASK_UPDATE, Permissions.TASK_ASSIGN,
   Permissions.TASK_ACKNOWLEDGE, Permissions.TASK_WORK, Permissions.TASK_COMPLETE, Permissions.TASK_CANCEL,
   Permissions.COMMAND_READ, Permissions.COMMAND_DEFCON_CHANGE,
@@ -146,7 +147,49 @@ const unitSpecifications = {
     },
   } as const;
 
-export const canonicalUnits = previewTeams.map(team => ({ ...team, ...unitSpecifications[team.slug] }));
+export const canonicalUnits = [
+  ...previewTeams.map(team => ({ ...team, ...unitSpecifications[team.slug] })),
+  { slug: 'soudni-senat', name: 'Soudní senát', kind: 'TEAM',
+    description: 'Independent judges and judicial case administration for the exercise',
+    capabilities: [UnitCapabilityKeys.COURT_PROCEEDINGS] },
+];
+
+export const legalRoleTemplates = [
+  {
+    slug: 'statni-zastupce', name: 'Státní zástupce / Prosecutor',
+    description: 'Prepares prosecution, files charges and motions, requests case evidence and expert reports. Cannot issue judicial decisions.',
+    permissions: [
+      Permissions.EVENT_READ, Permissions.COURT_READ, Permissions.COURT_CREATE,
+      Permissions.COURT_CHARGE_MANAGE, Permissions.COURT_FILING_READ, Permissions.COURT_FILING_CREATE,
+      Permissions.COURT_EXHIBIT_READ, Permissions.COURT_EXHIBIT_SUBMIT,
+      Permissions.COURT_DECISION_READ, Permissions.COURT_REQUEST_READ, Permissions.COURT_REQUEST_CREATE,
+      Permissions.DOCUMENT_READ, Permissions.DOCUMENT_CREATE, Permissions.CASE_READ,
+      Permissions.EVIDENCE_READ, Permissions.REGISTRY_READ,
+    ].map(key => ({ key, scope: PermissionScopes.EVENT })),
+  },
+  {
+    slug: 'soudce', name: 'Soudce / Soudkyně / Judge',
+    description: 'Independently schedules hearings, decides on exhibits and issues court decisions. Cannot write prosecution charges.',
+    permissions: [
+      Permissions.EVENT_READ, Permissions.COURT_READ, Permissions.COURT_UPDATE,
+      Permissions.COURT_EXHIBIT_READ, Permissions.COURT_EXHIBIT_DECIDE,
+      Permissions.COURT_HEARING_MANAGE, Permissions.COURT_FILING_READ,
+      Permissions.COURT_DECISION_READ, Permissions.COURT_DECISION_CREATE,
+      Permissions.COURT_REQUEST_READ, Permissions.COURT_REQUEST_CREATE, Permissions.COURT_REQUEST_RESPOND,
+      Permissions.DOCUMENT_READ, Permissions.CASE_READ, Permissions.EVIDENCE_READ,
+      Permissions.REGISTRY_READ,
+    ].map(key => ({ key, scope: PermissionScopes.EVENT })),
+  },
+  {
+    slug: 'legal-expert-liaison', name: 'Znalec / spojka pro podklady soudu',
+    description: 'Receives and fulfills formal requests for permitted evidence, documents, reports and expert opinions.',
+    permissions: [
+      Permissions.EVENT_READ, Permissions.COURT_READ,
+      Permissions.COURT_REQUEST_READ, Permissions.COURT_REQUEST_RESPOND,
+      Permissions.DOCUMENT_READ, Permissions.EVIDENCE_READ, Permissions.REGISTRY_READ,
+    ].map(key => ({ key, scope: PermissionScopes.EVENT })),
+  },
+];
 
 const eventRoleTemplates = [
   { slug: 'team-member', name: 'Team Member', description: 'Least-privilege event access for operational team members', permissions: teamMemberPermissions },
@@ -156,6 +199,7 @@ const eventRoleTemplates = [
   },
   { slug: 'exercise-command', name: 'Krizový štáb', description: 'Řízení připravenosti, úkolů a situačních zpráv cvičení', permissions: crisisCommandPermissions },
   ...laboratoryRoles,
+  ...legalRoleTemplates,
 ];
 
 /** Builds missing templates in an existing exercise; operators retain ownership of existing records. */

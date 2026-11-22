@@ -1,6 +1,7 @@
 export * from './health.js';
 export * from './auth.js';
 export * from './events.js';
+export * from './event-report.js';
 export * from './units.js';
 export * from './roles.js';
 export * from './audit.js';
@@ -20,6 +21,7 @@ export * from './scenario-draft-media.js';
 export * from './documents.js';
 export * from './forensics.js';
 export * from './court.js';
+export * from './court-requests.js';
 export * from './tasks.js';
 export * from './medical.js';
 export * from './evaluation.js';

@@ -21,6 +21,7 @@ export * from './scenario-draft-media.js';
 export * from './documents.js';
 export * from './forensics.js';
 export * from './court.js';
+export * from './court-requests.js';
 export * from './tasks.js';
 export * from './medical.js';
 export * from './evaluation.js';
