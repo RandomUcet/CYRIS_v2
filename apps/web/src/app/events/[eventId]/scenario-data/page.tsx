@@ -136,12 +136,17 @@ export default function ScenarioDataPage() {
       <div className={styles.columns}>
         <section><h2>{tr('Datová sada','Dataset')}</h2>
           <fieldset disabled={busy}>
-            <label>{tr('Generátor','Generator')}<select value={mode} onChange={e => {
-              configure();
-              setMode(e.target.value as typeof mode);
-            }}>
-              <option value="LOCAL">{tr('Lokální generátor','Local generator')}</option><option value="SPARK">{tr('Spark · scénářové zadání','Spark · scenario brief')}</option>
-            </select></label>
+            <div className={styles.generatorModes} role="group" aria-label={tr('Způsob generování dat','Dataset generation mode')}>
+              <button type="button" aria-pressed={mode==='LOCAL'} className={mode==='LOCAL'?styles.selectedMode:styles.generatorMode} onClick={()=>{configure();setMode('LOCAL')}}>
+                <strong>{tr('Lokální generátor','Local generator')}</strong>
+                <small>{tr('Deterministická sada, bez AI a bez externí služby','Deterministic dataset without external AI service')}</small>
+              </button>
+              <button type="button" aria-pressed={mode==='SPARK'} className={mode==='SPARK'?styles.selectedMode:styles.generatorMode} onClick={()=>{configure();setMode('SPARK')}}>
+                <strong>DGX Spark · AI</strong>
+                <small>{tr('Generujte data podle popisu cvičení s kontrolou konceptu','Generate scenario-aware data from your briefing and review the draft')}</small>
+              </button>
+            </div>
+            {mode==='SPARK' && <p className={styles.sparkHint} role="status">{tr('Spark připravuje záznamy po částech. Koncept nejprve zkontrolujete, pak jej zveřejníte. Obrázky lze nyní přiřadit po zveřejnění; nahrávání přímo do konceptu se ještě vyvíjí.','Spark prepares draft records in batches for review before publishing. Images can currently be assigned after publishing; draft image attachments are still in development.')}</p>}
             {mode === 'SPARK' && <label>{tr('Scénářové zadání','Scenario brief')}<textarea value={brief} maxLength={1200} rows={4} placeholder={tr('Železniční depo v Pardubicích během střídání směn. Zahrňte zaměstnance, dodavatele a jejich techniku.','A rail depot in Pardubice during a shift change. Include contractors, dispatchers and their equipment.')} onChange={e => {
               configure();
               setBrief(e.target.value);
