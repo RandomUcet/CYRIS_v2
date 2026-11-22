@@ -4,6 +4,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
 import { StatusBadge } from '@/components/common/Badges';
@@ -32,6 +33,7 @@ export default function TechnicalIndicatorsPage() {
   // Modal: Add Indicator
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  useDialogAccessibility(showModal, () => { if (!submitting) setShowModal(false); });
   const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
     indicatorType: IndicatorType;
@@ -278,8 +280,8 @@ export default function TechnicalIndicatorsPage() {
 
         {/* Modal: Add Technical Indicator */}
         {showModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '520px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Add Technical Indicator" style={{ maxWidth: '520px' }}>
               <div className="modal-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Hash size={18} style={{ color: 'var(--color-accent-ops)' }} />

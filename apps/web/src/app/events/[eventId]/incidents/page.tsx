@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
 import { RecordIdentifier, StatusBadge, PriorityBadge } from '@/components/common/Badges';
@@ -45,6 +46,7 @@ export default function IncidentsListPage() {
   // Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  useDialogAccessibility(showCreateModal, () => { if (!submitting) setShowCreateModal(false); });
   const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: '',
@@ -307,30 +309,8 @@ export default function IncidentsListPage() {
 
         {/* Modal: Report Incident */}
         {showCreateModal && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.7)',
-              backdropFilter: 'blur(2px)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000,
-              padding: '16px',
-            }}
-          >
-            <div
-              style={{
-                width: '100%',
-                maxWidth: '520px',
-                background: 'var(--color-bg-surface)',
-                border: '1px solid var(--color-border-strong)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: 'var(--shadow-lg)',
-                overflow: 'hidden',
-              }}
-            >
+          <div className="dialog-overlay dialog-overlay-top" role="presentation">
+            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Report Operational Incident" style={{ maxWidth: '520px' }}>
               <div
                 style={{
                   display: 'flex',

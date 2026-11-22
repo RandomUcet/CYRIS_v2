@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
 import { RecordIdentifier, StatusBadge, PriorityBadge } from '@/components/common/Badges';
@@ -45,6 +46,7 @@ export default function CasesPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showWritingAssist, setShowWritingAssist] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  useDialogAccessibility(showCreateModal, () => { if (!submitting) setShowCreateModal(false); });
   const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: '',
@@ -312,29 +314,9 @@ export default function CasesPage() {
             onMouseDown={(event) => {
               if (event.target === event.currentTarget && !submitting) setShowCreateModal(false);
             }}
-            style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.7)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000,
-              padding: '16px',
-            }}
           >
             <div
-              className="dialog-surface"
-              style={{
-                width: '100%',
-                maxWidth: '540px',
-                background: 'var(--color-bg-surface)',
-                border: '1px solid var(--color-border-strong)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: 'var(--shadow-lg)',
-                overflow: 'hidden',
-                maxHeight: 'min(90vh, 760px)',
-              }}
+              className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Create Case" style={{ maxWidth: '540px' }}
             >
               <div
                 style={{
