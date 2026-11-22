@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Activity, BookOpen, CheckCircle2, Inbox, Plus, RefreshCw, Send } from 'lucide-react';
-import type { CreateSupportRequest, SupportInbox, SupportThread } from '@cyris/contracts';
+import type { CreateSupportRequest, SupportInbox, SupportThread, SupportAssignee } from '@cyris/contracts';
 import { AppShell } from '@/components/layout/AppShell';
 import { ErrorState, LoadingState } from '@/components/common/StateViews';
 import { usePreferences } from '@/contexts/PreferencesContext';
@@ -47,6 +47,7 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
   const [newRequest, setNewRequest] = useState(emptyRequest);
   const [drafts, setDrafts] = useState<Record<string, ReplyDraft>>({});
   const [saving, setSaving] = useState(false);
+  const [assignees, setAssignees] = useState<SupportAssignee[]>([]);
   const [actionError, setActionError] = useState<{ target: string; message: string } | null>(null);
   const replyField = useRef<HTMLTextAreaElement>(null);
 
@@ -103,6 +104,15 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
     document.addEventListener('visibilitychange', visibleLoad);
     return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', visibleLoad); };
   }, [eventId, page, filter, category, searchTerm, selectedId, refreshVersion]);
+
+  useEffect(() => {
+    if (!inbox?.canManage) { setAssignees([]); return; }
+    let active = true;
+    void apiClient.listSupportAssignees(eventId).then(result => {
+      if (active && result.ok && result.data) setAssignees(result.data);
+    });
+    return () => { active = false; };
+  }, [eventId, inbox?.canManage, refreshVersion]);
 
   const threads = inbox?.threads ?? [];
   const waiting = threads.filter(thread => thread.status === 'OPEN');
@@ -191,6 +201,19 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
       refresh();
     }
   }
+  async function assignThread(userId: string | null) {
+    if (!thread || !canManage || !canWrite || saving) return;
+    setSaving(true); setActionError(null);
+    try {
+      const result = await apiClient.assignSupport(eventId, thread.id, {
+        assignedToUserId: userId, expectedRevision: thread.revision,
+      });
+      if (!result.ok) throw new Error(result.error || 'Assignment failed');
+    } catch (error) {
+      setActionError({ target: thread.id, message: error instanceof Error ? error.message :
+        tr('Přiřazení se nezdařilo.','Assignment failed.') });
+    } finally { setSaving(false); refresh(); }
+  }
   const contact = () => navigate({ kind: 'create' });
 
   return (
@@ -255,7 +278,7 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
                     className={'helpdesk-thread' + (thread?.id === item.id ? ' selected' : '')}
                     onClick={() => navigate({ kind: 'thread', id: item.id })}>
                     <strong>{item.subject}</strong>
-                    <small>{canManage && item.requesterName + ' · '}{categories[item.category]}</small>
+                    <small>{canManage && item.requesterName + ' · '}{categories[item.category]}{canManage && item.assignedToName && ' · '+item.assignedToName}</small>
                     <span className={styles.threadMeta}>
                       <span className={'support-status ' + item.status.toLowerCase()}>{statuses[item.status]}</span>
                       <time dateTime={item.updatedAt}>{formatDate(item.updatedAt)} · {formatTime(item.updatedAt)}</time>
@@ -303,6 +326,19 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
                   <header className="helpdesk-conversation-header"><div><h2>{thread.subject}</h2><small>{categories[thread.category]} · {thread.requesterName}</small></div>
                     <span className={'support-status ' + thread.status.toLowerCase()}>{statuses[thread.status]}</span>
                   </header>
+                  {canManage && <label className={styles.assignmentControl}>
+                    {tr('Přiřazeno podpoře', 'Assigned responder')}
+                    <select value={thread.assignedToUserId ?? ''} disabled={!canWrite || saving || thread.status === 'RESOLVED'}
+                      onChange={event => void assignThread(event.target.value || null)}
+                      aria-label={tr('Přiřadit žádost členovi podpory', 'Assign support request')}>
+                      <option value="">{tr('Nepřiřazeno', 'Unassigned')}</option>
+                      {assignees.map(member => <option key={member.id} value={member.id}>
+                        {member.displayName} · {member.activeLoad} {tr('aktivních', 'active')}
+                      </option>)}
+                    </select>
+                    <small>{tr('Nové žádosti se přiřazují automaticky dostupným pracovníkům.', 
+                      'New requests are automatically routed to eligible responders.')}</small>
+                  </label>}
                   <div className="helpdesk-messages">{thread.messages.map(message => (
                     <article key={message.id} className={'helpdesk-message ' + (message.authorKind === 'EXCON' ? 'excon' : 'participant')}>
                       <div><strong>{message.authorKind === 'EXCON' ? (canManage ? 'EXCON' : tr('Tým podpory', 'Support team')) : thread.requesterName}</strong>

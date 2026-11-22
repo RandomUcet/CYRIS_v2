@@ -3,11 +3,15 @@ export const SupportCategorySchema=z.enum(['NAVIGATION','TASK','TECHNICAL','OTHE
 export const SupportStatusSchema=z.enum(['OPEN','ANSWERED','RESOLVED']);
 export const CreateSupportRequestSchema=z.object({category:SupportCategorySchema,subject:z.string().trim().min(3).max(160),body:z.string().trim().min(1).max(4000)});
 export type CreateSupportRequest=z.infer<typeof CreateSupportRequestSchema>;
+export const SupportAssigneeSchema = z.object({ id: z.string().uuid(), displayName: z.string(), activeLoad: z.number().int().nonnegative() });
+export const AssignSupportRequestSchema = z.object({ assignedToUserId: z.string().uuid().nullable(), expectedRevision: z.number().int().positive() });
+export type SupportAssignee = z.infer<typeof SupportAssigneeSchema>;
+export type AssignSupportRequest = z.infer<typeof AssignSupportRequestSchema>;
 export const SupportMessageInputSchema=z.object({body:z.string().trim().min(1).max(4000),expectedRevision:z.number().int().positive()});
 export type SupportMessageInput=z.infer<typeof SupportMessageInputSchema>;
 export const ResolveSupportRequestSchema=z.object({expectedRevision:z.number().int().positive()});
 export const SupportMessageSchema=z.object({id:z.string().uuid(),authorKind:z.enum(['PARTICIPANT','EXCON']),body:z.string(),createdAt:z.string()});
-export const SupportThreadSchema=z.object({id:z.string().uuid(),eventId:z.string().uuid(),requesterId:z.string().uuid(),requesterName:z.string(),category:SupportCategorySchema,subject:z.string(),status:SupportStatusSchema,revision:z.number().int(),createdAt:z.string(),updatedAt:z.string(),messages:z.array(SupportMessageSchema)});
+export const SupportThreadSchema=z.object({id:z.string().uuid(),eventId:z.string().uuid(),requesterId:z.string().uuid(),requesterName:z.string(),assignedToUserId:z.string().uuid().nullable(),assignedToName:z.string().nullable(),category:SupportCategorySchema,subject:z.string(),status:SupportStatusSchema,revision:z.number().int(),createdAt:z.string(),updatedAt:z.string(),messages:z.array(SupportMessageSchema)});
 export const SupportInboxQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(100000).optional(),
   status: SupportStatusSchema.optional(),

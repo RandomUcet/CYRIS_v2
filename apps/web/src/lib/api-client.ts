@@ -4,7 +4,7 @@ import type {
   LabAnalysisDetail,
   ReadinessResponse,
   CurrentUserResponse,
-  CreateSupportRequest, SupportInbox, SupportInboxQuery, SupportMessageInput, SupportAssistInput, SupportAssistResult,
+  CreateSupportRequest, SupportInbox, SupportInboxQuery, SupportMessageInput, SupportAssistInput, SupportAssistResult, SupportAssignee, AssignSupportRequest,
   EventResponse,
   LoginRequest,
   SearchResponse,
@@ -193,6 +193,12 @@ export class CyrisApiClient {
     if (query.q) params.set('q', query.q);
     if (query.threadId) params.set('threadId', query.threadId);
     return this.fetchJson<SupportInbox>(`/events/${eventId}/support${params.size ? '?' + params : ''}`);
+  }
+  listSupportAssignees(eventId: string) {
+    return this.fetchJson<SupportAssignee[]>(`/events/${encodeURIComponent(eventId)}/support/assignees`);
+  }
+  assignSupport(eventId: string, id: string, input: AssignSupportRequest) {
+    return this.postJson<{id:string}>(`/events/${encodeURIComponent(eventId)}/support/${encodeURIComponent(id)}/assign`,input);
   }
   createSupport(eventId:string,input:CreateSupportRequest){return this.postJson<{id:string}>(`/events/${eventId}/support`,input);}
   assistSupport(eventId: string, input: SupportAssistInput) {

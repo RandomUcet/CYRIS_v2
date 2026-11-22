@@ -1,5 +1,5 @@
 import {Controller,Get,Post,Param,Body,UseGuards,BadRequestException,ParseUUIDPipe,Header,HttpCode,Query,Req} from '@nestjs/common';
-import {CreateSupportRequestSchema,SupportMessageInputSchema,ResolveSupportRequestSchema,SupportAssistInputSchema,SupportInboxQuerySchema} from '@cyris/contracts';
+import {CreateSupportRequestSchema,SupportMessageInputSchema,ResolveSupportRequestSchema,SupportAssistInputSchema,SupportInboxQuerySchema,AssignSupportRequestSchema} from '@cyris/contracts';
 import {AuthGuard,type CyrisRequest} from '../auth/guards/auth.guard.js';
 import {CurrentUser} from '../auth/decorators/current-user.decorator.js';
 import type {AuthenticatedUser} from '../auth/session.service.js';
@@ -14,6 +14,18 @@ export class SupportController{
     const parsed = SupportInboxQuerySchema.safeParse(query ?? {});
     if (!parsed.success) throw new BadRequestException('Invalid support inbox query');
     return this.service.list(eventId, user, parsed.data);
+  }
+  @Get('assignees')
+  @Header('Cache-Control', 'private, no-store')
+  assignees(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() user:AuthenticatedUser) {
+    return this.service.eligibleAssignees(eventId,user);
+  }
+  @Post(':id/assign')
+  assign(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('id',ParseUUIDPipe) id:string,
+    @CurrentUser() user:AuthenticatedUser,@Body() body:unknown) {
+    const parsed=AssignSupportRequestSchema.safeParse(body);
+    if(!parsed.success)throw new BadRequestException('Invalid support assignment');
+    return this.service.assign(eventId,id,user,parsed.data);
   }
   @Post()
   create(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() user:AuthenticatedUser,@Body() body:unknown){

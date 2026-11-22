@@ -16,7 +16,10 @@ export function inspectScenarioDraft(input: {
     !Number.isInteger(link.index)||!Number.isInteger(link.targetIndex)||
     link.index<0||link.targetIndex<0||
     !input.rows[link.source]?.[link.index]||!input.rows[link.target]?.[link.targetIndex]).length;
-  const allRows = kinds.flatMap(k=>input.rows[k]);
+  const allRows: Array<{ description: string }> = [
+    ...input.rows.persons, ...input.rows.organisations, ...input.rows.locations,
+    ...input.rows.vehicles, ...input.rows.devices, ...input.rows.weapons,
+  ];
   const weak = allRows.filter(row=>typeof row.description==='string'&&row.description.trim().length<30).length;
   const checks: ScenarioQualityReport['checks'] = [
     {code:'COUNTS',status:complete?'PASS':'FAIL',message:complete? 'All requested records are prepared.': 'Draft is incomplete or exceeds requested counts.'},
