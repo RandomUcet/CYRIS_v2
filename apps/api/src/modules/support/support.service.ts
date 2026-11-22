@@ -1,5 +1,5 @@
 import {Injectable,ForbiddenException,NotFoundException,ConflictException} from '@nestjs/common';
-import {and,eq,desc,asc,inArray,sql} from 'drizzle-orm';
+import {and,eq,desc,asc,inArray,ilike,sql} from 'drizzle-orm';
 import {events,eventMemberships,MembershipStatus,users,supportRequests,supportMessages} from '@cyris/db';
 import {Permissions} from '@cyris/shared';
 import type {CreateSupportRequest,SupportInbox,SupportInboxQuery,SupportThread,SupportMessageInput} from '@cyris/contracts';
@@ -29,7 +29,14 @@ export class SupportService {
   async list(eventId: string, user: AuthenticatedUser, query: SupportInboxQuery = {}): Promise<SupportInbox> {
     const canManage = await this.access(eventId, user);
     const audience = and(eq(supportRequests.eventId, eventId), canManage ? undefined : eq(supportRequests.requesterId, user.id));
-    const filter = and(audience, query.status ? eq(supportRequests.status, query.status) : undefined);
+    // Filter AFTER applying tenant and requester visibility, never across tenants.
+    // Escape SQL LIKE wildcards so search always means literal subject text.
+    const pattern = query.q ? '%' + query.q.replace(/[\\%_]/g, '\\    const filter = and(audience, query.status ? eq(supportRequests.status, query.status) : undefined);') + '%' : undefined;
+    const scopedAudience = and(audience,
+      query.category ? eq(supportRequests.category, query.category) : undefined,
+      pattern ? ilike(supportRequests.subject, pattern) : undefined,
+    );
+    const filter = and(scopedAudience, query.status ? eq(supportRequests.status, query.status) : undefined);
     const order = canManage ? [
       desc(sql`${supportRequests.status} = 'OPEN'`),
       asc(sql`case when ${supportRequests.status} = 'OPEN' then ${supportRequests.updatedAt} end`),
@@ -48,7 +55,7 @@ export class SupportService {
       paged ? this.db.select({
         status: supportRequests.status, count: sql<number>`count(*)::integer`,
         latest: sql<string>`max(${supportRequests.updatedAt})::text`,
-      }).from(supportRequests).where(audience).groupBy(supportRequests.status) : [],
+      }).from(supportRequests).where(scopedAudience).groupBy(supportRequests.status) : [],
     ]);
     const messageIds = paged ? selectedRows.map(r => r.thread.id) : rows.map(r => r.thread.id);
     const groups = new Map<string, SupportThread['messages']>();

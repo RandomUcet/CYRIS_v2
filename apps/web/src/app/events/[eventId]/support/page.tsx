@@ -41,6 +41,9 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
   const [page, setPage] = useState(1);
   const selectedId = view.kind === 'thread' ? view.id : undefined;
   const [filter, setFilter] = useState<Filter>('ALL');
+  const [category, setCategory] = useState<'ALL' | CreateSupportRequest['category']>('ALL');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [newRequest, setNewRequest] = useState(emptyRequest);
   const [drafts, setDrafts] = useState<Record<string, ReplyDraft>>({});
   const [saving, setSaving] = useState(false);
@@ -49,6 +52,16 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
 
   const refresh = () => setRefreshVersion(previous => previous + 1);
 
+  // Debounce network requests; the backend filters across the whole accessible
+  // inbox before pagination, rather than searching only the current page.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setSearchTerm(searchInput.trim().length >= 2 ? searchInput.trim() : '');
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
   useEffect(() => {
     let active = true;
     let pending = false;
@@ -56,7 +69,7 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
       if (pending) return;
       pending = true;
       try {
-        const response = await apiClient.listSupport(eventId, { page, threadId: selectedId, status: filter === 'ALL' ? undefined : filter });
+        const response = await apiClient.listSupport(eventId, { page, threadId: selectedId, status: filter === 'ALL' ? undefined : filter, category: category === 'ALL' ? undefined : category, q: searchTerm || undefined });
         if (!active) return;
         if (response.ok && response.data) {
           const data = response.data;
@@ -89,7 +102,7 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
     const timer = window.setInterval(visibleLoad, 15000);
     document.addEventListener('visibilitychange', visibleLoad);
     return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', visibleLoad); };
-  }, [eventId, page, filter, selectedId, refreshVersion]);
+  }, [eventId, page, filter, category, searchTerm, selectedId, refreshVersion]);
 
   const threads = inbox?.threads ?? [];
   const waiting = threads.filter(thread => thread.status === 'OPEN');
@@ -137,6 +150,9 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
       setView(current => current.kind === 'create' ? { kind: 'thread', id } : current);
       setPage(1);
       setFilter('ALL');
+      setCategory('ALL');
+      setSearchInput('');
+      setSearchTerm('');
       refresh();
     } catch {
       setActionError({ target: 'create', message: tr('Žádost se nepodařilo odeslat. Zkuste to znovu.', 'The request could not be sent. Please try again.') });
@@ -217,6 +233,21 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
                     {value === 'ALL' ? tr('Vše', 'All') : statuses[value]}
                   </button>
                 ))}
+              </div>
+              <div className={styles.inboxSearchFilters}>
+                <label>{tr('Kategorie', 'Category')}
+                  <select value={category} onChange={event => { setPage(1); setCategory(event.target.value as 'ALL' | CreateSupportRequest['category']); }}
+                    aria-label={tr('Filtrovat podle kategorie', 'Filter by category')}>
+                    <option value="ALL">{tr('Všechny kategorie', 'All categories')}</option>
+                    {(['NAVIGATION', 'TASK', 'TECHNICAL', 'OTHER'] as const).map(value =>
+                      <option key={value} value={value}>{categories[value]}</option>)}
+                  </select>
+                </label>
+                <label>{tr('Hledat v žádostech', 'Search requests')}
+                  <input type="search" value={searchInput} maxLength={80}
+                    onChange={event => setSearchInput(event.target.value)}
+                    placeholder={tr('Předmět žádosti (alespoň 2 znaky)', 'Subject (at least 2 characters)')}/>
+                </label>
               </div>
               <div className="helpdesk-threads">
                 {visible.map(item => (

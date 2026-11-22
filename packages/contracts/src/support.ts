@@ -11,6 +11,8 @@ export const SupportThreadSchema=z.object({id:z.string().uuid(),eventId:z.string
 export const SupportInboxQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(100000).optional(),
   status: SupportStatusSchema.optional(),
+  category: SupportCategorySchema.optional(),
+  q: z.string().trim().min(2).max(80).optional(),
   threadId: z.string().uuid().optional(),
 });
 export type SupportInboxQuery = z.infer<typeof SupportInboxQuerySchema>;

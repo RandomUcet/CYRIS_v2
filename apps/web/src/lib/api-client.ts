@@ -185,6 +185,8 @@ export class CyrisApiClient {
     const params = new URLSearchParams();
     if (query.page) params.set('page', String(query.page));
     if (query.status) params.set('status', query.status);
+    if (query.category) params.set('category', query.category);
+    if (query.q) params.set('q', query.q);
     if (query.threadId) params.set('threadId', query.threadId);
     return this.fetchJson<SupportInbox>(`/events/${eventId}/support${params.size ? '?' + params : ''}`);
   }
