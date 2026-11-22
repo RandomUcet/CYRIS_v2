@@ -52,6 +52,9 @@ import type {
   CourtFiling,
   CourtDecision,
   CourtTimelineEvent,
+  CourtRequestItem,
+  CreateCourtRequest,
+  ReplyCourtRequest,
   CreateCourtCaseRequest,
   UpdateCourtCaseStatusRequest,
   AddCourtCasePartyRequest,
@@ -1103,6 +1106,23 @@ export class CyrisApiClient {
     payload: CreateCourtDecisionRequest
   ): Promise<{ ok: boolean; data?: CourtDecision; error?: string }> {
     return this.postJson<CourtDecision>(`/events/${eventId}/court/${courtCaseId}/decisions`, payload);
+  }
+
+  listCourtRequests(eventId: string, courtCaseId: string) {
+    return this.fetchJson<CourtRequestItem[]>(
+      '/events/' + encodeURIComponent(eventId) + '/court/' + encodeURIComponent(courtCaseId) + '/requests',
+    );
+  }
+  createCourtRequest(eventId: string, courtCaseId: string, input: CreateCourtRequest) {
+    return this.postJson<CourtRequestItem>(
+      '/events/' + encodeURIComponent(eventId) + '/court/' + encodeURIComponent(courtCaseId) + '/requests', input,
+    );
+  }
+  replyCourtRequest(eventId: string, courtCaseId: string, requestId: string, input: ReplyCourtRequest) {
+    return this.postJson<CourtRequestItem>(
+      '/events/' + encodeURIComponent(eventId) + '/court/' + encodeURIComponent(courtCaseId) +
+      '/requests/' + encodeURIComponent(requestId) + '/reply', input,
+    );
   }
 
   async getCourtTimeline(
