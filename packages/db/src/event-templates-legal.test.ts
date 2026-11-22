@@ -19,7 +19,7 @@ test('Prosecutor and judge have separate exercise permissions; court decisions s
   assert.ok(liaison.has(Permissions.COURT_REQUEST_RESPOND));
   for(const role of legalRoleTemplates){
     assert.ok(role.permissions.every(p=>p.scope===PermissionScopes.EVENT));
-    assert.equal(role.permissions.some(p=>p.key===Permissions.PLATFORM_MANAGE),false);
+    assert.equal(role.permissions.some(p=>String(p.key)===Permissions.PLATFORM_MANAGE),false);
   }
   assert.ok(canonicalUnits.some(u=>u.slug==='soudni-senat'&&
     u.capabilities.includes(UnitCapabilityKeys.COURT_PROCEEDINGS)));
