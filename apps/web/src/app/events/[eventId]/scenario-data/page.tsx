@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import type { ScenarioDataRequest, ScenarioDataPreview, ScenarioDataCounts, ScenarioDataBatchResponse } from '@cyris/contracts';
+import type { ScenarioDataRequest, ScenarioDataPreview, ScenarioDataCounts, ScenarioDataBatchResponse, ScenarioQualityReport } from '@cyris/contracts';
 import { AppShell } from '@/components/layout/AppShell';
 import { apiClient } from '@/lib/api-client';
 import { usePreferences } from '@/contexts/PreferencesContext';
@@ -48,6 +48,8 @@ export default function ScenarioDataPage() {
   const [draft, setDraft] = useState<Batch | null>(null);
   const [detail, setDetail] = useState<Batch | null>(null);
   const [mediaBatch, setMediaBatch] = useState<Batch | null>(null);
+  const [quality, setQuality] = useState<ScenarioQualityReport | null>(null);
+  const [qualityBusy, setQualityBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const paused = useRef(false);
@@ -62,6 +64,7 @@ export default function ScenarioDataPage() {
     setSeed(freshSeed());
     setDetail(null);
     setMediaBatch(null);
+    setQuality(null);
     setDraft(null);
     setPreview(null);
     setBatches([]);
@@ -110,6 +113,17 @@ export default function ScenarioDataPage() {
       if (!r.ok || !r.data) throw Error(r.error ?? tr('Náhled se nepodařilo vytvořit','Preview failed'));
       if(scope.current===eventId) setPreview(r.data);
     }
+  }
+  async function inspectQuality() {
+    if (!draft) return;
+    setQualityBusy(true); setQuality(null);
+    try {
+      const result = await apiClient.getScenarioDraftQuality(eventId, draft.id);
+      if (!result.ok || !result.data) throw new Error(result.error || 'Quality check failed');
+      if (scope.current === eventId) setQuality(result.data);
+    } catch (error) {
+      if (scope.current === eventId) setMessage(error instanceof Error ? error.message : 'Quality check unavailable');
+    } finally { if (scope.current === eventId) setQualityBusy(false); }
   }
   async function publish() {
     if (!window.confirm(tr('Opravdu zveřejnit tuto sadu v registru cvičení?','Add this dataset to the event registry?'))) return;
@@ -191,6 +205,26 @@ export default function ScenarioDataPage() {
         </section>
       </div>
       {draft && draft.status === 'DRAFT' && <ScenarioDraftMediaManager eventId={eventId} batch={draft} />}
+      {draft && draft.status === 'DRAFT' && <section className={styles.qualityPanel}>
+        <header><div>
+          <h2>{tr('Kontrola kvality před publikací','Scenario preflight')}</h2>
+          <p>{tr('Ověří úplnost, duplicity a vazby. Skóre je orientační, nikoli záruka faktické správnosti generovaných dat.',
+            'Checks completeness, duplicates and links. The score is advisory, not a guarantee that AI-generated facts are correct.')}</p>
+        </div><button type="button" disabled={busy || qualityBusy} onClick={() => void inspectQuality()}>
+          {qualityBusy ? tr('Kontroluji…','Checking…') : tr('Provést kontrolu','Run preflight')}</button></header>
+        {quality && quality.batchId === draft.id && <div role="status">
+          <strong>{tr('Orientační skóre','Advisory score')}: {quality.score}/100</strong>
+          <span> · {quality.ready ? tr('Strukturálně připraveno','Structurally ready')
+            : tr('Před zveřejněním opravte zjištěné chyby','Resolve structural failures before publishing')}</span>
+          <p>{quality.preparedRecords}/{quality.expectedRecords} {tr('záznamů','records')}
+            · {quality.relationships} {tr('vazeb','links')}
+            · {quality.images} {tr('obrázků','images')}</p>
+          <ul>{quality.checks.map(check => <li key={check.code}>
+            <strong>{check.status}</strong> — {check.message}
+          </li>)}</ul>
+        </div>}
+      </section>}
+
       <p role="status">{message || (busy ? tr('Pracuji…','Working…') : '')}</p>
       <section><h2>{tr('Historie generování','Generation history')}</h2>
         {batches.length === 0 && <p>{tr('Zatím nebyla vytvořena žádná sada.','No datasets yet.')}</p>}

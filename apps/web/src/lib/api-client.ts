@@ -110,6 +110,7 @@ import type {
   SparkDraftRequest,
   ScenarioDataBatchResponse,
   ScenarioBatchMediaList,
+  ScenarioQualityReport,
   ScenarioDraftRecordList,
   ScenarioDraftMediaUpload,
   ScenarioDraftMediaItem,
@@ -565,6 +566,13 @@ export class CyrisApiClient {
   getScenarioDraftImageUrl(eventId: string, batchId: string, kind: ScenarioDraftRecordList['kind'], index: number) {
     return this.baseUrl + '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' +
       encodeURIComponent(batchId) + '/draft-image?kind=' + encodeURIComponent(kind) + '&index=' + index;
+  }
+
+  async getScenarioDraftQuality(eventId: string, batchId: string) {
+    return this.fetchJson<ScenarioQualityReport>(
+      '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' +
+      encodeURIComponent(batchId) + '/quality',
+    );
   }
 
   async uploadRegistryPrimaryMedia(eventId: string, resourceId: string, payload: { filename: string; mimeType: string; data: string }) {

@@ -45,3 +45,17 @@
 .generatorModes button:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
 .sparkHint { margin: .45rem 0 1rem; padding: .7rem .85rem; border-left: 3px solid var(--cylab-orange); background: var(--bg-surface); font-size: .85rem; }
 @media(max-width:600px) { .generatorModes { grid-template-columns: minmax(0, 1fr); } }
+
+
+.qualityPanel { margin: 1.2rem 0; padding: 18px; border: 1px solid var(--border-default);
+  background: var(--bg-panel); border-radius: var(--radius-md); }
+.qualityPanel header { display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap; }
+.qualityPanel header > div { flex: 1 1 250px; min-width: 0; }
+.qualityPanel p { margin: .4rem 0; line-height: 1.5; }
+.qualityPanel header button { min-height: 38px; border: 1px solid var(--border-default);
+  background: var(--bg-inset); border-radius: var(--radius-sm); color: var(--text-primary); }
+.qualityPanel ul { list-style: none; padding: 0; display: grid; gap: 7px; margin: .75rem 0 0; }
+.qualityPanel li { min-width: 0; overflow-wrap: anywhere; border-left: 3px solid var(--border-default);
+  background: var(--bg-inset); padding: 8px 10px; font-size: .85rem; }
+.qualityPanel button:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }

@@ -10,6 +10,7 @@ import { SearchIndexerService } from '../search/search-indexer.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { inspectScenarioDraft } from './scenario-quality.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
   scenarioDataBatches,
@@ -134,6 +135,22 @@ export class ScenarioDataService {
     return {
       counts, estimatedRelationships, previewToken: previewToken(world), samples: samples(world), personDetails: personDetails(world)
     };
+  }
+
+  /** Advisory scenario consistency checks before publication, not an AI factual guarantee. */
+  async quality(eventId: string, batchId: string, user: AuthenticatedUser) {
+    await this.assertManage(eventId, user);
+    const [batch] = await this.databaseService.client.select().from(scenarioDataBatches)
+      .where(and(eq(scenarioDataBatches.eventId, eventId), eq(scenarioDataBatches.id, batchId))).limit(1);
+    if (!batch) throw new BadRequestException('Scenario batch not found');
+    const config = batch.configuration as Settings;
+    if (batch.status !== 'DRAFT' || !config.rows) throw new ConflictException('Quality checks require an unpublished Spark draft');
+    const images = await this.databaseService.client.select({ id: scenarioDraftMedia.id }).from(scenarioDraftMedia)
+      .where(and(eq(scenarioDraftMedia.eventId, eventId), eq(scenarioDraftMedia.batchId, batchId)));
+    return inspectScenarioDraft({
+      eventId, batchId, expected: cleanCounts(config), rows: config.rows,
+      links: config.draftLinks ?? [], images: images.length,
+    });
   }
 
   async list(eventId: string, user: AuthenticatedUser) {

@@ -90,6 +90,12 @@ export class ScenarioDataController {
     return this.draftMedia.remove(eventId, batchId, parsed.data, user);
   }
 
+  @Get('batches/:batchId/quality')
+  quality(@Param('eventId', ParseUUIDPipe) eventId: string,
+    @Param('batchId', ParseUUIDPipe) batchId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.quality(eventId, batchId, user);
+  }
+
   @Post('spark-drafts')
   startDraft(@Param('eventId') eventId: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     const request = SparkDraftRequestSchema.safeParse(body);
