@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import type { ScenarioDataRequest, ScenarioDataPreview, ScenarioDataCounts, ScenarioDataBatchResponse } from '@cyris/contracts';
+import type { ScenarioDataRequest, ScenarioDataPreview, ScenarioDataCounts, ScenarioDataBatchResponse, ScenarioQualityReport } from '@cyris/contracts';
 import { AppShell } from '@/components/layout/AppShell';
 import { apiClient } from '@/lib/api-client';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import styles from './scenario-data.module.css';
 import { ScenarioBatchMediaManager } from './ScenarioBatchMediaManager';
+import { ScenarioDraftMediaManager } from './ScenarioDraftMediaManager';
 
 const limitByKind:Record<keyof ScenarioDataCounts,number>={persons:5000,organisations:500,locations:1000,vehicles:2500,devices:5000,weapons:1000};
 const presets = {
@@ -47,6 +48,8 @@ export default function ScenarioDataPage() {
   const [draft, setDraft] = useState<Batch | null>(null);
   const [detail, setDetail] = useState<Batch | null>(null);
   const [mediaBatch, setMediaBatch] = useState<Batch | null>(null);
+  const [quality, setQuality] = useState<ScenarioQualityReport | null>(null);
+  const [qualityBusy, setQualityBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const paused = useRef(false);
@@ -61,6 +64,7 @@ export default function ScenarioDataPage() {
     setSeed(freshSeed());
     setDetail(null);
     setMediaBatch(null);
+    setQuality(null);
     setDraft(null);
     setPreview(null);
     setBatches([]);
@@ -110,6 +114,17 @@ export default function ScenarioDataPage() {
       if(scope.current===eventId) setPreview(r.data);
     }
   }
+  async function inspectQuality() {
+    if (!draft) return;
+    setQualityBusy(true); setQuality(null);
+    try {
+      const result = await apiClient.getScenarioDraftQuality(eventId, draft.id);
+      if (!result.ok || !result.data) throw new Error(result.error || 'Quality check failed');
+      if (scope.current === eventId) setQuality(result.data);
+    } catch (error) {
+      if (scope.current === eventId) setMessage(error instanceof Error ? error.message : 'Quality check unavailable');
+    } finally { if (scope.current === eventId) setQualityBusy(false); }
+  }
   async function publish() {
     if (!window.confirm(tr('Opravdu zveřejnit tuto sadu v registru cvičení?','Add this dataset to the event registry?'))) return;
     const r = draft ? await apiClient.publishScenarioDraft(eventId, draft.id) : await apiClient.generateScenarioData(eventId, { ...payload, previewToken: preview?.previewToken });
@@ -136,12 +151,17 @@ export default function ScenarioDataPage() {
       <div className={styles.columns}>
         <section><h2>{tr('Datová sada','Dataset')}</h2>
           <fieldset disabled={busy}>
-            <label>{tr('Generátor','Generator')}<select value={mode} onChange={e => {
-              configure();
-              setMode(e.target.value as typeof mode);
-            }}>
-              <option value="LOCAL">{tr('Lokální generátor','Local generator')}</option><option value="SPARK">{tr('Spark · scénářové zadání','Spark · scenario brief')}</option>
-            </select></label>
+            <div className={styles.generatorModes} role="group" aria-label={tr('Způsob generování dat','Dataset generation mode')}>
+              <button type="button" aria-pressed={mode==='LOCAL'} className={mode==='LOCAL'?styles.selectedMode:styles.generatorMode} onClick={()=>{configure();setMode('LOCAL')}}>
+                <strong>{tr('Lokální generátor','Local generator')}</strong>
+                <small>{tr('Deterministická sada, bez AI a bez externí služby','Deterministic dataset without external AI service')}</small>
+              </button>
+              <button type="button" aria-pressed={mode==='SPARK'} className={mode==='SPARK'?styles.selectedMode:styles.generatorMode} onClick={()=>{configure();setMode('SPARK')}}>
+                <strong>DGX Spark · AI</strong>
+                <small>{tr('Generujte data podle popisu cvičení s kontrolou konceptu','Generate scenario-aware data from your briefing and review the draft')}</small>
+              </button>
+            </div>
+            {mode==='SPARK' && <p className={styles.sparkHint} role="status">{tr('Spark připravuje záznamy po částech. Koncept nejprve zkontrolujete, pak jej zveřejníte. Obrázky lze nyní přiřadit přímo k jednotlivým záznamům v rozpracovaném konceptu. Při publikaci se automaticky uloží do registru.','Spark prepares draft records in batches for review before publishing. Attach images directly to records inside the draft. On publication they become registry images automatically.')}</p>}
             {mode === 'SPARK' && <label>{tr('Scénářové zadání','Scenario brief')}<textarea value={brief} maxLength={1200} rows={4} placeholder={tr('Železniční depo v Pardubicích během střídání směn. Zahrňte zaměstnance, dodavatele a jejich techniku.','A rail depot in Pardubice during a shift change. Include contractors, dispatchers and their equipment.')} onChange={e => {
               configure();
               setBrief(e.target.value);
@@ -184,6 +204,27 @@ export default function ScenarioDataPage() {
           {(complete || (preview && !draft)) && <button disabled={busy} className={styles.primary} onClick={() => void action(publish)}>{tr('Zveřejnit v registru','Add to registry')}</button>}
         </section>
       </div>
+      {draft && draft.status === 'DRAFT' && <ScenarioDraftMediaManager eventId={eventId} batch={draft} />}
+      {draft && draft.status === 'DRAFT' && <section className={styles.qualityPanel}>
+        <header><div>
+          <h2>{tr('Kontrola kvality před publikací','Scenario preflight')}</h2>
+          <p>{tr('Ověří úplnost, duplicity a vazby. Skóre je orientační, nikoli záruka faktické správnosti generovaných dat.',
+            'Checks completeness, duplicates and links. The score is advisory, not a guarantee that AI-generated facts are correct.')}</p>
+        </div><button type="button" disabled={busy || qualityBusy} onClick={() => void inspectQuality()}>
+          {qualityBusy ? tr('Kontroluji…','Checking…') : tr('Provést kontrolu','Run preflight')}</button></header>
+        {quality && quality.batchId === draft.id && <div role="status">
+          <strong>{tr('Orientační skóre','Advisory score')}: {quality.score}/100</strong>
+          <span> · {quality.ready ? tr('Strukturálně připraveno','Structurally ready')
+            : tr('Před zveřejněním opravte zjištěné chyby','Resolve structural failures before publishing')}</span>
+          <p>{quality.preparedRecords}/{quality.expectedRecords} {tr('záznamů','records')}
+            · {quality.relationships} {tr('vazeb','links')}
+            · {quality.images} {tr('obrázků','images')}</p>
+          <ul>{quality.checks.map(check => <li key={check.code}>
+            <strong>{check.status}</strong> — {check.message}
+          </li>)}</ul>
+        </div>}
+      </section>}
+
       <p role="status">{message || (busy ? tr('Pracuji…','Working…') : '')}</p>
       <section><h2>{tr('Historie generování','Generation history')}</h2>
         {batches.length === 0 && <p>{tr('Zatím nebyla vytvořena žádná sada.','No datasets yet.')}</p>}

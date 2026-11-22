@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
@@ -44,6 +45,7 @@ export default function AdminUnitsPage() {
   const [selectedUnitForCaps, setSelectedUnitForCaps] = useState<UnitItem | null>(null);
   const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
   const [savingCaps, setSavingCaps] = useState(false);
+  useDialogAccessibility(showModal || Boolean(selectedUnitForCaps), () => { if (!submitting && !savingCaps) { setShowModal(false); setSelectedUnitForCaps(null); } });
   const [capsError, setCapsError] = useState<string | null>(null);
 
   const canManage = hasPermission('unit.manage');
@@ -353,26 +355,8 @@ export default function AdminUnitsPage() {
 
         {/* Modal: Create Unit */}
         {showModal && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.7)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 100,
-            }}
-          >
-            <div
-              style={{
-                width: '460px',
-                background: 'var(--bg-panel)',
-                border: '1px solid var(--border-default)',
-                borderRadius: 'var(--radius-sm)',
-                overflow: 'hidden',
-              }}
-            >
+          <div className="dialog-overlay dialog-overlay-top" role="presentation">
+            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Create organizational unit" style={{ maxWidth: '460px' }}>
               <div
                 style={{
                   display: 'flex',
@@ -500,29 +484,8 @@ export default function AdminUnitsPage() {
 
         {/* Modal: Unit Capabilities Editor */}
         {selectedUnitForCaps && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.75)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 100,
-            }}
-          >
-            <div
-              style={{
-                width: '560px',
-                maxHeight: '90vh',
-                display: 'flex',
-                flexDirection: 'column',
-                background: 'var(--bg-panel)',
-                border: '1px solid var(--border-default)',
-                borderRadius: 'var(--radius-sm)',
-                overflow: 'hidden',
-              }}
-            >
+          <div className="dialog-overlay dialog-overlay-top" role="presentation">
+            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Edit unit capabilities" style={{ maxWidth: '560px' }}>
               {/* Modal Header */}
               <div
                 style={{

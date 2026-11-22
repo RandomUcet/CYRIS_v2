@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { ResourcePicker } from '@/components/common/ResourcePicker';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordHeader } from '@/components/common/RecordHeader';
 import { RecordTabs, TabItem } from '@/components/common/RecordTabs';
 import { RecordIdentifier, StatusBadge } from '@/components/common/Badges';
@@ -98,6 +100,7 @@ export default function CourtCaseDetailPage() {
   });
 
   const [modalSubmitting, setModalSubmitting] = useState(false);
+  useDialogAccessibility(showPartyModal || showChargeModal || showExhibitModal || showHearingModal || showFilingModal || showDecisionModal, () => { if (!modalSubmitting) { setShowPartyModal(false); setShowChargeModal(false); setShowExhibitModal(false); setShowHearingModal(false); setShowFilingModal(false); setShowDecisionModal(false); } });
 
   // Permissions
   const canUpdateCourt = hasPermission('court.update');
@@ -947,8 +950,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Add Party */}
         {showPartyModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '480px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Add Party to Matter" style={{ maxWidth: '480px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Add Party to Matter</h3>
                 <button
@@ -962,13 +965,13 @@ export default function CourtCaseDetailPage() {
               <form onSubmit={handleAddParty}>
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div>
-                    <label className="field-label">Person ID *</label>
-                    <input
-                      type="text"
-                      className="field-input"
-                      placeholder="UUID of Person resource"
+                    <ResourcePicker
+                      eventId={eventId}
                       value={partyForm.personId}
-                      onChange={(e) => setPartyForm({ ...partyForm, personId: e.target.value })}
+                      onChange={(value) => setPartyForm(current => ({ ...current, personId: value }))}
+                      types="person"
+                      label="Person / legal party"
+                      placeholder="Search a registered person by name…"
                       required
                     />
                   </div>
@@ -1013,8 +1016,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Add Charge */}
         {showChargeModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '480px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="File Charge" style={{ maxWidth: '480px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">File Charge</h3>
                 <button
@@ -1073,8 +1076,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Submit Exhibit */}
         {showExhibitModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '480px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Submit Evidence Exhibit" style={{ maxWidth: '480px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Submit Evidence Exhibit</h3>
                 <button
@@ -1088,13 +1091,13 @@ export default function CourtCaseDetailPage() {
               <form onSubmit={handleSubmitExhibit}>
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div>
-                    <label className="field-label">Evidence ID (UUID) *</label>
-                    <input
-                      type="text"
-                      className="field-input"
-                      placeholder="Canonical evidence resource ID"
+                    <ResourcePicker
+                      eventId={eventId}
                       value={exhibitForm.evidenceId}
-                      onChange={(e) => setExhibitForm({ ...exhibitForm, evidenceId: e.target.value })}
+                      onChange={(value) => setExhibitForm(current => ({ ...current, evidenceId: value }))}
+                      types="evidence"
+                      label="Evidence exhibit"
+                      placeholder="Search by evidence number or title…"
                       required
                     />
                   </div>
@@ -1124,8 +1127,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Schedule Hearing */}
         {showHearingModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '480px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Schedule Hearing" style={{ maxWidth: '480px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Schedule Hearing</h3>
                 <button
@@ -1174,8 +1177,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Record Filing */}
         {showFilingModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '480px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Record Court Filing" style={{ maxWidth: '480px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Record Court Filing</h3>
                 <button
@@ -1189,13 +1192,13 @@ export default function CourtCaseDetailPage() {
               <form onSubmit={handleCreateFiling}>
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div>
-                    <label className="field-label">Document ID (UUID) *</label>
-                    <input
-                      type="text"
-                      className="field-input"
-                      placeholder="UUID of Document in CYRIS"
+                    <ResourcePicker
+                      eventId={eventId}
                       value={filingForm.documentId}
-                      onChange={(e) => setFilingForm({ ...filingForm, documentId: e.target.value })}
+                      onChange={(value) => setFilingForm(current => ({ ...current, documentId: value }))}
+                      types="document"
+                      label="Filed document"
+                      placeholder="Search by document number or title…"
                       required
                     />
                   </div>
@@ -1226,8 +1229,8 @@ export default function CourtCaseDetailPage() {
 
         {/* Modal: Issue Decision */}
         {showDecisionModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '520px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Issue Judicial Decision" style={{ maxWidth: '520px' }}>
               <div className="modal-header">
                 <h3 className="modal-title">Issue Judicial Decision</h3>
                 <button

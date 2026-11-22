@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordHeader } from '@/components/common/RecordHeader';
 import { RecordTabs } from '@/components/common/RecordTabs';
 import { RecordInspector } from '@/components/common/RecordInspector';
@@ -65,6 +66,7 @@ export default function RegistryEntityDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editData, setEditData] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
+  useDialogAccessibility(editOpen, () => { if (!saving) setEditOpen(false); });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [mediaBusy, setMediaBusy] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -770,8 +772,8 @@ export default function RegistryEntityDetailPage() {
           </div>
         )}
         {editOpen && canEdit && (
-          <div className="modal-backdrop">
-            <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="registry-edit-title" style={{ maxWidth: 640, maxHeight: '90vh', overflowY: 'auto' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="registry-edit-title" style={{ maxWidth: 640 }}>
               <div className="modal-header"><h2 id="registry-edit-title">{tr('Upravit záznam', 'Edit record')}</h2><button className="btn btn-ghost" onClick={() => setEditOpen(false)}><X size={16} /></button></div>
               <form onSubmit={handleSave} style={{ display: 'grid', gap: 12 }}>
                 {saveError && <div role="alert" style={{ color: 'var(--color-danger)', fontSize: 12 }}>{saveError}</div>}

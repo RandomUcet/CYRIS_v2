@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Activity, BookOpen, CheckCircle2, Inbox, Plus, RefreshCw, Send } from 'lucide-react';
-import type { CreateSupportRequest, SupportInbox, SupportThread } from '@cyris/contracts';
+import type { CreateSupportRequest, SupportInbox, SupportThread, SupportAssignee } from '@cyris/contracts';
 import { AppShell } from '@/components/layout/AppShell';
 import { ErrorState, LoadingState } from '@/components/common/StateViews';
 import { usePreferences } from '@/contexts/PreferencesContext';
@@ -41,13 +41,27 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
   const [page, setPage] = useState(1);
   const selectedId = view.kind === 'thread' ? view.id : undefined;
   const [filter, setFilter] = useState<Filter>('ALL');
+  const [category, setCategory] = useState<'ALL' | CreateSupportRequest['category']>('ALL');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [newRequest, setNewRequest] = useState(emptyRequest);
   const [drafts, setDrafts] = useState<Record<string, ReplyDraft>>({});
   const [saving, setSaving] = useState(false);
+  const [assignees, setAssignees] = useState<SupportAssignee[]>([]);
   const [actionError, setActionError] = useState<{ target: string; message: string } | null>(null);
   const replyField = useRef<HTMLTextAreaElement>(null);
 
   const refresh = () => setRefreshVersion(previous => previous + 1);
+
+  // Debounce network requests; the backend filters across the whole accessible
+  // inbox before pagination, rather than searching only the current page.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setSearchTerm(searchInput.trim().length >= 2 ? searchInput.trim() : '');
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
   useEffect(() => {
     let active = true;
@@ -56,7 +70,7 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
       if (pending) return;
       pending = true;
       try {
-        const response = await apiClient.listSupport(eventId, { page, threadId: selectedId, status: filter === 'ALL' ? undefined : filter });
+        const response = await apiClient.listSupport(eventId, { page, threadId: selectedId, status: filter === 'ALL' ? undefined : filter, category: category === 'ALL' ? undefined : category, q: searchTerm || undefined });
         if (!active) return;
         if (response.ok && response.data) {
           const data = response.data;
@@ -89,7 +103,16 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
     const timer = window.setInterval(visibleLoad, 15000);
     document.addEventListener('visibilitychange', visibleLoad);
     return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', visibleLoad); };
-  }, [eventId, page, filter, selectedId, refreshVersion]);
+  }, [eventId, page, filter, category, searchTerm, selectedId, refreshVersion]);
+
+  useEffect(() => {
+    if (!inbox?.canManage) { setAssignees([]); return; }
+    let active = true;
+    void apiClient.listSupportAssignees(eventId).then(result => {
+      if (active && result.ok && result.data) setAssignees(result.data);
+    });
+    return () => { active = false; };
+  }, [eventId, inbox?.canManage, refreshVersion]);
 
   const threads = inbox?.threads ?? [];
   const waiting = threads.filter(thread => thread.status === 'OPEN');
@@ -137,6 +160,9 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
       setView(current => current.kind === 'create' ? { kind: 'thread', id } : current);
       setPage(1);
       setFilter('ALL');
+      setCategory('ALL');
+      setSearchInput('');
+      setSearchTerm('');
       refresh();
     } catch {
       setActionError({ target: 'create', message: tr('Žádost se nepodařilo odeslat. Zkuste to znovu.', 'The request could not be sent. Please try again.') });
@@ -174,6 +200,19 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
       setSaving(false);
       refresh();
     }
+  }
+  async function assignThread(userId: string | null) {
+    if (!thread || !canManage || !canWrite || saving) return;
+    setSaving(true); setActionError(null);
+    try {
+      const result = await apiClient.assignSupport(eventId, thread.id, {
+        assignedToUserId: userId, expectedRevision: thread.revision,
+      });
+      if (!result.ok) throw new Error(result.error || 'Assignment failed');
+    } catch (error) {
+      setActionError({ target: thread.id, message: error instanceof Error ? error.message :
+        tr('Přiřazení se nezdařilo.','Assignment failed.') });
+    } finally { setSaving(false); refresh(); }
   }
   const contact = () => navigate({ kind: 'create' });
 
@@ -218,13 +257,28 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
                   </button>
                 ))}
               </div>
+              <div className={styles.inboxSearchFilters}>
+                <label>{tr('Kategorie', 'Category')}
+                  <select value={category} onChange={event => { setPage(1); setCategory(event.target.value as 'ALL' | CreateSupportRequest['category']); }}
+                    aria-label={tr('Filtrovat podle kategorie', 'Filter by category')}>
+                    <option value="ALL">{tr('Všechny kategorie', 'All categories')}</option>
+                    {(['NAVIGATION', 'TASK', 'TECHNICAL', 'OTHER'] as const).map(value =>
+                      <option key={value} value={value}>{categories[value]}</option>)}
+                  </select>
+                </label>
+                <label>{tr('Hledat v žádostech', 'Search requests')}
+                  <input type="search" value={searchInput} maxLength={80}
+                    onChange={event => setSearchInput(event.target.value)}
+                    placeholder={tr('Předmět žádosti (alespoň 2 znaky)', 'Subject (at least 2 characters)')}/>
+                </label>
+              </div>
               <div className="helpdesk-threads">
                 {visible.map(item => (
                   <button type="button" key={item.id} aria-current={thread?.id === item.id ? 'true' : undefined}
                     className={'helpdesk-thread' + (thread?.id === item.id ? ' selected' : '')}
                     onClick={() => navigate({ kind: 'thread', id: item.id })}>
                     <strong>{item.subject}</strong>
-                    <small>{canManage && item.requesterName + ' · '}{categories[item.category]}</small>
+                    <small>{canManage && item.requesterName + ' · '}{categories[item.category]}{canManage && item.assignedToName && ' · '+item.assignedToName}</small>
                     <span className={styles.threadMeta}>
                       <span className={'support-status ' + item.status.toLowerCase()}>{statuses[item.status]}</span>
                       <time dateTime={item.updatedAt}>{formatDate(item.updatedAt)} · {formatTime(item.updatedAt)}</time>
@@ -272,6 +326,19 @@ function EventSupport({ eventId, userId, readOnly }: { eventId: string; userId: 
                   <header className="helpdesk-conversation-header"><div><h2>{thread.subject}</h2><small>{categories[thread.category]} · {thread.requesterName}</small></div>
                     <span className={'support-status ' + thread.status.toLowerCase()}>{statuses[thread.status]}</span>
                   </header>
+                  {canManage && <label className={styles.assignmentControl}>
+                    {tr('Přiřazeno podpoře', 'Assigned responder')}
+                    <select value={thread.assignedToUserId ?? ''} disabled={!canWrite || saving || thread.status === 'RESOLVED'}
+                      onChange={event => void assignThread(event.target.value || null)}
+                      aria-label={tr('Přiřadit žádost členovi podpory', 'Assign support request')}>
+                      <option value="">{tr('Nepřiřazeno', 'Unassigned')}</option>
+                      {assignees.map(member => <option key={member.id} value={member.id}>
+                        {member.displayName} · {member.activeLoad} {tr('aktivních', 'active')}
+                      </option>)}
+                    </select>
+                    <small>{tr('Nové žádosti se přiřazují automaticky dostupným pracovníkům.', 
+                      'New requests are automatically routed to eligible responders.')}</small>
+                  </label>}
                   <div className="helpdesk-messages">{thread.messages.map(message => (
                     <article key={message.id} className={'helpdesk-message ' + (message.authorKind === 'EXCON' ? 'excon' : 'participant')}>
                       <div><strong>{message.authorKind === 'EXCON' ? (canManage ? 'EXCON' : tr('Tým podpory', 'Support team')) : thread.requesterName}</strong>

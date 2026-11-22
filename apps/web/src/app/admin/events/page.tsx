@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { StatusBadge } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
@@ -147,6 +148,7 @@ export default function AdminEventsPage() {
   const [editingUnitCaps, setEditingUnitCaps] = useState<any | null>(null);
   const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
   const [savingCaps, setSavingCaps] = useState(false);
+  useDialogAccessibility(showCreateModal || Boolean(editingEvent) || Boolean(duplicatingEvent) || Boolean(inspectingEvent), () => { if (!createSubmitting && !editSubmitting && !dupSubmitting && !savingCaps) { setShowCreateModal(false); setEditingEvent(null); setDuplicatingEvent(null); setInspectingEvent(null); } });
 
   const canManage = hasPermission('event.create') || hasPermission('platform.manage');
 
@@ -624,29 +626,8 @@ export default function AdminEventsPage() {
 
         {/* Modal: Create Event */}
         {showCreateModal && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.75)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000,
-              padding: '16px',
-            }}
-          >
-            <div
-              style={{
-                width: '100%',
-                maxWidth: '540px',
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-strong)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
-                overflow: 'hidden',
-              }}
-            >
+          <div className="dialog-overlay dialog-overlay-top" role="presentation">
+            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Create exercise" style={{ maxWidth: '540px' }}>
               <div
                 style={{
                   display: 'flex',
@@ -832,29 +813,8 @@ export default function AdminEventsPage() {
 
         {/* Modal: Edit Event & Lifecycle Transition */}
         {editingEvent && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.75)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000,
-              padding: '16px',
-            }}
-          >
-            <div
-              style={{
-                width: '100%',
-                maxWidth: '540px',
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-strong)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
-                overflow: 'hidden',
-              }}
-            >
+          <div className="dialog-overlay dialog-overlay-top" role="presentation">
+            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Edit exercise and lifecycle" style={{ maxWidth: '540px' }}>
               <div
                 style={{
                   display: 'flex',
@@ -1019,29 +979,8 @@ export default function AdminEventsPage() {
 
         {/* Modal: Duplicate Event as Starting Point */}
         {duplicatingEvent && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.75)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000,
-              padding: '16px',
-            }}
-          >
-            <div
-              style={{
-                width: '100%',
-                maxWidth: '520px',
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-strong)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
-                overflow: 'hidden',
-              }}
-            >
+          <div className="dialog-overlay dialog-overlay-top" role="presentation">
+            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Duplicate exercise" style={{ maxWidth: '520px' }}>
               <div
                 style={{
                   display: 'flex',
@@ -1181,32 +1120,8 @@ export default function AdminEventsPage() {
 
         {/* Modal: Event Units & Capabilities Inspector */}
         {inspectingEvent && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.75)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000,
-              padding: '16px',
-            }}
-          >
-            <div
-              style={{
-                width: '100%',
-                maxWidth: '680px',
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-strong)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
-                overflow: 'hidden',
-                maxHeight: '85vh',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
+          <div className="dialog-overlay dialog-overlay-top" role="presentation">
+            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Inspect exercise units and capabilities" style={{ maxWidth: '680px' }}>
               <div
                 style={{
                   display: 'flex',

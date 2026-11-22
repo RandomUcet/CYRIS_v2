@@ -17,6 +17,7 @@ export * from './laboratory.js';
 export * from './integrations.js';
 export * from './scenario.js';
 export * from './scenario-data.js';
+export * from './scenario-draft-media.js';
 export * from './documents.js';
 export * from './forensics.js';
 export * from './court.js';
@@ -26,6 +27,7 @@ export * from './evaluation.js';
 export * from './notifications.js';
 export * from './command.js';
 export * from './disruptions.js';
+export * from './operational-holds.js';
 export * from './recovery-objectives.js';
 
 export * from './support.js';

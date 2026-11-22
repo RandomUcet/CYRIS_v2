@@ -4,6 +4,8 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { ResourcePicker } from '@/components/common/ResourcePicker';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
 import { RecordIdentifier, StatusBadge } from '@/components/common/Badges';
@@ -32,6 +34,7 @@ export default function CourtDocketPage() {
   // Modal: Create Court Case
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  useDialogAccessibility(showCreateModal, () => { if (!submitting) setShowCreateModal(false); });
   const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: '',
@@ -245,8 +248,8 @@ export default function CourtDocketPage() {
 
         {/* Modal: Initiate Legal Matter */}
         {showCreateModal && (
-          <div className="modal-backdrop">
-            <div className="modal-dialog" style={{ maxWidth: '540px' }}>
+          <div className="modal-backdrop" role="presentation">
+            <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="Initiate Legal Matter" style={{ maxWidth: '540px' }}>
               <div className="modal-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Award size={18} style={{ color: 'var(--color-accent-ops)' }} />
@@ -302,13 +305,13 @@ export default function CourtDocketPage() {
                   </div>
 
                   <div>
-                    <label className="field-label">Originating Investigation Case ID (optional)</label>
-                    <input
-                      type="text"
-                      className="field-input"
-                      placeholder="UUID of operational Investigation Case"
+                    <ResourcePicker
+                      eventId={eventId}
                       value={formData.originatingCaseId}
-                      onChange={(e) => setFormData({ ...formData, originatingCaseId: e.target.value })}
+                      onChange={(value) => setFormData(current => ({ ...current, originatingCaseId: value }))}
+                      types="case"
+                      label="Originating investigation case (optional)"
+                      placeholder="Search by case number or title…"
                     />
                   </div>
                 </div>

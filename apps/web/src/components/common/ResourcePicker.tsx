@@ -30,6 +30,7 @@ export function ResourcePicker({
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [selected, setSelected] = useState<SearchResultItem | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!value) {
@@ -40,10 +41,22 @@ export function ResourcePicker({
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       setLoading(true);
-      const response = await apiClient.search(value, { eventId, types, limit: 5 });
-      if (!cancelled && response.ok) {
-        const match = response.data?.results.find((item) => item.canonicalId === value);
-        if (match) setSelected(match);
+      if (eventId && types === 'person') {
+        const response = await apiClient.getPerson(eventId, value);
+        if (!cancelled && response.ok && response.data) {
+          const person = response.data;
+          setSelected({
+            id: value, canonicalId: value, type: 'person',
+            title: String(person.displayName || person.name || value),
+            subtitle: person.identifier || undefined, eventId, highlights: [], tags: [],
+          });
+        }
+      } else {
+        const response = await apiClient.search(value, { eventId, types, limit: 5 });
+        if (!cancelled && response.ok) {
+          const match = response.data?.results.find((item) => item.canonicalId === value);
+          if (match) setSelected(match);
+        }
       }
       if (!cancelled) setLoading(false);
     }, 120);
@@ -54,17 +67,39 @@ export function ResourcePicker({
   }, [eventId, types, value, selected?.canonicalId]);
 
   useEffect(() => {
-    if (!query.trim()) {
+    if (query.trim().length < 2) {
       setResults([]);
+      setSearchError(null);
       return;
     }
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       setLoading(true);
-      const response = await apiClient.search(query.trim(), { eventId, types, limit: 8 });
-      if (!cancelled) {
-        setResults(response.ok ? response.data?.results ?? [] : []);
-        setLoading(false);
+      setSearchError(null);
+      try {
+        // The canonical registry search is event/ACL scoped and doesn't depend
+        // on the optional full-text index being up to date.
+        if (eventId && types === 'person') {
+          const response = await apiClient.searchRegistryRecords(eventId, query.trim());
+          if (!cancelled) {
+            setResults(response.ok && response.data ? response.data.filter(item => item.entityType === 'persons').map(item => ({
+              id: item.id, canonicalId: item.id, type: 'person', title: item.label,
+              subtitle: item.identifier ?? undefined, eventId: item.eventId,
+              highlights: [], tags: [],
+            })) : []);
+            if (!response.ok) setSearchError(response.error || 'Search is unavailable');
+          }
+        } else {
+          const response = await apiClient.search(query.trim(), { eventId, types, limit: 8 });
+          if (!cancelled) {
+            setResults(response.ok ? response.data?.results ?? [] : []);
+            if (!response.ok) setSearchError(response.error || 'Search is unavailable');
+          }
+        }
+      } catch {
+        if (!cancelled) { setResults([]); setSearchError('Search is unavailable'); }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }, 180);
     return () => {
@@ -115,6 +150,7 @@ export function ResourcePicker({
             <Search size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
             <input
               className="field-input"
+              aria-label={label}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={placeholder}
@@ -123,10 +159,12 @@ export function ResourcePicker({
               autoComplete="off"
             />
           </div>
+          {searchError && <div role="alert" style={{ fontSize: 12, color: 'var(--status-danger)', marginTop: 6 }}>{searchError}</div>}
           {loading && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Searching…</div>}
           {results.length > 0 && (
             <div
               role="listbox"
+              aria-label={label + " search results"}
               style={{
                 position: 'absolute',
                 left: 0,

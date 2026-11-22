@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordIdentifier, StatusBadge, PriorityBadge } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
@@ -46,6 +47,7 @@ export default function CommandPage() {
   const [sitrepTitle, setSitrepTitle] = useState('');
   const [sitrepSummary, setSitrepSummary] = useState('');
   const [submittingSitrep, setSubmittingSitrep] = useState(false);
+  useDialogAccessibility(showSitrepModal, () => { if (!submittingSitrep) setShowSitrepModal(false); });
   const [sitrepResult, setSitrepResult] = useState<string | null>(null);
   const [sitrepError, setSitrepError] = useState<string | null>(null);
 
@@ -353,12 +355,12 @@ export default function CommandPage() {
 
       {/* Produce SITREP Modal */}
       {!readOnly && showSitrepModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+        <div className="dialog-overlay dialog-overlay-top" role="presentation">
           <form
             onSubmit={handleCreateSitrep}
-            className="bg-slate-900 border border-slate-700 rounded-lg max-w-lg w-full p-5 shadow-2xl space-y-4"
+            className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Produce Situation Report"
           >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="dialog-header">
               <h3 className="font-semibold text-slate-100 text-sm flex items-center gap-2">
                 <FileText size={16} className="text-blue-400" />
                 {tr("Produce Situation Report (SITREP)")}
@@ -384,7 +386,7 @@ export default function CommandPage() {
               </div>
             )}
 
-            <div className="space-y-3 text-xs">
+            <div className="dialog-body form-dialog-body">
               <div>
                 <label className="block font-medium text-slate-300 mb-1">
                   {tr("Report Title")} <span className="text-rose-400">*</span>
@@ -418,18 +420,18 @@ export default function CommandPage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="dialog-footer">
               <button
                 type="button"
                 onClick={() => setShowSitrepModal(false)}
-                className="px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded transition"
+                className="btn btn-secondary"
               >
                 {tr("Cancel")}
               </button>
               <button
                 type="submit"
                 disabled={submittingSitrep}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded transition shadow-sm"
+                className="btn btn-primary"
               >
                 {submittingSitrep ? 'Publishing...' : 'Generate & Archive SITREP'}
               </button>

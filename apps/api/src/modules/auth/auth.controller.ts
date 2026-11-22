@@ -60,7 +60,9 @@ export class AuthController {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid login payload');
     }
 
-    const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || '127.0.0.1';
+    // Fastify's connection IP is authoritative here. An untrusted X-Forwarded-For header
+    // must never choose login-rate-limit or audit identity without a strict proxy trust policy.
+    const clientIp = req.ip || 'unknown';
     const userAgent = (req.headers['user-agent'] as string) || null;
     const requestId = (req.headers['x-request-id'] as string) || req.id || null;
     const existingCookie = req.cookies?.[COOKIE_NAME];
@@ -127,7 +129,9 @@ export class AuthController {
   ) {
     const sessionToken = req.cookies?.[COOKIE_NAME] ||
       (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7).trim() : undefined);
-    const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || '127.0.0.1';
+    // Fastify's connection IP is authoritative here. An untrusted X-Forwarded-For header
+    // must never choose login-rate-limit or audit identity without a strict proxy trust policy.
+    const clientIp = req.ip || 'unknown';
     const userAgent = (req.headers['user-agent'] as string) || null;
     const requestId = (req.headers['x-request-id'] as string) || req.id || null;
 
@@ -166,7 +170,9 @@ export class AuthController {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid LDAP credentials payload');
     }
 
-    const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || '127.0.0.1';
+    // Fastify's connection IP is authoritative here. An untrusted X-Forwarded-For header
+    // must never choose login-rate-limit or audit identity without a strict proxy trust policy.
+    const clientIp = req.ip || 'unknown';
     const existingCookie = req.cookies?.[COOKIE_NAME];
 
     const { user, sessionToken } = await this.authService.loginLdap(

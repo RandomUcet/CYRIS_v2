@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { AppShell } from '@/components/layout/AppShell';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import {
   Users,
   Plus,
@@ -32,6 +33,7 @@ export default function IdentitySettingsPage() {
   const [isLdapModalOpen, setIsLdapModalOpen] = useState(false);
   const [isOidcModalOpen, setIsOidcModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  useDialogAccessibility(isOidcModalOpen, () => { if (!submitting) setIsOidcModalOpen(false); });
 
   // OIDC form state
   const [oidcName, setOidcName] = useState('Partner SSO');
@@ -280,28 +282,8 @@ export default function IdentitySettingsPage() {
 
         {/* Modal: Add OIDC */}
         {isOidcModalOpen && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(0, 0, 0, 0.7)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 100,
-            }}
-          >
-            <div
-              style={{
-                width: '520px',
-                background: 'var(--bg-panel)',
-                border: '1px solid var(--border-default)',
-                borderRadius: 'var(--radius-md)',
-                padding: '24px',
-                maxHeight: '90vh',
-                overflowY: 'auto',
-              }}
-            >
+          <div className="dialog-overlay dialog-overlay-top" role="presentation">
+            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Configure OpenID Connect SSO" style={{ maxWidth: '520px', padding: '24px' }}>
               <h2 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '16px' }}>Configure OpenID Connect SSO</h2>
               {feedback?.error && <p role="alert">{feedback.message}</p>}
               <form onSubmit={handleSaveOidc} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

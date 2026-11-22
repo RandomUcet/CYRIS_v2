@@ -4,7 +4,7 @@ import type {
   LabAnalysisDetail,
   ReadinessResponse,
   CurrentUserResponse,
-  CreateSupportRequest, SupportInbox, SupportInboxQuery, SupportMessageInput, SupportAssistInput, SupportAssistResult,
+  CreateSupportRequest, SupportInbox, SupportInboxQuery, SupportMessageInput, SupportAssistInput, SupportAssistResult, SupportAssignee, AssignSupportRequest,
   EventResponse,
   LoginRequest,
   SearchResponse,
@@ -110,6 +110,10 @@ import type {
   SparkDraftRequest,
   ScenarioDataBatchResponse,
   ScenarioBatchMediaList,
+  ScenarioQualityReport,
+  ScenarioDraftRecordList,
+  ScenarioDraftMediaUpload,
+  ScenarioDraftMediaItem,
   RegistryPickerResult,
   JsocLogQuery,
   JsocLogPage,
@@ -118,6 +122,10 @@ import type {
   CommandReadinessSnapshot,
   ChangeCommandDefconRequest,
   DisruptionSnapshot,
+  OperationalHold,
+  CreateOperationalHold,
+  RestoreOperationalHold,
+  CurrentOperationalHolds,
   CreateDisruptionRequest,
   RestoreDisruptionRequest,
   ParticipantDisruptionStatus,
@@ -181,8 +189,16 @@ export class CyrisApiClient {
     const params = new URLSearchParams();
     if (query.page) params.set('page', String(query.page));
     if (query.status) params.set('status', query.status);
+    if (query.category) params.set('category', query.category);
+    if (query.q) params.set('q', query.q);
     if (query.threadId) params.set('threadId', query.threadId);
     return this.fetchJson<SupportInbox>(`/events/${eventId}/support${params.size ? '?' + params : ''}`);
+  }
+  listSupportAssignees(eventId: string) {
+    return this.fetchJson<SupportAssignee[]>(`/events/${encodeURIComponent(eventId)}/support/assignees`);
+  }
+  assignSupport(eventId: string, id: string, input: AssignSupportRequest) {
+    return this.postJson<{id:string}>(`/events/${encodeURIComponent(eventId)}/support/${encodeURIComponent(id)}/assign`,input);
   }
   createSupport(eventId:string,input:CreateSupportRequest){return this.postJson<{id:string}>(`/events/${eventId}/support`,input);}
   assistSupport(eventId: string, input: SupportAssistInput) {
@@ -528,6 +544,43 @@ export class CyrisApiClient {
       `/events/${eventId}/scenario-data/batches/${batchId}/records?kind=${encodeURIComponent(kind)}&page=${page}&limit=20`
     );
   }
+  async getScenarioDraftRecords(eventId: string, batchId: string,
+    kind: ScenarioDraftRecordList['kind'], page = 1) {
+    return this.fetchJson<ScenarioDraftRecordList>(
+      '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' + encodeURIComponent(batchId) +
+      '/draft-records?kind=' + encodeURIComponent(kind) + '&page=' + page + '&limit=20',
+    );
+  }
+  async getScenarioDraftMedia(eventId: string, batchId: string) {
+    return this.fetchJson<ScenarioDraftMediaItem[]>(
+      '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' + encodeURIComponent(batchId) + '/draft-media',
+    );
+  }
+  async uploadScenarioDraftMedia(eventId: string, batchId: string, payload: ScenarioDraftMediaUpload) {
+    return this.postJson<ScenarioDraftMediaItem>(
+      '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' + encodeURIComponent(batchId) + '/draft-media',
+      payload,
+    );
+  }
+  async removeScenarioDraftMedia(eventId: string, batchId: string,
+    kind: ScenarioDraftRecordList['kind'], index: number) {
+    return this.deleteJson<{ success: boolean }>(
+      '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' + encodeURIComponent(batchId) +
+      '/draft-media?kind=' + encodeURIComponent(kind) + '&index=' + index,
+    );
+  }
+  getScenarioDraftImageUrl(eventId: string, batchId: string, kind: ScenarioDraftRecordList['kind'], index: number) {
+    return this.baseUrl + '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' +
+      encodeURIComponent(batchId) + '/draft-image?kind=' + encodeURIComponent(kind) + '&index=' + index;
+  }
+
+  async getScenarioDraftQuality(eventId: string, batchId: string) {
+    return this.fetchJson<ScenarioQualityReport>(
+      '/events/' + encodeURIComponent(eventId) + '/scenario-data/batches/' +
+      encodeURIComponent(batchId) + '/quality',
+    );
+  }
+
   async uploadRegistryPrimaryMedia(eventId: string, resourceId: string, payload: { filename: string; mimeType: string; data: string }) {
     return this.postJson<any>(`/events/${eventId}/registry/${resourceId}/primary-media`, payload);
   }
@@ -1411,6 +1464,19 @@ export class CyrisApiClient {
     payload: ChangeCommandDefconRequest
   ): Promise<{ ok: boolean; data?: CommandDefconSnapshot; error?: string }> {
     return this.postJson<CommandDefconSnapshot>(`/events/${eventId}/command/defcon`, payload);
+  }
+
+  async listOperationalHolds(eventId: string): Promise<{ok:boolean; data?:OperationalHold[]; error?:string}> {
+    return this.fetchJson<OperationalHold[]>('/events/' + encodeURIComponent(eventId) + '/operational-holds');
+  }
+  async getOperationalHoldsCurrent(eventId: string): Promise<{ok:boolean; data?:CurrentOperationalHolds; error?:string}> {
+    return this.fetchJson<CurrentOperationalHolds>('/events/' + encodeURIComponent(eventId) + '/operational-holds/current');
+  }
+  async createOperationalHold(eventId: string, payload: CreateOperationalHold): Promise<{ok:boolean; data?:OperationalHold; error?:string}> {
+    return this.postJson<OperationalHold>('/events/' + encodeURIComponent(eventId) + '/operational-holds', payload);
+  }
+  async restoreOperationalHold(eventId: string, holdId: string, payload: RestoreOperationalHold): Promise<{ok:boolean; data?:OperationalHold; error?:string}> {
+    return this.postJson<OperationalHold>('/events/' + encodeURIComponent(eventId) + '/operational-holds/' + encodeURIComponent(holdId) + '/restore', payload);
   }
 
   async listDisruptions(eventId: string): Promise<{ ok: boolean; data?: DisruptionSnapshot[]; error?: string }> {

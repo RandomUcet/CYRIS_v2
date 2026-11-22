@@ -1,5 +1,5 @@
 import * as crypto from 'node:crypto';
-import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { QueueService } from '../queue/queue.service.js';
 
 export interface RateLimitOptions {
@@ -68,14 +68,16 @@ export class RateLimitService {
       pipeline.incr(key);
       pipeline.expire(key, ttlSeconds);
       const results = await pipeline.exec();
-      if (!results || !results[0] || results[0][0]) {
-        return 1;
+      if (!results || !results[0] || results[0][0] ||
+          !Number.isSafeInteger(results[0][1]) || (results[0][1] as number) < 1) {
+        throw new Error('Redis rate-limit atomic increment failed');
       }
       return results[0][1] as number;
     } catch (err) {
       this.logger.error(`Redis rate limit error on key '${key}': ${(err as Error).message}`);
-      // Fail open if Redis is down so service is not blocked, but log error
-      return 1;
+      // Fail closed: an unreachable Redis cluster must not disable brute-force
+      // protection. Session issuance requires Redis in this deployment anyway.
+      throw new ServiceUnavailableException('Sign-in temporarily unavailable. Please retry when the service is healthy.');
     }
   }
 

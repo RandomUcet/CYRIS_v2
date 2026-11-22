@@ -1,13 +1,17 @@
-import {Injectable,ForbiddenException,NotFoundException,ConflictException} from '@nestjs/common';
-import {and,eq,desc,asc,inArray,sql} from 'drizzle-orm';
-import {events,eventMemberships,MembershipStatus,users,supportRequests,supportMessages} from '@cyris/db';
-import {Permissions} from '@cyris/shared';
-import type {CreateSupportRequest,SupportInbox,SupportInboxQuery,SupportThread,SupportMessageInput} from '@cyris/contracts';
+import {Injectable,ForbiddenException,NotFoundException,ConflictException,BadRequestException} from '@nestjs/common';
+import {and,eq,desc,asc,inArray,ilike,sql,isNull,ne} from 'drizzle-orm';
+import {events,eventMemberships,MembershipStatus,users,supportRequests,supportMessages,roleAssignments,roles,rolePermissions} from '@cyris/db';
+import {Permissions,PermissionScopes} from '@cyris/shared';
+import type {CreateSupportRequest,SupportInbox,SupportInboxQuery,SupportThread,SupportMessageInput,SupportAssignee,AssignSupportRequest} from '@cyris/contracts';
 import {DatabaseService} from '../database/database.service.js';
 import {AuthorizationService} from '../authorization/authorization.service.js';
 import {AuditService} from '../audit/audit.service.js';
 import {nextSupportReply} from './support-policy.js';
+import {supportSubjectContainsPattern} from './support-search-policy.js';
+import {chooseEligibleResponder} from './support-assignment-policy.js';
 import type {AuthenticatedUser} from '../auth/session.service.js';
+
+type Tx = Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0];
 
 @Injectable()
 export class SupportService {
@@ -26,10 +30,71 @@ export class SupportService {
     }
     return canManage;
   }
+  private async eligibleResponderIds(eventId: string, tx: Tx): Promise<string[]> {
+    const candidates = await tx.select({ userId: eventMemberships.userId }).from(eventMemberships)
+      .innerJoin(users, eq(users.id, eventMemberships.userId))
+      .innerJoin(roleAssignments, eq(roleAssignments.membershipId, eventMemberships.id))
+      .innerJoin(roles, eq(roles.id, roleAssignments.roleId))
+      .innerJoin(rolePermissions, eq(rolePermissions.roleId, roles.id))
+      .where(and(
+        eq(eventMemberships.eventId, eventId), eq(roles.eventId, eventId),
+        eq(eventMemberships.status, MembershipStatus.ACTIVE), eq(users.status, 'ACTIVE'),
+        isNull(roleAssignments.userId), eq(rolePermissions.permissionKey, Permissions.SCENARIO_MANAGE),
+        eq(rolePermissions.scope, PermissionScopes.EVENT),
+      ));
+    return [...new Set(candidates.map(row => row.userId))].sort();
+  }
+
+  async eligibleAssignees(eventId: string, user: AuthenticatedUser): Promise<SupportAssignee[]> {
+    await this.access(eventId, user);
+    if (!(await this.canManage(eventId, user))) throw new ForbiddenException('Only exercise support managers can assign requests');
+    const candidates = await this.db.transaction(tx => this.eligibleResponderIds(eventId, tx));
+    if (!candidates.length) return [];
+    const [staff, active] = await Promise.all([
+      this.db.select({ id: users.id, displayName: users.displayName }).from(users).where(inArray(users.id, candidates)),
+      this.db.select({ id: supportRequests.assignedToUserId }).from(supportRequests)
+        .where(and(eq(supportRequests.eventId, eventId), ne(supportRequests.status, 'RESOLVED'))),
+    ]);
+    return staff.map(member => ({
+      id: member.id, displayName: member.displayName,
+      activeLoad: active.filter(request => request.id === member.id).length,
+    })).sort((a,b) => a.activeLoad - b.activeLoad || a.displayName.localeCompare(b.displayName));
+  }
+
+  async assign(eventId: string, id: string, user: AuthenticatedUser, input: AssignSupportRequest) {
+    const {canManage} = await this.load(eventId, id, user);
+    if (!canManage) throw new ForbiddenException('Only support managers can reassign requests');
+    return this.db.transaction(async tx => {
+      const eligible = await this.eligibleResponderIds(eventId, tx);
+      if (input.assignedToUserId && !eligible.includes(input.assignedToUserId))
+        throw new BadRequestException('Select an active exercise support responder');
+      const [updated] = await tx.update(supportRequests).set({
+        assignedToUserId: input.assignedToUserId, revision: input.expectedRevision + 1,
+        updatedAt: new Date(),
+      }).where(and(eq(supportRequests.eventId, eventId), eq(supportRequests.id, id),
+        eq(supportRequests.revision, input.expectedRevision), ne(supportRequests.status, 'RESOLVED')))
+        .returning({ id: supportRequests.id });
+      if (!updated) throw new ConflictException('Request was modified; reload before reassigning');
+      await this.audit.record({
+        action: 'support.request.reassigned', category: 'support', eventId, actorUserId: user.id,
+        resourceType: 'support_request', resourceId: id,
+        metadata: { assignedToUserId: input.assignedToUserId }, txClient: tx,
+      });
+      return updated;
+    });
+  }
+
   async list(eventId: string, user: AuthenticatedUser, query: SupportInboxQuery = {}): Promise<SupportInbox> {
     const canManage = await this.access(eventId, user);
     const audience = and(eq(supportRequests.eventId, eventId), canManage ? undefined : eq(supportRequests.requesterId, user.id));
-    const filter = and(audience, query.status ? eq(supportRequests.status, query.status) : undefined);
+    // Filter AFTER applying tenant and requester visibility, never across tenants.
+    // Escape SQL LIKE wildcards so search always means literal subject text.
+    const pattern = query.q ? supportSubjectContainsPattern(query.q) : undefined;
+    const scopedAudience = and(audience,
+      query.category ? eq(supportRequests.category, query.category) : undefined,
+      pattern ? ilike(supportRequests.subject, pattern) : undefined,
+    );
+    const filter = and(scopedAudience, query.status ? eq(supportRequests.status, query.status) : undefined);
     const order = canManage ? [
       desc(sql`${supportRequests.status} = 'OPEN'`),
       asc(sql`case when ${supportRequests.status} = 'OPEN' then ${supportRequests.updatedAt} end`),
@@ -48,7 +113,7 @@ export class SupportService {
       paged ? this.db.select({
         status: supportRequests.status, count: sql<number>`count(*)::integer`,
         latest: sql<string>`max(${supportRequests.updatedAt})::text`,
-      }).from(supportRequests).where(audience).groupBy(supportRequests.status) : [],
+      }).from(supportRequests).where(scopedAudience).groupBy(supportRequests.status) : [],
     ]);
     const messageIds = paged ? selectedRows.map(r => r.thread.id) : rows.map(r => r.thread.id);
     const groups = new Map<string, SupportThread['messages']>();
@@ -61,8 +126,16 @@ export class SupportService {
         groups.set(message.requestId, items);
       }
     }
+    const assignedIds = [...new Set([...rows, ...selectedRows].map(row => row.thread.assignedToUserId)
+      .filter((id): id is string => Boolean(id)))];
+    const assigneeNames = assignedIds.length
+      ? await this.db.select({ id: users.id, name: users.displayName }).from(users).where(inArray(users.id, assignedIds))
+      : [];
+    const nameById = new Map(assigneeNames.map(row => [row.id, row.name]));
     const serialize = ({thread, name}: typeof rows[number]): SupportThread => ({
-      ...thread, requesterName: name, category: thread.category as SupportThread['category'], status: thread.status as SupportThread['status'],
+      ...thread, requesterName: name,
+      assignedToName: thread.assignedToUserId ? nameById.get(thread.assignedToUserId) ?? null : null,
+      category: thread.category as SupportThread['category'], status: thread.status as SupportThread['status'],
       createdAt: thread.createdAt.toISOString(), updatedAt: thread.updatedAt.toISOString(), messages: groups.get(thread.id) ?? [],
     });
     const result = { canManage, threads: rows.map(row => paged ? { ...serialize(row), messages: [] } : serialize(row)) };
@@ -77,10 +150,18 @@ export class SupportService {
   async create(eventId:string,user:AuthenticatedUser,input:CreateSupportRequest){
     await this.access(eventId,user);
     return this.db.transaction(async tx=>{
-      const [thread]=await tx.insert(supportRequests).values({eventId,requesterId:user.id,category:input.category,subject:input.subject}).returning();
+      // Serialize routing for this exercise to prevent two concurrent tickets
+      // choosing the same responder before the workload counts are updated.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${ 'support-queue:' + eventId }, 0))`);
+      const candidates = await this.eligibleResponderIds(eventId, tx);
+      const active = await tx.select({ assignee: supportRequests.assignedToUserId }).from(supportRequests)
+        .where(and(eq(supportRequests.eventId, eventId), ne(supportRequests.status, 'RESOLVED')));
+      const assignedToUserId = chooseEligibleResponder(candidates, active.map(item => item.assignee), user.id);
+      const [thread]=await tx.insert(supportRequests).values({eventId,requesterId:user.id,
+        category:input.category,subject:input.subject,assignedToUserId}).returning();
       if(!thread)throw new ConflictException('Support request not created');
       await tx.insert(supportMessages).values({requestId:thread.id,authorId:user.id,authorKind:'PARTICIPANT',body:input.body});
-      await this.audit.record({action:'support.request.created',category:'support',eventId,actorUserId:user.id,resourceType:'support_request',resourceId:thread.id,metadata:{category:input.category},txClient:tx});
+      await this.audit.record({action:'support.request.created',category:'support',eventId,actorUserId:user.id,resourceType:'support_request',resourceId:thread.id,metadata:{category:input.category,assignedToUserId},txClient:tx});
       return {id:thread.id};
     });
   }

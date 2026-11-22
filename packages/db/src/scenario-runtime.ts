@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { generateId } from '@cyris/shared';
 import type { CyrisDatabase } from './client.js';
 import {
@@ -7,7 +7,7 @@ import {
   scenarioClocks, scenarioPhases, resources, resourceAccessControl, identifierCounters,
   cases, incidents, evidence, labAnalyses, operationalTasks, recoveryObjectives,
   events, eventMemberships, membershipUnitAssignments, organizationalUnits, users, userPreferences,
-  activityEvents, auditEvents, outboxEvents, notifications,
+  activityEvents, auditEvents, outboxEvents, notifications, operationalHolds,
 } from './schema/index.js';
 
 type Transaction = Parameters<Parameters<CyrisDatabase['transaction']>[0]>[0];
@@ -41,6 +41,19 @@ export function calculateScenarioTime(clock: Partial<typeof scenarioClocks.$infe
     return new Date(clock.scenarioBaseTime.getTime() + (now.getTime() - clock.realBaseTime.getTime()) * (clock.speedMultiplier ?? 1));
   }
   return now;
+}
+
+/** Stop scheduled/automatic releases when an event-wide real administrative hold is active. */
+export async function isOperationalAutoReleaseHeld(db: Executor, eventId: string, now = new Date()): Promise<boolean> {
+  const [hold] = await db.select({ id: operationalHolds.id }).from(operationalHolds).where(and(
+    eq(operationalHolds.eventId, eventId),
+    eq(operationalHolds.targetType, 'EVENT'),
+    inArray(operationalHolds.module, ['ALL', 'scenario', 'briefings']),
+    isNull(operationalHolds.restoredAt),
+    lte(operationalHolds.startsAt, now),
+    or(isNull(operationalHolds.expiresAt), gt(operationalHolds.expiresAt, now)),
+  )).limit(1);
+  return Boolean(hold);
 }
 
 export function scenarioReleaseGate(
@@ -220,6 +233,9 @@ async function executeLockedRelease(tx: Transaction, inject: Inject, releaseType
     return { alreadyReleased: true, releaseId: existing.id, injectNumber: inject.injectNumber, releasedAt: existing.releasedAt.toISOString(), deliveriesCount: deliveries.length, disclosedResourcesCount: 0 };
   }
   if (inject.status === 'RELEASED') throw new ScenarioRuntimeError('CONFLICT', 'Released inject is missing its immutable snapshot');
+  if (releaseType === 'AUTO' && await isOperationalAutoReleaseHeld(tx, eventId)) {
+    throw new ScenarioRuntimeError('CONFLICT', 'Automatic scenario release is paused by an operator.');
+  }
   const [event] = await tx.select().from(events).where(eq(events.id, eventId)).limit(1);
   if (!event) throw new ScenarioRuntimeError('NOT_FOUND', 'Exercise not found');
   const [clock] = await tx.select().from(scenarioClocks).where(eq(scenarioClocks.eventId, eventId)).limit(1);
@@ -322,6 +338,9 @@ export async function reconcileScenarioInject(db: CyrisDatabase, injectId: strin
   return db.transaction(async tx => {
     const [inject] = await tx.select().from(scenarioInjects).where(eq(scenarioInjects.id, injectId)).for('update');
     if (!inject || ['RELEASED', 'CANCELLED', 'DRAFT'].includes(inject.status)) return { isReady: false, blockedReasons: [] };
+    if (await isOperationalAutoReleaseHeld(tx, inject.eventId)) {
+      return { isReady: false, blockedReasons: ['Exercise is paused by an operator'] };
+    }
     const result = await evaluateScenarioPrerequisites(tx, inject);
     const [clock] = await tx.select().from(scenarioClocks).where(eq(scenarioClocks.eventId, inject.eventId)).limit(1);
     const [event] = await tx.select({ status: events.status }).from(events).where(eq(events.id, inject.eventId)).limit(1);
