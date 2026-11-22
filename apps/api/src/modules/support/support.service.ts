@@ -7,6 +7,7 @@ import {DatabaseService} from '../database/database.service.js';
 import {AuthorizationService} from '../authorization/authorization.service.js';
 import {AuditService} from '../audit/audit.service.js';
 import {nextSupportReply} from './support-policy.js';
+import {supportSubjectContainsPattern} from './support-search-policy.js';
 import type {AuthenticatedUser} from '../auth/session.service.js';
 
 @Injectable()
@@ -31,8 +32,7 @@ export class SupportService {
     const audience = and(eq(supportRequests.eventId, eventId), canManage ? undefined : eq(supportRequests.requesterId, user.id));
     // Filter AFTER applying tenant and requester visibility, never across tenants.
     // Escape SQL LIKE wildcards so search always means literal subject text.
-    const escapedSearch = query.q?.replace(/[%_\\]/g, part => '\\' + part);
-    const pattern = escapedSearch ? '%' + escapedSearch + '%' : undefined;
+    const pattern = query.q ? supportSubjectContainsPattern(query.q) : undefined;
     const scopedAudience = and(audience,
       query.category ? eq(supportRequests.category, query.category) : undefined,
       pattern ? ilike(supportRequests.subject, pattern) : undefined,
