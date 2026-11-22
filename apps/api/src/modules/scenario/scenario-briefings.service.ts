@@ -8,6 +8,7 @@ import { generateId, Permissions } from '@cyris/shared';
 import type { ParticipantBriefing, ParticipantBriefingsListResponse } from '@cyris/contracts';
 import { DatabaseService } from '../database/database.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { AuthorizationService } from '../authorization/authorization.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 
@@ -17,10 +18,16 @@ export class ScenarioBriefingsService {
     private readonly databaseService: DatabaseService,
     private readonly auditService: AuditService,
     private readonly resourceAccessService: ResourceAccessService,
+    private readonly authorizationService: AuthorizationService,
   ) {}
   private get db() { return this.databaseService.client; }
 
   private async audienceFilter(eventId: string, user: AuthenticatedUser) {
+    // The permissions guard admits platform administrators without an event membership.
+    // Apply the same policy here; otherwise their Briefings page always fails with 403.
+    if (await this.authorizationService.authorize({ user, permission: Permissions.PLATFORM_MANAGE })) {
+      return undefined;
+    }
     const [membership] = await this.db.select({ id: eventMemberships.id }).from(eventMemberships)
       .where(and(eq(eventMemberships.eventId, eventId), eq(eventMemberships.userId, user.id), eq(eventMemberships.status, 'ACTIVE'))).limit(1);
     if (!membership) throw new ForbiddenException('Active participation in this exercise is required');

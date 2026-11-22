@@ -9,6 +9,7 @@ import {
   membershipUnitAssignments,
   unitCapabilities,
   scenarioDeliveries,
+  scenarioBriefingReceipts,
   MembershipStatus,
 } from '@cyris/db';
 import { Permissions } from '@cyris/shared';
@@ -256,18 +257,21 @@ export class WorkspaceResolverService {
         and(isNull(scenarioDeliveries.recipientUserId), isNull(scenarioDeliveries.targetUnitId)),
       ];
       if (unitIds.length > 0) {
-        audienceFilters.push(inArray(scenarioDeliveries.targetUnitId, unitIds));
+        audienceFilters.push(and(isNull(scenarioDeliveries.recipientUserId), inArray(scenarioDeliveries.targetUnitId, unitIds))!);
       }
       const [unreadRow] = await this.db
-        .select({ count: sql<number>`count(*)::int` })
+        .select({ count: sql<number>`count(DISTINCT ${scenarioDeliveries.releaseId})::int` })
         .from(scenarioDeliveries)
-        .where(
-          and(
-            eq(scenarioDeliveries.eventId, eventId),
-            isNull(scenarioDeliveries.readAt),
-            or(...audienceFilters)
-          )
-        );
+        .leftJoin(scenarioBriefingReceipts, and(
+          eq(scenarioBriefingReceipts.releaseId, scenarioDeliveries.releaseId),
+          eq(scenarioBriefingReceipts.userId, user.id),
+        ))
+        .where(and(
+          eq(scenarioDeliveries.eventId, eventId),
+          isNull(scenarioBriefingReceipts.readAt),
+          // Platform administrators can inspect the exercise without joining a unit.
+          isPlatformAdmin ? undefined : or(...audienceFilters),
+        ));
       return Number(unreadRow?.count ?? 0);
     };
 
