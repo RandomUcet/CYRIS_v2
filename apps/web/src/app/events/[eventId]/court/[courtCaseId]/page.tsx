@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { ResourcePicker } from '@/components/common/ResourcePicker';
 import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordHeader } from '@/components/common/RecordHeader';
 import { RecordTabs, TabItem } from '@/components/common/RecordTabs';
@@ -964,13 +965,13 @@ export default function CourtCaseDetailPage() {
               <form onSubmit={handleAddParty}>
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div>
-                    <label className="field-label">Person ID *</label>
-                    <input
-                      type="text"
-                      className="field-input"
-                      placeholder="UUID of Person resource"
+                    <ResourcePicker
+                      eventId={eventId}
                       value={partyForm.personId}
-                      onChange={(e) => setPartyForm({ ...partyForm, personId: e.target.value })}
+                      onChange={(value) => setPartyForm(current => ({ ...current, personId: value }))}
+                      types="person"
+                      label="Person / legal party"
+                      placeholder="Search a registered person by name…"
                       required
                     />
                   </div>
@@ -1090,13 +1091,13 @@ export default function CourtCaseDetailPage() {
               <form onSubmit={handleSubmitExhibit}>
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div>
-                    <label className="field-label">Evidence ID (UUID) *</label>
-                    <input
-                      type="text"
-                      className="field-input"
-                      placeholder="Canonical evidence resource ID"
+                    <ResourcePicker
+                      eventId={eventId}
                       value={exhibitForm.evidenceId}
-                      onChange={(e) => setExhibitForm({ ...exhibitForm, evidenceId: e.target.value })}
+                      onChange={(value) => setExhibitForm(current => ({ ...current, evidenceId: value }))}
+                      types="evidence"
+                      label="Evidence exhibit"
+                      placeholder="Search by evidence number or title…"
                       required
                     />
                   </div>
@@ -1191,13 +1192,13 @@ export default function CourtCaseDetailPage() {
               <form onSubmit={handleCreateFiling}>
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div>
-                    <label className="field-label">Document ID (UUID) *</label>
-                    <input
-                      type="text"
-                      className="field-input"
-                      placeholder="UUID of Document in CYRIS"
+                    <ResourcePicker
+                      eventId={eventId}
                       value={filingForm.documentId}
-                      onChange={(e) => setFilingForm({ ...filingForm, documentId: e.target.value })}
+                      onChange={(value) => setFilingForm(current => ({ ...current, documentId: value }))}
+                      types="document"
+                      label="Filed document"
+                      placeholder="Search by document number or title…"
                       required
                     />
                   </div>

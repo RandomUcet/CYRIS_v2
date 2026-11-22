@@ -2092,3 +2092,34 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
   .modal-body, .modal-dialog > form:not(:has(> .modal-body)), .form-dialog-body { padding: 14px; }
   .form-dialog-body .grid.grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Ensure previously hardcoded Registry/Incidents/Cases/Evidence form bodies scroll
+ * within the viewport instead of being clipped by the dialog's overflow:hidden.
+ */
+.dialog-surface > form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.dialog-surface > form > .dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.dialog-surface > form > .dialog-footer { flex: 0 0 auto; }
+.dialog-surface :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea, .input-field) {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+.dialog-surface :is(input[type="checkbox"], input[type="radio"]),
+.modal-dialog :is(input[type="checkbox"], input[type="radio"]) {
+  display: inline-block;
+  width: auto;
+  min-height: 0;
+  vertical-align: middle;
+}
+.dialog-surface :is(input, select, textarea):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}

@@ -4,6 +4,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { ResourcePicker } from '@/components/common/ResourcePicker';
 import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
@@ -304,13 +305,13 @@ export default function CourtDocketPage() {
                   </div>
 
                   <div>
-                    <label className="field-label">Originating Investigation Case ID (optional)</label>
-                    <input
-                      type="text"
-                      className="field-input"
-                      placeholder="UUID of operational Investigation Case"
+                    <ResourcePicker
+                      eventId={eventId}
                       value={formData.originatingCaseId}
-                      onChange={(e) => setFormData({ ...formData, originatingCaseId: e.target.value })}
+                      onChange={(value) => setFormData(current => ({ ...current, originatingCaseId: value }))}
+                      types="case"
+                      label="Originating investigation case (optional)"
+                      placeholder="Search by case number or title…"
                     />
                   </div>
                 </div>
