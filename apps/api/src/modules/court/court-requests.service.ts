@@ -46,13 +46,43 @@ export class CourtRequestsService {
     };
   }
 
+  private async visibleRequests(eventId: string, user: AuthenticatedUser,
+    rows: (typeof courtRequests.$inferSelect)[]) {
+    const isAdministrator = await this.authz.authorize({ user, permission: Permissions.PLATFORM_MANAGE });
+    const isLegalRequester = await this.authz.authorize({
+      user, permission: Permissions.COURT_REQUEST_CREATE, context: { eventId },
+    });
+    const memberships = await this.db.select({ unitId: membershipUnitAssignments.unitId })
+      .from(eventMemberships).innerJoin(membershipUnitAssignments,
+        eq(membershipUnitAssignments.membershipId, eventMemberships.id))
+      .where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,user.id),
+        eq(eventMemberships.status,MembershipStatus.ACTIVE)));
+    const unitIds = new Set(memberships.map(x=>x.unitId));
+    const accessible = [];
+    for (const row of rows) {
+      const canSeeRecipient = isAdministrator || isLegalRequester ||
+        row.requestedByUserId === user.id ||
+        !row.requestedFromUnitId || unitIds.has(row.requestedFromUnitId);
+      if (canSeeRecipient && await this.access.canAccessResource(user,row.courtCaseId,Permissions.COURT_READ)) {
+        accessible.push(this.view(row));
+      }
+    }
+    return accessible;
+  }
+  async listEvent(eventId: string, user: AuthenticatedUser): Promise<CourtRequestItem[]> {
+    await this.assertPermission(eventId,user,Permissions.COURT_REQUEST_READ);
+    const rows = await this.db.select().from(courtRequests).where(eq(courtRequests.eventId,eventId))
+      .orderBy(desc(courtRequests.createdAt)).limit(300);
+    return this.visibleRequests(eventId,user,rows);
+  }
+
   async list(eventId: string, courtCaseId: string, user: AuthenticatedUser): Promise<CourtRequestItem[]> {
     await this.assertCase(eventId, courtCaseId, user);
     await this.assertPermission(eventId, user, Permissions.COURT_REQUEST_READ);
     const records = await this.db.select().from(courtRequests)
       .where(and(eq(courtRequests.eventId, eventId), eq(courtRequests.courtCaseId, courtCaseId)))
       .orderBy(desc(courtRequests.createdAt)).limit(300);
-    return records.map(row => this.view(row));
+    return this.visibleRequests(eventId,user,records);
   }
 
   async create(eventId: string, courtCaseId: string, input: CreateCourtRequest, user: AuthenticatedUser) {

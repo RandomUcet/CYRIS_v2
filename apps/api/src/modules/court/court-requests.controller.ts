@@ -35,3 +35,14 @@ export class CourtRequestsController {
     return this.requests.reply(eventId, caseId, requestId, input.data, user);
   }
 }
+
+@Controller('events/:eventId/legal-requests')
+@UseGuards(AuthGuard)
+export class CourtRequestInboxController {
+  constructor(private readonly requests: CourtRequestsService) {}
+  @Get()
+  @Header('Cache-Control','private, no-store')
+  list(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() user:AuthenticatedUser) {
+    return this.requests.listEvent(eventId,user);
+  }
+}

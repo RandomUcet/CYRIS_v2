@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { ResourcePicker } from '@/components/common/ResourcePicker';
@@ -51,6 +51,7 @@ import type {
 export default function CourtCaseDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const eventId = params.eventId as string;
   const courtCaseId = params.courtCaseId as string;
   const { hasPermission } = useAuth();
@@ -58,7 +59,7 @@ export default function CourtCaseDetailPage() {
 
   const [activeTab, setActiveTab] = useState<
     'overview' | 'parties' | 'charges' | 'exhibits' | 'hearings' | 'filings' | 'decisions' | 'timeline' | 'requests'
-  >('overview');
+  >(searchParams.get('tab') === 'requests' ? 'requests' : 'overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

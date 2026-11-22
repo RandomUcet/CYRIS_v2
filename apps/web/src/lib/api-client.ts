@@ -1118,6 +1118,9 @@ export class CyrisApiClient {
     return this.postJson<CourtDecision>(`/events/${eventId}/court/${courtCaseId}/decisions`, payload);
   }
 
+  listLegalRequests(eventId: string) {
+    return this.fetchJson<CourtRequestItem[]>('/events/' + encodeURIComponent(eventId) + '/legal-requests');
+  }
   listCourtRequests(eventId: string, courtCaseId: string) {
     return this.fetchJson<CourtRequestItem[]>(
       '/events/' + encodeURIComponent(eventId) + '/court/' + encodeURIComponent(courtCaseId) + '/requests',
