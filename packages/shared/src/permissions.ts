@@ -129,6 +129,9 @@ export const Permissions = {
   COURT_FILING_CREATE: 'court.filing.create',
   COURT_DECISION_CREATE: 'court.decision.create',
   COURT_DECISION_READ: 'court.decision.read',
+  COURT_REQUEST_READ: 'court.request.read',
+  COURT_REQUEST_CREATE: 'court.request.create',
+  COURT_REQUEST_RESPOND: 'court.request.respond',
 
   // Operational Tasking
   TASK_READ: 'task.read',
