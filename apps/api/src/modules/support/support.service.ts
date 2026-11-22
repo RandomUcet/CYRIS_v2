@@ -31,7 +31,8 @@ export class SupportService {
     const audience = and(eq(supportRequests.eventId, eventId), canManage ? undefined : eq(supportRequests.requesterId, user.id));
     // Filter AFTER applying tenant and requester visibility, never across tenants.
     // Escape SQL LIKE wildcards so search always means literal subject text.
-    const pattern = query.q ? '%' + query.q.replace(/[\\%_]/g, '\\    const filter = and(audience, query.status ? eq(supportRequests.status, query.status) : undefined);') + '%' : undefined;
+    const escapedSearch = query.q?.replace(/[%_\\]/g, part => '\\' + part);
+    const pattern = escapedSearch ? '%' + escapedSearch + '%' : undefined;
     const scopedAudience = and(audience,
       query.category ? eq(supportRequests.category, query.category) : undefined,
       pattern ? ilike(supportRequests.subject, pattern) : undefined,
