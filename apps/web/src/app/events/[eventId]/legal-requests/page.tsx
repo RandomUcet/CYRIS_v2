@@ -73,7 +73,7 @@ export default function LegalRequestInboxPage() {
             <strong>{req.subject}</strong>
             <span>{req.status.replaceAll('_',' ')}</span>
           </div>
-          <small>{req.kind.replaceAll('_',' ')} · {formatTime(req.createdAt)} · {tr('Revize','Revision')} {req.revision}</small>
+          <small>{req.kind.replaceAll('_',' ')} · {formatTime(req.createdAt)} · {tr('Revize','Revision')} {req.revision} · {tr('Vyjádření','Replies')}: {req.history.length}</small>
           <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{req.details}</p>
           {req.response&&<p style={{padding:8,borderLeft:'3px solid var(--border-focus)'}}>
             <strong>{tr('Odpověď','Response')}:</strong> {req.response}</p>}

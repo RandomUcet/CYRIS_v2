@@ -90,10 +90,21 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
       expectedRevision:1,status:'FULFILLED',response:'Wrong evidence',
       linkedResourceId:otherResource,
     },responder),BadRequestException);
-    const returned=await service.reply(eventA,caseA,created.id,{
-      expectedRevision:1,status:'FULFILLED',response:'Signed simulated expert opinion.',
+    const progress=await service.reply(eventA,caseA,created.id,{
+      expectedRevision:1,status:'IN_PROGRESS',response:'Expert team is preparing the report.',
     },responder);
-    assert.equal(returned.revision,2);
+    assert.equal(progress.revision,2);
+    assert.equal(progress.history.length,1);
+    assert.equal(progress.history[0]?.status,'IN_PROGRESS');
+    await assert.rejects(()=>service.reply(eventA,caseA,created.id,{
+      expectedRevision:1,status:'DECLINED',response:'Stale pending update.',
+    },responder),ConflictException);
+    const returned=await service.reply(eventA,caseA,created.id,{
+      expectedRevision:2,status:'FULFILLED',response:'Signed simulated expert opinion.',
+    },responder);
+    assert.equal(returned.revision,3);
+    assert.deepEqual(returned.history.map(x=>x.status),['IN_PROGRESS','FULFILLED']);
+    assert.equal(returned.history[0]?.response,'Expert team is preparing the report.');
     assert.equal(returned.respondedByUserId,responderId);
     await assert.rejects(()=>service.reply(eventA,caseA,created.id,{
       expectedRevision:1,status:'FULFILLED',response:'Late, stale response.',

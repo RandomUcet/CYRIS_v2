@@ -58,7 +58,10 @@ export default function PrintableCourtMatter() {
     </PrintSection>
     {requests.length>0&&<PrintSection title={'Žádosti a odpovědi ('+requests.length+')'}>
       {requests.map(x=><PrintField key={x.id} label={x.kind+' · '+x.status}
-        value={[x.subject,x.details,x.response].filter(Boolean).join('\n\n')}/>)}
+        value={[x.subject,x.details,
+          ...x.history.map(update=>update.status+' · '+at(update.createdAt)+'\n'+update.response),
+          ...(!x.history.length&&x.response?[x.response]:[])
+        ].filter(Boolean).join('\n\n')}/>)}
     </PrintSection>}
   </PrintSheet>;
 }

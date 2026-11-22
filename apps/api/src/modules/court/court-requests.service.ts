@@ -1,13 +1,13 @@
 import {
   BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import {
-  courtCases, courtRequests, membershipUnitAssignments, eventMemberships, organizationalUnits,
+  courtCases, courtRequests, courtRequestUpdates, membershipUnitAssignments, eventMemberships, organizationalUnits,
   resources, MembershipStatus
 } from '@cyris/db';
 import { generateId, Permissions, type PermissionKey } from '@cyris/shared';
-import type { CourtRequestItem, CreateCourtRequest, ReplyCourtRequest } from '@cyris/contracts';
+import type { CourtRequestItem, CourtRequestUpdate, CreateCourtRequest, ReplyCourtRequest } from '@cyris/contracts';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { DatabaseService } from '../database/database.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
@@ -43,7 +43,33 @@ export class CourtRequestsService {
       response: row.response, linkedResourceId: row.linkedResourceId,
       respondedByUserId: row.respondedByUserId, respondedAt: row.respondedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
+      history: [],
     };
+  }
+
+
+  private viewUpdate(row: typeof courtRequestUpdates.$inferSelect): CourtRequestUpdate {
+    return {
+      id: row.id, requestId: row.requestId, revision: row.revision,
+      status: row.status as CourtRequestUpdate['status'], response: row.response,
+      linkedResourceId: row.linkedResourceId, actorUserId: row.actorUserId,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  /** Attach only authorized request histories, in one bounded database query. */
+  private async withHistory(rows: CourtRequestItem[]): Promise<CourtRequestItem[]> {
+    if (rows.length === 0) return rows;
+    const updates = await this.db.select().from(courtRequestUpdates)
+      .where(inArray(courtRequestUpdates.requestId, rows.map(row => row.id)))
+      .orderBy(asc(courtRequestUpdates.revision));
+    const byId = new Map<string, CourtRequestUpdate[]>();
+    for (const row of updates) {
+      const history = byId.get(row.requestId) ?? [];
+      history.push(this.viewUpdate(row));
+      byId.set(row.requestId, history);
+    }
+    return rows.map(row => ({ ...row, history: byId.get(row.id) ?? [] }));
   }
 
   private async visibleRequests(eventId: string, user: AuthenticatedUser,
@@ -67,7 +93,7 @@ export class CourtRequestsService {
         accessible.push(this.view(row));
       }
     }
-    return accessible;
+    return this.withHistory(accessible);
   }
   async listEvent(eventId: string, user: AuthenticatedUser): Promise<CourtRequestItem[]> {
     await this.assertPermission(eventId,user,Permissions.COURT_REQUEST_READ);
@@ -148,7 +174,7 @@ export class CourtRequestsService {
         throw new ForbiddenException('Cannot disclose a record without permission to view it');
       }
     }
-    return this.db.transaction(async tx => {
+    const updatedRow = await this.db.transaction(async tx => {
       const [updated] = await tx.update(courtRequests).set({
         status: input.status, response: input.response,
         linkedResourceId: input.linkedResourceId ?? null,
@@ -160,13 +186,19 @@ export class CourtRequestsService {
         inArray(courtRequests.status, ['OPEN', 'IN_PROGRESS']),
       )).returning();
       if (!updated) throw new ConflictException('Request changed or was already answered; refresh before responding');
+      await tx.insert(courtRequestUpdates).values({
+        id: generateId(), requestId, revision: input.expectedRevision + 1,
+        status: input.status, response: input.response, linkedResourceId: input.linkedResourceId ?? null,
+        actorUserId: user.id,
+      });
       await this.audit.record({
         action: 'court.request.responded', category: 'court', eventId, actorUserId: user.id,
         resourceType: 'court_request', resourceId: requestId,
         metadata: { status: input.status, courtCaseId, linkedResourceId: input.linkedResourceId ?? null },
         txClient: tx,
       });
-      return this.view(updated);
+      return updated;
     });
+    return (await this.withHistory([this.view(updatedRow)]))[0]!;
   }
 }

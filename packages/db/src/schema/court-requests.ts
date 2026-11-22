@@ -27,3 +27,18 @@ export const courtRequests = pgTable('court_requests', {
   matter: index('court_requests_case_idx').on(t.courtCaseId, t.createdAt),
   recipient: index('court_requests_recipient_idx').on(t.eventId, t.requestedFromUnitId, t.status),
 }));
+
+/** Permanent, per-revision legal correspondence; latest status is cached on court_requests. */
+export const courtRequestUpdates = pgTable('court_request_updates', {
+  id: uuid('id').primaryKey(),
+  requestId: uuid('request_id').notNull().references(() => courtRequests.id, { onDelete: 'cascade' }),
+  revision: integer('revision').notNull(),
+  status: varchar('status', { length: 32 }).notNull(),
+  response: text('response').notNull(),
+  linkedResourceId: uuid('linked_resource_id').references(() => resources.id, { onDelete: 'set null' }),
+  actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, t => ({
+  requestRevision: uniqueIndex('court_request_updates_revision_unique').on(t.requestId,t.revision),
+  timeline: index('court_request_updates_request_date_idx').on(t.requestId,t.createdAt),
+}));

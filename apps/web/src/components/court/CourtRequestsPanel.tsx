@@ -127,6 +127,20 @@ export function CourtRequestsPanel({ eventId, courtCaseId }: { eventId: string; 
           <p>{req.response}</p>
           {req.linkedResourceId&&<small>{tr('Připojený záznam','Linked record')}: {req.linkedResourceId}</small>}
         </div>}
+        {req.history.length > 0 && <details className={styles.response}>
+          <summary style={{cursor:'pointer',fontWeight:650}}>
+            {tr('Historie vyjádření','Response history')} ({req.history.length})
+          </summary>
+          <ol style={{listStyle:'decimal',paddingLeft:20,display:'grid',gap:12,marginTop:10}}>
+            {req.history.map(update=><li key={update.id} style={{overflowWrap:'anywhere'}}>
+              <strong>{update.status.replaceAll('_',' ')} · {formatTime(update.createdAt)}</strong>
+              <p style={{whiteSpace:'pre-wrap'}}>{update.response}</p>
+              {update.linkedResourceId&&<small>
+                {tr('Připojený záznam','Linked record')}: {update.linkedResourceId}
+              </small>}
+            </li>)}
+          </ol>
+        </details>}
         {mayRespond&&['OPEN','IN_PROGRESS'].includes(req.status) && (activeReply===req.id
           ? <form className={styles.form} onSubmit={e=>{e.preventDefault();void respond(req)}}>
             <label>{tr('Vyřízení','Disposition')}<select value={replyStatus} onChange={e=>setReplyStatus(e.target.value as typeof replyStatus)}>

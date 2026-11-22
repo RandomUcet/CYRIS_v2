@@ -19,6 +19,17 @@ export const ReplyCourtRequestSchema = z.object({
   response: z.string().trim().min(5).max(8000),
   linkedResourceId: z.string().uuid().optional(),
 });
+export const CourtRequestUpdateSchema = z.object({
+  id: z.string().uuid(), requestId: z.string().uuid(),
+  revision: z.number().int().min(2),
+  status: z.enum(['IN_PROGRESS','FULFILLED','DECLINED']),
+  response: z.string(),
+  linkedResourceId: z.string().uuid().nullable(),
+  actorUserId: z.string().uuid().nullable(),
+  createdAt: z.string(),
+});
+export type CourtRequestUpdate = z.infer<typeof CourtRequestUpdateSchema>;
+
 export const CourtRequestItemSchema = z.object({
   id: z.string().uuid(), eventId: z.string().uuid(), courtCaseId: z.string().uuid(),
   kind: CourtRequestKindSchema, subject: z.string(), details: z.string(),
@@ -28,6 +39,7 @@ export const CourtRequestItemSchema = z.object({
   response: z.string().nullable(), linkedResourceId: z.string().uuid().nullable(),
   respondedByUserId: z.string().uuid().nullable(), respondedAt: z.string().nullable(),
   createdAt: z.string(), updatedAt: z.string(),
+  history: z.array(CourtRequestUpdateSchema).default([]),
 });
 export type CreateCourtRequest = z.infer<typeof CreateCourtRequestSchema>;
 export type ReplyCourtRequest = z.infer<typeof ReplyCourtRequestSchema>;
