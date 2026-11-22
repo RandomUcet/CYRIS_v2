@@ -273,7 +273,9 @@ export default function LabAnalysisDetailPage() {
           owningUnit={analysisData.unitName || '—'}
           lead={analysisData.analystName || '—'}
           actions={
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <Link className="btn btn-secondary" href={'/events/'+eventId+'/lab/'+analysisId+'/print'}
+                target="_blank" rel="noopener noreferrer">Vytisknout laboratorní zprávu</Link>
               <button
                 onClick={() => setInspectorOpen(!inspectorOpen)}
                 className={`btn ${inspectorOpen ? 'btn-secondary' : 'btn-ghost'}`}
