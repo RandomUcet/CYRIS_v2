@@ -226,6 +226,11 @@ export class WorkspaceResolverService {
       }),
     ]);
 
+    // Personal judicial roles must work even before a unit capability is assigned.
+    const [canFileCharges, canIssueJudicialDecisions] = await Promise.all([
+      this.authzService.authorize({ user, permission: Permissions.COURT_CHARGE_MANAGE, context: { eventId } }),
+      this.authzService.authorize({ user, permission: Permissions.COURT_DECISION_CREATE, context: { eventId } }),
+    ]);
     const canReadLegalRequests = await this.authzService.authorize({
       user, permission: Permissions.COURT_REQUEST_READ, context: { eventId },
     });
@@ -686,7 +691,7 @@ export class WorkspaceResolverService {
       }
 
       // --- PROSECUTION & DEFENCE LEGAL SECTIONS ---
-      if ((hasProsecution || isPlatformAdmin) && canReadCourt) {
+      if ((hasProsecution || canFileCharges || isPlatformAdmin) && canReadCourt) {
         const legalSection: WorkspaceNavSection = {
           id: 'prosecution-section',
           title: 'Legal',
@@ -743,7 +748,7 @@ export class WorkspaceResolverService {
       }
 
       // --- COURT / JUDICIAL PROCEEDINGS SECTION ---
-      if ((hasCourt || isPlatformAdmin) && canReadCourt) {
+      if ((hasCourt || canIssueJudicialDecisions || isPlatformAdmin) && canReadCourt) {
         const courtSection: WorkspaceNavSection = {
           id: 'court-section',
           title: 'Court',
