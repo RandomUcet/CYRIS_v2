@@ -2,10 +2,11 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { eq } from 'drizzle-orm';
-import { closeDatabaseConnection, events, getDbClient, persons, resources, users } from '@cyris/db';
+import { closeDatabaseConnection, events, getDbClient, persons, registryMedia, resources, scenarioDraftMedia, users } from '@cyris/db';
 import { generateId } from '@cyris/shared';
 import { localWorld, fullName, nameKey, samples } from '../modules/scenario-data/world.js';
 import { ScenarioDataService } from '../modules/scenario-data/scenario-data.service.js';
+import { ScenarioDraftMediaService } from '../modules/scenario-data/scenario-draft-media.service.js';
 import { IdentifierAllocatorService } from '../modules/resources/identifier-allocator.service.js';
 import { ResourceService } from '../modules/resources/resource.service.js';
 import { SearchIndexerService } from '../modules/search/search-indexer.service.js';
@@ -61,7 +62,21 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
     },
   };
   const auth = { assertAuthorized: async ({ user: actor }: any) => { if (actor.id !== uid) throw Error('denied'); } };
-  const svc = new ScenarioDataService(database, resource, ai as any, new IdentifierAllocatorService(database), index, audit, auth as any);
+  const objects = new Map<string, Buffer>();
+  const storage = {
+    putObject: async (key: string, body: Uint8Array) => {
+      objects.set(key, Buffer.from(body));
+      return { key, bucket: 'isolated-media' };
+    },
+    getObject: async (key: string) => ({ body: objects.get(key) ?? new Uint8Array() }),
+    deleteObject: async (key: string) => {
+      objects.delete(key);
+      return { key, bucket: 'isolated-media' };
+    },
+  };
+  const svc = new ScenarioDataService(database, resource, ai as any, new IdentifierAllocatorService(database),
+    index, audit, auth as any, storage as any);
+  const media = new ScenarioDraftMediaService(database, auth as any, storage as any, audit);
   try {
     await db.insert(users).values({ id: uid, email: uid + '@example.test', displayName: 'Generator test' });
     await db.insert(events).values(ids.map(id => ({ id, slug: id, name: id })));
@@ -93,13 +108,34 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
     assert.equal(page.prepared, 13);
     page = await svc.advance(a, draft.id, 13, user);
     assert.equal(page.prepared, 14);
+    const raster = Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0]);
+    await assert.rejects(() => media.upload(b, draft.id, {
+      kind: 'persons', index: 0, filename: 'person.png', mimeType: 'image/png',
+      data: raster.toString('base64'),
+    }, user), /not found/);
+    const attached = await media.upload(a, draft.id, {
+      kind: 'persons', index: 0, filename: 'person.png', mimeType: 'image/png',
+      data: raster.toString('base64'),
+    }, user);
+    assert.equal(attached.index, 0);
+    assert.equal((await media.listRecords(a, draft.id, { kind: 'persons', page: 1, limit: 20 }, user))
+      .records[0]?.hasImage, true);
+    const attachment = (await db.select().from(scenarioDraftMedia)
+      .where(eq(scenarioDraftMedia.batchId, draft.id)))[0]!;
+    assert.equal(objects.has(attachment.objectKey), true);
     const [pub, repeat] = await Promise.all([svc.publish(a, draft.id, user), svc.publish(a, draft.id, user)]);
     assert.equal(pub.id, repeat.id);
     assert.equal(pub.relationshipCount, 13);
     const rows = await db.select().from(persons).where(eq(persons.generationBatchId, pub.id)).orderBy(persons.identifier);
     assert.equal(rows.length, 13);
     assert.equal(rows[0]?.description, page.personDetails?.[0]?.description);
+    const [publishedMedia] = await db.select().from(registryMedia)
+      .where(eq(registryMedia.resourceId, rows[0]!.id));
+    assert.equal(publishedMedia?.objectKey, attachment.objectKey);
+    assert.equal((await db.select().from(scenarioDraftMedia).where(eq(scenarioDraftMedia.batchId,draft.id))).length, 0);
+
     await svc.cleanup(a, draft.id, user);
+    assert.equal(objects.has(attachment.objectKey), false);
     assert.equal((await db.select().from(persons).where(eq(persons.generationBatchId, pub.id))).length, 0);
   } finally {
     // The disposable database owns the immutable event audit records.
