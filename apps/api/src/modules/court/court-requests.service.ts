@@ -1,12 +1,12 @@
 import {
   BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import {
   courtCases, courtRequests, courtRequestUpdates, membershipUnitAssignments, eventMemberships, organizationalUnits,
-  resources, MembershipStatus
+  resources, MembershipStatus, roleAssignments, rolePermissions, roles, notifications
 } from '@cyris/db';
-import { generateId, Permissions, type PermissionKey } from '@cyris/shared';
+import { generateId, Permissions, PermissionScopes, type PermissionKey } from '@cyris/shared';
 import type { CourtRequestItem, CourtRequestUpdate, CreateCourtRequest, ReplyCourtRequest } from '@cyris/contracts';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { DatabaseService } from '../database/database.service.js';
@@ -135,6 +135,38 @@ export class CourtRequestsService {
         metadata: { courtCaseId, kind: input.kind, requestedFromUnitId: input.requestedFromUnitId ?? null },
         txClient: tx,
       });
+      // Notification contains NO freeform case text or classified evidence metadata.
+      // A unit-targeted request should appear in eligible active responders' in-app queues.
+      if (input.requestedFromUnitId) {
+        const eligible = await tx.selectDistinct({ userId: eventMemberships.userId })
+          .from(eventMemberships)
+          .innerJoin(membershipUnitAssignments,
+            eq(membershipUnitAssignments.membershipId, eventMemberships.id))
+          .innerJoin(roleAssignments,
+            eq(roleAssignments.membershipId, eventMemberships.id))
+          .innerJoin(roles, eq(roles.id, roleAssignments.roleId))
+          .innerJoin(rolePermissions, eq(rolePermissions.roleId, roles.id))
+          .where(and(
+            eq(eventMemberships.eventId, eventId),
+            eq(eventMemberships.status, MembershipStatus.ACTIVE),
+            eq(membershipUnitAssignments.unitId, input.requestedFromUnitId),
+            eq(roles.eventId, eventId),
+            eq(rolePermissions.permissionKey, Permissions.COURT_REQUEST_RESPOND),
+            eq(rolePermissions.scope, PermissionScopes.EVENT),
+            or(isNull(roleAssignments.unitId), eq(roleAssignments.unitId, input.requestedFromUnitId)),
+          ));
+        const recipients = eligible.filter(row => row.userId !== user.id);
+        if (recipients.length) {
+          await tx.insert(notifications).values(recipients
+            .map(row => ({
+              id: generateId(), userId: row.userId, eventId, type: 'COURT_REQUEST_CREATED',
+              severity: 'ACTION', templateKey: 'court.request.created',
+              templateParams: {}, resourceId: courtCaseId,
+              actionUrl: '/events/' + eventId + '/court/' + courtCaseId + '?tab=requests',
+              sourceEventId: created!.id,
+            }))).onConflictDoNothing();
+        }
+      }
       return this.view(created!);
     });
   }
@@ -197,6 +229,18 @@ export class CourtRequestsService {
         metadata: { status: input.status, courtCaseId, linkedResourceId: input.linkedResourceId ?? null },
         txClient: tx,
       });
+      // Tell the request author that the addressed team answered. In-app only;
+      // sensitive medical/forensic content must never leak through an email preview.
+      if (request.requestedByUserId !== user.id) {
+        await tx.insert(notifications).values({
+          id: generateId(), userId: request.requestedByUserId, eventId,
+          type: 'COURT_REQUEST_RESPONDED', severity: 'ACTION',
+          templateKey: 'court.request.responded', templateParams: {},
+          resourceId: courtCaseId,
+          actionUrl: '/events/' + eventId + '/court/' + courtCaseId + '?tab=requests',
+          sourceEventId: requestId + ':' + (input.expectedRevision + 1),
+        }).onConflictDoNothing();
+      }
       return updated;
     });
     return (await this.withHistory([this.view(updatedRow)]))[0]!;

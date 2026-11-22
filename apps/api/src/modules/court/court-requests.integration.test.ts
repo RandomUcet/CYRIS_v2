@@ -5,8 +5,8 @@ import { and, eq } from 'drizzle-orm';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { getDbClient, closeDatabaseConnection, events, eventMemberships,
   organizationalUnits, membershipUnitAssignments, users, resources, courtCases,
-  courtRequests, type CyrisDatabase } from '@cyris/db';
-import { generateId, Permissions } from '@cyris/shared';
+  courtRequests, roles, roleAssignments, rolePermissions, notifications } from '@cyris/db';
+import { generateId, Permissions, PermissionScopes } from '@cyris/shared';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { CourtRequestsService } from '../court/court-requests.service.js';
@@ -19,7 +19,7 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
   const db=getDbClient({url:url!,max:5});
   const eventA=generateId(),eventB=generateId(),caseA=generateId(),otherResource=generateId();
   const requesterId=generateId(),responderId=generateId(),strangerId=generateId();
-  const unitId=generateId(),wrongUnitId=generateId(),memberId=generateId();
+  const unitId=generateId(),wrongUnitId=generateId(),memberId=generateId(),responderRoleId=generateId();
   const actor=(id:string):AuthenticatedUser=>({id,status:'ACTIVE',email:id+'@example.test',
     displayName:id} as AuthenticatedUser);
   const requester=actor(requesterId),responder=actor(responderId),stranger=actor(strangerId);
@@ -67,6 +67,16 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
     await db.insert(membershipUnitAssignments).values({
       id:generateId(),membershipId:memberId,unitId,
     });
+    await db.insert(roles).values({
+      id:responderRoleId,eventId:eventA,name:'Expert responder',slug:'expert-responder',
+    });
+    await db.insert(rolePermissions).values({
+      id:generateId(),roleId:responderRoleId,permissionKey:Permissions.COURT_REQUEST_RESPOND,
+      scope:PermissionScopes.EVENT,
+    });
+    await db.insert(roleAssignments).values({
+      id:generateId(),roleId:responderRoleId,membershipId:memberId,
+    });
     const input={
       kind:'EXPERT_OPINION' as const,subject:'Independent expert assessment',
       details:'Please assess the submitted simulated evidence.',
@@ -79,6 +89,11 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
       ...input,requestedFromUnitId:unitId,
     },requester);
     assert.equal(created.status,'OPEN');
+    const newAlerts=await db.select().from(notifications).where(eq(notifications.eventId,eventA));
+    assert.equal(newAlerts.filter(row=>row.type==='COURT_REQUEST_CREATED').length,1);
+    assert.equal(newAlerts[0]?.userId,responderId);
+    assert.deepEqual(newAlerts[0]?.templateParams,{});
+    assert.equal(newAlerts[0]?.actionUrl,'/events/'+eventA+'/court/'+caseA+'?tab=requests');
     assert.equal((await service.list(eventA,caseA,requester)).length,1);
     await assert.rejects(()=>service.reply(eventA,caseA,created.id,{
       expectedRevision:1,status:'FULFILLED',response:'Unauthorised reply',
@@ -106,6 +121,9 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
     assert.deepEqual(returned.history.map(x=>x.status),['IN_PROGRESS','FULFILLED']);
     assert.equal(returned.history[0]?.response,'Expert team is preparing the report.');
     assert.equal(returned.respondedByUserId,responderId);
+    const replyAlerts=await db.select().from(notifications).where(eq(notifications.eventId,eventA));
+    assert.equal(replyAlerts.filter(row=>row.type==='COURT_REQUEST_RESPONDED').length,2);
+    assert.ok(replyAlerts.filter(row=>row.type==='COURT_REQUEST_RESPONDED').every(row=>row.userId===requesterId));
     await assert.rejects(()=>service.reply(eventA,caseA,created.id,{
       expectedRevision:1,status:'FULFILLED',response:'Late, stale response.',
     },responder),ConflictException);
