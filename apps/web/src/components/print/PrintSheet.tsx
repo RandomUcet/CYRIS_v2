@@ -1,11 +1,13 @@
 'use client';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import styles from './PrintSheet.module.css';
 
 /** Authenticated records only; text stays React-escaped. No printable server URL bypass. */
 export function PrintSheet({ title, identifier, subtitle, children }: {
   title: string; identifier: string; subtitle?: string; children: ReactNode;
 }) {
+  const [generated,setGenerated] = useState('');
+  useEffect(()=>setGenerated(new Date().toLocaleString('cs-CZ')),[]);
   return <main className={'cyris-print-root ' + styles.sheet}>
     <div className={styles.toolbar}>
       <button type="button" onClick={()=>window.print()}>🖨 Tisknout / uložit jako PDF</button>
@@ -15,7 +17,7 @@ export function PrintSheet({ title, identifier, subtitle, children }: {
       <p className={styles.simulation}>CYRIS · CzechCybertron · SIMULACE / EXERCISE ONLY</p>
       <h1>{title}</h1>
       <p><strong>{identifier}</strong>{subtitle ? ' · ' + subtitle : ''}</p>
-      <p className={styles.generated}>Vytištěno / Generated: {new Date().toLocaleString('cs-CZ')}</p>
+      <p className={styles.generated}>Vytištěno / Generated: {generated || '—'}</p>
     </header>
     {children}
     <footer className={styles.footer}>CYRIS · pouze údaje simulovaného cvičení · přístup podle oprávnění</footer>
