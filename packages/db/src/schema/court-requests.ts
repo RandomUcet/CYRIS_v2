@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, integer, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { events, organizationalUnits } from './events.js';
 import { users } from './users.js';
 import { courtCases } from './court.js';
