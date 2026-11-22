@@ -8,7 +8,7 @@ import {
   activityEvents, notifications, auditEvents, scenarioClocks,
   releaseScenarioInject, reconcileScenarioInject, validateScenarioReferences,
 } from '@cyris/db';
-import { generateId } from '@cyris/shared';
+import { generateId, Permissions } from '@cyris/shared';
 import { ScenarioBriefingsService } from '../modules/scenario/scenario-briefings.service.js';
 import { AuditService } from '../modules/audit/audit.service.js';
 import { requireVerifiedIsolatedDatabase, skipWithoutVerifiedDatabase } from './isolated-postgres-harness.js';
@@ -16,10 +16,11 @@ import { requireVerifiedIsolatedDatabase, skipWithoutVerifiedDatabase } from './
 skipWithoutVerifiedDatabase('scenario transactions, real PostgreSQL audience and scheduler regression', async () => {
   const db = getDbClient({ url: requireVerifiedIsolatedDatabase()! });
   const eventA = generateId(); const eventB = generateId();
-  const alice = generateId(); const bob = generateId(); const outsider = generateId();
-  const userIds = [alice, bob, outsider];
+  const alice = generateId(); const bob = generateId(); const outsider = generateId(); const admin = generateId();
+  const userIds = [alice, bob, outsider, admin];
   const provider = { client: db } as any;
-  const briefings = new ScenarioBriefingsService(provider, new AuditService(provider), { canAccessResource: async () => true } as any);
+  const briefings = new ScenarioBriefingsService(provider, new AuditService(provider), { canAccessResource: async () => true } as any,
+    { authorize: async ({ user: requestingUser, permission }: any) => requestingUser.id === admin && permission === Permissions.PLATFORM_MANAGE } as any);
   const user = (id: string) => ({ id, displayName: id, email: `${id}@test.invalid`, isPlatformAdmin: false } as any);
   let serial = 0;
   const makeInject = async (extra: Partial<typeof scenarioInjects.$inferInsert> = {}) => {
@@ -53,6 +54,13 @@ skipWithoutVerifiedDatabase('scenario transactions, real PostgreSQL audience and
     await assert.rejects(() => briefings.markAsRead(eventA, deliveries[0]!.id, user(bob)), /not available/);
     await assert.rejects(() => briefings.acknowledgeBriefing(eventA, deliveries[0]!.id, user(bob)), /not available/);
     await assert.rejects(() => briefings.getBriefingsForUser(eventA, user(outsider)), /participation/);
+    // Admin has platform-level Briefings permission but no event membership.
+    // Reading someone else's directed briefing never changes that recipient's receipt.
+    const adminBriefings = await briefings.getBriefingsForUser(eventA, user(admin));
+    assert.equal(adminBriefings.newBriefings.find(item => item.deliveryId === deliveries[0]!.id)?.title, 'Úkol pro Alici');
+    await briefings.markAsRead(eventA, deliveries[0]!.id, user(admin));
+    assert.equal((await briefings.getBriefingsForUser(eventA, user(alice))).unreadCount, 1);
+    assert.equal((await briefings.getBriefingsForUser(eventA, user(admin))).unreadCount, 0);
     await assert.rejects(() => releaseScenarioInject(db, eventB, targeted.id, 'MANUAL', outsider), /not found/);
 
     // A legacy event broadcast still tracks each user's independent read/ack state.
