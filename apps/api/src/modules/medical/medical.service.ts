@@ -8,6 +8,7 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
+import { AuthorizationService } from '../authorization/authorization.service.js';
 import { IdentifierAllocatorService } from '../resources/identifier-allocator.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { ActivityService } from '../resources/activity.service.js';
@@ -52,7 +53,8 @@ export class MedicalService {
     private readonly identifierAllocator: IdentifierAllocatorService,
     private readonly auditService: AuditService,
     private readonly activityService: ActivityService,
-    private readonly searchIndexer: SearchIndexerService
+    private readonly searchIndexer: SearchIndexerService,
+    private readonly authorization: AuthorizationService
   ) {}
 
   private get db() {
@@ -68,6 +70,13 @@ export class MedicalService {
     dto: CreateMedicalEncounterRequest,
     user: AuthenticatedUser
   ): Promise<MedicalEncounterItem> {
+    const canCreate = await this.authorization.authorize({ user, permission: Permissions.MEDICAL_CREATE, context: { eventId } })
+      || await this.authorization.hasEventCapability({
+        user, eventId, permission: Permissions.MEDICAL_CREATE,
+        unitId: dto.assignedUnitId ?? undefined, resourceScopes: [],
+      });
+    if (!canCreate) throw new ForbiddenException('Medical encounter creation is not authorized for this exercise');
+
     const encounterId = generateId();
 
     return this.db.transaction(async (tx) => {
@@ -169,6 +178,15 @@ export class MedicalService {
         visibility: dto.visibility || 'UNIT',
       });
     });
+  }
+
+  /** The exercise in the URL must own the medical record before any read or mutation. */
+  async assertEncounterInEvent(eventId: string, encounterId: string): Promise<void> {
+    const [record] = await this.db.select({ id: medicalEncounters.id })
+      .from(medicalEncounters)
+      .where(and(eq(medicalEncounters.id, encounterId), eq(medicalEncounters.eventId, eventId)))
+      .limit(1);
+    if (!record) throw new NotFoundException('Medical encounter not found in the requested exercise');
   }
 
   /**
@@ -822,8 +840,16 @@ export class MedicalService {
    */
   async getOperationalSummary(
     eventId: string,
-    _user: AuthenticatedUser
+    user: AuthenticatedUser
   ): Promise<MedicalOperationalSummaryResponse> {
+    // Aggregate data is still exercise-scoped and must not be exposed to any signed-in account.
+    const canRead = await this.authorization.hasEventCapability({
+      user, eventId, permission: Permissions.COMMAND_READ, resourceScopes: [],
+    }) || await this.authorization.hasEventCapability({
+      user, eventId, permission: Permissions.MEDICAL_READ, resourceScopes: [],
+    }) || await this.authorization.authorize({ user, permission: Permissions.PLATFORM_MANAGE });
+    if (!canRead) throw new ForbiddenException('Medical operational summary is not available to this operator');
+
     const rows = await this.db
       .select({
         status: medicalEncounters.status,
