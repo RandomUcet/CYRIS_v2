@@ -10,6 +10,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
+import { PermissionsGuard } from '../authorization/guards/permissions.guard.js';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator.js';
+import { Permissions, PermissionScopes } from '@cyris/shared';
 import { CourtService } from './court.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
@@ -41,6 +44,8 @@ export class CourtController {
   constructor(private readonly courtService: CourtService) {}
 
   @Post()
+  @UseGuards(PermissionsGuard)
+  @RequirePermission(Permissions.COURT_CREATE, PermissionScopes.EVENT)
   async createCase(
     @Param('eventId', ParseUUIDPipe) eventId: string,
     @Body() body: unknown,

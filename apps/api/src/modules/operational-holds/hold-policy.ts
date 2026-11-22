@@ -36,6 +36,7 @@ export function operationHoldModules(route: string, method: string): { eventRout
   const candidate = segments[3] ?? '';
   if (eventRoute && isServiceModule(candidate)) extra = candidate;
   else if (eventRoute && candidate === 'scenario-data') extra = 'scenario';
+  else if (eventRoute && candidate === 'legal-requests') extra = 'court';
   else if (eventRoute && candidate === 'resources') extra = 'registry';
   else if (eventRoute && candidate === 'activity') extra = 'timeline';
   else if (isRootResource && segments[1] === 'cases') extra = 'cases';
