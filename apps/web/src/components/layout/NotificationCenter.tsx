@@ -173,7 +173,7 @@ export function NotificationCenter(){
       <header className={styles.header}>
         <h2 id={titleId}>{t('notification.title')}</h2>
         <div className={styles.headerActions}>
-          {visibleData.unreadCount>0&&!isReadOnly&&<button type="button" className={styles.markAll}
+          {visibleData.unreadCount>0&&!isReadOnly&&view==='ALL'&&!query.trim()&&<button type="button" className={styles.markAll}
             disabled={busy||loading} onClick={()=>void mutate('all',()=>apiClient.markAllNotificationsRead(selectedEvent?.id))}>
             <CheckCheck size={15} aria-hidden="true"/>
             <span>{t('action.markAllRead')}</span>
