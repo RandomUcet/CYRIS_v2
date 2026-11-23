@@ -14,6 +14,8 @@ test('receiving teams see a single acknowledgement action instead of stabilizati
   assert.match(source, /canIntervene &&/);
   assert.match(source, /setReceiveSuccess/);
   assert.match(source, /role="status"/);
+  assert.match(source, /'medical\.transfer\.received'/);
+  assert.match(source, /Historie předání a převzetí/);
 });
 
 test('client posts acknowledgement to the event-scoped medical endpoint', () => {
