@@ -82,6 +82,7 @@ export default function AdminAuditPage() {
 
   // Server-side search is applied BEFORE pagination to the full permitted audit history.
   const filteredEntries = entries;
+  const searchPending=search.trim()!==debouncedSearch;
 
   const columns: Column<AuditEntry>[] = [
     {
@@ -234,7 +235,7 @@ export default function AdminAuditPage() {
                   { label: tr('Zdravotnická agenda','Medical'), value: 'medical' },
                   { label: tr('Podpora účastníků','Support'), value: 'support' },
                 ],
-                onChange: value => {setCategoryFilter(value);setPage(1);},
+                onChange: value => {setCategoryFilter(value);setPage(1);setSelectedEntry(null);},
               },
             ]}
             onReset={() => {
@@ -250,9 +251,10 @@ export default function AdminAuditPage() {
         {/* Workspace Canvas with Table & Inspector */}
         <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {loading ? (
+            {loading||searchPending ? (
               <div style={{ padding: '40px' }}>
-                <LoadingState message={tr('Načítám auditní záznamy…','Loading audit records…')} />
+                <LoadingState message={searchPending?tr('Vyhledávám v auditní historii…','Searching full audit history…')
+                  :tr('Načítám auditní záznamy…','Loading audit records…')} />
               </div>
             ) : error ? (
               <div style={{ padding: '40px' }}>
