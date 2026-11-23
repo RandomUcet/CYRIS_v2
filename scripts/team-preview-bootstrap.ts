@@ -82,7 +82,9 @@ export async function provisionTeamPreview(db: Pick<CyrisDatabase, 'transaction'
       const roleId = randomUUID();
       await tx.insert(roles).values({ id: roleId, eventId, slug: team.slug, name: team.name });
       const grants = team.login === 'stab' ? crisisCommandPermissions : profile.rights.map(key => ({ key, scope: 'EVENT' }));
-      await tx.insert(rolePermissions).values(grants.map(({key, scope}) => ({ roleId, permissionKey: key, scope })));
+      if (grants.length > 0) {
+        await tx.insert(rolePermissions).values(grants.map(({key, scope}) => ({ roleId, permissionKey: key, scope })));
+      }
       await tx.insert(roleAssignments).values({ roleId, membershipId });
       const roleSlugs = team.login === 'stab' ? [] : ['team-member'];
       if (team.login === 'levandule' || team.login === 'chemie') roleSlugs.push('laboratory-worker');
