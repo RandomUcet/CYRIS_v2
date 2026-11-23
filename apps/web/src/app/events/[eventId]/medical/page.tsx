@@ -135,15 +135,6 @@ export default function MedicalPage() {
     }
   }, [eventId]);
 
-  useEffect(() => {
-    if (!showCreateModal) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !submitting) setShowCreateModal(false);
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [showCreateModal, submitting]);
-
   // The screen and the authenticated printable run sheet use identical filters.
   const filteredEncounters = useMemo(() => filterMedicalRunSheet(encounters, {
     view: activeTab, search, triage: triageFilter,
@@ -373,7 +364,7 @@ export default function MedicalPage() {
       {/* Receive Casualty Modal */}
       {showCreateModal && (
         <div
-          className="dialog-overlay"
+          className="dialog-overlay medical-dialog-overlay"
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget && !submitting) setShowCreateModal(false);
@@ -394,8 +385,9 @@ export default function MedicalPage() {
               <button
                 type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="btn btn-ghost"
-                aria-label="Close"
+                disabled={submitting}
+                className="medical-dialog-dismiss"
+                aria-label={locale === 'cs' ? 'Zavřít formulář' : 'Close form'}
               >
                 <X size={16} />
               </button>
@@ -412,7 +404,7 @@ export default function MedicalPage() {
                 <label htmlFor="new-medical-team" className="block font-medium text-slate-300 mb-1">
                   {locale === 'cs' ? 'Zdravotnický tým' : 'Medical team'}
                 </label>
-                <select id="new-medical-team" required value={formData.assignedUnitId || ''}
+                <select id="new-medical-team" required disabled={submitting} value={formData.assignedUnitId || ''}
                   onChange={(e) => setFormData(prev => ({...prev, assignedUnitId: e.target.value || undefined}))}
                   className="medical-dialog-control">
                   <option value="">{locale === 'cs' ? 'Vyberte tým' : 'Select team'}</option>
@@ -422,9 +414,11 @@ export default function MedicalPage() {
               {teamsError && <p role="alert" className="medical-dialog-error">{teamsError}</p>}
               {teamsLoading && <p role="status">{locale === 'cs' ? 'Načítám týmy…' : 'Loading teams…'}</p>}
               <div>
-                <label className="block font-medium text-slate-300 mb-1">{tr("Chief Complaint")}</label>
+                <label htmlFor="medical-new-complaint" className="block font-medium text-slate-300 mb-1">{tr("Chief Complaint")}</label>
                 <input
+                  id="medical-new-complaint"
                   type="text"
+                  disabled={submitting}
                   value={formData.chiefComplaint}
                   onChange={(e) => setFormData({ ...formData, chiefComplaint: e.target.value })}
                   placeholder={tr("e.g. Acute respiratory distress, chemical vapor exposure")}
@@ -433,9 +427,11 @@ export default function MedicalPage() {
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">{tr("Mechanism of Injury")}</label>
+                <label htmlFor="medical-new-mechanism" className="block font-medium text-slate-300 mb-1">{tr("Mechanism of Injury")}</label>
                 <input
+                  id="medical-new-mechanism"
                   type="text"
+                  disabled={submitting}
                   value={formData.mechanismOfInjury}
                   onChange={(e) => setFormData({ ...formData, mechanismOfInjury: e.target.value })}
                   placeholder={tr("e.g. Inhalation near ventilation shaft, chemical leak")}
@@ -444,8 +440,10 @@ export default function MedicalPage() {
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">{tr("Initial Triage Category")}</label>
+                <label htmlFor="medical-new-triage" className="block font-medium text-slate-300 mb-1">{tr("Initial Triage Category")}</label>
                 <select
+                  id="medical-new-triage"
+                  disabled={submitting}
                   value={formData.triageCategory}
                   onChange={(e) =>
                     setFormData({ ...formData, triageCategory: e.target.value as MedicalTriageCategory })
@@ -461,8 +459,10 @@ export default function MedicalPage() {
               </div>
 
               <div>
-                <label className="block font-medium text-slate-300 mb-1">{tr("Assessment Summary")}</label>
+                <label htmlFor="medical-new-assessment" className="block font-medium text-slate-300 mb-1">{tr("Assessment Summary")}</label>
                 <textarea
+                  id="medical-new-assessment"
+                  disabled={submitting}
                   value={formData.assessmentSummary}
                   onChange={(e) => setFormData({ ...formData, assessmentSummary: e.target.value })}
                   rows={3}
@@ -475,8 +475,9 @@ export default function MedicalPage() {
             <div className="dialog-footer medical-dialog-footer">
               <button
                 type="button"
+                disabled={submitting}
                 onClick={() => setShowCreateModal(false)}
-              className="btn btn-secondary"
+                className="btn btn-secondary"
               >
                 {tr("Cancel")}
               </button>
