@@ -1160,8 +1160,8 @@ def verify_release_registry_access(release, token=None, docker_env=None):
 
 
 def cmd_github_verify(args):
-    """Read-only preflight; no service restart, image pull or database mutation."""
-    release = github_release()
+    """Read-only preflight for a selected stable release (or latest)."""
+    release = github_release(getattr(args, "version", None))
     version = verify_release_registry_access(release)
     print(f"PASS: private GitHub Release v{version} and all three GHCR images are accessible.")
 
@@ -1369,7 +1369,9 @@ def main():
     login = subparsers.add_parser("github", help="Configure private GitHub Releases and GHCR access")
     github_sub = login.add_subparsers(required=True)
     github_sub.add_parser("login", help="Authenticate and verify private image access").set_defaults(func=cmd_github_login)
-    github_sub.add_parser("verify", help="Read-only verification of GitHub and GHCR access").set_defaults(func=cmd_github_verify)
+    github_verify = github_sub.add_parser("verify", help="Read-only verification of GitHub and GHCR access")
+    github_verify.add_argument("--version", help="Verify this published stable release instead of latest")
+    github_verify.set_defaults(func=cmd_github_verify)
 
     # config
     p_config = subparsers.add_parser("config", help="Manage production configuration")
