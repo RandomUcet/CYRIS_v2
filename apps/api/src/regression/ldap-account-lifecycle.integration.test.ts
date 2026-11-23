@@ -28,6 +28,10 @@ test('LDAP account lifecycle input is explicit and requires a reason',()=>{
 test('global LDAP list accepts no exercise but still validates assignment filters',()=>{
   assert.equal(LdapTeamAccountQuerySchema.safeParse({q:'staff@example.test',status:'DISABLED'}).success,true);
   assert.equal(LdapTeamAccountQuerySchema.safeParse({eventId:'not-a-uuid'}).success,false);
+  assert.equal(LdapTeamAccountQuerySchema.safeParse({page:'2'}).data?.page,2);
+  assert.equal(LdapTeamAccountQuerySchema.safeParse({page:'0'}).success,false);
+  assert.equal(LdapTeamAccountQuerySchema.safeParse({page:'1001'}).success,false);
+  assert.equal(LdapTeamAccountQuerySchema.safeParse({}).data?.page,1);
 });
 
 const url=requireVerifiedIsolatedDatabase();
@@ -77,6 +81,8 @@ test('LDAP operator deactivate/reactivate is audited, session-safe and denies pr
       assert.equal(global.length,1,'LDAP directory browsing does not depend on selecting a workspace');
       assert.equal(global[0]?.membershipStatus,null,'global view does not inherit exercise membership data');
       assert.deepEqual(global[0]?.units,[]);
+      assert.equal((await directory.listAccounts(undefined,targetId+'@example.test',false,undefined,2)).accounts.length,0);
+      assert.equal((await directory.listAccounts(undefined,targetId+'@example.test',false,undefined,1)).hasMore,false);
       await assert.rejects(directory.listAccounts(undefined,undefined,true),
         'unassigned filter requires an explicit event scope');
       await assert.rejects(lifecycle.setEnabled(actorIdentityId,{enabled:false,reason:'Audit self-lockout prevention'},actor),ConflictException);
