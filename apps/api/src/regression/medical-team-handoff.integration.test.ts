@@ -6,7 +6,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import {
   getDbClient, closeDatabaseConnection, users, events, eventMemberships,
   membershipUnitAssignments, organizationalUnits, unitCapabilities,
-  roles, rolePermissions, roleAssignments, resources, medicalEncounters, locations,
+  roles, rolePermissions, roleAssignments, resources, medicalEncounters, medicalInterventions, locations,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
 import { UnitCapabilityKeys } from '@cyris/contracts';
@@ -185,12 +185,34 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
         await assert.rejects(medical.receiveTransferredEncounter(created.id,recipient),ConflictException);
         assert.equal(await access.canAccessResource(actor,created.id,Permissions.MEDICAL_READ),false);
 
-        // The receiving team may continue treatment on the same patient record.
+        // The receiving team may continue treatment on the same patient record,
+        // and a failing search/audit outbox must not leave a partial intervention.
+        const prior=await db.select().from(medicalInterventions)
+          .where(eq(medicalInterventions.encounterId,created.id));
+        const oldIndex=indexer.emitSearchUpsert.bind(indexer);
+        indexer.emitSearchUpsert=async()=>{throw new Error('Care outbox rollback');};
+        try {
+          await assert.rejects(medical.addIntervention(created.id,{
+            interventionType:'ASSESSMENT',description:'Must roll back',
+          },recipient),/Care outbox rollback/);
+        } finally { indexer.emitSearchUpsert=oldIndex; }
+        assert.equal((await db.select().from(medicalInterventions)
+          .where(eq(medicalInterventions.encounterId,created.id))).length,prior.length);
+
         const after=await medical.addIntervention(created.id,{
           interventionType:'ASSESSMENT',description:'Simulated assessment after receipt',
         },recipient);
         assert.equal(after.interventionType,'ASSESSMENT');
         assert.equal((await medical.getEncounterDetail(created.id,recipient)).interventions.length,1);
+
+        const oldForClosure=indexer.emitSearchUpsert.bind(indexer);
+        indexer.emitSearchUpsert=async()=>{throw new Error('Close outbox rollback');};
+        try {
+          await assert.rejects(medical.closeEncounter(created.id,{
+            status:'CLOSED',disposition:'Failed simulated discharge',
+          },recipient),/Close outbox rollback/);
+        } finally { indexer.emitSearchUpsert=oldForClosure; }
+        assert.equal((await db.select().from(medicalEncounters).where(eq(medicalEncounters.id,created.id)))[0]?.status,'UNDER_CARE');
 
         // A final disposition cannot be undone by ordinary triage or transfer endpoints.
         const final=await medical.closeEncounter(created.id,{status:'CLOSED',disposition:'Simulated discharge'},recipient);
