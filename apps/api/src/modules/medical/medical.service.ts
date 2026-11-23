@@ -127,6 +127,20 @@ export class MedicalService {
     }
   }
 
+  /** Handoff destinations must be active medical-capable teams in this exercise. */
+  private async assertMedicalReceivingUnit(eventId: string, unitId: string): Promise<void> {
+    const [unit] = await this.db.select({id: organizationalUnits.id})
+      .from(organizationalUnits)
+      .innerJoin(unitCapabilities, eq(unitCapabilities.unitId, organizationalUnits.id))
+      .where(and(
+        eq(organizationalUnits.id, unitId),
+        eq(organizationalUnits.eventId, eventId),
+        isNull(organizationalUnits.archivedAt),
+        eq(unitCapabilities.capabilityKey, UnitCapabilityKeys.MEDICAL_OPERATIONS),
+      )).limit(1);
+    if (!unit) throw new BadRequestException('Receiving unit must be an active medical team in this exercise');
+  }
+
   /**
    * The medical intake screen does not ask operators to choose their own team.
    * If the operator belongs to exactly one active medical-capable unit, use that
@@ -314,6 +328,7 @@ export class MedicalService {
       // must not be sufficient to disclose a patient's record to that team.
       await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_TRANSFER);
       await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_READ);
+      await this.assertMedicalReceivingUnit(existing.eventId, dto.assignedUnitId!);
     }
 
     const updates: Record<string, unknown> = { updatedAt: new Date() };
@@ -675,6 +690,9 @@ export class MedicalService {
     await this.assertReferencesInEvent(existing.eventId, {
       targetLocationId: dto.targetLocationId, receivingUnitId: dto.receivingUnitId,
     });
+    if (dto.receivingUnitId && dto.receivingUnitId !== existing.assignedUnitId) {
+      await this.assertMedicalReceivingUnit(existing.eventId, dto.receivingUnitId);
+    }
     const [destination] = await this.db.select({name:locations.name}).from(locations)
       .where(eq(locations.id, dto.targetLocationId)).limit(1);
     if (!destination) throw new NotFoundException('Transfer location not found');
