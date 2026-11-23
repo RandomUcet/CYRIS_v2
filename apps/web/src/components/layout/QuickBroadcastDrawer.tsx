@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, ArrowLeft, BellRing, CheckCircle2, FileText, Send, Sparkles, X } from 'lucide-react';
 import type { ExerciseBroadcastRequest } from '@cyris/contracts';
 import { useAuth } from '@/contexts/AuthContext';
@@ -169,7 +170,9 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
   }
 
   if(!open)return null;
-  return <div className={'dialog-overlay '+styles.overlay} onMouseDown={e=>{
+  // A fixed overlay rendered inside a sticky header can be trapped by its
+  // stacking context. Portal to body so the composer is usable on every page.
+  return createPortal(<div className={'dialog-overlay '+styles.overlay} onMouseDown={e=>{
     if(e.target===e.currentTarget)requestClose();
   }}>
     <section className={styles.drawer} role="dialog" aria-modal="true"
@@ -290,5 +293,5 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
           {tr('Otevřít plné komunikační centrum (plánování, historie)','Open full broadcast center (schedule, history)')}</Link>
       </div>}
     </section>
-  </div>;
+  </div>, document.body);
 }
