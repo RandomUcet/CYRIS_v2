@@ -205,7 +205,7 @@ export default function IdentitySettingsPage() {
 
         <div className={styles.providerManagementHint}>
           <p>{cs?'Správa jednotlivých uživatelských účtů a rolí je oddělená od konfigurace přihlašovacích serverů.':'User accounts and roles are managed separately from sign-in servers.'}</p>
-          <Link href="/admin/users">{cs?'Přejít na uživatele a LDAP účty':'Manage users and LDAP accounts'}</Link>
+          <Link href="/admin/users?tab=ldap">{cs?'Spravovat LDAP uživatelské účty':'Manage LDAP user accounts'}</Link>
         </div>
         {feedback && <p role={feedback.error ? 'alert' : 'status'} style={{ padding: '12px', color: feedback.error ? 'var(--status-critical)' : 'var(--text-primary)' }}>{feedback.message}</p>}
 
