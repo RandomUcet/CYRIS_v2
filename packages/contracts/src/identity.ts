@@ -22,6 +22,7 @@ export const LdapTeamAccountQuerySchema = z.object({
   q: z.string().trim().max(160).optional(),
   unassigned: z.enum(['true', 'false']).optional(),
   status: z.enum(['ACTIVE', 'DISABLED']).optional(),
+  page: z.coerce.number().int().min(1).max(1000).default(1),
 });
 
 export interface LdapTeamAccount {
