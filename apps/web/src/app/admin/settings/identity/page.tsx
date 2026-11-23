@@ -14,6 +14,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Pencil,
+  RefreshCw,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import type { IdentityProviderSummary, OidcConfig } from '@cyris/contracts';
@@ -174,7 +175,13 @@ export default function IdentitySettingsPage() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display:'flex',flexWrap:'wrap',gap:'8px' }}>
+            <button type="button" className="btn-secondary"
+              disabled={loading||Boolean(providerBusy)||Boolean(testingId)}
+              onClick={()=>{setLoading(true);setFeedback(null);void fetchProviders();}}
+              title={cs?'Obnovit seznam poskytovatelů':'Refresh identity providers'}>
+              <RefreshCw size={12}/>{cs?'Obnovit':'Refresh'}
+            </button>
             <button
               type="button"
               className="btn-secondary"
