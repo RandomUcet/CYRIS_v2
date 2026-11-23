@@ -82,6 +82,10 @@ test('global LDAP account list works without exercise while event-team assignmen
   assert.ok(directory.includes('disabled={saving||!event}'),'team filters are event-scoped');
   assert.ok(directory.includes('if (busy || !event || !canAssign'),'team changes require explicit event');
   assert.ok(client.includes('if(eventId)params.set(\'eventId\',eventId)'));
+  assert.ok(client.includes("page: String(page)"),'account endpoint must request the selected page');
+  assert.ok(directory.includes("const [page,setPage]=useState(1)"));
+  assert.ok(directory.includes("setPage(p=>Math.min(1000,p+1))"));
+  assert.ok(directory.includes("setPage(p=>Math.max(1,p-1))"));
 });
 
 test('exercise membership pause is distinct from global account deactivation',()=>{
