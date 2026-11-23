@@ -31,6 +31,10 @@ export interface LdapTeamAccount {
   email: string;
   displayName: string;
   providerName: string;
+  /** Provider can be disabled independently of the user's CYRIS account. */
+  providerEnabled?: boolean;
+  /** Last successful login across this CYRIS user; not necessarily via LDAP. */
+  lastLoginAt?: string | null;
   userStatus: 'ACTIVE' | 'DISABLED';
   /** Global role and multiple sign-in methods need explicit review before lockout. */
   platformAdmin: boolean;
