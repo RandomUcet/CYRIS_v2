@@ -136,7 +136,7 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
       ));
     });
 
-    await t.test('failed handoff rolls back both domain and access-control ownership', async () => {
+    await t.test('failed handoff rolls back both domain and access-control ownership', async (handoff) => {
       const created=await medical.createEncounter(eventA,{triageCategory:'MINOR',visibility:'UNIT'},actor);
       const original=await lookup(created.id);
       const originalEmit=indexer.emitSearchUpsert.bind(indexer);
@@ -165,7 +165,7 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
       assert.equal(await access.canAccessResource(actor,created.id,Permissions.MEDICAL_READ),false);
       assert.equal(await access.canAccessResource(recipient,created.id,Permissions.MEDICAL_READ),true);
 
-      await t.test('only the receiving operator can acknowledge transferred patient', async () => {
+      await handoff.test('only the receiving operator can acknowledge transferred patient', async () => {
         await assert.rejects(medical.receiveTransferredEncounter(created.id,actor),ForbiddenException);
         await assert.rejects(medical.stabilizeEncounter(created.id,recipient),ConflictException);
         await assert.rejects(medical.addIntervention(created.id,{
