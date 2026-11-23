@@ -5,6 +5,7 @@ import {
 } from '@cyris/db';
 import { LdapTeamAssignmentSchema, type LdapConfig, type LdapTeamAccount, type LdapTeamAssignment } from '@cyris/contracts';
 import { AuditService } from '../audit/audit.service.js';
+import { platformAdminGrant } from './ldap-account-lifecycle.service.js';
 import { readTeamOverrides, reconcileLdapMemberships, validateManualTeam } from '../auth/providers/ldap-provisioning.js';
 import { DatabaseService } from '../database/database.service.js';
 
@@ -25,12 +26,16 @@ export class LdapTeamsService {
         eq(organizationalUnits.eventId, eventId), isNull(organizationalUnits.archivedAt)));
     const rows = await db.select({
       identityId: userIdentities.id, userId: users.id, email: users.email, displayName: users.displayName,
-      providerName: integrations.name, membershipId: eventMemberships.id, status: eventMemberships.status,
+      providerName: integrations.name, userStatus: users.status, platformAdmin: platformAdminGrant,
+      otherLoginMethods: sql<boolean>`exists (
+        select 1 from user_identities i where i.user_id = ${users.id} and i.id <> ${userIdentities.id}
+      )`,
+      membershipId: eventMemberships.id, status: eventMemberships.status,
       choice: sql<unknown>`${userIdentities.metadata} -> 'ldapTeamOverrides' -> ${eventId}::text`,
     }).from(userIdentities).innerJoin(users, eq(users.id, userIdentities.userId))
       .innerJoin(integrations, accountProvider)
       .leftJoin(eventMemberships, and(eq(eventMemberships.userId, users.id), eq(eventMemberships.eventId, eventId)))
-      .where(and(eq(userIdentities.providerType, 'LDAP'), eq(users.status, 'ACTIVE'),
+      .where(and(eq(userIdentities.providerType, 'LDAP'),
         q ? or(sql`strpos(lower(${users.displayName}), lower(${q})) > 0`, sql`strpos(lower(${users.email}), lower(${q})) > 0`) : undefined,
         onlyUnassigned ? or(isNull(eventMemberships.id), eq(eventMemberships.status, 'INACTIVE'), notExists(activeTeam)) : undefined,
       )).orderBy(asc(users.displayName), asc(users.email), asc(userIdentities.id)).limit(pageSize + 1);
@@ -47,6 +52,8 @@ export class LdapTeamsService {
         const saved = LdapTeamAssignmentSchema.safeParse(row.choice);
         return {
           identityId: row.identityId, userId: row.userId, displayName: row.displayName, email: row.email, providerName: row.providerName,
+          userStatus: row.userStatus === 'DISABLED' ? 'DISABLED' : 'ACTIVE',
+          platformAdmin: row.platformAdmin, otherLoginMethods: row.otherLoginMethods,
           membershipStatus: row.status === 'ACTIVE' || row.status === 'INACTIVE' ? row.status : null,
           units: units.filter(unit => unit.membershipId === row.membershipId).map(({ id, name }) => ({ id, name })),
           assignment: saved.success ? saved.data : { mode: 'DIRECTORY' },
