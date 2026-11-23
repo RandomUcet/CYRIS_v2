@@ -47,6 +47,25 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
   const sendNonce=useRef<string|null>(null);
   const draftNonce=useRef<string|null>(null);
 
+  // Operational templates are starters, never preapproved messages.
+  const templates: Array<{key:string;kind:Kind;name:string;title:string;message:string}> = [
+    {key:'briefing',kind:'INFO',name:tr('Briefing','Briefing'),
+      title:tr('Organizační briefing','Operations briefing'),
+      message:tr('Čas a místo briefingu: [DOPLŇTE]. Účastníci: [DOPLŇTE].',
+        'Briefing time and location: [FILL IN]. Participants: [FILL IN].')},
+    {key:'sitrep',kind:'INSTRUCTION',name:'SITREP',
+      title:tr('Výzva k SITREP','SITREP requested'),
+      message:tr('Zašlete aktuální SITREP do [DOPLŇTE ČAS]. Uveďte potvrzená fakta, rizika a požadavky na podporu.',
+        'Submit an updated SITREP by [FILL IN TIME]. Include confirmed facts, risks and support requests.')},
+    {key:'change',kind:'UPDATE',name:tr('Změna situace','Situation change'),
+      title:tr('Nové informace o situaci','Situation update'),
+      message:tr('Aktuální změna: [DOPLŇTE]. Dopad na váš tým: [DOPLŇTE]. Další postup: [DOPLŇTE].',
+        'Latest change: [FILL IN]. Team impact: [FILL IN]. Next actions: [FILL IN].')},
+    {key:'urgent',kind:'URGENT',name:tr('Urgentní pokyn','Urgent instruction'),
+      title:tr('Naléhavý pokyn EXCON','Urgent EXCON instruction'),
+      message:tr('Vyžadovaná akce: [DOPLŇTE]. Pro koho: [DOPLŇTE]. Termín: [DOPLŇTE].',
+        'Required action: [FILL IN]. Audience: [FILL IN]. Deadline: [FILL IN].')},
+  ];
   const event=allowedEvents.find(item=>item.id===eventId);
   const scopeKey=[eventId,kind,audience,unitId].join('|');
   const eligible=preview?.key===scopeKey?preview.eligible:null;
@@ -100,6 +119,15 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
     }).catch(err=>{if(current)setPreviewError(err instanceof Error?err.message:'Unable to preview audience');});
     return ()=>{current=false;};
   },[open,eventId,scopeKey,teamScope,Boolean(event),viewAs]);
+
+  function applyTemplate(template:(typeof templates)[number]) {
+    if(sending.current||busy)return;
+    if((title.trim()||message.trim())&&!window.confirm(tr(
+      'Nahradit rozepsanou zprávu šablonou? Neuložený text se ztratí.',
+      'Replace the current unsaved text with this template?')))return;
+    setKind(template.kind);setTitle(template.title);setMessage(template.message);
+    changed();
+  }
 
   function changed() {
     revision.current++;sendNonce.current=null;draftNonce.current=null;
@@ -236,6 +264,14 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
                 ?tr('Počet příjemců se načítá nebo není dostupný.','Audience loading or unavailable.')
                 :tr('Oprávnění příjemci: ','Eligible recipients: ')+eligible}</p>
               {previewError&&<p className={styles.error} role="alert">{previewError}</p>}
+              <div className={styles.templates}>
+                <span>{tr('Rychlé šablony (před odesláním doplňte údaje)','Quick templates (complete details before sending)')}</span>
+                <div className={styles.templateActions}>
+                  {templates.map(template=><button key={template.key} type="button"
+                    className={styles.secondary} disabled={busy}
+                    onClick={()=>applyTemplate(template)}>{template.name}</button>)}
+                </div>
+              </div>
               <label>{tr('Nadpis','Title')}
                 <input type="text" minLength={3} maxLength={120} required value={title}
                   onChange={e=>{setTitle(e.target.value);changed();}}
