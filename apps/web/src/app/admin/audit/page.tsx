@@ -28,6 +28,11 @@ export default function AdminAuditPage() {
 
   // Filters
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(()=>{
+    const timer=window.setTimeout(()=>setDebouncedSearch(search.trim()),300);
+    return ()=>window.clearTimeout(timer);
+  },[search]);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [page, setPage] = useState(1);
   // null until the browser URL has been read, to avoid fetching an
@@ -49,6 +54,7 @@ export default function AdminAuditPage() {
         limit: 100,
         page,
         resourceId: resourceFilter || undefined,
+        q: debouncedSearch || undefined,
         category: categoryFilter || undefined,
       });
 
@@ -72,19 +78,10 @@ export default function AdminAuditPage() {
 
   useEffect(() => {
     if(resourceFilter!==null) void fetchAudit();
-  }, [categoryFilter,page,resourceFilter]);
+  }, [categoryFilter,page,resourceFilter,debouncedSearch]);
 
-  const filteredEntries = entries.filter((e) => {
-    if (!search) return true;
-    const s = search.toLowerCase();
-    return (
-      e.action?.toLowerCase().includes(s) ||
-      e.category?.toLowerCase().includes(s) ||
-      e.actorUserId?.toLowerCase().includes(s) ||
-      e.resourceId?.toLowerCase().includes(s) ||
-      e.ipAddress?.toLowerCase().includes(s)
-    );
-  });
+  // Server-side search is applied BEFORE pagination to the full permitted audit history.
+  const filteredEntries = entries;
 
   const columns: Column<AuditEntry>[] = [
     {
@@ -221,7 +218,7 @@ export default function AdminAuditPage() {
         <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--color-border-subtle)' }}>
           <FilterBar
             searchValue={search}
-            onSearchChange={setSearch}
+            onSearchChange={value=>{setSearch(value);setPage(1);setSelectedEntry(null);}}
             searchPlaceholder={tr('Hledat akci, uživatele, záznam nebo IP adresu…','Search action, user, resource or IP address…')}
             filters={[
               {
@@ -241,12 +238,12 @@ export default function AdminAuditPage() {
               },
             ]}
             onReset={() => {
-              setSearch('');
+              setSearch('');setDebouncedSearch('');setSelectedEntry(null);
               setCategoryFilter('');
               setPage(1);
               if(resourceFilter){setResourceFilter('');window.history.replaceState(null,'','/admin/audit');}
             }}
-            totalResults={filteredEntries.length}
+            totalResults={total}
           />
         </div>
 
