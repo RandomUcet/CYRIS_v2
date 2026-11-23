@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { apiClient } from '@/lib/api-client';
+import { buildEventReportSummaryCsv } from '@/lib/event-report-csv';
 import { PrintField, PrintSection, PrintSheet } from '@/components/print/PrintSheet';
 import type { EventAfterActionReport, EventPurgePreview } from '@cyris/contracts';
 
@@ -76,6 +77,11 @@ export default function AdminAfterActionReportPage(){
     const url=URL.createObjectURL(raw),a=document.createElement('a');
     a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url);
   }
+  function downloadSummaryCsv() {
+    if (!report) return;
+    downloadData('cyris-after-action-' + id + '-summary.csv',
+      buildEventReportSummaryCsv(report), 'text/csv;charset=utf-8');
+  }
   function downloadActivityCsv() {
     if(!report)return;
     // Deliberately numeric-only cells and canonical ISO dates: no user text / CSV formula injection.
@@ -97,6 +103,7 @@ export default function AdminAfterActionReportPage(){
         <div style={{display:'flex',gap:8}}>
           <Link className="btn btn-secondary" href="/admin/events">Zpět na cvičení</Link>
           <button className="btn btn-secondary" disabled={!report} onClick={downloadJson}>Export JSON</button>
+          <button className="btn btn-secondary" disabled={!report} onClick={downloadSummaryCsv}>Souhrn CSV</button>
           <button className="btn btn-secondary" disabled={!report} onClick={downloadActivityCsv}>Denní statistiky CSV</button>
         </div>
       </div>
