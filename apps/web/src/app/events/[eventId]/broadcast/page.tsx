@@ -33,12 +33,30 @@ export default function ExerciseBroadcastPage() {
   const [history,setHistory] = useState<ExerciseBroadcastHistory>([]);
   const [loading,setLoading] = useState(true);
   const [sending,setSending] = useState(false);
+  const [aiBusy,setAiBusy] = useState(false);
+  const [aiDraft,setAiDraft] = useState('');
+  const [aiError,setAiError] = useState('');
+  const inputRevision=useRef(0);
   const [error,setError] = useState('');
   const [success,setSuccess] = useState('');
   const nonce = useRef<string|null>(null);
   const readOnly = Boolean(viewAs);
 
-  function changed(){ nonce.current=null;setSuccess(''); }
+  function changed(){ nonce.current=null;setSuccess('');setAiDraft('');setAiError('');inputRevision.current++; }
+  async function aiImprove() {
+    if(!message.trim()||aiBusy||readOnly)return;
+    const startedWith=inputRevision.current;
+    setAiBusy(true);setAiDraft('');setAiError('');
+    try {
+      const result=await apiClient.writingAssist(eventId,{
+        text:message.trim(),action:'CONCISE',
+        context:'CYRIS EXCON broadcast for participants: improve clarity without adding any facts, dates or instructions; preserve uncertainty and urgency.',
+      });
+      if(!result.ok||!result.data)throw new Error(result.error||'AI writing assistant is unavailable');
+      if(startedWith===inputRevision.current)setAiDraft(result.data.draft);
+    }catch(err){if(startedWith===inputRevision.current)setAiError(err instanceof Error?err.message:'AI unavailable');}
+    finally{setAiBusy(false);}
+  }
   async function refresh() {
     const [units,items] = await Promise.all([
       apiClient.getExerciseBroadcastTeams(eventId),
@@ -150,6 +168,27 @@ export default function ExerciseBroadcastPage() {
               <textarea required minLength={3} maxLength={900} rows={5} value={message} onChange={e=>{setMessage(e.target.value);changed();}}
                 className="mt-1 w-full rounded border border-slate-600 bg-slate-950 p-2 text-slate-100" placeholder={tr('Konkrétní pokyn nebo informace pro účastníky…','Instructions or relevant information for participants…')}/>
             </label>
+            <div className="rounded border border-slate-700 bg-slate-950 p-3">
+              <button type="button" disabled={aiBusy||sending||readOnly||!message.trim()}
+                onClick={()=>void aiImprove()}
+                className="rounded border border-slate-600 px-3 py-2 text-sm text-blue-200 hover:bg-slate-800 disabled:opacity-40">
+                {aiBusy?tr('AI připravuje návrh…','AI is drafting…'):tr('✨ Zkrátit a zpřehlednit text pomocí AI','✨ Improve clarity with AI')}
+              </button>
+              <p className="mt-1 text-xs text-slate-400">{tr(
+                'AI pouze navrhne úpravu. Původní text zůstane, dokud nový výslovně neschválíte. Nic se automaticky neposílá.',
+                'AI only suggests an edit. Your original text stays until you explicitly apply it. Nothing gets sent automatically.'
+              )}</p>
+              {aiError&&<p role="alert" className="mt-2 text-xs text-red-300">{aiError}</p>}
+              {aiDraft&&<div className="mt-3 space-y-2">
+                <strong className="text-sm text-slate-200">{tr('Návrh AI – ke kontrole','AI draft – review before use')}</strong>
+                <p className="whitespace-pre-wrap text-sm text-slate-300">{aiDraft}</p>
+                <button type="button" disabled={aiDraft.length>900} onClick={()=>{setMessage(aiDraft);changed();}}
+                  className="rounded bg-slate-700 px-3 py-1 text-sm text-white hover:bg-slate-600 disabled:opacity-40">
+                  {tr('Použít tento návrh','Apply this draft')}
+                </button>
+                {aiDraft.length>900&&<p className="text-xs text-amber-300">{tr('Návrh je příliš dlouhý; nejprve jej ručně zkraťte.','Draft exceeds 900 characters; shorten it manually first.')}</p>}
+              </div>}
+            </div>
             <p className="text-xs text-slate-400">{tr(
               'Zprávy se doručují do centra notifikací v CYRISu; neposílají se e-mailem. Urgentní zprávy jsou povinné i při vypnutých běžných oznámeních.',
               'Messages appear in the CYRIS notification center; no email is sent. Urgent notices bypass regular in-app opt-outs.'

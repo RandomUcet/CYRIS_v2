@@ -21,4 +21,7 @@ test('participant notification center renders organizer broadcasts as text, not 
   assert.match(screen,/apiClient\.sendExerciseBroadcast/);
   assert.match(screen,/apiClient\.previewExerciseBroadcastAudience/);
   assert.match(screen,/listExerciseBroadcasts/);
+  assert.match(screen,/apiClient\.writingAssist/);
+  assert.match(screen,/setAiDraft/);
+  assert.match(screen,/Apply this draft/);
 });
