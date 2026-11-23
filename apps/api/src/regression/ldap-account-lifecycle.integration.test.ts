@@ -6,7 +6,7 @@ import { Reflector } from '@nestjs/core';
 import { eq } from 'drizzle-orm';
 import { auditEvents, closeDatabaseConnection, events, getDbClient, integrations, roleAssignments,
   rolePermissions, roles, userIdentities, users } from '@cyris/db';
-import { LdapAccountStatusChangeSchema } from '@cyris/contracts';
+import { LdapAccountStatusChangeSchema, LdapTeamAccountQuerySchema } from '@cyris/contracts';
 import { generateId, Permissions } from '@cyris/shared';
 import { AuditService } from '../modules/audit/audit.service.js';
 import { AuthorizationService } from '../modules/authorization/authorization.service.js';
@@ -23,6 +23,11 @@ test('LDAP account lifecycle input is explicit and requires a reason',()=>{
   assert.equal(LdapAccountStatusChangeSchema.safeParse({enabled:'false',reason:'employee left'}).success,false);
   assert.equal(LdapAccountStatusChangeSchema.safeParse({enabled:true,reason:'approved restoration',extra:true}).success,false);
   assert.equal(LdapAccountStatusChangeSchema.safeParse({enabled:false,reason:'offboarding verified'}).success,true);
+});
+
+test('global LDAP list accepts no exercise but still validates assignment filters',()=>{
+  assert.equal(LdapTeamAccountQuerySchema.safeParse({q:'staff@example.test',status:'DISABLED'}).success,true);
+  assert.equal(LdapTeamAccountQuerySchema.safeParse({eventId:'not-a-uuid'}).success,false);
 });
 
 const url=requireVerifiedIsolatedDatabase();
@@ -68,6 +73,12 @@ test('LDAP operator deactivate/reactivate is audited, session-safe and denies pr
       assert.equal(await guard.canActivate(context(actor)),true);
       await assert.rejects(guard.canActivate(context({...actor,id:targetId})),ForbiddenException);
       assert.equal((await directory.listAccounts(eventId,targetId+'@example.test')).accounts[0]?.userStatus,'ACTIVE');
+      const global=(await directory.listAccounts(undefined,targetId+'@example.test')).accounts;
+      assert.equal(global.length,1,'LDAP directory browsing does not depend on selecting a workspace');
+      assert.equal(global[0]?.membershipStatus,null,'global view does not inherit exercise membership data');
+      assert.deepEqual(global[0]?.units,[]);
+      await assert.rejects(directory.listAccounts(undefined,undefined,true),
+        'unassigned filter requires an explicit event scope');
       await assert.rejects(lifecycle.setEnabled(actorIdentityId,{enabled:false,reason:'Audit self-lockout prevention'},actor),ConflictException);
       const disable={enabled:false,reason:'Participant offboarding approved'};
       const first=await lifecycle.setEnabled(identityId,disable,actor);
