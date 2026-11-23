@@ -138,6 +138,23 @@ class Operations(unittest.TestCase):
                          [["docker", "manifest", "inspect", images[s]] for s in ctl.APP_SERVICES])
         self.docker.assert_not_called()
 
+    def test_ghcr_verify_specific_release_uses_requested_version(self):
+        requested = argparse.Namespace(version="v2.4.12")
+        release = {"tag_name": "v2.4.12"}
+        with patch.object(ctl, "github_release", return_value=release) as fetch, \
+             patch.object(ctl, "verify_release_registry_access", return_value="2.4.12") as probe:
+            ctl.cmd_github_verify(requested)
+        fetch.assert_called_once_with("v2.4.12")
+        probe.assert_called_once_with(release)
+        self.docker.assert_not_called()
+
+    def test_ghcr_verify_default_still_checks_latest_release(self):
+        with patch.object(ctl, "github_release", return_value={"tag_name":"v2.4.11"}) as fetch, \
+             patch.object(ctl, "verify_release_registry_access", return_value="2.4.11"):
+            ctl.cmd_github_verify(argparse.Namespace())
+        fetch.assert_called_once_with(None)
+        self.docker.assert_not_called()
+
     def test_ghcr_denial_does_not_mutate_running_app(self):
         images = {s: f"ghcr.io/randomucet/cyris-{s}@sha256:" + "a"*64 for s in ctl.APP_SERVICES}
         release = {"tag_name": "v2.0.3"}
