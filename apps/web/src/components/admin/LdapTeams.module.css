@@ -146,3 +146,8 @@
 .oidcEditorForm input:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
 .oidcEditorForm button{min-height:35px;padding:8px 12px;border-radius:var(--radius-sm)}
 .oidcEditorForm button:disabled{opacity:.5;cursor:not-allowed}
+
+.ruleTitle{display:block;font-size:13px;font-weight:750;margin:0 0 4px;color:var(--text-primary)}
+.rule>.full:not(label){min-width:0}
+.rule .check input[type=checkbox]{width:16px;height:16px;flex:0 0 auto;accent-color:var(--accent-primary)}
+.rule .check:has(input:disabled){opacity:.5}
