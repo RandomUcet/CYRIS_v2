@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
+import Link from 'next/link';
 import { AlertTriangle, Check, LockKeyhole, RefreshCw, Search, ShieldCheck, UserRoundCheck, UserRoundX } from 'lucide-react';
 import type { EventResponse, LdapTeamAccount, LdapTeamAssignment } from '@cyris/contracts';
 import { useAuth } from '@/contexts/AuthContext';
@@ -95,6 +96,9 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
       <h4>{tr('Přístup do CYRIS','CYRIS account access')}</h4>
       <p>{tr('Toto nastavení platí pro celou platformu, nikoliv jen pro vybrané cvičení.',
         'This status applies to the entire platform, not just this exercise.')}</p>
+      <Link className={styles.secondaryButton} href={'/admin/audit?resourceId='+encodeURIComponent(account.userId)}>
+        {tr('Zobrazit audit změn tohoto účtu','View this account’s change history')}
+      </Link>
       {account.providerEnabled===false&&<p className={styles.warning}><AlertTriangle size={16}/>
         {tr('Poskytovatel LDAP je vypnutý. Aktivace uživatelského účtu sama o sobě neobnoví možnost přihlášení.',
           'This LDAP provider is disabled. Enabling the CYRIS user account alone will not restore sign-in.')}</p>}
