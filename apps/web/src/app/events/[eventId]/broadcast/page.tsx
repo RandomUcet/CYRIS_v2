@@ -7,7 +7,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { apiClient } from '@/lib/api-client';
-import type { ExerciseBroadcastHistory, ExerciseBroadcastRequest } from '@cyris/contracts';
+import type { ExerciseBroadcastHistory, ExerciseBroadcastRequest, ExerciseBroadcastPlanResponse } from '@cyris/contracts';
 
 type Kind = ExerciseBroadcastRequest['kind'];
 const types: Array<{key:Kind;cs:string;en:string;hintCs:string;hintEn:string}> = [
@@ -31,6 +31,11 @@ export default function ExerciseBroadcastPage() {
   const [message,setMessage] = useState('');
   const [eligible,setEligible] = useState<number|null>(null);
   const [history,setHistory] = useState<ExerciseBroadcastHistory>([]);
+  const [plans,setPlans] = useState<ExerciseBroadcastPlanResponse[]>([]);
+  const [editing,setEditing] = useState<ExerciseBroadcastPlanResponse|null>(null);
+  const [planBusy,setPlanBusy] = useState(false);
+  const [scheduleAt,setScheduleAt] = useState('');
+  const planNonce=useRef<string|null>(null);
   const [loading,setLoading] = useState(true);
   const [sending,setSending] = useState(false);
   const [aiBusy,setAiBusy] = useState(false);
@@ -42,7 +47,7 @@ export default function ExerciseBroadcastPage() {
   const nonce = useRef<string|null>(null);
   const readOnly = Boolean(viewAs);
 
-  function changed(){ nonce.current=null;setSuccess('');setAiDraft('');setAiError('');inputRevision.current++; }
+  function changed(){ nonce.current=null;planNonce.current=null;setSuccess('');setAiDraft('');setAiError('');inputRevision.current++; }
   async function aiImprove() {
     if(!message.trim()||aiBusy||readOnly)return;
     const startedWith=inputRevision.current;
@@ -58,22 +63,24 @@ export default function ExerciseBroadcastPage() {
     finally{setAiBusy(false);}
   }
   async function refresh() {
-    const [units,items] = await Promise.all([
+    const [units,items,saved] = await Promise.all([
       apiClient.getExerciseBroadcastTeams(eventId),
       apiClient.listExerciseBroadcasts(eventId),
+      apiClient.getExerciseBroadcastPlans(eventId),
     ]);
     if (!units.ok || !units.data) throw new Error(units.error || tr('Týmy nejsou dostupné.','Teams unavailable.'));
     if (!items.ok || !items.data) throw new Error(items.error || tr('Historie není dostupná.','History unavailable.'));
-    setTeams(units.data);setHistory(items.data);
+    if (!saved.ok || !saved.data) throw new Error(saved.error || tr('Plánované zprávy nejsou dostupné.','Planned notices unavailable.'));
+    setTeams(units.data);setHistory(items.data);setPlans(saved.data);
   }
   useEffect(()=>{
     let live=true;
-    setLoading(true);setError('');setTeams([]);setHistory([]);setAudience('ALL');setUnitId('');
-    void Promise.all([apiClient.getExerciseBroadcastTeams(eventId),apiClient.listExerciseBroadcasts(eventId)])
-      .then(([u,h])=>{
+    setLoading(true);setError('');setTeams([]);setHistory([]);setPlans([]);setEditing(null);setScheduleAt('');setAudience('ALL');setUnitId('');
+    void Promise.all([apiClient.getExerciseBroadcastTeams(eventId),apiClient.listExerciseBroadcasts(eventId),apiClient.getExerciseBroadcastPlans(eventId)])
+      .then(([u,h,p])=>{
         if(!live)return;
-        if(!u.ok||!u.data||!h.ok||!h.data)throw new Error(u.error||h.error||'Unable to load exercise broadcasts');
-        setTeams(u.data);setHistory(h.data);
+        if(!u.ok||!u.data||!h.ok||!h.data||!p.ok||!p.data)throw new Error(u.error||h.error||p.error||'Unable to load exercise broadcasts');
+        setTeams(u.data);setHistory(h.data);setPlans(p.data);
       }).catch(e=>{if(live)setError(e instanceof Error?e.message:'Unable to load');})
       .finally(()=>{if(live)setLoading(false);});
     return ()=>{live=false;};
@@ -116,6 +123,67 @@ export default function ExerciseBroadcastPage() {
     }catch(e){setError(e instanceof Error?e.message:'Send failed');}
     finally{setSending(false);}
   }
+
+  function resetEditor() {
+    setEditing(null);setTitle('');setMessage('');setKind('INFO');setAudience('ALL');setUnitId('');setScheduleAt('');
+    changed();
+  }
+  function loadDraft(plan:ExerciseBroadcastPlanResponse) {
+    if(plan.status!=='DRAFT')return;
+    setEditing(plan);setTitle(plan.title);setMessage(plan.message);
+    setKind(plan.kind);setAudience(plan.audience);setUnitId(plan.unitId??'');
+    changed();
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  function localTimeToIso(value:string):string {
+    const date=new Date(value);
+    if(!value||!Number.isFinite(date.getTime()))throw new Error(tr('Zadejte platné datum a čas.','Enter a valid date and time.'));
+    return date.toISOString();
+  }
+  async function savePlan(schedule:boolean) {
+    if(readOnly||sending||planBusy||!title.trim()||!message.trim()||(audience==='UNIT'&&!unitId))return;
+    setPlanBusy(true);setError('');setSuccess('');
+    try{
+      const date=schedule?localTimeToIso(scheduleAt):null;
+      const common={kind,title:title.trim(),message:message.trim()};
+      const body:ExerciseBroadcastRequest=audience==='UNIT'
+        ?{...common,audience:'UNIT',unitId,nonce:editing?.id??(planNonce.current ||= crypto.randomUUID())}
+        :{...common,audience:'ALL',nonce:editing?.id??(planNonce.current ||= crypto.randomUUID())};
+      const result=editing
+        ?await apiClient.reviseExerciseBroadcastPlan(eventId,editing.id,{...body,revision:editing.revision})
+        :await apiClient.createExerciseBroadcastPlan(eventId,body);
+      if(!result.ok||!result.data)throw new Error(result.error||'Unable to save the draft');
+      let saved=result.data;
+      if(schedule&&date){
+        const planned=await apiClient.scheduleExerciseBroadcastPlan(eventId,saved.id,saved.revision,date);
+        if(!planned.ok||!planned.data)throw new Error(planned.error||'Draft saved, but scheduling failed');
+        saved=planned.data;
+      }
+      setSuccess(schedule
+        ?tr('Zpráva je naplánovaná.','Broadcast scheduled.')
+        :tr('Koncept byl uložen.','Draft saved.'));
+      resetEditor();await refresh();
+    }catch(e){setError(e instanceof Error?e.message:'Unable to save broadcast plan');}
+    finally{setPlanBusy(false);}
+  }
+  async function cancelPlan(plan:ExerciseBroadcastPlanResponse) {
+    if(planBusy||readOnly)return;
+    if(!window.confirm(tr('Zrušit tuto zprávu? Ještě nebyla rozeslaná.','Cancel this unsent announcement?')))return;
+    setPlanBusy(true);setError('');setSuccess('');
+    try {
+      const result=await apiClient.cancelExerciseBroadcastPlan(eventId,plan.id,plan.revision);
+      if(!result.ok||!result.data)throw new Error(result.error||'Unable to cancel');
+      if(editing?.id===plan.id)resetEditor();
+      setSuccess(tr('Zpráva byla zrušena.','Broadcast cancelled.'));
+      await refresh();
+    }catch(e){setError(e instanceof Error?e.message:'Unable to cancel');}
+    finally{setPlanBusy(false);}
+  }
+  const templates=[
+    {label:tr('Zahájení etapy','Phase start'),title:tr('Zahájení nové etapy','New exercise phase'),message:tr('Právě začíná další etapa cvičení. Sledujte aktuální zadání a pokyny svého týmu.','A new exercise phase is starting. Check your assigned briefs and team instructions.')},
+    {label:tr('Žádost o SITREP','Request SITREP'),title:tr('Aktualizujte SITREP','Update your SITREP'),message:tr('Vyzýváme týmy k zaslání aktuálního stručného přehledu situace. Uveďte potvrzené skutečnosti a otevřené problémy.','Teams: please submit a short situation update listing confirmed facts and unresolved issues.')},
+    {label:tr('Organizační upozornění','Operations notice'),title:tr('Důležitá informace EXCON','Important EXCON notice'),message:tr('Zkontrolujte aktuální organizační informace zveřejněné v CYRISu.','Please review the latest organizational information in CYRIS.')},
+  ];
   const type = types.find(t=>t.key===kind)!;
   return <AppShell breadcrumbs={[
     {label:tr('Řízení cvičení','Exercise control'),href:'/events/'+eventId+'/command'},
@@ -137,6 +205,16 @@ export default function ExerciseBroadcastPage() {
         <h2 className="mb-4 text-lg font-semibold text-slate-100">{tr('Nová zpráva','New message')}</h2>
         <form onSubmit={e=>void send(e)} className="space-y-4">
           <fieldset disabled={loading||sending||readOnly} className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-400">{tr('Připravené šablony:','Quick templates:')}</span>
+              {templates.map(item=><button key={item.label} type="button"
+                onClick={()=>{setTitle(item.title);setMessage(item.message);changed();}}
+                className="rounded border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-200 hover:bg-slate-700">{item.label}</button>)}
+            </div>
+            {editing&&<div className="flex flex-wrap items-center justify-between gap-2 rounded border border-blue-800 bg-blue-950/50 p-2 text-sm text-blue-100">
+              {tr('Upravujete uložený koncept: ','Editing saved draft: ')}{editing.title}
+              <button type="button" onClick={resetEditor} className="rounded border border-blue-600 px-2 py-1">{tr('Nová zpráva','New message')}</button>
+            </div>}
             <label className="block text-sm font-semibold text-slate-200">{tr('Typ zprávy','Message type')}
               <select className="mt-1 w-full rounded border border-slate-600 bg-slate-950 p-2 text-slate-100" value={kind} onChange={e=>{setKind(e.target.value as Kind);changed();}}>
                 {types.map(t=><option key={t.key} value={t.key}>{cs?t.cs:t.en}</option>)}
@@ -193,12 +271,53 @@ export default function ExerciseBroadcastPage() {
               'Zprávy se doručují do centra notifikací v CYRISu; neposílají se e-mailem. Urgentní zprávy jsou povinné i při vypnutých běžných oznámeních.',
               'Messages appear in the CYRIS notification center; no email is sent. Urgent notices bypass regular in-app opt-outs.'
             )}</p>
+            <div className="flex flex-wrap items-end gap-3 border-t border-slate-700 pt-4">
+              <button type="button" disabled={planBusy||sending||loading||readOnly||!title.trim()||!message.trim()}
+                onClick={()=>void savePlan(false)} className="rounded border border-slate-500 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-40">
+                {planBusy?tr('Ukládám…','Saving…'):editing?tr('Uložit změny konceptu','Save draft changes'):tr('Uložit koncept','Save draft')}
+              </button>
+              <label className="text-sm text-slate-300">{tr('Naplánovat na (místní čas)','Schedule for (local time)')}
+                <input type="datetime-local" value={scheduleAt} onChange={e=>setScheduleAt(e.target.value)}
+                  className="mt-1 block rounded border border-slate-600 bg-slate-950 p-2 text-slate-100"/>
+              </label>
+              <button type="button" disabled={planBusy||sending||loading||readOnly||!title.trim()||!message.trim()||!scheduleAt}
+                onClick={()=>{if(window.confirm(tr('Naplánovat automatické rozeslání?','Schedule automatic delivery?')))void savePlan(true);}}
+                className="rounded border border-sky-600 bg-sky-950 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-900 disabled:opacity-40">
+                {tr('Naplánovat zprávu','Schedule broadcast')}
+              </button>
+            </div>
             <button type="submit" disabled={sending||loading||readOnly||eligible===null||eligible===0||!title.trim()||!message.trim()}
               className="rounded bg-blue-600 px-5 py-2 font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40">
               {sending?tr('Odesílám…','Sending…'):tr('Odeslat oznámení','Send notification')}
             </button>
           </fieldset>
         </form>
+      </section>
+      <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+        <h2 className="mb-2 text-lg font-semibold text-slate-100">{tr('Koncepty a naplánované zprávy','Drafts and scheduled broadcasts')}</h2>
+        <p className="mb-4 text-xs text-slate-400">{tr(
+          'Čas se zadává v místním časovém pásmu prohlížeče. Automatické doručení proběhne jen při aktivním cvičení a bez provozní blokace; při přípravě nebo pozastavení čeká.',
+          'Enter your local browser time. Automatic delivery requires an active exercise without an operational hold; it waits while preparing or on hold.'
+        )}</p>
+        {plans.length===0?<p className="text-sm text-slate-400">{tr('Zatím žádné koncepty ani plánované zprávy.','No drafts or schedules yet.')}</p>
+          :<div className="space-y-3">{plans.map(plan=><article key={plan.id} className="rounded border border-slate-700 bg-slate-950 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <strong className="text-sm text-slate-100">{plan.title}</strong>
+              <span className="text-xs text-sky-200">{({DRAFT:tr('Koncept','Draft'),SCHEDULED:tr('Naplánováno','Scheduled'),SENT:tr('Odesláno','Sent'),FAILED:tr('Neodesláno','Failed'),CANCELLED:tr('Zrušeno','Cancelled')})[plan.status]}</span>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">{plan.kind} · {plan.audience==='ALL'?tr('Všichni','All'):teams.find(t=>t.id===plan.unitId)?.name||tr('Tým','Team')}
+              {plan.scheduledAt?' · '+new Date(plan.scheduledAt).toLocaleString(cs?'cs-CZ':'en-GB'):''}
+              {plan.status==='SENT'?' · '+tr('Doručeno: ','Delivered: ')+plan.deliveredCount:''}
+              {plan.failureCode?' · '+tr('Problém: ','Issue: ')+plan.failureCode:''}
+            </p>
+            <p className="my-2 whitespace-pre-wrap text-sm text-slate-300">{plan.message}</p>
+            <div className="flex flex-wrap gap-2">
+              {plan.status==='DRAFT'&&<button type="button" disabled={planBusy||readOnly}
+                onClick={()=>loadDraft(plan)} className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">{tr('Otevřít v editoru','Edit draft')}</button>}
+              {(plan.status==='DRAFT'||plan.status==='SCHEDULED')&&<button type="button" disabled={planBusy||readOnly}
+                onClick={()=>void cancelPlan(plan)} className="rounded border border-red-800 px-3 py-1 text-xs text-red-200 hover:bg-red-950">{tr('Zrušit','Cancel')}</button>}
+            </div>
+          </article>)}</div>}
       </section>
       <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">

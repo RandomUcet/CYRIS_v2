@@ -106,6 +106,7 @@ import type {
   NotificationListResponse,
   ExerciseBroadcastRequest, ExerciseBroadcastReceipt, ExerciseBroadcastHistory,
   ExerciseBroadcastAudienceQuery,
+  ExerciseBroadcastPlanResponse, ExerciseBroadcastPlanInput, ExerciseBroadcastPlanRevision,
   IdentityProviderSummary,
   LdapConfig,
   LdapAuthRequest,
@@ -1597,6 +1598,22 @@ export class CyrisApiClient {
   // ============================================================================
   // Notifications
   // ============================================================================
+
+  getExerciseBroadcastPlans(eventId:string) {
+    return this.fetchJson<ExerciseBroadcastPlanResponse[]>('/events/'+encodeURIComponent(eventId)+'/notifications/plans');
+  }
+  createExerciseBroadcastPlan(eventId:string,body:ExerciseBroadcastPlanInput) {
+    return this.postJson<ExerciseBroadcastPlanResponse>('/events/'+encodeURIComponent(eventId)+'/notifications/plans',body);
+  }
+  reviseExerciseBroadcastPlan(eventId:string,id:string,body:ExerciseBroadcastPlanRevision) {
+    return this.patchJson<ExerciseBroadcastPlanResponse>('/events/'+encodeURIComponent(eventId)+'/notifications/plans/'+encodeURIComponent(id),body);
+  }
+  scheduleExerciseBroadcastPlan(eventId:string,id:string,revision:number,scheduledAt:string) {
+    return this.postJson<ExerciseBroadcastPlanResponse>('/events/'+encodeURIComponent(eventId)+'/notifications/plans/'+encodeURIComponent(id)+'/schedule',{revision,scheduledAt});
+  }
+  cancelExerciseBroadcastPlan(eventId:string,id:string,revision:number) {
+    return this.postJson<ExerciseBroadcastPlanResponse>('/events/'+encodeURIComponent(eventId)+'/notifications/plans/'+encodeURIComponent(id)+'/cancel',{revision});
+  }
 
   getExerciseBroadcastTeams(eventId: string) {
     return this.fetchJson<Array<{id: string; name: string}>>('/events/' + encodeURIComponent(eventId) + '/notifications/teams');
