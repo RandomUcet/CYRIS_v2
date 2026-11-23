@@ -1,13 +1,26 @@
 name: CI
 
 on:
+  # A PR gets exactly one validation, not one for each branch push as well.
   push:
+    branches: [main]
   pull_request:
+  # Release calls this same validation; never cancel its verification job.
   workflow_call:
+  workflow_dispatch:
+
+# Supersede obsolete checks only for the same PR. Main and Release checks
+# each use their unique run ID, so no new push can cancel a publishing gate.
+concurrency:
+  group: cyris-ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    # Hard stop for stalled regressions and failed runner environments.
+    # This bounds the reusable Release preflight, not the image publishing job.
+    timeout-minutes: 25
     services:
       postgres:
         image: pgvector/pgvector:pg16
