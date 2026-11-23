@@ -89,13 +89,17 @@ export function LdapProviderForm({ provider, onClose, onSaved }: {
       const result = await apiClient.saveLdapProvider({ id: provider?.id, name: payload.displayName, config: payload, bindPassword: password || undefined });
       if (result.ok) onSaved();
       else setError(result.error || (cs ? 'Uložení poskytovatele selhalo.' : 'Could not save provider.'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : (cs ? 'Spojení není dostupné.' : 'Connection unavailable.'));
     } finally { setSaving(false); }
   }
 
-  return <dialog ref={dialog} aria-labelledby="ldap-provider-title" className={styles.dialog}
+  return <dialog ref={dialog} aria-labelledby="ldap-provider-title"
+    className={styles.dialog+' '+styles.ldapEditorDialog}
     onCancel={event => { event.preventDefault(); if (!saving) onClose(); }}>
-    <h2 id="ldap-provider-title">{provider ? (cs ? 'Upravit LDAP' : 'Edit LDAP') : (cs ? 'Přidat LDAP / Active Directory' : 'Add LDAP / Active Directory')}</h2>
-    <form className={styles.form} onSubmit={save}>
+    <h2 id="ldap-provider-title" className={styles.ldapEditorHeader}>{provider ? (cs ? 'Upravit LDAP' : 'Edit LDAP') : (cs ? 'Přidat LDAP / Active Directory' : 'Add LDAP / Active Directory')}</h2>
+    <form className={styles.form+' '+styles.ldapEditorForm} onSubmit={save}>
+      <div className={styles.ldapEditorBody}>
       <fieldset disabled={saving} className={styles.fields}>
         <label className={styles.full}>{cs ? 'Název poskytovatele' : 'Provider name'}
           <input required maxLength={128} value={config.displayName} onChange={e => field('displayName', e.target.value)} />
@@ -122,13 +126,15 @@ export function LdapProviderForm({ provider, onClose, onSaved }: {
         <label className={styles.full}>{cs ? 'Filtr uživatele' : 'User filter'}
           <input required value={config.userFilter} onChange={e => field('userFilter', e.target.value)} />
         </label>
-        <details className={styles.full}><summary>{cs ? 'Atributy adresáře' : 'Directory attributes'}</summary>
+        <section className={styles.full+' '+styles.ldapAttributes} aria-labelledby="ldap-attributes-title">
+          <h3 id="ldap-attributes-title">{cs ? 'Atributy adresáře' : 'Directory attributes'}</h3>
+          <p>{cs ? 'Názvy LDAP atributů musí odpovídat vašemu adresáři.' : 'Attribute names must match your directory schema.'}</p>
           <div className={styles.fields}>
             <label>{cs ? 'Přihlašovací jméno' : 'Username'}<input required value={config.usernameAttr} onChange={e => field('usernameAttr', e.target.value)} /></label>
             <label>E-mail<input required value={config.emailAttr} onChange={e => field('emailAttr', e.target.value)} /></label>
             <label>{cs ? 'Zobrazované jméno' : 'Display name'}<input required value={config.displayNameAttr} onChange={e => field('displayNameAttr', e.target.value)} /></label>
           </div>
-        </details>
+        </section>
         <label className={styles.check + ' ' + styles.full}>
           <input type="checkbox" checked={config.jitEnabled !== false} onChange={e => field('jitEnabled', e.target.checked)} />
           {cs ? 'Vytvořit účet při prvním přihlášení (JIT)' : 'Create the account on first sign-in (JIT)'}
@@ -145,7 +151,13 @@ export function LdapProviderForm({ provider, onClose, onSaved }: {
             <input value={config.groupFilter ?? ''} placeholder="(|(member={dn})(memberUid={username}))" onChange={e => field('groupFilter', e.target.value)} />
           </label>
         </fieldset>
-        {rules.map(rule => <div key={rule.key} className={styles.rule}>
+        {rules.map((rule,index) => <div key={rule.key} className={styles.rule}>
+          <div className={styles.full}>
+            <strong className={styles.ruleTitle}>
+              {cs?'Pravidlo '+(index+1):'Rule '+(index+1)}
+            </strong>
+            <p>{cs?'Vyberte LDAP skupinu, cvičení a rozsah přidělení role.':'Choose the LDAP group, exercise and role scope.'}</p>
+          </div>
           <label>{cs ? 'Skupina LDAP (CN nebo DN)' : 'LDAP group (CN or DN)'}
             <input required disabled={saving} value={rule.ldapGroup} onChange={e => editRule(rule.key, { ldapGroup: e.target.value })} />
           </label>
@@ -156,6 +168,14 @@ export function LdapProviderForm({ provider, onClose, onSaved }: {
                 <option value={event.id} key={event.id}>{event.name}</option>)}
             </select>
           </label>
+          <label className={styles.check+' '+styles.full}>
+            <input type="checkbox" checked={rule.allowEventWide} disabled={saving || !rule.eventId}
+              onChange={e => editRule(rule.key, { allowEventWide:e.target.checked, unitSlug:'' })}/>
+            {cs?'Role platí pro celé cvičení (bez konkrétního týmu)':'Exercise-wide role (no specific team)'}
+          </label>
+          <p className={styles.full}>{rule.allowEventWide
+            ?(cs?'Všichni členové této LDAP skupiny získají vybranou roli v daném cvičení bez týmového omezení.':'Members of the LDAP group receive the selected exercise role without a team assignment.')
+            :(cs?'Členové této LDAP skupiny získají roli v konkrétním týmu.':'Members of the LDAP group receive the role in the selected team.')}</p>
           <ExerciseTeamRoles cs={cs} hasEvent={Boolean(rule.eventId)} valueKey="slug" catalog={catalogs[rule.eventId ?? '']}
             unit={rule.unitSlug ?? ''} role={rule.roleSlug} allowEventWide={rule.allowEventWide} retry={retry} disabled={saving}
             onUnit={unitSlug => editRule(rule.key, { unitSlug })} onRole={roleSlug => editRule(rule.key, { roleSlug })} />
@@ -168,9 +188,13 @@ export function LdapProviderForm({ provider, onClose, onSaved }: {
         }}>{cs ? 'Přidat pravidlo' : 'Add rule'}</button></div>
       </section>
       {error && <p role="alert" className={styles.error}>{error}</p>}
-      <div className={styles.actions}>
-        <button type="button" className="btn btn-secondary" disabled={saving} onClick={onClose}>{cs ? 'Zrušit' : 'Cancel'}</button>
-        <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? '…' : (cs ? 'Uložit poskytovatele' : 'Save provider')}</button>
+      </div>
+      <div className={styles.ldapEditorFooter}>
+        <span>{cs ? 'Změny se projeví po uložení.' : 'Changes take effect after saving.'}</span>
+        <div className={styles.actions}>
+          <button type="button" className="btn btn-secondary" disabled={saving} onClick={onClose}>{cs ? 'Zrušit' : 'Cancel'}</button>
+          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? '…' : (cs ? 'Uložit poskytovatele' : 'Save provider')}</button>
+        </div>
       </div>
     </form>
   </dialog>;

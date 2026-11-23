@@ -17,9 +17,12 @@ export const LdapTeamAssignmentSchema = z.discriminatedUnion('mode', [
 export type LdapTeamAssignment = z.infer<typeof LdapTeamAssignmentSchema>;
 
 export const LdapTeamAccountQuerySchema = z.object({
-  eventId: z.string().uuid(),
+  // Global LDAP account operations must not require an active exercise.
+  eventId: z.string().uuid().optional(),
   q: z.string().trim().max(160).optional(),
   unassigned: z.enum(['true', 'false']).optional(),
+  status: z.enum(['ACTIVE', 'DISABLED']).optional(),
+  page: z.coerce.number().int().min(1).max(1000).default(1),
 });
 
 export interface LdapTeamAccount {
@@ -28,10 +31,26 @@ export interface LdapTeamAccount {
   email: string;
   displayName: string;
   providerName: string;
+  /** Provider can be disabled independently of the user's CYRIS account. */
+  providerEnabled?: boolean;
+  /** True when the original LDAP provider was removed from configuration. */
+  providerMissing?: boolean;
+  /** Last successful login across this CYRIS user; not necessarily via LDAP. */
+  lastLoginAt?: string | null;
+  userStatus: 'ACTIVE' | 'DISABLED';
+  /** Global role and multiple sign-in methods need explicit review before lockout. */
+  platformAdmin: boolean;
+  otherLoginMethods: boolean;
   membershipStatus: 'ACTIVE' | 'INACTIVE' | null;
   units: { id: string; name: string }[];
   assignment: LdapTeamAssignment;
 }
+
+export const LdapAccountStatusChangeSchema = z.object({
+  enabled: z.boolean(),
+  reason: z.string().trim().min(8).max(500),
+}).strict();
+export type LdapAccountStatusChange = z.infer<typeof LdapAccountStatusChangeSchema>;
 
 export const LdapConfigSchema = z.object({
   displayName: z.string().min(1).max(128),

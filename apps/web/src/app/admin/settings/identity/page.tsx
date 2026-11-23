@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { AppShell } from '@/components/layout/AppShell';
@@ -13,6 +14,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Pencil,
+  RefreshCw,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import type { IdentityProviderSummary, OidcConfig } from '@cyris/contracts';
@@ -28,6 +30,8 @@ export default function IdentitySettingsPage() {
   const [feedback, setFeedback] = useState<{ error: boolean; message: string } | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [editingLdap, setEditingLdap] = useState<IdentityProviderSummary | null>(null);
+  const [editingOidc, setEditingOidc] = useState<IdentityProviderSummary | null>(null);
+  const [providerBusy, setProviderBusy] = useState<string | null>(null);
 
   // Modal / drawer states
   const [isLdapModalOpen, setIsLdapModalOpen] = useState(false);
@@ -36,27 +40,45 @@ export default function IdentitySettingsPage() {
   useDialogAccessibility(isOidcModalOpen, () => { if (!submitting) setIsOidcModalOpen(false); });
 
   // OIDC form state
-  const [oidcName, setOidcName] = useState('Partner SSO');
-  const [oidcIssuer, setOidcIssuer] = useState('https://auth.example.org');
-  const [oidcClientId, setOidcClientId] = useState('cyris-client');
+  const [oidcName, setOidcName] = useState('');
+  const [oidcIssuer, setOidcIssuer] = useState('');
+  const [oidcClientId, setOidcClientId] = useState('');
   const [oidcClientSecret, setOidcClientSecret] = useState('');
   const [oidcJit, setOidcJit] = useState(true);
 
+  function openOidc(provider:IdentityProviderSummary|null) {
+    const settings=provider?.config as Partial<OidcConfig> | undefined;
+    setEditingOidc(provider);
+    setOidcName(provider?.name ?? '');
+    setOidcIssuer(settings?.issuerUrl ?? '');
+    setOidcClientId(settings?.clientId ?? '');
+    setOidcJit(settings?.jitEnabled ?? true);
+    setOidcClientSecret('');
+    setFeedback(null);
+    setIsOidcModalOpen(true);
+  }
+
   const fetchProviders = async () => {
-    const res = await apiClient.listIdentityProviders();
-    if (res.ok && res.data) setProviders(res.data);
-    else setFeedback({ error: true, message: res.error ?? 'Poskytovatele se nepodařilo načíst.' });
-    setLoading(false);
+    try {
+      const res = await apiClient.listIdentityProviders();
+      if (res.ok && res.data) setProviders(res.data);
+      else setFeedback({ error: true, message: res.error ?? 'Poskytovatele se nepodařilo načíst.' });
+    } catch (e) {
+      setFeedback({error:true,message:e instanceof Error?e.message:'Connection unavailable'});
+    } finally { setLoading(false); }
   };
 
   const handleTest = async (id: string) => {
+    if(providerBusy||testingId)return;
     setTestingId(id);
     try {
       const res = await apiClient.testIdentityProvider(id);
-      setFeedback({ error: !res.ok, message: res.ok ? (res.data?.message ?? 'Konfigurace je platná.') : (res.error ?? 'Konfigurace není platná.') });
-    } finally {
-      setTestingId(null);
-    }
+      setFeedback({ error: !res.ok, message: res.ok
+        ? (res.data?.message ?? (cs?'Kontrola konfigurace dokončena.':'Configuration checked.'))
+        : (res.error ?? 'Invalid configuration') });
+    } catch(e) {
+      setFeedback({error:true,message:e instanceof Error?e.message:'Unable to check configuration'});
+    } finally { setTestingId(null); }
   };
 
   useEffect(() => {
@@ -64,43 +86,69 @@ export default function IdentitySettingsPage() {
   }, [isPlatformAdmin]);
 
   const handleToggle = async (id: string, current: boolean) => {
-    const res = await apiClient.toggleIdentityProvider(id, !current);
-    if (!res.ok) setFeedback({ error: true, message: res.error ?? 'Změna se nezdařila.' });
-    else await fetchProviders();
+    if(providerBusy||testingId)return;
+    const provider=providers.find(p=>p.id===id);
+    if(current&&!window.confirm(cs
+      ? 'Vypnout poskytovatele '+(provider?.name??id)+'? Uživatelé se přes něj nebudou moci přihlásit.'
+      : 'Disable '+(provider?.name??id)+'? Users will no longer be able to sign in through it.'))return;
+    setProviderBusy(id);setFeedback(null);
+    try {
+      const res = await apiClient.toggleIdentityProvider(id, !current);
+      if (!res.ok) throw new Error(res.error ?? 'Unable to update provider');
+      setFeedback({error:false,message:cs?'Stav poskytovatele byl změněn.':'Provider status updated.'});
+      await fetchProviders();
+    } catch(e) {
+      setFeedback({error:true,message:e instanceof Error?e.message:'Unable to update provider'});
+    } finally {setProviderBusy(null);}
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm(cs ? 'Opravdu odstranit poskytovatele přihlášení?' : 'Remove this identity provider?')) return;
-    const res = await apiClient.deleteIdentityProvider(id);
-    if (!res.ok) setFeedback({ error: true, message: res.error ?? 'Odstranění se nezdařilo.' });
-    else await fetchProviders();
+    if(providerBusy||testingId)return;
+    const provider=providers.find(p=>p.id===id);
+    if(!window.confirm(cs
+      ? 'Trvale odstranit poskytovatele '+(provider?.name??id)+' a uložené přihlašovací údaje? Tato akce může vyřadit přihlášení uživatelů.'
+      : 'Permanently delete '+(provider?.name??id)+' and its stored credentials? This can prevent users from signing in.'))return;
+    setProviderBusy(id);setFeedback(null);
+    try{
+      const res=await apiClient.deleteIdentityProvider(id);
+      if(!res.ok)throw new Error(res.error??'Unable to delete provider');
+      setFeedback({error:false,message:cs?'Poskytovatel byl odstraněn.':'Provider deleted.'});
+      await fetchProviders();
+    }catch(e){setFeedback({error:true,message:e instanceof Error?e.message:'Unable to delete provider'});}
+    finally{setProviderBusy(null);}
   };
 
   const handleSaveOidc = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
+    if(submitting||providerBusy)return;
+    setSubmitting(true);setFeedback(null);
+    const previousConfig=editingOidc?.config as Partial<OidcConfig> | undefined;
     const config: OidcConfig = {
-      displayName: oidcName,
-      issuerUrl: oidcIssuer,
-      clientId: oidcClientId,
-      scopes: ['openid', 'profile', 'email'],
-      allowedEmailDomains: [],
-      claimMappings: { email: 'email', displayName: 'name', subject: 'sub' },
+      displayName: oidcName.trim(),
+      issuerUrl: oidcIssuer.trim(),
+      clientId: oidcClientId.trim(),
+      // These settings are currently not edited in the compact form. Keep
+      // them intact when updating an existing provider.
+      scopes: previousConfig?.scopes ?? ['openid', 'profile', 'email'],
+      allowedEmailDomains: previousConfig?.allowedEmailDomains ?? [],
+      claimMappings: previousConfig?.claimMappings ?? { email: 'email', displayName: 'name', subject: 'sub' },
       jitEnabled: oidcJit,
     };
 
     try {
-      const res = await apiClient.saveOidcProvider({ name: oidcName, config, clientSecret: oidcClientSecret || undefined });
+      const res = await apiClient.saveOidcProvider({ id:editingOidc?.id,
+        name:oidcName.trim(),config,clientSecret:oidcClientSecret||undefined });
       if (!res.ok) {
         setFeedback({ error: true, message: res.error ?? 'Konfiguraci OpenID Connect se nepodařilo uložit.' });
         return;
       }
-      setIsOidcModalOpen(false);
+      setIsOidcModalOpen(false);setEditingOidc(null);
       setOidcClientSecret('');
+      setFeedback({error:false,message:cs?'Nastavení OIDC bylo uloženo.':'OIDC settings saved.'});
       await fetchProviders();
-    } finally {
-      setSubmitting(false);
-    }
+    } catch(e) {
+      setFeedback({error:true,message:e instanceof Error?e.message:'Unable to save OIDC provider'});
+    } finally {setSubmitting(false);}
   };
 
   if (loadingSession) return <AppShell><p role="status">{cs ? 'Načítání…' : 'Loading…'}</p></AppShell>;
@@ -127,11 +175,18 @@ export default function IdentitySettingsPage() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display:'flex',flexWrap:'wrap',gap:'8px' }}>
+            <button type="button" className="btn-secondary"
+              disabled={loading||Boolean(providerBusy)||Boolean(testingId)}
+              onClick={()=>{setLoading(true);setFeedback(null);void fetchProviders();}}
+              title={cs?'Obnovit seznam poskytovatelů':'Refresh identity providers'}>
+              <RefreshCw size={12}/>{cs?'Obnovit':'Refresh'}
+            </button>
             <button
               type="button"
               className="btn-secondary"
               onClick={() => { setEditingLdap(null); setFeedback(null); setIsLdapModalOpen(true); }}
+              disabled={Boolean(providerBusy)||Boolean(testingId)}
               style={{ fontSize: '11px', height: '30px' }}
             >
               <Plus size={12} /> {t('admin.addLdap')}
@@ -139,14 +194,19 @@ export default function IdentitySettingsPage() {
             <button
               type="button"
               className="btn-primary"
-              onClick={() => setIsOidcModalOpen(true)}
+              onClick={() => openOidc(null)}
               style={{ fontSize: '11px', height: '30px' }}
+              disabled={Boolean(providerBusy)||Boolean(testingId)}
             >
               <Plus size={12} /> {t('admin.addOidc')}
             </button>
           </div>
         </div>
 
+        <div className={styles.providerManagementHint}>
+          <p>{cs?'Správa jednotlivých uživatelských účtů a rolí je oddělená od konfigurace přihlašovacích serverů.':'User accounts and roles are managed separately from sign-in servers.'}</p>
+          <Link href="/admin/users?tab=ldap">{cs?'Spravovat LDAP uživatelské účty':'Manage LDAP user accounts'}</Link>
+        </div>
         {feedback && <p role={feedback.error ? 'alert' : 'status'} style={{ padding: '12px', color: feedback.error ? 'var(--status-critical)' : 'var(--text-primary)' }}>{feedback.message}</p>}
 
         <div
@@ -228,7 +288,9 @@ export default function IdentitySettingsPage() {
                 <div>
                   <button
                     type="button"
-                    onClick={() => handleToggle(p.id, p.enabled)}
+                    disabled={Boolean(providerBusy)||Boolean(testingId)}
+                    aria-label={cs ? (p.enabled?'Vypnout ':'Zapnout ')+p.name : (p.enabled?'Disable ':'Enable ')+p.name}
+                    onClick={() => void handleToggle(p.id, p.enabled)}
                     style={{
                       background: 'transparent',
                       border: 'none',
@@ -240,7 +302,7 @@ export default function IdentitySettingsPage() {
                       color: p.enabled ? 'var(--status-success)' : 'var(--text-muted)',
                     }}
                   >
-                    {p.enabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                    {providerBusy===p.id?'…':p.enabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                     {p.enabled ? t('admin.enabled') : t('admin.disabled')}
                   </button>
                 </div>
@@ -248,15 +310,20 @@ export default function IdentitySettingsPage() {
                 <div className={styles.providerActions}>
                   {p.category === 'LDAP' && (
                     <>
-                      <button type="button" className="btn-ghost" onClick={() => { setEditingLdap(p); setFeedback(null); setIsLdapModalOpen(true); }} aria-label={cs ? `Upravit LDAP · ${p.name}` : `Edit LDAP · ${p.name}`} title={cs ? 'Upravit LDAP' : 'Edit LDAP'}><Pencil size={14} /> {cs ? 'Upravit LDAP' : 'Edit LDAP'}</button>
-                      <button type="button" className="btn-ghost" disabled={testingId === p.id} onClick={() => handleTest(p.id)} title={cs ? 'Zkontroluje pravidla a formát nastavení' : 'Check configuration and rules'}>
+                      <button type="button" className="btn-ghost" disabled={Boolean(providerBusy)||Boolean(testingId)}
+                        onClick={() => { setEditingLdap(p); setFeedback(null); setIsLdapModalOpen(true); }} aria-label={cs ? `Upravit LDAP · ${p.name}` : `Edit LDAP · ${p.name}`} title={cs ? 'Upravit LDAP' : 'Edit LDAP'}><Pencil size={14} /> {cs ? 'Upravit LDAP' : 'Edit LDAP'}</button>
+                      <button type="button" className="btn-ghost" disabled={Boolean(providerBusy)||Boolean(testingId)} onClick={() => void handleTest(p.id)} title={cs ? 'Zkontroluje pravidla a formát nastavení' : 'Check configuration and rules'}>
                         {testingId === p.id ? '…' : (cs ? 'Ověřit konfiguraci' : 'Check settings')}
                       </button>
                     </>
                   )}
+                  {p.category==='OIDC'&&<button type="button" className="btn-ghost"
+                    disabled={Boolean(providerBusy)||Boolean(testingId)}
+                    onClick={()=>openOidc(p)}><Pencil size={14}/>{cs?'Upravit OIDC':'Edit OIDC'}</button>}
                   <button
                     type="button"
-                    onClick={() => handleDelete(p.id)}
+                    disabled={Boolean(providerBusy)||Boolean(testingId)}
+                    onClick={() => void handleDelete(p.id)}
                     style={{
                       background: 'transparent',
                       border: 'none',
@@ -283,39 +350,48 @@ export default function IdentitySettingsPage() {
         {/* Modal: Add OIDC */}
         {isOidcModalOpen && (
           <div className="dialog-overlay dialog-overlay-top" role="presentation">
-            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Configure OpenID Connect SSO" style={{ maxWidth: '520px', padding: '24px' }}>
-              <h2 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '16px' }}>Configure OpenID Connect SSO</h2>
-              {feedback?.error && <p role="alert">{feedback.message}</p>}
-              <form onSubmit={handleSaveOidc} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-labelledby="oidc-editor-title" style={{ maxWidth:'520px' }}>
+              <header className="dialog-header">
+                <h2 id="oidc-editor-title" style={{fontSize:'16px',fontWeight:700}}>
+                  {editingOidc?(cs?'Upravit poskytovatele OIDC':'Edit OIDC provider'):(cs?'Přidat přihlášení OIDC':'Add OIDC sign-in')}
+                </h2>
+              </header>
+              <form onSubmit={handleSaveOidc} className={styles.oidcEditorForm}>
+                <div className="dialog-body">
+                  <p className={styles.oidcHint}>{cs?'Úprava uloženého poskytovatele zachová jeho identitu a existující tajný klíč, pokud nezadáte nový.':'Editing the existing provider preserves its identity and current secret unless replaced.'}</p>
+                  {feedback?.error && <p role="alert" className={styles.error}>{feedback.message}</p>}
                 <div>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Display Name</label>
-                  <input value={oidcName} onChange={(e) => setOidcName(e.target.value)} required />
+                  <label htmlFor="oidc-name" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>{cs?'Název poskytovatele':'Provider name'}</label>
+                  <input id="oidc-name" maxLength={128} disabled={submitting} value={oidcName} onChange={(e) => setOidcName(e.target.value)} required />
                 </div>
 
                 <div>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Issuer URL</label>
-                  <input value={oidcIssuer} onChange={(e) => setOidcIssuer(e.target.value)} placeholder="https://keycloak.org/realms/cybertron" required />
+                  <label htmlFor="oidc-issuer" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Issuer URL</label>
+                  <input id="oidc-issuer" type="url" disabled={submitting} value={oidcIssuer} onChange={(e) => setOidcIssuer(e.target.value)} placeholder="https://keycloak.org/realms/cybertron" required />
                 </div>
 
                 <div>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Client ID</label>
-                  <input value={oidcClientId} onChange={(e) => setOidcClientId(e.target.value)} required />
+                  <label htmlFor="oidc-client" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Client ID</label>
+                  <input id="oidc-client" maxLength={255} disabled={submitting} value={oidcClientId} onChange={(e) => setOidcClientId(e.target.value)} required />
                 </div>
 
                 <div>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Client Secret (Encrypted)</label>
-                  <input type="password" value={oidcClientSecret} onChange={(e) => setOidcClientSecret(e.target.value)} placeholder="••••••••••••" />
+                  <label htmlFor="oidc-secret" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>{cs?'Client Secret (šifrovaně)':'Client Secret (encrypted)'}</label>
+                  <input id="oidc-secret" type="password" disabled={submitting} autoComplete="new-password" value={oidcClientSecret} onChange={(e) => setOidcClientSecret(e.target.value)} placeholder={editingOidc?.hasSecretConfigured?(cs?'Ponechat uložený klíč':'Keep stored secret'):'••••••••••••'} />
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                  <input type="checkbox" id="oidcJit" checked={oidcJit} onChange={(e) => setOidcJit(e.target.checked)} />
-                  <label htmlFor="oidcJit" style={{ fontSize: '12px' }}>Enable Just-In-Time (JIT) User Provisioning</label>
+                  <input type="checkbox" id="oidcJit" disabled={submitting} checked={oidcJit} onChange={(e) => setOidcJit(e.target.checked)} />
+                  <label htmlFor="oidcJit" style={{ fontSize: '12px' }}>{cs?'Vytvořit uživatele při prvním přihlášení (JIT)':'Create account on first sign-in (JIT)'}</label>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-                  <button type="button" className="btn-ghost" onClick={() => setIsOidcModalOpen(false)}>Cancel</button>
-                  <button type="submit" className="btn-primary" disabled={submitting}>Save Provider</button>
                 </div>
+                <footer className="dialog-footer" style={{display:'flex',justifyContent:'flex-end',flexWrap:'wrap',gap:'8px'}}>
+                  <button type="button" className="btn-ghost" disabled={submitting}
+                    onClick={() => setIsOidcModalOpen(false)}>{cs?'Zrušit':'Cancel'}</button>
+                  <button type="submit" className="btn-primary" disabled={submitting}>
+                    {submitting?'…':cs?'Uložit poskytovatele':'Save provider'}</button>
+                </footer>
               </form>
             </div>
           </div>

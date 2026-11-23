@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
@@ -23,50 +23,66 @@ export default function AdminAuditPage() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const auditRequest = useRef(0);
   const [error, setError] = useState<string | null>(null);
 
   // Filters
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(()=>{
+    const timer=window.setTimeout(()=>setDebouncedSearch(search.trim()),300);
+    return ()=>window.clearTimeout(timer);
+  },[search]);
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [page, setPage] = useState(1);
+  // null until the browser URL has been read, to avoid fetching an
+  // unscoped audit list before applying a deep-linked account filter.
+  const [resourceFilter, setResourceFilter] = useState<string | null>(null);
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.search).get('resourceId');
+    setResourceFilter(value && /^[0-9a-f-]{36}$/i.test(value) ? value : '');
+  }, []);
   const [selectedEntry, setSelectedEntry] = useState<AuditEntry | null>(null);
 
   const fetchAudit = async () => {
+    if (resourceFilter===null) return;
+    const request = ++auditRequest.current;
     setLoading(true);
     setError(null);
     try {
       const res = await apiClient.getAudit({
         limit: 100,
+        page,
+        resourceId: resourceFilter || undefined,
+        q: debouncedSearch || undefined,
         category: categoryFilter || undefined,
       });
 
+      if (request !== auditRequest.current) return;
       if (res.ok && res.data) {
         setEntries(res.data.items || []);
         setTotal(res.data.total || 0);
       } else {
+        setEntries([]);setTotal(0);
         setError(res.error || 'Failed to load institutional audit log');
       }
-    } catch (err: any) {
-      setError(err.message || 'Network error');
+    } catch (err: unknown) {
+      if (request === auditRequest.current) {
+        setEntries([]);setTotal(0);
+        setError(err instanceof Error ? err.message : 'Network error');
+      }
     } finally {
-      setLoading(false);
+      if (request === auditRequest.current) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAudit();
-  }, [categoryFilter]);
+    if(resourceFilter!==null) void fetchAudit();
+  }, [categoryFilter,page,resourceFilter,debouncedSearch]);
 
-  const filteredEntries = entries.filter((e) => {
-    if (!search) return true;
-    const s = search.toLowerCase();
-    return (
-      e.action?.toLowerCase().includes(s) ||
-      e.category?.toLowerCase().includes(s) ||
-      e.actorUserId?.toLowerCase().includes(s) ||
-      e.resourceId?.toLowerCase().includes(s) ||
-      e.ipAddress?.toLowerCase().includes(s)
-    );
-  });
+  // Server-side search is applied BEFORE pagination to the full permitted audit history.
+  const filteredEntries = entries;
+  const searchPending=search.trim()!==debouncedSearch;
 
   const columns: Column<AuditEntry>[] = [
     {
@@ -190,11 +206,20 @@ export default function AdminAuditPage() {
           </div>
         </div>
 
+        {resourceFilter&&<div role="status" style={{padding:'10px 24px',background:'var(--bg-surface)',
+          borderBottom:'1px solid var(--border-default)',fontSize:'12px',display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
+          {tr('Auditní historie účtu: ','Account audit history: ')}
+          <code>{resourceFilter}</code>
+          <button type="button" className="btn btn-secondary"
+            onClick={()=>{setResourceFilter('');setPage(1);setSelectedEntry(null);
+              window.history.replaceState(null,'','/admin/audit');}}>
+            {tr('Zobrazit všechny záznamy','Show all audit records')}</button>
+        </div>}
         {/* Filter Bar */}
         <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--color-border-subtle)' }}>
           <FilterBar
             searchValue={search}
-            onSearchChange={setSearch}
+            onSearchChange={value=>{setSearch(value);setPage(1);setSelectedEntry(null);}}
             searchPlaceholder={tr('Hledat akci, uživatele, záznam nebo IP adresu…','Search action, user, resource or IP address…')}
             filters={[
               {
@@ -202,29 +227,34 @@ export default function AdminAuditPage() {
                 value: categoryFilter,
                 options: [
                   { label: tr('Všechny kategorie','All Categories'), value: '' },
-                  { label: tr('Přihlášení','Auth'), value: 'AUTH' },
-                  { label: tr('Vyšetřování','Investigation'), value: 'INVESTIGATION' },
-                  { label: tr('Důkazy','Evidence'), value: 'EVIDENCE' },
-                  { label: tr('Laboratoř','Laboratory'), value: 'LABORATORY' },
-                  { label: tr('Administrace','Admin'), value: 'ADMIN' },
+                  { label: tr('Identity a účty','Identity and accounts'), value: 'identity' },
+                  { label: tr('Oprávnění','Authorization'), value: 'authorization' },
+                  { label: tr('Poskytovatelé přihlášení','Login providers'), value: 'integrations' },
+                  { label: tr('Členství ve cvičení','Exercise memberships'), value: 'membership' },
+                  { label: tr('Scénáře a EXCON','Scenario and EXCON'), value: 'scenario' },
+                  { label: tr('Zdravotnická agenda','Medical'), value: 'medical' },
+                  { label: tr('Podpora účastníků','Support'), value: 'support' },
                 ],
-                onChange: setCategoryFilter,
+                onChange: value => {setCategoryFilter(value);setPage(1);setSelectedEntry(null);},
               },
             ]}
             onReset={() => {
-              setSearch('');
+              setSearch('');setDebouncedSearch('');setSelectedEntry(null);
               setCategoryFilter('');
+              setPage(1);
+              if(resourceFilter){setResourceFilter('');window.history.replaceState(null,'','/admin/audit');}
             }}
-            totalResults={filteredEntries.length}
+            totalResults={total}
           />
         </div>
 
         {/* Workspace Canvas with Table & Inspector */}
         <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {loading ? (
+            {loading||searchPending ? (
               <div style={{ padding: '40px' }}>
-                <LoadingState message={tr('Načítám auditní záznamy…','Loading audit records…')} />
+                <LoadingState message={searchPending?tr('Vyhledávám v auditní historii…','Searching full audit history…')
+                  :tr('Načítám auditní záznamy…','Loading audit records…')} />
               </div>
             ) : error ? (
               <div style={{ padding: '40px' }}>
@@ -240,6 +270,19 @@ export default function AdminAuditPage() {
                 onRowClick={(item) => setSelectedEntry(item)}
               />
             )}
+            {!loading&&!error&&total>100&&<nav aria-label={tr('Stránkování auditních záznamů','Audit pagination')}
+              style={{display:'flex',gap:12,alignItems:'center',justifyContent:'center',
+                padding:'14px 20px',borderTop:'1px solid var(--border-default)',flexWrap:'wrap'}}>
+              <button type="button" className="btn btn-secondary" disabled={page<=1}
+                onClick={()=>{setSelectedEntry(null);setPage(value=>Math.max(1,value-1));}}>
+                {tr('Předchozí','Previous')}</button>
+              <span style={{fontSize:'12px',color:'var(--text-secondary)'}}>
+                {tr('Strana','Page')} {page} / {Math.max(1,Math.ceil(total/100))}
+              </span>
+              <button type="button" className="btn btn-secondary" disabled={page>=Math.ceil(total/100)}
+                onClick={()=>{setSelectedEntry(null);setPage(value=>value+1);}}>
+                {tr('Další','Next')}</button>
+            </nav>}
           </div>
 
           {/* Right Inspector: Audit Event Payload Inspector */}

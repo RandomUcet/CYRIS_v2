@@ -2174,3 +2174,32 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
     color: black !important; min-height: 0 !important;
   }
 }
+
+/* Compact user management tabs: participants, directory accounts and administrators. */
+.access-workspace-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.access-workspace-header h2{font-size:18px;font-weight:750;line-height:1.35;margin:0 0 4px}
+.access-workspace-header p{color:var(--text-secondary);font-size:13px;line-height:1.5;margin:0}
+.access-workspace-tabs{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:4px;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:var(--radius-sm)}
+.access-workspace-tabs button{background:transparent;color:var(--text-secondary);border:1px solid transparent;border-radius:var(--radius-sm);font:inherit;font-size:13px;font-weight:650;padding:9px 13px;min-height:38px;cursor:pointer}
+.access-workspace-tabs button[data-active=true]{background:var(--bg-panel);color:var(--text-primary);border-color:var(--border-strong);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.access-workspace-tabs button:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+@media(max-width:620px){.access-workspace-tabs button{flex:1 1 auto}.roster-page{min-width:0}.roster-toolbar{align-items:stretch}}
+
+.platform-admin-management{border:1px solid var(--border-default);border-radius:var(--radius-md);padding:18px;background:var(--bg-panel);display:grid;gap:12px;min-width:0}
+.platform-admin-management h2{margin:0;font-size:17px;font-weight:750}
+.platform-admin-management>p{color:var(--text-secondary);font-size:13px;line-height:1.5}
+.platform-admin-management>label{display:grid;gap:6px;max-width:520px;font-size:12px;font-weight:650;color:var(--text-secondary)}
+.platform-admin-management input[type=search]{width:100%;min-height:38px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border-default);color:var(--text-primary);background:var(--bg-panel)}
+.platform-admin-management h3{margin:4px 0 0;font-size:13px;font-weight:700}
+.platform-admin-list{display:grid;gap:7px;margin:0;padding:0;list-style:none}
+.platform-admin-list li{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 12px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--bg-surface)}
+.platform-admin-list li>div{display:grid;gap:3px;min-width:0}
+.platform-admin-list strong{font-size:13px;overflow-wrap:anywhere}
+.platform-admin-list small{font-size:12px;color:var(--text-secondary);overflow-wrap:anywhere}
+.platform-admin-list span{font-size:11px;color:var(--text-muted)}
+
+/* Global EXCON quick action in all authenticated workspaces, including /admin. */
+.topbar-broadcast-trigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:32px;min-width:0;max-width:180px;padding:5px 10px;background:var(--accent-primary);color:white;border:1px solid var(--accent-primary);border-radius:var(--radius-xs);font:inherit;font-size:11px;font-weight:750;cursor:pointer;white-space:nowrap}
+.topbar-broadcast-trigger:hover{background:var(--accent-hover)}
+.topbar-broadcast-trigger:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+@media(max-width:860px){.topbar-broadcast-trigger{width:34px;padding:5px}.topbar-broadcast-trigger span{display:none}}

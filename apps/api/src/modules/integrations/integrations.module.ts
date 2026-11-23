@@ -6,6 +6,7 @@ import { IdentityService } from './identity.service.js';
 import { IdentityController } from './identity.controller.js';
 import { LdapTeamsController } from './ldap-teams.controller.js';
 import { LdapTeamsService } from './ldap-teams.service.js';
+import { LdapAccountLifecycleService } from './ldap-account-lifecycle.service.js';
 import { DatabaseModule } from '../database/database.module.js';
 import { ConfigModule } from '../config/config.module.js';
 import { AuditModule } from '../audit/audit.module.js';
@@ -14,7 +15,7 @@ import { AuditModule } from '../audit/audit.module.js';
 @Module({
   imports: [DatabaseModule, ConfigModule, AuditModule],
   controllers: [IdentityController, LdapTeamsController, PlatformAdminsController],
-  providers: [IntegrationSecretService, IdentityService, LdapTeamsService, PlatformAdminsService],
+  providers: [IntegrationSecretService, IdentityService, LdapTeamsService, LdapAccountLifecycleService, PlatformAdminsService],
   exports: [IntegrationSecretService, IdentityService],
 })
 export class IntegrationsModule {}

@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvent } from '@/contexts/EventContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import { Menu, Search, ChevronDown, User, LogOut, Calendar, Shield, Activity } from 'lucide-react';
+import { Menu, Search, ChevronDown, User, LogOut, Calendar, Shield, Activity, Send } from 'lucide-react';
 import { StatusBadge } from '../common/Badges';
 import { EventSwitcherModal } from './EventSwitcherModal';
 import { NotificationCenter } from './NotificationCenter';
+import { QuickBroadcastDrawer } from './QuickBroadcastDrawer';
 import { SUPPORTED_LOCALES, COMMON_TIMEZONES } from '@/lib/i18n';
 import { useReadiness } from '@/contexts/ReadinessContext';
 import { workspaceLabel } from '@/lib/workspace-navigation';
@@ -31,9 +32,12 @@ interface TopBarProps {
 
 export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcrumbs = [] }: TopBarProps) {
   const { currentUser, isPlatformAdmin, hasPermission, logout, viewAs } = useAuth();
-  const { selectedEvent } = useEvent();
+  const { selectedEvent, events } = useEvent();
   const { locale, timezone, setLocale, setTimezone, t } = usePreferences();
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
+  const [quickBroadcastOpen,setQuickBroadcastOpen]=useState(false);
+  const canBroadcast=!viewAs && events.some(event=>
+    !['CLOSED','ARCHIVED'].includes(event.status) && hasPermission('scenario.manage',event.id));
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [logoutError, setLogoutError] = useState(false);
   const userMenuRootRef = useRef<HTMLDivElement>(null);
@@ -56,6 +60,20 @@ export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcr
       document.removeEventListener('keydown', escape);
     };
   }, [isUserMenuOpen]);
+  // Fast EXCON access without leaving the current workspace.
+  // Requires the same permissions as the toolbar action and never auto-sends.
+  useEffect(() => {
+    if (!canBroadcast) return;
+    const openQuickComposer = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey ||
+          event.key.toLowerCase() !== 'm' || event.repeat) return;
+      event.preventDefault();
+      setQuickBroadcastOpen(true);
+    };
+    window.addEventListener('keydown', openQuickComposer);
+    return () => window.removeEventListener('keydown', openQuickComposer);
+  }, [canBroadcast]);
+
   const { snapshot: readiness, stale: readinessStale } = useReadiness();
 
   return (
@@ -174,6 +192,14 @@ export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcr
             <span>{t('topbar.search')}</span>
             <kbd style={{ fontSize: '9px', padding: '1px 4px' }}>⌘K</kbd>
           </button>
+
+          {canBroadcast&&<button type="button" className="topbar-broadcast-trigger"
+            title={locale==='cs'?'Odeslat zprávu účastníkům (⌘/Ctrl + Shift + M)':'Send exercise notice (⌘/Ctrl + Shift + M)'}
+            aria-haspopup="dialog" aria-expanded={quickBroadcastOpen}
+            onClick={()=>setQuickBroadcastOpen(true)}>
+            <Send size={14} aria-hidden="true"/>
+            <span>{locale==='cs'?'Nová zpráva':'New notice'}</span>
+          </button>}
 
           {/* View As cannot read or change personal notifications; hide them entirely. */}
           {!viewAs && <NotificationCenter />}
@@ -335,6 +361,7 @@ export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcr
         </div>
       </header>
 
+      <QuickBroadcastDrawer open={quickBroadcastOpen} onClose={()=>setQuickBroadcastOpen(false)}/>
       <EventSwitcherModal isOpen={isSwitcherOpen} onClose={() => setIsSwitcherOpen(false)} />
     </>
   );

@@ -629,10 +629,14 @@ export class CyrisApiClient {
   }
 
   // Administration
-  async getAudit(filters?: { limit?: number; offset?: number; eventId?: string; action?: string; category?: string }) {
+  async getAudit(filters?: { limit?: number; page?: number; offset?: number; eventId?: string; action?: string; category?: string; resourceId?: string; q?: string }) {
     const params = new URLSearchParams();
     if (filters?.limit) params.set('limit', String(filters.limit));
-    if (filters?.offset) params.set('offset', String(filters.offset));
+    // API paging is 1-based; keep legacy offset callers mapped to a page.
+    if (filters?.page) params.set('page', String(filters.page));
+    else if (filters?.offset) params.set('page', String(Math.floor(filters.offset / (filters.limit ?? 20)) + 1));
+    if (filters?.resourceId) params.set('resourceId', filters.resourceId);
+    if (filters?.q?.trim()) params.set('q', filters.q.trim());
     if (filters?.eventId) params.set('eventId', filters.eventId);
     if (filters?.action) params.set('action', filters.action);
     if (filters?.category) params.set('category', filters.category);
@@ -659,6 +663,10 @@ export class CyrisApiClient {
   }
   async activateMembership(eventId: string, membershipId: string) {
     return this.patchJson<unknown>(`/events/${eventId}/memberships/${membershipId}`, { status: 'ACTIVE' });
+  }
+  async deactivateMembership(eventId: string, membershipId: string) {
+    return this.patchJson<unknown>(`/events/${encodeURIComponent(eventId)}/memberships/${encodeURIComponent(membershipId)}`,
+      { status: 'INACTIVE' });
   }
   async getRoles(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/roles`);
@@ -1677,13 +1685,22 @@ export class CyrisApiClient {
     return this.putJson<{ ok: boolean }>(`/admin/platform-administrators/${userId}`, { enabled });
   }
 
-  async listLdapTeamAccounts(eventId: string, query: string, unassigned: boolean) {
-    const params = new URLSearchParams({ eventId, q: query, unassigned: String(unassigned) });
+  async listLdapTeamAccounts(eventId: string|undefined, query: string, unassigned: boolean, status: 'ALL'|'ACTIVE'|'DISABLED'='ALL', page = 1) {
+    const params = new URLSearchParams({ q: query, unassigned: String(unassigned && Boolean(eventId)), page: String(page) });
+    if(eventId)params.set('eventId',eventId);
+    if(status!=='ALL')params.set('status',status);
     return this.fetchJson<{ accounts: LdapTeamAccount[]; hasMore: boolean }>(`/admin/settings/identity/ldap/accounts?${params}`);
   }
 
   async setLdapTeamAssignment(identityId: string, eventId: string, assignment: LdapTeamAssignment) {
     return this.putJson<{ ok: boolean }>(`/admin/settings/identity/ldap/accounts/${identityId}/events/${eventId}`, assignment);
+  }
+
+  async setLdapAccountEnabled(identityId: string, enabled: boolean, reason: string) {
+    return this.patchJson<{userId:string;status:'ACTIVE'|'DISABLED';changed:boolean}>(
+      `/admin/settings/identity/ldap/accounts/${encodeURIComponent(identityId)}/status`,
+      { enabled, reason }
+    );
   }
 
   async saveLdapProvider(payload: { id?: string; name: string; config: LdapConfig; bindPassword?: string }): Promise<{ ok: boolean; data?: IdentityProviderSummary; error?: string }> {

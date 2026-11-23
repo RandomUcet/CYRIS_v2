@@ -58,3 +58,135 @@
   .providerRow > div:first-child, .providerActions { grid-column: 1 / -1; }
   .providerActions { justify-content: flex-start; }
 }
+
+/* LDAP account workbench – no nested collapsible forms or horizontal overflow. */
+.workspace{display:grid;gap:16px;padding:18px;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--bg-panel);min-width:0}
+.workspaceHeader{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.workspaceHeader h2{margin:0 0 5px;font-size:1.1rem;font-weight:750}
+.workspaceHeader p,.detail p{font-size:13px;line-height:1.55;color:var(--text-secondary);overflow-wrap:anywhere}
+.toolbar{display:flex;align-items:end;flex-wrap:wrap;gap:12px}
+.toolbar>label:not(.check){display:grid;gap:5px;min-width:180px;font-size:12px;color:var(--text-secondary);font-weight:650}
+.toolbar :is(input:not([type=checkbox]),select),.detail :is(input,select,textarea){
+  width:100%;min-width:0;min-height:38px;border:1px solid var(--border-default);
+  border-radius:var(--radius-sm);background:var(--bg-panel);color:var(--text-primary);
+  font:inherit;font-size:13px;padding:8px 10px
+}
+.toolbar .searchField{position:relative;flex:1 1 240px}
+.searchField svg{position:absolute;left:10px;bottom:11px;color:var(--text-muted)}
+.toolbar .searchField input{padding-left:34px}
+.toolbar .check{align-self:end;display:flex;gap:7px;align-items:center;min-height:38px;font-size:12px;color:var(--text-secondary);font-weight:550}
+.toolbar input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent-primary)}
+.manageGrid{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,2fr);gap:14px;min-width:0}
+.accountColumn,.detailColumn{min-width:0;border:1px solid var(--border-default);border-radius:var(--radius-sm);overflow:hidden;background:var(--bg-panel)}
+.columnHeading{margin:0;padding:10px 12px;border-bottom:1px solid var(--border-default);background:var(--bg-surface);font-size:12px;font-weight:750;color:var(--text-secondary)}
+.accountColumn .accounts{max-height:610px;overflow:auto;padding:8px;gap:5px}
+.accountColumn .accounts button{padding:10px;gap:4px;border:1px solid transparent;background:var(--bg-panel);min-width:0}
+.accountColumn .accounts button[aria-pressed=true]{border-color:var(--accent-active);background:var(--bg-active)}
+.accountColumn .accounts button:focus-visible,.workspace button:focus-visible,.workspace :is(input,select,textarea):focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+.accountColumn .accounts button:hover{background:var(--bg-surface-hover)}
+.accountColumn .accounts button strong{font-size:13px;line-height:1.4;overflow-wrap:anywhere}
+.accountFlags{display:flex;flex-wrap:wrap;gap:4px;padding-top:4px}
+.accountFlags span,.stateActive,.stateDisabled{font-size:10px;font-weight:700;letter-spacing:.015em;line-height:1.4;padding:2px 6px;border-radius:var(--radius-xs);border:1px solid var(--border-default);color:var(--text-secondary);background:var(--bg-surface)}
+.accountFlags span[data-state=ACTIVE],.stateActive{border-color:var(--status-success);color:var(--status-success);background:var(--status-success-bg)}
+.accountFlags span[data-state=DISABLED],.stateDisabled{border-color:var(--status-danger);color:var(--status-danger);background:var(--status-danger-bg)}
+.hint{padding:10px 12px;font-size:12px;color:var(--text-muted)}
+.detail{display:grid;gap:0;min-width:0}
+.detailHeading{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:18px;border-bottom:1px solid var(--border-default)}
+.detailHeading h3{font-size:18px;font-weight:750;line-height:1.3;margin:4px 0}
+.detailHeading p{margin:0}
+.kicker{text-transform:uppercase;letter-spacing:.08em;font-size:10px;color:var(--text-muted);font-weight:750}
+.detailHeading .meta{font-size:11px;color:var(--text-muted)}
+.detailSection{display:grid;gap:12px;padding:18px;border-bottom:1px solid var(--border-subtle);min-width:0}
+.detailSection:last-child{border-bottom:0}
+.detailSection h4{font-size:14px;font-weight:750}
+.detailSection form{display:grid;gap:12px;min-width:0}
+.detailSection .fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+.detailSection .fields .full{grid-column:1/-1}
+.detailSection .fields:disabled{opacity:.55}
+.detailSection label{font-size:12px;display:grid;gap:6px;font-weight:650;color:var(--text-secondary)}
+.detailSection label:has(input[type=checkbox]){display:flex}
+.detailSection textarea{resize:vertical;min-height:88px}
+.detailSection .actions{justify-content:flex-start}
+.warning{display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid var(--status-warning);background:var(--status-warning-bg);color:var(--text-primary)!important;border-radius:var(--radius-sm)}
+.warning svg{flex:0 0 auto}
+.confirmation{border:1px solid var(--border-strong);padding:14px;background:var(--bg-surface);border-radius:var(--radius-sm)}
+.confirmation strong{font-weight:750;font-size:14px}
+.primaryButton,.secondaryButton,.dangerButton{display:inline-flex;justify-content:center;align-items:center;gap:7px;width:max-content;max-width:100%;min-height:36px;padding:8px 12px;border-radius:var(--radius-sm);font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:normal;text-align:center}
+.primaryButton{background:var(--accent-primary);color:white;border:1px solid var(--accent-primary)}
+.secondaryButton{background:var(--bg-panel);color:var(--text-primary);border:1px solid var(--border-strong)}
+.dangerButton{background:var(--status-danger-bg);color:var(--status-danger);border:1px solid var(--status-danger)}
+.primaryButton:disabled,.secondaryButton:disabled,.dangerButton:disabled{opacity:.5;cursor:not-allowed}
+.dangerButton:hover:not(:disabled){background:var(--status-danger);color:white}
+.noSelection{display:grid;place-items:center;gap:9px;padding:50px 20px;text-align:center;color:var(--text-muted)}
+.noSelection h3{font-size:15px;font-weight:700;color:var(--text-primary)}
+.noSelection p{font-size:12px;max-width:300px}
+.visuallyHidden{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media(max-width:850px){.manageGrid{grid-template-columns:minmax(0,1fr)}.accountColumn .accounts{max-height:250px}}
+@media(max-width:520px){.workspace{padding:12px}.detailHeading,.detailSection{padding:12px}.toolbar>label:not(.check){min-width:0;flex:1 1 100%}.detailSection .fields{grid-template-columns:minmax(0,1fr)}.accountColumn .accounts{max-height:240px}}
+
+.providerManagementHint{display:flex;align-items:center;flex-wrap:wrap;gap:8px 15px;padding:12px 14px;margin:10px 0;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--bg-surface)}
+.providerManagementHint p{margin:0;flex:1 1 260px;line-height:1.5;font-size:12px;color:var(--text-secondary)}
+.providerManagementHint a{padding:7px 10px;background:var(--bg-panel);border:1px solid var(--border-strong);border-radius:var(--radius-sm);font-size:12px;font-weight:700;color:var(--accent-primary);text-decoration:none}
+.providerManagementHint a:hover{text-decoration:underline}
+.oidcHint{font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px}
+.providerActions>button{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:5px 7px!important;border:1px solid var(--border-default)!important;border-radius:var(--radius-xs);color:var(--text-primary)}
+.providerActions>button:hover:not(:disabled){background:var(--bg-surface-hover)}
+.providerActions>button:disabled,.providerRow button:disabled{opacity:.45;cursor:not-allowed!important}
+.providerActions>button:focus-visible,.providerRow button:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+.providerRow{min-width:0}
+.providerRow>div{min-width:0}
+@media(max-width:720px){.providerToolbar>div:last-child{flex-wrap:wrap}.providerRow{row-gap:8px}}
+
+.oidcEditorForm{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}
+.oidcEditorForm > :global(.dialog-body){display:grid;gap:13px;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.oidcEditorForm > :global(.dialog-body) > div{display:grid;gap:5px;min-width:0}
+.oidcEditorForm > :global(.dialog-body) > div:has(input[type=checkbox]){display:flex;gap:8px;align-items:center}
+.oidcEditorForm :is(input:not([type=checkbox]),select,textarea){width:100%;max-width:100%;min-width:0;min-height:38px;border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:8px 10px;background:var(--bg-panel);color:var(--text-primary);font-size:13px}
+.oidcEditorForm input[type=checkbox]{height:16px;width:16px;flex:0 0 auto;accent-color:var(--accent-primary)}
+.oidcEditorForm input:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+.oidcEditorForm button{min-height:35px;padding:8px 12px;border-radius:var(--radius-sm)}
+.oidcEditorForm button:disabled{opacity:.5;cursor:not-allowed}
+
+.ruleTitle{display:block;font-size:13px;font-weight:750;margin:0 0 4px;color:var(--text-primary)}
+.rule>.full:not(label){min-width:0}
+.rule .check input[type=checkbox]{width:16px;height:16px;flex:0 0 auto;accent-color:var(--accent-primary)}
+.rule .check:has(input:disabled){opacity:.5}
+
+/* Explicit directory pagination; keyboard-friendly without hiding extra accounts. */
+.pagination{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px;border-top:1px solid var(--border-default);background:var(--bg-panel)}
+.pagination span{font-size:12px;font-weight:700;color:var(--text-secondary)}
+.pagination button{min-height:36px}
+
+/* LDAP provider modal: independent scroll region with persistent, visible actions.
+   Critical when a directory has many team/role mapping rules. */
+.ldapEditorDialog[open]{
+  display:flex;flex-direction:column;overflow:hidden;gap:0;padding:0;
+  width:min(48rem,calc(100vw - 20px));max-height:calc(100dvh - 24px);
+}
+.ldapEditorHeader{flex:0 0 auto;padding:18px 22px 14px;border-bottom:1px solid var(--border-default);
+  color:var(--text-primary);background:var(--bg-surface)}
+.ldapEditorForm{display:flex;flex-direction:column;gap:0;margin:0;min-height:0;overflow:hidden;flex:1}
+.ldapEditorBody{display:grid;gap:17px;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  padding:18px 22px}
+.ldapEditorBody>fieldset,.ldapEditorBody>section{min-width:0}
+.ldapEditorBody .rule{min-width:0}
+.ldapEditorFooter{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  flex-wrap:wrap;flex:0 0 auto;padding:13px 22px;border-top:1px solid var(--border-default);
+  background:var(--bg-surface)}
+.ldapEditorFooter>span{font-size:11px;color:var(--text-secondary)}
+.ldapEditorFooter .actions{justify-content:flex-end}
+.ldapEditorFooter button{min-height:38px}
+@media(max-width:580px){
+  .ldapEditorDialog[open]{width:calc(100vw - 12px);max-height:calc(100dvh - 12px)}
+  .ldapEditorHeader,.ldapEditorBody,.ldapEditorFooter{padding:14px}
+  .ldapEditorFooter .actions{flex:1 1 100%}
+  .ldapEditorFooter .actions button{flex:1 1 115px}
+}
+
+/* Important LDAP attributes are never hidden behind collapsible controls,
+   so required fields remain focusable during native form validation. */
+.ldapAttributes{display:grid;gap:9px;padding:13px;border:1px solid var(--border-default);
+  background:var(--bg-surface);border-radius:var(--radius-sm);min-width:0}
+.ldapAttributes h3{font-size:13px;font-weight:750;color:var(--text-primary)}
+.ldapAttributes p{font-size:12px;color:var(--text-secondary)}
+.ldapAttributes .fields{min-width:0}
