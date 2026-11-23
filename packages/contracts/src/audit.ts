@@ -29,6 +29,8 @@ export const AuditQueryFiltersSchema = z.object({
   category: z.string().optional(),
   resourceType: z.string().optional(),
   resourceId: z.string().optional(),
+  /** Case-insensitive literal substring search across audit identifiers and IP. */
+  q: z.string().trim().max(160).optional(),
   outcome: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
