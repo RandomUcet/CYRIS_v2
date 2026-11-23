@@ -39,6 +39,7 @@ export default function ScenarioDataPage() {
   } as Record<string,string>)[status]??status;
 
   const [mode, setMode] = useState<'LOCAL' | 'SPARK'>('LOCAL');
+  const [sparkStrategy, setSparkStrategy] = useState<'FAST' | 'DETAILED'>('FAST');
   const [brief, setBrief] = useState('');
   const [preset, setPreset] = useState<ScenarioDataRequest['preset']>('SMALL');
   const [counts, setCounts] = useState<ScenarioDataCounts>(presets.SMALL);
@@ -105,7 +106,7 @@ export default function ScenarioDataPage() {
   }
   async function runPreview() {
     if (mode === 'SPARK') {
-      const r = await apiClient.startScenarioDraft(eventId, { ...payload, brief });
+      const r = await apiClient.startScenarioDraft(eventId, { ...payload, brief, strategy: sparkStrategy });
       if (!r.ok || !r.data) throw Error(r.error ?? tr('Spark není dostupný','Spark unavailable'));
       await prepare(r.data);
     } else {
@@ -161,7 +162,8 @@ export default function ScenarioDataPage() {
                 <small>{tr('Generujte data podle popisu cvičení s kontrolou konceptu','Generate scenario-aware data from your briefing and review the draft')}</small>
               </button>
             </div>
-            {mode==='SPARK' && <p className={styles.sparkHint} role="status">{tr('Spark připravuje záznamy po částech. Koncept nejprve zkontrolujete, pak jej zveřejníte. Obrázky lze nyní přiřadit přímo k jednotlivým záznamům v rozpracovaném konceptu. Při publikaci se automaticky uloží do registru.','Spark prepares draft records in batches for review before publishing. Attach images directly to records inside the draft. On publication they become registry images automatically.')}</p>}
+            {mode==='SPARK' && <label>{tr('Režim Sparku','Spark generation mode')}<select value={sparkStrategy} onChange={e => { configure(); setSparkStrategy(e.target.value as 'FAST' | 'DETAILED'); }}><option value="FAST">{tr('Rychlý – 1 AI návrh + propojená lokální databáze','Fast – 1 AI blueprint + linked local dataset')}</option><option value="DETAILED">{tr('Detailní – AI připravuje každý záznam (výrazně pomalejší)','Detailed – AI writes every record (much slower)')}</option></select></label>}
+            {mode==='SPARK' && <p className={styles.sparkHint} role="status">{tr('V rychlém režimu Spark vytvoří jeden krátký scénářový návrh a CYRIS podle něj lokálně sestaví celou sadu; detailní režim generuje záznamy postupně. Koncept před zveřejněním vždy zkontrolujte. Obrázky lze nyní přiřadit přímo k jednotlivým záznamům v rozpracovaném konceptu. Při publikaci se automaticky uloží do registru.','Fast mode asks Spark for one short scenario blueprint and CYRIS builds a linked local dataset; Detailed mode generates records page by page. Always review before publishing. Attach images directly to records inside the draft. On publication they become registry images automatically.')}</p>}
             {mode === 'SPARK' && <label>{tr('Scénářové zadání','Scenario brief')}<textarea value={brief} maxLength={1200} rows={4} placeholder={tr('Železniční depo v Pardubicích během střídání směn. Zahrňte zaměstnance, dodavatele a jejich techniku.','A rail depot in Pardubice during a shift change. Include contractors, dispatchers and their equipment.')} onChange={e => {
               configure();
               setBrief(e.target.value);

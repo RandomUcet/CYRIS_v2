@@ -11,6 +11,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { inspectScenarioDraft } from './scenario-quality.js';
+import { ScenarioBlueprintSchema, applyScenarioBlueprint, fastDraftLinks } from './scenario-fast-draft.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
   scenarioDataBatches,
@@ -44,7 +45,7 @@ type Tx = Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0]
 
 type Kind = keyof World;
 type DraftLink = { source: Kind; index: number; target: Kind; targetIndex: number; relation: string };
-type Settings = ScenarioDataCounts & { brief?: string; prepared?: number; rows?: World; draftLinks?: DraftLink[] };
+type Settings = ScenarioDataCounts & { brief?: string; strategy?: 'FAST' | 'DETAILED'; prepared?: number; rows?: World; draftLinks?: DraftLink[] };
 const draftOrder: Kind[] = ['locations', 'organisations', 'vehicles', 'devices', 'persons', 'weapons'];
 const relatedKinds: Record<Kind, Partial<Record<Kind, string>>> = {
   locations: {}, organisations: { locations: 'LOCATED_AT' }, vehicles: { locations: 'LOCATED_AT' },
@@ -108,7 +109,7 @@ export class ScenarioDataService {
   private response(row: typeof scenarioDataBatches.$inferSelect): ScenarioDataBatchResponse {
     const settings = row.configuration as Settings;
     return {
-      source: settings.brief ? 'SPARK' : 'LOCAL', prepared: settings.prepared, brief: settings.brief,
+      source: settings.brief ? 'SPARK' : 'LOCAL', prepared: settings.prepared, brief: settings.brief, strategy: settings.strategy,
       ...(settings.rows && { samples: samples(settings.rows), personDetails: personDetails(settings.rows) }),
       id: row.id, eventId: row.eventId, identifier: row.identifier, generatorVersion: row.generatorVersion,
       seed: row.seed, preset: row.preset as ScenarioDataBatchResponse['preset'],
@@ -279,7 +280,7 @@ export class ScenarioDataService {
     if (!(await this.ai.getStatus('DGX_SPARK')).enabled) throw new ServiceUnavailableException('Enable the Spark integration or select Local.');
     return this.databaseService.client.transaction(async tx => {
       await this.lockEvent(tx, eventId);
-      return this.response(await this.newBatch(tx, eventId, request, user, { ...counts, brief: request.brief, prepared: 0, rows: emptyWorld(), draftLinks: [] }));
+      return this.response(await this.newBatch(tx, eventId, request, user, { ...counts, brief: request.brief, strategy: request.strategy ?? 'DETAILED', prepared: 0, rows: emptyWorld(), draftLinks: [] }));
     });
   }
 
@@ -292,6 +293,41 @@ export class ScenarioDataService {
     const conf = batch.configuration as Settings;
     if (!conf.rows || !conf.brief || batch.status !== 'DRAFT') throw new ConflictException('Draft closed');
     if (expected !== conf.prepared) return this.response(batch);
+    if (conf.strategy === 'FAST') {
+      // One concise request replaces up to hundreds of sequential 12-record AI calls.
+      // All structured records and relations are then generated in-process and
+      // saved atomically so failures leave a fully resumable untouched draft.
+      const [event] = await db.select({ name: events.name, locale: events.defaultLocale })
+        .from(events).where(eq(events.id, eventId)).limit(1);
+      if (!event) throw new BadRequestException('Exercise unavailable');
+      const existing = await this.existingNames(eventId);
+      let blueprint: unknown;
+      try {
+        const result = await this.ai.execute({
+          eventId, userId: user.id, operationType: 'SCENARIO_DATA',
+          promptTemplateVersion: 'scenario-blueprint-fast-v1',
+          messages: [
+            { role: 'system', content: 'You invent fictional, harmless tabletop exercise background. Return ONLY one compact JSON object with exactly these keys: setting (one short sentence), activities (3 concrete civilian activities), roles (3 civilian work roles), sites (3 workplaces or spaces), organisations (3 fictional organisation functions), equipment (3 benign device or vehicle uses). Arrays must be nonempty strings. All fields are fiction, no personal contacts, real operational instructions or URLs. Use the supplied language. Limit each entry to 6-12 words. Do not explain.' },
+            { role: 'user', content: JSON.stringify({ event: event.name, locale: event.locale, scenario: conf.brief, recordCounts: cleanCounts(conf) }) },
+          ],
+          options: { temperature: 0.5, maxTokens: 450, timeoutMs: 45_000, reasoning: 'disabled' },
+        });
+        const text = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+        blueprint = ScenarioBlueprintSchema.parse(JSON.parse(text));
+      } catch (error) {
+        if (error instanceof HttpException) throw error;
+        this.logger.warn('Fast Spark blueprint failed or exceeded its 45-second provider limit');
+        throw new ServiceUnavailableException('Spark did not finish the compact scenario blueprint. This draft is saved; retry or choose Local.');
+      }
+      const world = applyScenarioBlueprint(localWorld(batch.seed, cleanCounts(conf), existing), ScenarioBlueprintSchema.parse(blueprint));
+      const links = fastDraftLinks(world);
+      const [saved] = await db.update(scenarioDataBatches).set({
+        configuration: { ...conf, rows: world, draftLinks: links, prepared: total(cleanCounts(conf)) },
+      }).where(and(scope, eq(scenarioDataBatches.status, 'DRAFT'),
+        sql`(${scenarioDataBatches.configuration}->>'prepared')::int = ${expected}`)).returning();
+      if (!saved) return this.get(eventId, batchId, user);
+      return this.response(saved);
+    }
     const kind = draftOrder.find(k => conf.rows![k].length < conf[k]);
     if (!kind) return this.response(batch);
     const start = conf.rows[kind].length;
