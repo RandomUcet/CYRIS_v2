@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
@@ -213,7 +212,10 @@ export default function AdminAuditPage() {
           borderBottom:'1px solid var(--border-default)',fontSize:'12px',display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
           {tr('Auditní historie účtu: ','Account audit history: ')}
           <code>{resourceFilter}</code>
-          <Link href="/admin/audit">{tr('Zobrazit všechny záznamy','Show all audit records')}</Link>
+          <button type="button" className="btn btn-secondary"
+            onClick={()=>{setResourceFilter('');setPage(1);setSelectedEntry(null);
+              window.history.replaceState(null,'','/admin/audit');}}>
+            {tr('Zobrazit všechny záznamy','Show all audit records')}</button>
         </div>}
         {/* Filter Bar */}
         <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--color-border-subtle)' }}>
@@ -227,11 +229,13 @@ export default function AdminAuditPage() {
                 value: categoryFilter,
                 options: [
                   { label: tr('Všechny kategorie','All Categories'), value: '' },
-                  { label: tr('Přihlášení','Auth'), value: 'AUTH' },
-                  { label: tr('Vyšetřování','Investigation'), value: 'INVESTIGATION' },
-                  { label: tr('Důkazy','Evidence'), value: 'EVIDENCE' },
-                  { label: tr('Laboratoř','Laboratory'), value: 'LABORATORY' },
-                  { label: tr('Administrace','Admin'), value: 'ADMIN' },
+                  { label: tr('Identity a účty','Identity and accounts'), value: 'identity' },
+                  { label: tr('Oprávnění','Authorization'), value: 'authorization' },
+                  { label: tr('Poskytovatelé přihlášení','Login providers'), value: 'integrations' },
+                  { label: tr('Členství ve cvičení','Exercise memberships'), value: 'membership' },
+                  { label: tr('Scénáře a EXCON','Scenario and EXCON'), value: 'scenario' },
+                  { label: tr('Zdravotnická agenda','Medical'), value: 'medical' },
+                  { label: tr('Podpora účastníků','Support'), value: 'support' },
                 ],
                 onChange: value => {setCategoryFilter(value);setPage(1);},
               },
