@@ -142,6 +142,9 @@ test('account audit drilldown uses server resource ID filtering and paginated hi
   assert.ok(audit.includes("new URLSearchParams(window.location.search).get('resourceId')"));
   assert.ok(audit.includes("resourceId: resourceFilter || undefined"));
   assert.ok(audit.includes("if (resourceFilter===null) return"),'avoid unfiltered load on direct-link mount');
+  assert.ok(audit.includes('const request = ++auditRequest.current'), 'audit queries need an in-flight request guard');
+  assert.ok(audit.includes('if (request !== auditRequest.current) return'));
+  assert.ok(audit.includes('if (request === auditRequest.current) setLoading(false)'));
   assert.ok(audit.includes('page,'),'audit history must use backend pages');
   assert.ok(audit.includes("setPage(value=>value+1)"));
   assert.ok(api.includes("params.set('resourceId', filters.resourceId)"));
