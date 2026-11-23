@@ -70,3 +70,14 @@ test('identity provider manager can edit OIDC without overwriting hidden configu
   assert.ok(page.includes('disabled={Boolean(providerBusy)||Boolean(testingId)}'));
   assert.ok(page.includes('href="/admin/users"'));
 });
+
+test('exercise membership pause is distinct from global account deactivation',()=>{
+  const page=readFileSync(new URL('../app/admin/users/page.tsx',import.meta.url),'utf8');
+  const api=readFileSync(new URL('./api-client.ts',import.meta.url),'utf8');
+  assert.ok(page.includes('pauseMembership(member)'));
+  assert.ok(page.includes('activateMembership(member.eventId, member.id)'));
+  assert.ok(page.includes('deactivateMembership(member.eventId,member.id)'));
+  assert.ok(page.includes('Účet CYRIS zůstane aktivní.'));
+  assert.ok(api.includes("status: 'INACTIVE'"));
+  assert.ok(api.includes("status: 'ACTIVE'"));
+});
