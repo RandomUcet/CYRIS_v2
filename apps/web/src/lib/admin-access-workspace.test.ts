@@ -116,6 +116,10 @@ test('provider editor keeps LDAP Save/Cancel accessible with long group mappings
   assert.ok(css.includes('.ldapEditorBody{display:grid;gap:17px;min-height:0;overflow-y:auto'));
   assert.ok(css.includes('.ldapEditorFooter{display:flex'));
   assert.ok(provider.includes("if (!saving) onClose()"),'form must not be dismissed during save');
+  assert.ok(provider.includes('className={styles.full+\' \'+styles.ldapAttributes}'));
+  assert.ok(!provider.includes('<details className={styles.full}>'),
+    'required LDAP attributes should not be hidden in a collapsed details element');
+  assert.ok(css.includes('.ldapAttributes{display:grid;gap:9px;'));
 });
 
 test('access management handles network failures and confirms command or membership changes',()=>{
