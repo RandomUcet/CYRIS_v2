@@ -99,7 +99,10 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
       <Link className={styles.secondaryButton} href={'/admin/audit?resourceId='+encodeURIComponent(account.userId)}>
         {tr('Zobrazit audit změn tohoto účtu','View this account’s change history')}
       </Link>
-      {account.providerEnabled===false&&<p className={styles.warning}><AlertTriangle size={16}/>
+      {account.providerMissing&&<p className={styles.warning}><AlertTriangle size={16}/>
+        {tr('Původní LDAP poskytovatel byl odstraněn. Účet a audit zůstávají v CYRIS. Pro další přihlášení je nutné obnovit správnou identitu.',
+          'The original LDAP provider was removed. This CYRIS account and its audit history remain, but sign-in requires a valid identity provider.')}</p>}
+      {!account.providerMissing&&account.providerEnabled===false&&<p className={styles.warning}><AlertTriangle size={16}/>
         {tr('Poskytovatel LDAP je vypnutý. Aktivace uživatelského účtu sama o sobě neobnoví možnost přihlášení.',
           'This LDAP provider is disabled. Enabling the CYRIS user account alone will not restore sign-in.')}</p>}
       {account.platformAdmin&&<p className={styles.warning}><ShieldCheck size={16}/>
