@@ -1,7 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { and, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
-  integrations, roleAssignments, rolePermissions, roles, userIdentities, users, UserStatus,
+  integrations, userIdentities, users, UserStatus,
 } from '@cyris/db';
 import { Permissions, PermissionScopes } from '@cyris/shared';
 import type { LdapAccountStatusChange } from '@cyris/contracts';
