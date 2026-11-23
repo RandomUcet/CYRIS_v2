@@ -33,6 +33,8 @@ export interface LdapTeamAccount {
   providerName: string;
   /** Provider can be disabled independently of the user's CYRIS account. */
   providerEnabled?: boolean;
+  /** True when the original LDAP provider was removed from configuration. */
+  providerMissing?: boolean;
   /** Last successful login across this CYRIS user; not necessarily via LDAP. */
   lastLoginAt?: string | null;
   userStatus: 'ACTIVE' | 'DISABLED';
