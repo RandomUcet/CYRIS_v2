@@ -1,7 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 import {
-  integrations, userIdentities, users, UserStatus,
+  userIdentities, users, UserStatus,
 } from '@cyris/db';
 import { Permissions, PermissionScopes } from '@cyris/shared';
 import type { LdapAccountStatusChange } from '@cyris/contracts';
@@ -45,8 +45,6 @@ export class LdapAccountLifecycleService {
       const [account] = await tx.select({ userId: users.id, status: users.status, email: users.email })
         .from(userIdentities)
         .innerJoin(users, eq(users.id, userIdentities.userId))
-        .innerJoin(integrations, and(eq(integrations.category, 'LDAP'),
-          sql`${integrations.id}::text = ${userIdentities.metadata}->>'providerId'`))
         .where(and(eq(userIdentities.id, identityId), eq(userIdentities.providerType, 'LDAP')))
         .for('update', { of: users }).limit(1);
       if (!account) throw new NotFoundException('LDAP account not found');
