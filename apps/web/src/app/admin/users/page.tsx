@@ -183,9 +183,11 @@ export default function AdminUsersPage() {
         </select>
         <button type="button" className="btn btn-secondary" disabled={loading || !currentEvent} onClick={() => setRevision((value) => value + 1)}><RefreshCw size={14} />{cs ? 'Obnovit' : 'Refresh'}</button></>}
       </div>
-      {isPlatformAdmin && tab==='ldap' && currentEvent && <LdapTeamAssignments key={currentEvent.id} event={currentEvent} onChanged={() => setRevision(value => value + 1)} />}
-      {isPlatformAdmin && tab==='ldap' && !currentEvent && <EmptyState icon={<Users size={28}/>}
-        title={cs?'Vyberte cvičení':'Select an exercise'} description={cs?'Vyberte cvičení, ve kterém chcete spravovat zařazení LDAP účtů.':'Select an exercise to manage LDAP team assignments.'}/>}
+      {isPlatformAdmin && tab==='ldap' && !currentEvent && <p role="status" className="roster-caption">
+        {tr('LDAP účty lze vyhledávat a aktivovat/deaktivovat i bez cvičení. Pro týmy a role zvolte cvičení výše.',
+          'LDAP account status is available globally. Select an exercise above to manage teams and roles.')}
+      </p>}
+      {isPlatformAdmin && tab==='ldap' && <LdapTeamAssignments key={currentEvent?.id??'global'} event={currentEvent??undefined} onChanged={() => setRevision(value => value + 1)} />}
       {isPlatformAdmin && tab==='admins' && currentUser && <>
         <PlatformAdministrators actorId={currentUser.user.id} onChanged={() => setRevision(value => value + 1)}/>
         <TeamPreviewAccess />
