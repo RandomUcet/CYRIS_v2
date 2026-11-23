@@ -2197,3 +2197,9 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
 .platform-admin-list strong{font-size:13px;overflow-wrap:anywhere}
 .platform-admin-list small{font-size:12px;color:var(--text-secondary);overflow-wrap:anywhere}
 .platform-admin-list span{font-size:11px;color:var(--text-muted)}
+
+/* Global EXCON quick action in all authenticated workspaces, including /admin. */
+.topbar-broadcast-trigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:32px;min-width:0;max-width:180px;padding:5px 10px;background:var(--accent-primary);color:white;border:1px solid var(--accent-primary);border-radius:var(--radius-xs);font:inherit;font-size:11px;font-weight:750;cursor:pointer;white-space:nowrap}
+.topbar-broadcast-trigger:hover{background:var(--accent-hover)}
+.topbar-broadcast-trigger:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+@media(max-width:860px){.topbar-broadcast-trigger{width:34px;padding:5px}.topbar-broadcast-trigger span{display:none}}
