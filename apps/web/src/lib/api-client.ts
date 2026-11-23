@@ -396,6 +396,9 @@ export class CyrisApiClient {
       `/events/${eventId}/registry/search?q=${encodeURIComponent(query)}&limit=20`);
   }
 
+  async getLocations(eventId: string) {
+    return this.fetchJson<Array<{ id: string; name: string }>>(`/events/${eventId}/registry/locations`);
+  }
   async getPersons(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/registry/persons`);
   }

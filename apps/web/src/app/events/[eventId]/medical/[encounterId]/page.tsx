@@ -136,10 +136,34 @@ export default function MedicalDetailPage() {
     disposition: string;
     transferNotes?: string;
     locationId?: string;
+    receivingUnitId?: string;
   }>({
     disposition: 'AID_STATION',
     transferNotes: '',
   });
+
+  const [transferLocations, setTransferLocations] = useState<Array<{id:string;name:string}>>([]);
+  const [transferUnits, setTransferUnits] = useState<Array<{id:string;name:string}>>([]);
+  const [transferOptionsLoading, setTransferOptionsLoading] = useState(false);
+  const [transferOptionsError, setTransferOptionsError] = useState('');
+  const [handoffSuccess, setHandoffSuccess] = useState('');
+
+  useEffect(() => {
+    if (!showTransferModal || !eventId) return;
+    let active = true;
+    setTransferOptionsLoading(true);
+    setTransferOptionsError('');
+    void Promise.all([apiClient.getLocations(eventId), apiClient.getUnits(eventId)]).then(([loc, units]) => {
+      if (!active) return;
+      if (!loc.ok || !loc.data) throw new Error(loc.error || 'Nelze načíst cílové lokality');
+      setTransferLocations(loc.data);
+      // Team selection is optional and may be unavailable to some roles.
+      setTransferUnits(units.ok && Array.isArray(units.data) ? units.data.filter((unit: {archivedAt?: string | null}) => !unit.archivedAt) : []);
+    }).catch((err) => {
+      if (active) setTransferOptionsError(err instanceof Error ? err.message : 'Nelze načíst možnosti předání');
+    }).finally(() => { if (active) setTransferOptionsLoading(false); });
+    return () => { active = false; };
+  }, [showTransferModal, eventId]);
 
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -257,23 +281,32 @@ export default function MedicalDetailPage() {
   const handleTransferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!transferForm.locationId) {
-      setActionError('Transfer destination location is required');
-      setActionPending(false);
+      setActionError(locale === 'cs' ? 'Vyberte cílovou lokalitu.' : 'Select a destination location.');
       return;
     }
+    if (actionPending) return;
+    setActionPending(true);
+    setActionError(null);
+    setHandoffSuccess('');
     try {
+      const notes = (transferForm.transferNotes || '').trim();
+      const disposition = [transferForm.disposition, notes].filter(Boolean).join(' — ');
       const res = await apiClient.transferMedicalEncounter(eventId, encounterId, {
-        disposition: transferForm.disposition,
+        disposition,
         targetLocationId: transferForm.locationId,
+        receivingUnitId: transferForm.receivingUnitId || undefined,
       });
       if (res.ok && res.data) {
         setEncounter(res.data);
         setShowTransferModal(false);
+        setHandoffSuccess(locale === 'cs'
+          ? 'Předání pacienta bylo úspěšně zaznamenáno. Při předání jinému týmu se přístup ke zdravotnickému záznamu přesune na přijímající tým.'
+          : 'Patient handoff recorded. If assigned to another team, access to the record moves to the receiving team.');
       } else {
         setActionError(res.error || 'Failed to transfer casualty');
       }
-    } catch (err: any) {
-      setActionError(err.message);
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : 'Network error');
     } finally {
       setActionPending(false);
     }
@@ -886,6 +919,7 @@ export default function MedicalDetailPage() {
       )}
 
       {/* Transfer Casualty Modal */}
+      {handoffSuccess && <div role="status" className="mb-3 rounded border border-emerald-600/40 bg-emerald-950/40 p-3 text-sm text-emerald-200">{handoffSuccess}</div>}
       {showTransferModal && (
         <div className="dialog-overlay medical-dialog-overlay" role="presentation">
           <form
@@ -904,6 +938,27 @@ export default function MedicalDetailPage() {
             </div>
 
             <div className="dialog-body medical-dialog-body">
+              <div>
+                <label className="medical-dialog-label" htmlFor="transfer-destination-location">{locale === 'cs' ? 'Cílová lokalita' : 'Destination location'}</label>
+                <select id="transfer-destination-location" required value={transferForm.locationId || ''}
+                  onChange={(e) => setTransferForm(prev => ({...prev, locationId: e.target.value || undefined}))}
+                  className="medical-dialog-control" disabled={transferOptionsLoading || !!transferOptionsError}>
+                  <option value="">{transferOptionsLoading ? (locale === 'cs' ? 'Načítání lokalit…' : 'Loading locations…') : (locale === 'cs' ? 'Vyberte lokalitu' : 'Select location')}</option>
+                  {transferLocations.map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="medical-dialog-label" htmlFor="transfer-receiving-team">{locale === 'cs' ? 'Přijímající tým (volitelné)' : 'Receiving team (optional)'}</label>
+                <select id="transfer-receiving-team" value={transferForm.receivingUnitId || ''}
+                  onChange={(e) => setTransferForm(prev => ({...prev, receivingUnitId: e.target.value || undefined}))}
+                  className="medical-dialog-control" disabled={transferOptionsLoading}>
+                  <option value="">{locale === 'cs' ? 'Ponechat současný tým' : 'Keep current team'}</option>
+                  {transferUnits.map(unit => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+                </select>
+              </div>
+              {transferOptionsError && <p className="medical-dialog-error" role="alert">{transferOptionsError}</p>}
+              {!transferOptionsLoading && !transferOptionsError && transferLocations.length === 0 &&
+                <p className="medical-dialog-error" role="status">{locale === 'cs' ? 'V registru nejsou dostupné žádné lokality pro předání.' : 'No destination locations are available in the registry.'}</p>}
               <div>
                 <label className="medical-dialog-label">{trDialog("Destination Disposition")}</label>
                 <select
@@ -925,6 +980,7 @@ export default function MedicalDetailPage() {
                   value={transferForm.transferNotes || ''}
                   onChange={(e) => setTransferForm({ ...transferForm, transferNotes: e.target.value })}
                   rows={3}
+                  maxLength={1200}
                   placeholder={trDialog("Receiving team, transport callsign, vital trends...")}
                   className="medical-dialog-control"
                 />
@@ -942,10 +998,10 @@ export default function MedicalDetailPage() {
               </button>
               <button
                 type="submit"
-                disabled={actionPending}
+                disabled={actionPending || transferOptionsLoading || !!transferOptionsError || transferLocations.length === 0}
                 className="btn btn-primary"
               >
-                {actionPending ? 'Transferring...' : 'Execute Transfer'}
+                {actionPending ? trDialog('Transferring...') : trDialog('Execute Transfer')}
               </button>
             </div>
           </form>
