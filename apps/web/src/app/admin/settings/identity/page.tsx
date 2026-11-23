@@ -343,13 +343,16 @@ export default function IdentitySettingsPage() {
         {/* Modal: Add OIDC */}
         {isOidcModalOpen && (
           <div className="dialog-overlay dialog-overlay-top" role="presentation">
-            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Configure OpenID Connect SSO" style={{ maxWidth: '520px', padding: '24px' }}>
-              <h2 style={{ fontSize: '15px', fontWeight: 650, marginBottom: '16px' }}>
-                {editingOidc?(cs?'Upravit poskytovatele OIDC':'Edit OIDC provider'):(cs?'Přidat přihlášení OIDC':'Add OIDC sign-in')}
-              </h2>
-              <p className={styles.oidcHint}>{cs?'Úprava uloženého poskytovatele zachová jeho identitu a existující tajný klíč, pokud nezadáte nový.':'Editing the existing provider preserves its identity and current secret unless replaced.'}</p>
-              {feedback?.error && <p role="alert">{feedback.message}</p>}
-              <form onSubmit={handleSaveOidc} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-labelledby="oidc-editor-title" style={{ maxWidth:'520px' }}>
+              <header className="dialog-header">
+                <h2 id="oidc-editor-title" style={{fontSize:'16px',fontWeight:700}}>
+                  {editingOidc?(cs?'Upravit poskytovatele OIDC':'Edit OIDC provider'):(cs?'Přidat přihlášení OIDC':'Add OIDC sign-in')}
+                </h2>
+              </header>
+              <form onSubmit={handleSaveOidc} className={styles.oidcEditorForm}>
+                <div className="dialog-body">
+                  <p className={styles.oidcHint}>{cs?'Úprava uloženého poskytovatele zachová jeho identitu a existující tajný klíč, pokud nezadáte nový.':'Editing the existing provider preserves its identity and current secret unless replaced.'}</p>
+                  {feedback?.error && <p role="alert" className={styles.error}>{feedback.message}</p>}
                 <div>
                   <label htmlFor="oidc-name" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>{cs?'Název poskytovatele':'Provider name'}</label>
                   <input id="oidc-name" maxLength={128} disabled={submitting} value={oidcName} onChange={(e) => setOidcName(e.target.value)} required />
@@ -375,12 +378,13 @@ export default function IdentitySettingsPage() {
                   <label htmlFor="oidcJit" style={{ fontSize: '12px' }}>{cs?'Vytvořit uživatele při prvním přihlášení (JIT)':'Create account on first sign-in (JIT)'}</label>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+                </div>
+                <footer className="dialog-footer" style={{display:'flex',justifyContent:'flex-end',flexWrap:'wrap',gap:'8px'}}>
                   <button type="button" className="btn-ghost" disabled={submitting}
                     onClick={() => setIsOidcModalOpen(false)}>{cs?'Zrušit':'Cancel'}</button>
                   <button type="submit" className="btn-primary" disabled={submitting}>
                     {submitting?'…':cs?'Uložit poskytovatele':'Save provider'}</button>
-                </div>
+                </footer>
               </form>
             </div>
           </div>
