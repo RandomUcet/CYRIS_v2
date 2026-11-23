@@ -151,6 +151,25 @@ test('account audit drilldown uses server resource ID filtering and paginated hi
   assert.ok(api.includes("params.set('page', String(filters.page))"));
 });
 
+test('security audit category dropdown matches backend and clear-filter actually resets state',()=>{
+  const audit=readFileSync(new URL('../app/admin/audit/page.tsx',import.meta.url),'utf8');
+  for(const category of ['identity','authorization','integrations','membership','scenario','medical','support']) {
+    assert.ok(audit.includes("value: '"+category+"'"),category);
+  }
+  for(const bogus of ["value: 'AUTH'","value: 'ADMIN'","value: 'INVESTIGATION'"]) {
+    assert.ok(!audit.includes(bogus),'old invented audit category '+bogus);
+  }
+  assert.ok(audit.includes("onClick={()=>{setResourceFilter('');setPage(1);setSelectedEntry(null);"),
+    'clear account audit must reset component state as well as the URL');
+});
+
+test('LDAP accounts remain administrable when their original directory provider was deleted',()=>{
+  const directory=readFileSync(new URL('../components/admin/LdapTeamAssignments.tsx',import.meta.url),'utf8');
+  assert.ok(directory.includes('account.providerMissing&&'));
+  assert.ok(directory.includes('&& !account.providerMissing'));
+  assert.ok(directory.includes('Platné relace uživateli přístup neumožní.'));
+});
+
 test('LDAP group mappings expose whole-exercise role scope explicitly',()=>{
   const provider=readFileSync(new URL('../app/admin/settings/identity/LdapProviderForm.tsx',import.meta.url),'utf8');
   assert.ok(provider.includes('checked={rule.allowEventWide}'));
