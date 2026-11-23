@@ -27,8 +27,8 @@ test('release builds use per-image GHA layer cache without relaxing dual-archite
 
 test('CI and publisher support isolated runner recovery without bypassing verification',()=>{
   const ci=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8');
-  assert.ok(ci.includes("vars.CYRIS_CI_RUNNER || 'ubuntu-24.04'"));
-  assert.ok(release.includes("vars.CYRIS_RELEASE_RUNNER || 'ubuntu-24.04'"));
+  assert.ok(ci.includes("vars.CYRIS_CI_RUNNER || 'ubuntu-latest'"));
+  assert.ok(release.includes("vars.CYRIS_RELEASE_RUNNER || 'ubuntu-latest'"));
   assert.ok(ci.includes("run: sudo env GITHUB_ACTIONS=true"),'restore integration gate is mandatory');
   assert.ok(ci.includes("run: pnpm typecheck"));
   assert.ok(ci.includes("pnpm test:run"));
