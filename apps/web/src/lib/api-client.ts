@@ -1686,6 +1686,13 @@ export class CyrisApiClient {
     return this.putJson<{ ok: boolean }>(`/admin/settings/identity/ldap/accounts/${identityId}/events/${eventId}`, assignment);
   }
 
+  async setLdapAccountEnabled(identityId: string, enabled: boolean, reason: string) {
+    return this.patchJson<{userId:string;status:'ACTIVE'|'DISABLED';changed:boolean}>(
+      `/admin/settings/identity/ldap/accounts/${encodeURIComponent(identityId)}/status`,
+      { enabled, reason }
+    );
+  }
+
   async saveLdapProvider(payload: { id?: string; name: string; config: LdapConfig; bindPassword?: string }): Promise<{ ok: boolean; data?: IdentityProviderSummary; error?: string }> {
     return this.postJson<IdentityProviderSummary>('/admin/settings/identity/ldap', payload);
   }
