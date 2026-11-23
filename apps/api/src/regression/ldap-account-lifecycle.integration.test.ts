@@ -112,6 +112,11 @@ test('LDAP operator deactivate/reactivate is audited, session-safe and denies pr
       assert.deepEqual(actions.map(x=>x.action).sort(),[
         'identity.ldap.account.disabled','identity.ldap.account.reactivated',
       ]);
+      const auditSearch=await audit.list({resourceId:targetId,q:'REACTIVATED',page:1,limit:10},true);
+      assert.equal(auditSearch.total,1,'case-insensitive search queries the persisted audit table');
+      assert.equal(auditSearch.items[0]?.action,'identity.ldap.account.reactivated');
+      assert.equal((await audit.list({resourceId:targetId,q:'%%%',page:1,limit:10},true)).total,0,
+        'percent signs are literal text rather than SQL search wildcards');
       // Deleting the external provider must not hide existing CYRIS records or
       // prevent a platform administrator from disabling a compromised identity.
       await db.delete(integrations).where(eq(integrations.id,providerId));
