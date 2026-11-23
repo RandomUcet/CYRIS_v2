@@ -35,7 +35,7 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
   const catalog = event ? catalogs[event.id] : undefined;
   const lifecycle = ldapAccountAction(account, actorId);
   const closed = !event || event.status === 'ARCHIVED' || event.status === 'CLOSED';
-  const canAssign = Boolean(event) && account.userStatus === 'ACTIVE' && !closed;
+  const canAssign = Boolean(event) && account.userStatus === 'ACTIVE' && !closed && !account.providerMissing;
   const validManual = mode !== 'MANUAL' || Boolean(catalog?.units.some(unit=>unit.id===unitId) &&
     catalog.roles.some(role=>role.id===roleId));
   const changed = account.assignment.mode !== mode ||
@@ -152,7 +152,10 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
           :tr('Bez členství','No membership')}</p>
       <p>{tr('Současné týmy: ','Current teams: ')}{account.units.map(u=>u.name).join(', ')||tr('žádné','none')}</p>
       {!canAssign&&<p className={styles.warning}><LockKeyhole size={16}/>
-        {closed?tr('Cvičení je uzavřené, přiřazení nelze měnit.','Exercise is closed; assignments cannot change.')
+        {account.providerMissing
+          ?tr('Původní LDAP poskytovatel již neexistuje. Týmy a role nelze měnit, dokud nebude identita obnovena.',
+            'The original LDAP provider no longer exists. Restore the identity provider before changing teams or roles.')
+          :closed?tr('Cvičení je uzavřené, přiřazení nelze měnit.','Exercise is closed; assignments cannot change.')
           :tr('Nejdříve znovu aktivujte uživatelský účet.','Reactivate the user account before changing assignments.')}</p>}
       <form onSubmit={e=>void saveAssignment(e)}>
         <fieldset className={styles.fields} disabled={busy||!canAssign}>
