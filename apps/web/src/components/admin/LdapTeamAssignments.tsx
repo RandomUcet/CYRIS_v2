@@ -14,7 +14,7 @@ type StatusFilter = 'ALL' | 'ACTIVE' | 'DISABLED';
 
 function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
   account: LdapTeamAccount;
-  event: EventResponse;
+  event?: EventResponse;
   actorId: string;
   busy: boolean;
   setBusy: (value: boolean) => void;
@@ -30,11 +30,11 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
   const [action,setAction] = useState<'ENABLE'|'DISABLE'|null>(null);
   const [reason,setReason] = useState('');
   const [emailConfirmation,setEmailConfirmation] = useState('');
-  const {catalogs,retry} = useTeamCatalogs(mode === 'MANUAL' ? [event.id] : []);
-  const catalog = catalogs[event.id];
+  const {catalogs,retry} = useTeamCatalogs(mode === 'MANUAL' && event ? [event.id] : []);
+  const catalog = event ? catalogs[event.id] : undefined;
   const lifecycle = ldapAccountAction(account, actorId);
-  const closed = event.status === 'ARCHIVED' || event.status === 'CLOSED';
-  const canAssign = account.userStatus === 'ACTIVE' && !closed;
+  const closed = !event || event.status === 'ARCHIVED' || event.status === 'CLOSED';
+  const canAssign = Boolean(event) && account.userStatus === 'ACTIVE' && !closed;
   const validManual = mode !== 'MANUAL' || Boolean(catalog?.units.some(unit=>unit.id===unitId) &&
     catalog.roles.some(role=>role.id===roleId));
   const changed = account.assignment.mode !== mode ||
@@ -43,7 +43,7 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
 
   async function saveAssignment(e:FormEvent) {
     e.preventDefault();
-    if (busy || !canAssign || !validManual || !changed) return;
+    if (busy || !event || !canAssign || !validManual || !changed) return;
     setError('');setBusy(true);
     try {
       const choice:LdapTeamAssignment = mode === 'MANUAL' ? {mode,unitId,roleId} : {mode};
@@ -130,7 +130,7 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
       </form>}
     </section>
 
-    <section className={styles.detailSection}>
+    {event?<section className={styles.detailSection}>
       <h4>{tr('Zařazení v aktuálním cvičení','Assignment in selected exercise')}</h4>
       <p><strong>{event.name}</strong> · {account.membershipStatus==='ACTIVE'?tr('Aktivní členství','Active membership')
         :account.membershipStatus==='INACTIVE'?tr('Neaktivní členství','Inactive membership')
@@ -161,11 +161,15 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
             <Check size={15}/>{busy?tr('Ukládám…','Saving…'):tr('Uložit zařazení','Save assignment')}</button>
         </div>
       </form>
-    </section>
+    </section>:<section className={styles.detailSection}>
+      <h4>{tr('Zařazení do cvičení','Exercise assignment')}</h4>
+      <p>{tr('Vyberte cvičení nahoře, pokud chcete spravovat týmy a role. Stav LDAP účtu můžete spravovat i bez něj.',
+        'Choose an exercise above to manage teams and roles. LDAP account status is available globally.')}</p>
+    </section>}
   </article>;
 }
 
-export function LdapTeamAssignments({event,onChanged}: {event:EventResponse;onChanged:()=>void}) {
+export function LdapTeamAssignments({event,onChanged}: {event?:EventResponse;onChanged:()=>void}) {
   const {locale}=usePreferences();
   const {currentUser}=useAuth();
   const cs=locale==='cs';
@@ -187,7 +191,7 @@ export function LdapTeamAssignments({event,onChanged}: {event:EventResponse;onCh
     let active=true;
     setLoading(true);setError('');
     const timeout=window.setTimeout(()=>{
-      void apiClient.listLdapTeamAccounts(event.id,query.trim(),unassigned,status)
+      void apiClient.listLdapTeamAccounts(event?.id,query.trim(),unassigned&&Boolean(event),status)
         .then(res=>{
           if(!active)return;
           if(!res.ok||!res.data)throw new Error(res.error||tr('Účty nelze načíst.','Could not load accounts.'));
@@ -197,7 +201,7 @@ export function LdapTeamAssignments({event,onChanged}: {event:EventResponse;onCh
         .finally(()=>{if(active)setLoading(false);});
     },query.trim()?250:0);
     return ()=>{active=false;window.clearTimeout(timeout);};
-  },[event.id,query,unassigned,status,revision,cs]);
+  },[event?.id,query,unassigned,status,revision,cs]);
 
   function changed(message:string){
     setNotice(message);setRevision(n=>n+1);onChanged();
@@ -224,7 +228,7 @@ export function LdapTeamAssignments({event,onChanged}: {event:EventResponse;onCh
           <option value="DISABLED">{tr('Deaktivované','Disabled')}</option>
         </select>
       </label>
-      <label className={styles.check}><input type="checkbox" disabled={saving} checked={unassigned}
+      <label className={styles.check}><input type="checkbox" disabled={saving||!event} checked={Boolean(event)&&unassigned}
         onChange={e=>setUnassigned(e.target.checked)}/>
         {tr('Bez aktivního týmu v cvičení','Without an active team in exercise')}</label>
     </div>
