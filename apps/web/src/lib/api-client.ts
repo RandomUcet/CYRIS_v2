@@ -1677,8 +1677,9 @@ export class CyrisApiClient {
     return this.putJson<{ ok: boolean }>(`/admin/platform-administrators/${userId}`, { enabled });
   }
 
-  async listLdapTeamAccounts(eventId: string, query: string, unassigned: boolean) {
+  async listLdapTeamAccounts(eventId: string, query: string, unassigned: boolean, status: 'ALL'|'ACTIVE'|'DISABLED'='ALL') {
     const params = new URLSearchParams({ eventId, q: query, unassigned: String(unassigned) });
+    if(status!=='ALL')params.set('status',status);
     return this.fetchJson<{ accounts: LdapTeamAccount[]; hasMore: boolean }>(`/admin/settings/identity/ldap/accounts?${params}`);
   }
 
