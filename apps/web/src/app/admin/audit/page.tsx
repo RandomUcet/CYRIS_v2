@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
@@ -28,14 +29,25 @@ export default function AdminAuditPage() {
   // Filters
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [page, setPage] = useState(1);
+  // null until the browser URL has been read, to avoid fetching an
+  // unscoped audit list before applying a deep-linked account filter.
+  const [resourceFilter, setResourceFilter] = useState<string | null>(null);
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.search).get('resourceId');
+    setResourceFilter(value && /^[0-9a-f-]{36}$/i.test(value) ? value : '');
+  }, []);
   const [selectedEntry, setSelectedEntry] = useState<AuditEntry | null>(null);
 
   const fetchAudit = async () => {
+    if (resourceFilter===null) return;
     setLoading(true);
     setError(null);
     try {
       const res = await apiClient.getAudit({
         limit: 100,
+        page,
+        resourceId: resourceFilter || undefined,
         category: categoryFilter || undefined,
       });
 
@@ -53,8 +65,8 @@ export default function AdminAuditPage() {
   };
 
   useEffect(() => {
-    fetchAudit();
-  }, [categoryFilter]);
+    if(resourceFilter!==null) void fetchAudit();
+  }, [categoryFilter,page,resourceFilter]);
 
   const filteredEntries = entries.filter((e) => {
     if (!search) return true;
@@ -190,6 +202,12 @@ export default function AdminAuditPage() {
           </div>
         </div>
 
+        {resourceFilter&&<div role="status" style={{padding:'10px 24px',background:'var(--bg-surface)',
+          borderBottom:'1px solid var(--border-default)',fontSize:'12px',display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
+          {tr('Auditní historie účtu: ','Account audit history: ')}
+          <code>{resourceFilter}</code>
+          <Link href="/admin/audit">{tr('Zobrazit všechny záznamy','Show all audit records')}</Link>
+        </div>}
         {/* Filter Bar */}
         <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--color-border-subtle)' }}>
           <FilterBar
@@ -208,12 +226,14 @@ export default function AdminAuditPage() {
                   { label: tr('Laboratoř','Laboratory'), value: 'LABORATORY' },
                   { label: tr('Administrace','Admin'), value: 'ADMIN' },
                 ],
-                onChange: setCategoryFilter,
+                onChange: value => {setCategoryFilter(value);setPage(1);},
               },
             ]}
             onReset={() => {
               setSearch('');
               setCategoryFilter('');
+              setPage(1);
+              if(resourceFilter){setResourceFilter('');window.history.replaceState(null,'','/admin/audit');}
             }}
             totalResults={filteredEntries.length}
           />
