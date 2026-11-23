@@ -132,10 +132,10 @@ export default function CommandPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Link href={'/events/' + eventId + '/broadcast'}
+            {hasPermission('scenario.manage', eventId) && <Link href={'/events/' + eventId + '/broadcast'}
               className="flex items-center gap-1.5 rounded border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:bg-slate-700">
-              <Radio size={13}/>{tr('Exercise broadcasts')}
-            </Link>
+              <Radio size={13}/>{locale==='cs'?'Zprávy účastníkům':'Exercise broadcasts'}
+            </Link>}
             <button
               onClick={fetchOperationalPicture}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition"
