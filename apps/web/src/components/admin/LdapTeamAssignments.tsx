@@ -176,6 +176,7 @@ export function LdapTeamAssignments({event,onChanged}: {event?:EventResponse;onC
   const tr=(cz:string,en:string)=>cs?cz:en;
   const [query,setQuery]=useState('');
   const [status,setStatus]=useState<StatusFilter>('ALL');
+  const [page,setPage]=useState(1);
   const [unassigned,setUnassigned]=useState(false);
   const [revision,setRevision]=useState(0);
   const [loading,setLoading]=useState(true);
@@ -187,11 +188,13 @@ export function LdapTeamAssignments({event,onChanged}: {event?:EventResponse;onC
   const [saving,setSaving]=useState(false);
   const account=accounts.find(row=>row.identityId===selected);
 
+  useEffect(()=>{setPage(1);},[event?.id,query,status,unassigned]);
+
   useEffect(()=>{
     let active=true;
     setLoading(true);setError('');
     const timeout=window.setTimeout(()=>{
-      void apiClient.listLdapTeamAccounts(event?.id,query.trim(),unassigned&&Boolean(event),status)
+      void apiClient.listLdapTeamAccounts(event?.id,query.trim(),unassigned&&Boolean(event),status,page)
         .then(res=>{
           if(!active)return;
           if(!res.ok||!res.data)throw new Error(res.error||tr('Účty nelze načíst.','Could not load accounts.'));
@@ -201,7 +204,7 @@ export function LdapTeamAssignments({event,onChanged}: {event?:EventResponse;onC
         .finally(()=>{if(active)setLoading(false);});
     },query.trim()?250:0);
     return ()=>{active=false;window.clearTimeout(timeout);};
-  },[event?.id,query,unassigned,status,revision,cs]);
+  },[event?.id,query,unassigned,status,page,revision,cs]);
 
   function changed(message:string){
     setNotice(message);setRevision(n=>n+1);onChanged();
@@ -237,7 +240,7 @@ export function LdapTeamAssignments({event,onChanged}: {event?:EventResponse;onC
       {tr('Zkusit znovu','Retry')}</button></p>}
     <div className={styles.manageGrid}>
       <div className={styles.accountColumn}>
-        <p className={styles.columnHeading}>{tr('Výsledky','Results')} · {loading?'…':accounts.length}
+        <p className={styles.columnHeading}>{tr('Strana','Page')} {page} · {tr('Účtů','Accounts')} {loading?'…':accounts.length}
           {hasMore?' +':''}</p>
         {loading?<p className={styles.hint} role="status">{tr('Načítání LDAP účtů…','Loading LDAP accounts…')}</p>
           :accounts.length?<ul className={styles.accounts} aria-label={tr('LDAP účty','LDAP accounts')}>
@@ -254,8 +257,13 @@ export function LdapTeamAssignments({event,onChanged}: {event?:EventResponse;onC
               </button>
             </li>)}
           </ul>:!error&&<p className={styles.hint}>{tr('Žádný účet neodpovídá filtrům.','No accounts match these filters.')}</p>}
-        {hasMore&&<p className={styles.hint}>
-          {tr('Zobrazeno prvních 50 účtů. Upřesněte vyhledávání.', 'Showing the first 50 accounts. Narrow the search.')}</p>}
+        {(page>1||hasMore)&&<div className={styles.pagination}>
+          <button type="button" className={styles.secondaryButton} disabled={loading||saving||page<=1}
+            onClick={()=>setPage(p=>Math.max(1,p-1))}>{tr('Předchozí','Previous')}</button>
+          <span role="status">{tr('Strana','Page')} {page}</span>
+          <button type="button" className={styles.secondaryButton} disabled={loading||saving||!hasMore}
+            onClick={()=>setPage(p=>Math.min(1000,p+1))}>{tr('Další','Next')}</button>
+        </div>
       </div>
       <div className={styles.detailColumn}>
         {account?<AccountEditor key={account.identityId+':'+account.userStatus+':'+JSON.stringify(account.assignment)}
