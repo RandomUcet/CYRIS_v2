@@ -52,9 +52,10 @@ export class PermissionsGuard implements CanActivate {
     });
 
     if (!isAllowed) {
-      const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || '127.0.0.1';
+      // Use the socket identity, not user-supplied forwarding metadata.
+      const clientIp = req.ip || 'unknown';
       const userAgent = (req.headers['user-agent'] as string) || null;
-      const requestId = (req.headers['x-request-id'] as string) || req.id || null;
+      const requestId = req.id || null;
 
       await this.auditService.record({
         action: 'authorization.denied',

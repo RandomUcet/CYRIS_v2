@@ -46,7 +46,7 @@ export class MembershipsController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid membership payload');
     }
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.addMembership(eventId, parse.data, user.id, requestId);
   }
 
@@ -63,7 +63,7 @@ export class MembershipsController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid payload');
     }
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.updateMembership(eventId, membershipId, parse.data, user.id, requestId);
   }
 }

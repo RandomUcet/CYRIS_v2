@@ -48,7 +48,7 @@ export class RolesController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid role payload');
     }
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.createRole(eventId, parse.data, user.id, requestId);
   }
 
@@ -65,7 +65,7 @@ export class RolesController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid payload');
     }
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.updateRole(eventId, roleId, parse.data, user.id, requestId);
   }
 
@@ -81,7 +81,7 @@ export class RolesController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid assignment payload');
     }
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.assignRole(eventId, parse.data, user.id, requestId);
   }
 
@@ -93,7 +93,7 @@ export class RolesController {
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: CyrisRequest
   ) {
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.revokeRole(eventId, assignmentId, user.id, requestId);
   }
 }

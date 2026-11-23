@@ -64,7 +64,7 @@ export class AuthController {
     // must never choose login-rate-limit or audit identity without a strict proxy trust policy.
     const clientIp = req.ip || 'unknown';
     const userAgent = (req.headers['user-agent'] as string) || null;
-    const requestId = (req.headers['x-request-id'] as string) || req.id || null;
+    const requestId = req.id || null;
     const existingCookie = req.cookies?.[COOKIE_NAME];
 
     try {
@@ -133,7 +133,7 @@ export class AuthController {
     // must never choose login-rate-limit or audit identity without a strict proxy trust policy.
     const clientIp = req.ip || 'unknown';
     const userAgent = (req.headers['user-agent'] as string) || null;
-    const requestId = (req.headers['x-request-id'] as string) || req.id || null;
+    const requestId = req.id || null;
 
     const validated = await this.sessionService.validateSession(sessionToken);
     // Revoke before auditing; an audit failure cannot leave a live session.

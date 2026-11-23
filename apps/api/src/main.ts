@@ -4,21 +4,9 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import fastifyCookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
 import { Logger } from '@nestjs/common';
-import { generateId } from '@cyris/shared';
+import { sanitizeRequestId } from './request-identity.js';
 import { AppModule } from './app.module.js';
 import { ConfigService } from './modules/config/config.service.js';
-
-const SAFE_REQUEST_ID_REGEX = /^[a-zA-Z0-9_-]{8,64}$/;
-
-function sanitizeRequestId(headerValue?: unknown): string {
-  if (typeof headerValue === 'string') {
-    const trimmed = headerValue.trim();
-    if (SAFE_REQUEST_ID_REGEX.test(trimmed)) {
-      return trimmed;
-    }
-  }
-  return generateId();
-}
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('CYRIS-API');
@@ -28,7 +16,9 @@ async function bootstrap(): Promise<void> {
     // Accommodate 5 MiB raster image base64 payloads. Per-route service validates magic, size and permission.
     bodyLimit: 8 * 1024 * 1024,
     genReqId: (req: any) => sanitizeRequestId(req.headers['x-request-id']),
-    requestIdHeader: 'x-request-id',
+    // Fastify otherwise trusts the raw header and skips genReqId entirely.
+    // Always invoke the validator before generating/auditing X-Request-ID.
+    requestIdHeader: false,
   });
 
   const app = await NestFactory.create<NestFastifyApplication>(
