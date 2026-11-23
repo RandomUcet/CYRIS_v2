@@ -46,6 +46,7 @@ test('all medical record routes reject an event/record mismatch before calling d
     addObservation: () => { calls.push('observe'); },
     addIntervention: () => { calls.push('intervene'); },
     stabilizeEncounter: () => { calls.push('stabilize'); },
+    receiveTransferredEncounter: () => { calls.push('receive'); },
     transferEncounter: () => { calls.push('transfer'); },
     closeEncounter: () => { calls.push('close'); },
   };
@@ -57,6 +58,7 @@ test('all medical record routes reject an event/record mismatch before calling d
     () => controller.addObservation('event-a', 'encounter-b', { observationType: 'OTHER', value: 'test' }, user),
     () => controller.addIntervention('event-a', 'encounter-b', { interventionType: 'test', description: 'Test' }, user),
     () => controller.stabilizeEncounter('event-a', 'encounter-b', user),
+    () => controller.receiveTransferredEncounter('event-a', 'encounter-b', user),
     () => controller.transferEncounter('event-a', 'encounter-b', { targetLocationId: '00000000-0000-4000-8000-000000000001', disposition: 'Test' }, user),
     () => controller.closeEncounter('event-a', 'encounter-b', { status: 'CLOSED', disposition: 'Test' }, user),
   ];

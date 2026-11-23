@@ -1385,6 +1385,13 @@ export class CyrisApiClient {
     return this.postJson<MedicalEncounterDetail>(`/events/${eventId}/medical/${encounterId}/stabilize`, {});
   }
 
+  async receiveMedicalEncounter(
+    eventId: string,
+    encounterId: string
+  ): Promise<{ ok: boolean; data?: MedicalEncounterDetail; error?: string }> {
+    return this.postJson<MedicalEncounterDetail>(`/events/${eventId}/medical/${encounterId}/receive`, {});
+  }
+
   async transferMedicalEncounter(
     eventId: string,
     encounterId: string,
