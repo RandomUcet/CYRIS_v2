@@ -20,7 +20,7 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
   setBusy: (value: boolean) => void;
   onChanged: (message: string) => void;
 }) {
-  const {locale} = usePreferences();
+  const {locale,formatTime} = usePreferences();
   const cs = locale === 'cs';
   const tr = (cz:string,en:string) => cs ? cz : en;
   const [mode,setMode] = useState<LdapTeamAssignment['mode']>(account.assignment.mode);
@@ -78,7 +78,12 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
         <span className={styles.kicker}>{tr('Identita v adresáři','Directory identity')}</span>
         <h3>{account.displayName}</h3>
         <p>{account.email}</p>
-        <p className={styles.meta}>{account.providerName}</p>
+        <p className={styles.meta}>{tr('Poskytovatel: ','Provider: ')}{account.providerName}
+          {' · '}{account.providerEnabled===false
+            ?tr('Přihlášení přes něj je vypnuto','Provider disabled')
+            :tr('LDAP přihlášení povoleno','LDAP sign-in enabled')}</p>
+        <p className={styles.meta}>{tr('Poslední přihlášení: ','Last sign-in: ')}
+          {account.lastLoginAt ? formatTime(account.lastLoginAt) : tr('dosud žádné','none recorded')}</p>
       </div>
       <span className={account.userStatus==='ACTIVE'?styles.stateActive:styles.stateDisabled}>
         {statusLabel}
@@ -90,6 +95,9 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
       <h4>{tr('Přístup do CYRIS','CYRIS account access')}</h4>
       <p>{tr('Toto nastavení platí pro celou platformu, nikoliv jen pro vybrané cvičení.',
         'This status applies to the entire platform, not just this exercise.')}</p>
+      {account.providerEnabled===false&&<p className={styles.warning}><AlertTriangle size={16}/>
+        {tr('Poskytovatel LDAP je vypnutý. Aktivace uživatelského účtu sama o sobě neobnoví možnost přihlášení.',
+          'This LDAP provider is disabled. Enabling the CYRIS user account alone will not restore sign-in.')}</p>}
       {account.platformAdmin&&<p className={styles.warning}><ShieldCheck size={16}/>
         {tr('Účet má oprávnění správce platformy. Před deaktivací mu nejprve odeberte tuto roli.',
           'Account has platform administration access. Revoke its administrator role before disabling it.')}</p>}
@@ -200,7 +208,10 @@ export function LdapTeamAssignments({event,onChanged}: {event?:EventResponse;onC
           if(!res.ok||!res.data)throw new Error(res.error||tr('Účty nelze načíst.','Could not load accounts.'));
           setAccounts(res.data.accounts);setHasMore(res.data.hasMore);
           setSelected(previous=>res.data!.accounts.some(row=>row.identityId===previous)?previous:'');
-        }).catch(e=>{if(active){setError(e instanceof Error?e.message:'HTTP');setAccounts([]);}})
+        }).catch(e=>{if(active){
+          setError(e instanceof Error?e.message:'HTTP');
+          setAccounts([]);setHasMore(false);setSelected('');
+        }})
         .finally(()=>{if(active)setLoading(false);});
     },query.trim()?250:0);
     return ()=>{active=false;window.clearTimeout(timeout);};
@@ -271,8 +282,8 @@ export function LdapTeamAssignments({event,onChanged}: {event?:EventResponse;onC
           busy={saving} setBusy={setSaving} onChanged={changed}/>:
           <div className={styles.noSelection}><ShieldCheck size={30} aria-hidden="true"/>
             <h3>{tr('Vyberte účet vlevo','Select an account')}</h3>
-            <p>{tr('Zde můžete bezpečně změnit stav účtu a zařazení ve vybraném cvičení.',
-              'Manage account access and exercise team assignments here.')}</p>
+            <p>{tr('Vyberte uživatele pro kontrolu přístupu, posledního přihlášení a změnu stavu účtu. Týmy a role se spravují v konkrétním cvičení.',
+              'Select a user to inspect access, last sign-in and account state. Team and role assignments require an exercise.')}</p>
           </div>}
       </div>
     </div>
