@@ -37,7 +37,7 @@ export class LdapTeamsService {
       membershipId: eventMemberships.id, status: eventMemberships.status,
       choice: eventId ? sql<unknown>`${userIdentities.metadata} -> 'ldapTeamOverrides' -> ${eventId}::text` : sql<unknown>`null`,
     }).from(userIdentities).innerJoin(users, eq(users.id, userIdentities.userId))
-      .innerJoin(integrations, accountProvider)
+      .leftJoin(integrations, accountProvider)
       .leftJoin(eventMemberships, eventId ? and(eq(eventMemberships.userId, users.id), eq(eventMemberships.eventId, eventId)) : sql`false`)
       .where(and(eq(userIdentities.providerType, 'LDAP'),
         status ? eq(users.status, status) : undefined,
@@ -57,8 +57,8 @@ export class LdapTeamsService {
       accounts: accountRows.map(row => {
         const saved = LdapTeamAssignmentSchema.safeParse(row.choice);
         return {
-          identityId: row.identityId, userId: row.userId, displayName: row.displayName, email: row.email, providerName: row.providerName,
-          providerEnabled: row.providerEnabled, lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+          identityId: row.identityId, userId: row.userId, displayName: row.displayName, email: row.email, providerName: row.providerName ?? 'Removed LDAP provider',
+          providerEnabled: row.providerEnabled ?? false, providerMissing: row.providerName === null, lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
           userStatus: row.userStatus === 'DISABLED' ? 'DISABLED' : 'ACTIVE',
           platformAdmin: row.platformAdmin, otherLoginMethods: row.otherLoginMethods,
           membershipStatus: row.status === 'ACTIVE' || row.status === 'INACTIVE' ? row.status : null,
