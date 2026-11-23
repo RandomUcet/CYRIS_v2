@@ -187,6 +187,10 @@ test('audit search is server-wide with debouncing, proper counts and stable requ
   assert.ok(page.includes('}, [categoryFilter,page,resourceFilter,debouncedSearch])'));
   assert.ok(page.includes('const filteredEntries = entries;'),'avoid second local-only search');
   assert.ok(page.includes('totalResults={total}'),'show the total server-matched count');
+  assert.ok(page.includes('const searchPending=search.trim()!==debouncedSearch'));
+  assert.ok(page.includes('{loading||searchPending ? ('),'avoid stale audit data while query is pending');
+  assert.ok(page.includes('setCategoryFilter(value);setPage(1);setSelectedEntry(null);'),
+    'category switching must close the old record inspector');
   assert.ok(client.includes("params.set('q', filters.q.trim())"),'server must receive the query');
 });
 
