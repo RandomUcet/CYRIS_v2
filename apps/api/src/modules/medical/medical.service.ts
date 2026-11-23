@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import { eq, and, desc, sql, isNull } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
@@ -301,13 +302,13 @@ export class MedicalService {
     // Validate all optional references before touching the encounter.
     // A second event match is enforced on the locked row inside the transaction.
     const [existing] = await this.db
-      .select({ eventId: medicalEncounters.eventId })
+      .select({ eventId: medicalEncounters.eventId, assignedUnitId: medicalEncounters.assignedUnitId })
       .from(medicalEncounters)
       .where(eq(medicalEncounters.id, encounterId))
       .limit(1);
     if (!existing) throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
     await this.assertReferencesInEvent(existing.eventId, dto);
-    const isTeamChange = dto.assignedUnitId !== undefined && dto.assignedUnitId !== null && dto.assignedUnitId !== undefined && (await this.db.select({ assignedUnitId: medicalEncounters.assignedUnitId }).from(medicalEncounters).where(eq(medicalEncounters.id, encounterId)).limit(1))[0]?.assignedUnitId !== dto.assignedUnitId;
+    const isTeamChange = dto.assignedUnitId !== undefined && dto.assignedUnitId !== existing.assignedUnitId;
     if (isTeamChange) {
       // A reassignment moves visibility to another team; ordinary editing rights
       // must not be sufficient to disclose a patient's record to that team.
@@ -335,6 +336,9 @@ export class MedicalService {
         .for('update');
       if (!locked || locked.eventId !== existing.eventId) {
         throw new NotFoundException('Medical encounter no longer belongs to the requested exercise');
+      }
+      if (locked.assignedUnitId !== existing.assignedUnitId) {
+        throw new ConflictException('Medical unit was changed concurrently; refresh and try again');
       }
 
       await tx.update(medicalEncounters).set(updates).where(eq(medicalEncounters.id, encounterId));
