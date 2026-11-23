@@ -130,6 +130,20 @@ test('access management handles network failures and confirms command or members
   assert.ok(admins.includes("cs ? 'Zkusit znovu' : 'Retry'"));
 });
 
+test('account audit drilldown uses server resource ID filtering and paginated history',()=>{
+  const directory=readFileSync(new URL('../components/admin/LdapTeamAssignments.tsx',import.meta.url),'utf8');
+  const audit=readFileSync(new URL('../app/admin/audit/page.tsx',import.meta.url),'utf8');
+  const api=readFileSync(new URL('./api-client.ts',import.meta.url),'utf8');
+  assert.ok(directory.includes("href={'/admin/audit?resourceId='+encodeURIComponent(account.userId)}"));
+  assert.ok(audit.includes("new URLSearchParams(window.location.search).get('resourceId')"));
+  assert.ok(audit.includes("resourceId: resourceFilter || undefined"));
+  assert.ok(audit.includes("if (resourceFilter===null) return"),'avoid unfiltered load on direct-link mount');
+  assert.ok(audit.includes('page,'),'audit history must use backend pages');
+  assert.ok(audit.includes("setPage(value=>value+1)"));
+  assert.ok(api.includes("params.set('resourceId', filters.resourceId)"));
+  assert.ok(api.includes("params.set('page', String(filters.page))"));
+});
+
 test('LDAP group mappings expose whole-exercise role scope explicitly',()=>{
   const provider=readFileSync(new URL('../app/admin/settings/identity/LdapProviderForm.tsx',import.meta.url),'utf8');
   assert.ok(provider.includes('checked={rule.allowEventWide}'));
