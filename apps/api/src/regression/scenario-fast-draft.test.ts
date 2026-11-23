@@ -40,6 +40,8 @@ test('fast strategy is explicit in UI and the backend uses one bounded AI reques
   const service = readFileSync(new URL('../modules/scenario-data/scenario-data.service.ts', import.meta.url), 'utf8');
   const page = readFileSync(new URL('../../../web/src/app/events/[eventId]/scenario-data/page.tsx', import.meta.url), 'utf8');
   assert.match(service, /conf\.strategy === 'FAST'/);
+  assert.match(service, /strategy: request\.strategy \?\? 'FAST'/);
+  assert.match(service, /maxTokens: 2600, timeoutMs: 75_000/);
   assert.match(service, /promptTemplateVersion: 'scenario-blueprint-fast-v1'/);
   assert.match(service, /maxTokens: 450, timeoutMs: 45_000/);
   assert.match(service, /prepared: total\(cleanCounts\(conf\)\)/);
