@@ -84,11 +84,10 @@ export default function ExerciseBroadcastPage() {
     setSending(true);setError('');setSuccess('');
     try{
       nonce.current ||= crypto.randomUUID();
-      const payload: ExerciseBroadcastRequest = {
-        nonce: nonce.current,kind,audience,
-        ...(audience==='UNIT'?{unitId}:{}),
-        title:title.trim(),message:message.trim(),
-      };
+      const common = {nonce: nonce.current,kind,title:title.trim(),message:message.trim()};
+      const payload: ExerciseBroadcastRequest = audience==='UNIT'
+        ? {...common,audience:'UNIT',unitId}
+        : {...common,audience:'ALL'};
       const result=await apiClient.sendExerciseBroadcast(eventId,payload);
       if(!result.ok||!result.data)throw new Error(result.error||'Could not send broadcast');
       setSuccess(tr('Doručeno '+result.data.delivered+' účastníkům.','Delivered to '+result.data.delivered+' participants.')

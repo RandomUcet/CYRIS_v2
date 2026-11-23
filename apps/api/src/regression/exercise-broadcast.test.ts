@@ -15,7 +15,7 @@ test('broadcast schema enforces scope and bounded, nonempty message', () => {
 test('participant notification center renders organizer broadcasts as text, not executable markup', () => {
   const center=readFileSync(new URL('../../../web/src/components/layout/NotificationCenter.tsx',import.meta.url),'utf8');
   assert.match(center,/case 'exercise\.broadcast':return typeof p\.title==='string'\?p\.title/);
-  assert.match(center,/\\{detailText\\}/);
+  assert.match(center,/\{detailText\}/);
   assert.doesNotMatch(center,/dangerouslySetInnerHTML/);
   const screen=readFileSync(new URL('../../../web/src/app/events/[eventId]/broadcast/page.tsx',import.meta.url),'utf8');
   assert.match(screen,/apiClient\.sendExerciseBroadcast/);
