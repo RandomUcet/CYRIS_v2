@@ -28,10 +28,20 @@ export interface LdapTeamAccount {
   email: string;
   displayName: string;
   providerName: string;
+  userStatus: 'ACTIVE' | 'DISABLED';
+  /** Global role and multiple sign-in methods need explicit review before lockout. */
+  platformAdmin: boolean;
+  otherLoginMethods: boolean;
   membershipStatus: 'ACTIVE' | 'INACTIVE' | null;
   units: { id: string; name: string }[];
   assignment: LdapTeamAssignment;
 }
+
+export const LdapAccountStatusChangeSchema = z.object({
+  enabled: z.boolean(),
+  reason: z.string().trim().min(8).max(500),
+}).strict();
+export type LdapAccountStatusChange = z.infer<typeof LdapAccountStatusChangeSchema>;
 
 export const LdapConfigSchema = z.object({
   displayName: z.string().min(1).max(128),
