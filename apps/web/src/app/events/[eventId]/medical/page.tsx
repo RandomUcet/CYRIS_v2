@@ -8,6 +8,7 @@ import { RecordIdentifier, StatusBadge } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEvent } from '@/contexts/EventContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { workspaceLabel } from '@/lib/workspace-navigation';
 import {
@@ -42,6 +43,7 @@ export default function MedicalPage() {
   const initialView = searchParams.get('view') || 'active';
 
   const { hasPermission, isPlatformAdmin, viewAs } = useAuth();
+  const { workspace } = useEvent();
 
   const [encounters, setEncounters] = useState<MedicalEncounterItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,12 +77,38 @@ export default function MedicalPage() {
     triageCategory?: MedicalTriageCategory;
     incidentId?: string;
     locationId?: string;
+    assignedUnitId?: string;
   }>({
     chiefComplaint: '',
     mechanismOfInjury: '',
     assessmentSummary: '',
     triageCategory: 'UNKNOWN',
   });
+
+  const [medicalTeams, setMedicalTeams] = useState<Array<{id:string;name:string}>>([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+  const [teamsError, setTeamsError] = useState('');
+  useEffect(() => {
+    if (!showCreateModal || !eventId) return;
+    let active = true;
+    setTeamsLoading(true);
+    setTeamsError('');
+    void apiClient.getUnits(eventId).then(res => {
+      if (!active) return;
+      if (!res.ok || !Array.isArray(res.data)) {
+        // Event admins without a team may still create private owner-only notes.
+        setMedicalTeams([]);
+        return;
+      }
+      const assigned = new Set(workspace?.unitIds ?? []);
+      const eligible = res.data.filter((unit: {id:string;archivedAt?:string|null;capabilities?:string[]}) =>
+        assigned.has(unit.id) && !unit.archivedAt && unit.capabilities?.includes('medical_operations'));
+      setMedicalTeams(eligible);
+    }).catch((err: unknown) => {
+      if (active) setTeamsError(err instanceof Error ? err.message : 'Nelze načíst týmy');
+    }).finally(() => { if (active) setTeamsLoading(false); });
+    return () => { active = false; };
+  }, [showCreateModal, eventId, workspace?.unitIds]);
 
   const canCreate = !viewAs && (isPlatformAdmin || hasPermission('medical.create', eventId));
 
@@ -128,6 +156,10 @@ export default function MedicalPage() {
 
   const handleCreateEncounter = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (medicalTeams.length > 1 && !formData.assignedUnitId) {
+      setCreateError(locale === 'cs' ? 'Vyberte zdravotnický tým pro tento záznam.' : 'Select the medical team for this record.');
+      return;
+    }
     setSubmitting(true);
     setCreateError(null);
     try {
@@ -138,6 +170,7 @@ export default function MedicalPage() {
         triageCategory: formData.triageCategory || 'UNKNOWN',
         incidentId: formData.incidentId || undefined,
         locationId: formData.locationId || undefined,
+        assignedUnitId: formData.assignedUnitId || undefined,
         visibility: 'UNIT',
       });
 
@@ -375,6 +408,19 @@ export default function MedicalPage() {
             )}
 
             <div className="dialog-body medical-dialog-body">
+              {medicalTeams.length > 1 && <div>
+                <label htmlFor="new-medical-team" className="block font-medium text-slate-300 mb-1">
+                  {locale === 'cs' ? 'Zdravotnický tým' : 'Medical team'}
+                </label>
+                <select id="new-medical-team" required value={formData.assignedUnitId || ''}
+                  onChange={(e) => setFormData(prev => ({...prev, assignedUnitId: e.target.value || undefined}))}
+                  className="medical-dialog-control">
+                  <option value="">{locale === 'cs' ? 'Vyberte tým' : 'Select team'}</option>
+                  {medicalTeams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}
+                </select>
+              </div>}
+              {teamsError && <p role="alert" className="medical-dialog-error">{teamsError}</p>}
+              {teamsLoading && <p role="status">{locale === 'cs' ? 'Načítám týmy…' : 'Loading teams…'}</p>}
               <div>
                 <label className="block font-medium text-slate-300 mb-1">{tr("Chief Complaint")}</label>
                 <input
@@ -436,7 +482,7 @@ export default function MedicalPage() {
               </button>
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={submitting || teamsLoading}
               className="btn btn-primary"
               >
               {submitting ? t('action.save') : t('medical.receive')}
