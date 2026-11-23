@@ -42,6 +42,10 @@ test('everywhere EXCON composer requires server audience preview and a human con
   const bar=readFileSync(new URL('../components/layout/TopBar.tsx',import.meta.url),'utf8');
   const drawer=readFileSync(new URL('../components/layout/QuickBroadcastDrawer.tsx',import.meta.url),'utf8');
   assert.ok(bar.includes('<QuickBroadcastDrawer'));
+  assert.ok(bar.includes("if (!canBroadcast) return;"),'shortcut must respect operator authorization');
+  assert.ok(bar.includes("event.key.toLowerCase() !== 'm'"));
+  assert.ok(bar.includes("setQuickBroadcastOpen(true)"));
+  assert.ok(bar.includes("window.removeEventListener('keydown', openQuickComposer)"));
   assert.ok(bar.includes("hasPermission('scenario.manage',event.id)"));
   assert.ok(drawer.includes('useDialogAccessibility(open,requestClose)'));
   assert.ok(drawer.includes("previewExerciseBroadcastAudience"));
