@@ -94,10 +94,12 @@ export function LdapProviderForm({ provider, onClose, onSaved }: {
     } finally { setSaving(false); }
   }
 
-  return <dialog ref={dialog} aria-labelledby="ldap-provider-title" className={styles.dialog}
+  return <dialog ref={dialog} aria-labelledby="ldap-provider-title"
+    className={styles.dialog+' '+styles.ldapEditorDialog}
     onCancel={event => { event.preventDefault(); if (!saving) onClose(); }}>
-    <h2 id="ldap-provider-title">{provider ? (cs ? 'Upravit LDAP' : 'Edit LDAP') : (cs ? 'Přidat LDAP / Active Directory' : 'Add LDAP / Active Directory')}</h2>
-    <form className={styles.form} onSubmit={save}>
+    <h2 id="ldap-provider-title" className={styles.ldapEditorHeader}>{provider ? (cs ? 'Upravit LDAP' : 'Edit LDAP') : (cs ? 'Přidat LDAP / Active Directory' : 'Add LDAP / Active Directory')}</h2>
+    <form className={styles.form+' '+styles.ldapEditorForm} onSubmit={save}>
+      <div className={styles.ldapEditorBody}>
       <fieldset disabled={saving} className={styles.fields}>
         <label className={styles.full}>{cs ? 'Název poskytovatele' : 'Provider name'}
           <input required maxLength={128} value={config.displayName} onChange={e => field('displayName', e.target.value)} />
@@ -184,9 +186,13 @@ export function LdapProviderForm({ provider, onClose, onSaved }: {
         }}>{cs ? 'Přidat pravidlo' : 'Add rule'}</button></div>
       </section>
       {error && <p role="alert" className={styles.error}>{error}</p>}
-      <div className={styles.actions}>
-        <button type="button" className="btn btn-secondary" disabled={saving} onClick={onClose}>{cs ? 'Zrušit' : 'Cancel'}</button>
-        <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? '…' : (cs ? 'Uložit poskytovatele' : 'Save provider')}</button>
+      </div>
+      <div className={styles.ldapEditorFooter}>
+        <span>{cs ? 'Změny se projeví po uložení.' : 'Changes take effect after saving.'}</span>
+        <div className={styles.actions}>
+          <button type="button" className="btn btn-secondary" disabled={saving} onClick={onClose}>{cs ? 'Zrušit' : 'Cancel'}</button>
+          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? '…' : (cs ? 'Uložit poskytovatele' : 'Save provider')}</button>
+        </div>
       </div>
     </form>
   </dialog>;
