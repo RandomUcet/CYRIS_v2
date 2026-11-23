@@ -47,7 +47,7 @@ Je dostupný od vydání s touto opravou; na starém serveru nejprve použij
 
 ```bash
 sudo cyrisctl github login
-sudo cyrisctl github verify
+sudo cyrisctl github verify --version v2.4.12
 sudo cyrisctl versions
 # Po schválení nové verze a zálohy:
 sudo cyrisctl update --version v2.1.0
