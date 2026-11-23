@@ -92,7 +92,7 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
     await t.test('a single active medical membership is auto-selected without user team input', async () => {
       assert.equal(await medical.resolveIntakeUnit(eventA,actorId),medA);
       assert.equal(await medical.resolveIntakeUnit(eventB,actorId),null);
-      const record=await medical.createEncounter(eventA,{triageCategory:'MINOR',visibility:'UNIT',chiefComplaint:'Fictional casualty'},actor);
+      const record=await medical.createEncounter(eventA,{triageCategory:'MINOR',visibility:'UNIT',assignedUserId:actorId,chiefComplaint:'Fictional casualty'},actor);
       const state=await lookup(record.id);
       assert.equal(state.record?.assignedUnitId,medA);
       assert.equal(state.resource?.owningUnitId,medA);
@@ -107,6 +107,7 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
       assert.equal(updated.record?.assignedUnitId,medB);
       assert.equal(updated.resource?.owningUnitId,medB);
       assert.equal(updated.resource?.ownerUserId,null);
+      assert.equal(updated.record?.assignedUserId,null);
       assert.equal(await access.canAccessResource(actor,record.id,Permissions.MEDICAL_READ),false);
       assert.equal(await access.canAccessResource(recipient,record.id,Permissions.MEDICAL_READ),true);
       await assert.rejects(medical.getEncounterDetail(record.id,actor),ForbiddenException);
