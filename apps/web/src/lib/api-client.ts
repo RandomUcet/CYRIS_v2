@@ -104,6 +104,8 @@ import type {
   UpdateUserPreferences,
   NotificationItem,
   NotificationListResponse,
+  ExerciseBroadcastRequest, ExerciseBroadcastReceipt, ExerciseBroadcastHistory,
+  ExerciseBroadcastAudienceQuery,
   IdentityProviderSummary,
   LdapConfig,
   LdapAuthRequest,
@@ -1595,6 +1597,24 @@ export class CyrisApiClient {
   // ============================================================================
   // Notifications
   // ============================================================================
+
+  getExerciseBroadcastTeams(eventId: string) {
+    return this.fetchJson<Array<{id: string; name: string}>>('/events/' + encodeURIComponent(eventId) + '/notifications/teams');
+  }
+  previewExerciseBroadcastAudience(eventId: string, query: ExerciseBroadcastAudienceQuery) {
+    const params = new URLSearchParams({audience: query.audience, kind: query.kind});
+    if (query.unitId) params.set('unitId', query.unitId);
+    return this.fetchJson<{eligible:number;kind:string;audience:string;unitId:string|null}>(
+      '/events/' + encodeURIComponent(eventId) + '/notifications/audience?' + params.toString());
+  }
+  sendExerciseBroadcast(eventId: string, payload: ExerciseBroadcastRequest) {
+    return this.postJson<ExerciseBroadcastReceipt>(
+      '/events/' + encodeURIComponent(eventId) + '/notifications/broadcasts', payload);
+  }
+  listExerciseBroadcasts(eventId: string) {
+    return this.fetchJson<ExerciseBroadcastHistory>(
+      '/events/' + encodeURIComponent(eventId) + '/notifications/broadcasts');
+  }
 
   async getNotifications(eventId?: string): Promise<{ ok: boolean; data?: NotificationListResponse; error?: string }> {
     const q = eventId ? `?eventId=${encodeURIComponent(eventId)}` : '';

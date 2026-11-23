@@ -27,6 +27,7 @@ import {
   Clock,
   Building2,
   BarChart3,
+  Radio,
   Shield,
 } from 'lucide-react';
 import { CAPABILITY_CATALOG } from '@cyris/contracts';
@@ -495,6 +496,12 @@ export default function AdminEventsPage() {
             <ArrowRight size={12} color="var(--accent-active)" />
             {t('action.enter')}
           </button>
+          {canManage && item.status !== 'CLOSED' && item.status !== 'ARCHIVED' && <button className="btn btn-secondary"
+            title={cs?'Poslat zprávu účastníkům cvičení':'Send an exercise broadcast'}
+            onClick={() => router.push('/events/' + item.id + '/broadcast')}
+            style={{fontSize:'11px',padding:'3px 7px'}}>
+            <Radio size={12}/> {cs?'Zprávy':'Broadcast'}
+          </button>}
           {isPlatformAdmin && <button className="btn btn-secondary"
             title={cs?'Statistiky, závěrečný report a náhled promazání':'Statistics, after-action report and cleanup preview'}
             onClick={() => router.push('/admin/events/' + item.id + '/report')}

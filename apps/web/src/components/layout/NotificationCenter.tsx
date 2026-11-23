@@ -101,6 +101,7 @@ export function NotificationCenter(){
       case 'court.request.created':return t('notification.courtRequestCreated');
       case 'court.request.responded':return t('notification.courtRequestResponded');
       case 'command.defcon':return 'DEFCON '+String(p.level??'?');
+      case 'exercise.broadcast':return typeof p.title==='string'?p.title:t('notification.title');
       default:return item.type.replace(/_/g,' ');
     }
   }

@@ -10,6 +10,11 @@ import { ExerciseBroadcastService } from './exercise-broadcast.service.js';
 export class ExerciseBroadcastController {
   constructor(private readonly service: ExerciseBroadcastService) {}
 
+  @Get('teams')
+  listTeams(@Param('eventId', ParseUUIDPipe) eventId: string, @CurrentUser() actor: AuthenticatedUser) {
+    return this.service.listTeams(eventId, actor);
+  }
+
   @Get('audience')
   preview(@Param('eventId', ParseUUIDPipe) eventId: string, @CurrentUser() actor: AuthenticatedUser,
     @Query() query: unknown) {

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
@@ -131,6 +132,10 @@ export default function CommandPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Link href={'/events/' + eventId + '/broadcast'}
+              className="flex items-center gap-1.5 rounded border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:bg-slate-700">
+              <Radio size={13}/>{tr('Exercise broadcasts')}
+            </Link>
             <button
               onClick={fetchOperationalPicture}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition"

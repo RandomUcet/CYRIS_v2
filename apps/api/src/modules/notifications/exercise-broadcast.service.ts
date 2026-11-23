@@ -71,6 +71,14 @@ export class ExerciseBroadcastService {
     return rows;
   }
 
+  async listTeams(eventId: string, actor: AuthenticatedUser) {
+    await this.assertOrganizer(eventId, actor);
+    await this.assertAudience(this.database.client, eventId, 'ALL');
+    return this.database.client.select({ id: organizationalUnits.id, name: organizationalUnits.name })
+      .from(organizationalUnits).where(and(eq(organizationalUnits.eventId, eventId),
+        isNull(organizationalUnits.archivedAt))).orderBy(organizationalUnits.name);
+  }
+
   async preview(eventId: string, actor: AuthenticatedUser, query: ExerciseBroadcastAudienceQuery) {
     await this.assertOrganizer(eventId, actor);
     await this.assertAudience(this.database.client, eventId, query.audience, query.unitId);
