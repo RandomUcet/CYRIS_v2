@@ -170,6 +170,17 @@ test('LDAP accounts remain administrable when their original directory provider 
   assert.ok(directory.includes('Platné relace uživateli přístup neumožní.'));
 });
 
+test('audit search is server-wide with debouncing, proper counts and stable requests',()=>{
+  const page=readFileSync(new URL('../app/admin/audit/page.tsx',import.meta.url),'utf8');
+  const client=readFileSync(new URL('./api-client.ts',import.meta.url),'utf8');
+  assert.ok(page.includes('setDebouncedSearch(search.trim()),300'),'text input should be debounced');
+  assert.ok(page.includes('q: debouncedSearch || undefined'),'send query to the backend');
+  assert.ok(page.includes('}, [categoryFilter,page,resourceFilter,debouncedSearch])'));
+  assert.ok(page.includes('const filteredEntries = entries;'),'avoid second local-only search');
+  assert.ok(page.includes('totalResults={total}'),'show the total server-matched count');
+  assert.ok(client.includes("params.set('q', filters.q.trim())"),'server must receive the query');
+});
+
 test('LDAP group mappings expose whole-exercise role scope explicitly',()=>{
   const provider=readFileSync(new URL('../app/admin/settings/identity/LdapProviderForm.tsx',import.meta.url),'utf8');
   assert.ok(provider.includes('checked={rule.allowEventWide}'));
