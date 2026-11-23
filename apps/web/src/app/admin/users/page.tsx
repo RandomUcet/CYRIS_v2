@@ -24,9 +24,8 @@ export default function AdminUsersPage() {
   const [tab,setTab] = useState<'participants'|'ldap'|'admins'>('participants');
   useEffect(()=>{
     const requested=new URLSearchParams(window.location.search).get('tab');
-    if(requested==='participants'||(isPlatformAdmin&&(requested==='ldap'||requested==='admins'))){
-      setTab(requested);
-    }
+    if(!isPlatformAdmin){setTab('participants');return;}
+    if(requested==='participants'||requested==='ldap'||requested==='admins')setTab(requested);
   },[isPlatformAdmin]);
   function switchTab(next:'participants'|'ldap'|'admins') {
     setTab(next);
