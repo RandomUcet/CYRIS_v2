@@ -158,7 +158,7 @@ export default function MedicalDetailPage() {
       if (!loc.ok || !loc.data) throw new Error(loc.error || 'Nelze načíst cílové lokality');
       setTransferLocations(loc.data);
       // Team selection is optional and may be unavailable to some roles.
-      setTransferUnits(units.ok && Array.isArray(units.data) ? units.data.filter((unit: {archivedAt?: string | null}) => !unit.archivedAt) : []);
+      setTransferUnits(units.ok && Array.isArray(units.data) ? units.data.filter((unit: {archivedAt?: string | null; capabilities?: string[]}) => !unit.archivedAt && unit.capabilities?.includes('medical_operations')) : []);
     }).catch((err) => {
       if (active) setTransferOptionsError(err instanceof Error ? err.message : 'Nelze načíst možnosti předání');
     }).finally(() => { if (active) setTransferOptionsLoading(false); });
