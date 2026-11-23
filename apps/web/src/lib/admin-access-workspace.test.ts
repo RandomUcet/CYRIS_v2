@@ -68,7 +68,8 @@ test('identity provider manager can edit OIDC without overwriting hidden configu
     assert.ok(page.includes('id="'+field+'"'),'OIDC control: '+field);
   }
   assert.ok(page.includes('disabled={Boolean(providerBusy)||Boolean(testingId)}'));
-  assert.ok(page.includes('href="/admin/users"'));
+  assert.ok(page.includes('href="/admin/users?tab=ldap"'),
+    'identity provider settings must link directly to the LDAP tab');
 });
 
 test('global LDAP account list works without exercise while event-team assignment stays scoped',()=>{
@@ -163,6 +164,14 @@ test('security audit category dropdown matches backend and clear-filter actually
     'clear account audit must reset component state as well as the URL');
 });
 
+test('admin user tabs can open directly from provider settings and survive refresh',()=>{
+  const users=readFileSync(new URL('../app/admin/users/page.tsx',import.meta.url),'utf8');
+  assert.ok(users.includes("new URLSearchParams(window.location.search).get('tab')"));
+  assert.ok(users.includes("setTab(requested)"));
+  assert.ok(users.includes("url.searchParams.set('tab',next)"));
+  assert.ok(users.includes("onClick={()=>switchTab('ldap')}"));
+  assert.ok(users.includes("onClick={()=>switchTab('admins')}"));
+});
 test('LDAP accounts remain administrable when their original directory provider was deleted',()=>{
   const directory=readFileSync(new URL('../components/admin/LdapTeamAssignments.tsx',import.meta.url),'utf8');
   assert.ok(directory.includes('account.providerMissing&&'));
