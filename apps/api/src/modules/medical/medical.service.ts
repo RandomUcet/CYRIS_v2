@@ -293,8 +293,8 @@ export class MedicalService {
       const [locked] = await tx.select()
         .from(medicalEncounters)
         .where(eq(medicalEncounters.id, encounterId))
-        .for('update')
-        .limit(1);
+        .limit(1)
+        .for('update');
       if (!locked || locked.eventId !== existing.eventId) {
         throw new NotFoundException('Medical encounter no longer belongs to the requested exercise');
       }
