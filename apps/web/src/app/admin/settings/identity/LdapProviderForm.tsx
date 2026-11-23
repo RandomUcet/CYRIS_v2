@@ -126,13 +126,15 @@ export function LdapProviderForm({ provider, onClose, onSaved }: {
         <label className={styles.full}>{cs ? 'Filtr uživatele' : 'User filter'}
           <input required value={config.userFilter} onChange={e => field('userFilter', e.target.value)} />
         </label>
-        <details className={styles.full}><summary>{cs ? 'Atributy adresáře' : 'Directory attributes'}</summary>
+        <section className={styles.full+' '+styles.ldapAttributes} aria-labelledby="ldap-attributes-title">
+          <h3 id="ldap-attributes-title">{cs ? 'Atributy adresáře' : 'Directory attributes'}</h3>
+          <p>{cs ? 'Názvy LDAP atributů musí odpovídat vašemu adresáři.' : 'Attribute names must match your directory schema.'}</p>
           <div className={styles.fields}>
             <label>{cs ? 'Přihlašovací jméno' : 'Username'}<input required value={config.usernameAttr} onChange={e => field('usernameAttr', e.target.value)} /></label>
             <label>E-mail<input required value={config.emailAttr} onChange={e => field('emailAttr', e.target.value)} /></label>
             <label>{cs ? 'Zobrazované jméno' : 'Display name'}<input required value={config.displayNameAttr} onChange={e => field('displayNameAttr', e.target.value)} /></label>
           </div>
-        </details>
+        </section>
         <label className={styles.check + ' ' + styles.full}>
           <input type="checkbox" checked={config.jitEnabled !== false} onChange={e => field('jitEnabled', e.target.checked)} />
           {cs ? 'Vytvořit účet při prvním přihlášení (JIT)' : 'Create the account on first sign-in (JIT)'}
