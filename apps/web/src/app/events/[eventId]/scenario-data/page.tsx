@@ -94,6 +94,10 @@ export default function ScenarioDataPage() {
     }
   }
   const payload: ScenarioDataRequest = { preset, seed: seed ?? 0, ...(preset === 'CUSTOM' && { counts }) };
+  // Detailed generation asks Spark for at most 12 rows per request, per record kind.
+  // Show the real number of planned requests before launching a potentially long session.
+  const targetCounts = preset === 'CUSTOM' ? counts : presets[preset];
+  const estimatedDetailedRequests = keys.reduce((sum,kind) => sum + Math.ceil(targetCounts[kind] / 12),0);
   async function prepare(current: Batch) {
     paused.current = false;
     while (scope.current === eventId && !paused.current && current.status === 'DRAFT' && (current.prepared ?? 0) < total(current.configuration)) {
@@ -106,6 +110,12 @@ export default function ScenarioDataPage() {
   }
   async function runPreview() {
     if (mode === 'SPARK') {
+      if (sparkStrategy === 'DETAILED' && !window.confirm(tr(
+        'Detailní režim vyžaduje přibližně ' + estimatedDetailedRequests +
+          ' samostatných AI požadavků. Generování může trvat dlouho a spotřebovat výpočetní kapacitu Sparku. Pokračovat?',
+        'Detailed mode requires approximately ' + estimatedDetailedRequests +
+          ' separate AI requests. Generation may take a long time and consume Spark compute. Continue?'
+      ))) return;
       const r = await apiClient.startScenarioDraft(eventId, { ...payload, brief, strategy: sparkStrategy });
       if (!r.ok || !r.data) throw Error(r.error ?? tr('Spark není dostupný','Spark unavailable'));
       await prepare(r.data);
@@ -163,6 +173,11 @@ export default function ScenarioDataPage() {
               </button>
             </div>
             {mode==='SPARK' && <label>{tr('Režim Sparku','Spark generation mode')}<select value={sparkStrategy} onChange={e => { configure(); setSparkStrategy(e.target.value as 'FAST' | 'DETAILED'); }}><option value="FAST">{tr('Rychlý – 1 AI návrh + propojená lokální databáze','Fast – 1 AI blueprint + linked local dataset')}</option><option value="DETAILED">{tr('Detailní – AI připravuje každý záznam (výrazně pomalejší)','Detailed – AI writes every record (much slower)')}</option></select></label>}
+            {mode==='SPARK' && sparkStrategy==='DETAILED' && <p className={styles.sparkHint} role="status">
+              {tr('Odhad počtu AI požadavků v detailním režimu: ','Estimated detailed AI requests: ')}
+              <strong>{estimatedDetailedRequests}</strong>.
+              {' '}{tr('Pro rychlé vytvoření propojené sady použijte režim Rychlý.','Use Fast mode to prepare a linked dataset in one model request.')}
+            </p>}
             {mode==='SPARK' && <p className={styles.sparkHint} role="status">{tr('V rychlém režimu Spark vytvoří jeden krátký scénářový návrh a CYRIS podle něj lokálně sestaví celou sadu; detailní režim generuje záznamy postupně. Koncept před zveřejněním vždy zkontrolujte. Obrázky lze nyní přiřadit přímo k jednotlivým záznamům v rozpracovaném konceptu. Při publikaci se automaticky uloží do registru.','Fast mode asks Spark for one short scenario blueprint and CYRIS builds a linked local dataset; Detailed mode generates records page by page. Always review before publishing. Attach images directly to records inside the draft. On publication they become registry images automatically.')}</p>}
             {mode === 'SPARK' && <label>{tr('Scénářové zadání','Scenario brief')}<textarea value={brief} maxLength={1200} rows={4} placeholder={tr('Železniční depo v Pardubicích během střídání směn. Zahrňte zaměstnance, dodavatele a jejich techniku.','A rail depot in Pardubice during a shift change. Include contractors, dispatchers and their equipment.')} onChange={e => {
               configure();
