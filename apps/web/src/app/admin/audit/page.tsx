@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { DataTable, Column } from '@/components/common/DataTable';
@@ -24,6 +24,7 @@ export default function AdminAuditPage() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const auditRequest = useRef(0);
   const [error, setError] = useState<string | null>(null);
 
   // Filters
@@ -41,6 +42,7 @@ export default function AdminAuditPage() {
 
   const fetchAudit = async () => {
     if (resourceFilter===null) return;
+    const request = ++auditRequest.current;
     setLoading(true);
     setError(null);
     try {
@@ -51,16 +53,21 @@ export default function AdminAuditPage() {
         category: categoryFilter || undefined,
       });
 
+      if (request !== auditRequest.current) return;
       if (res.ok && res.data) {
         setEntries(res.data.items || []);
         setTotal(res.data.total || 0);
       } else {
+        setEntries([]);setTotal(0);
         setError(res.error || 'Failed to load institutional audit log');
       }
-    } catch (err: any) {
-      setError(err.message || 'Network error');
+    } catch (err: unknown) {
+      if (request === auditRequest.current) {
+        setEntries([]);setTotal(0);
+        setError(err instanceof Error ? err.message : 'Network error');
+      }
     } finally {
-      setLoading(false);
+      if (request === auditRequest.current) setLoading(false);
     }
   };
 
