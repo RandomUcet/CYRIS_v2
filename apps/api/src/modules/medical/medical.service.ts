@@ -27,9 +27,12 @@ import {
   users,
   activityEvents,
   eventMemberships,
+  membershipUnitAssignments,
+  unitCapabilities,
   MembershipStatus,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
+import { UnitCapabilityKeys } from '@cyris/contracts';
 import type {
   MedicalEncounterItem,
   MedicalEncounterDetail,
@@ -124,6 +127,31 @@ export class MedicalService {
   }
 
   /**
+   * The medical intake screen does not ask operators to choose their own team.
+   * If the operator belongs to exactly one active medical-capable unit, use that
+   * unit automatically so colleagues can see the record under UNIT visibility.
+   * Never guess when several medical teams are eligible, or adopt an unrelated
+   * non-medical unit just because the actor happens to belong to it.
+   */
+  async resolveIntakeUnit(eventId: string, userId: string): Promise<string | null> {
+    const units = await this.db.select({unitId: organizationalUnits.id})
+      .from(eventMemberships)
+      .innerJoin(membershipUnitAssignments, eq(membershipUnitAssignments.membershipId, eventMemberships.id))
+      .innerJoin(organizationalUnits, eq(organizationalUnits.id, membershipUnitAssignments.unitId))
+      .innerJoin(unitCapabilities, eq(unitCapabilities.unitId, organizationalUnits.id))
+      .where(and(
+        eq(eventMemberships.eventId, eventId),
+        eq(eventMemberships.userId, userId),
+        eq(eventMemberships.status, MembershipStatus.ACTIVE),
+        eq(organizationalUnits.eventId, eventId),
+        isNull(organizationalUnits.archivedAt),
+        eq(unitCapabilities.capabilityKey, UnitCapabilityKeys.MEDICAL_OPERATIONS),
+      ));
+    const eligible = [...new Set(units.map(unit => unit.unitId))];
+    return eligible.length === 1 ? eligible[0]! : null;
+  }
+
+  /**
    * Creates a new casualty encounter.
    * Default visibility is UNIT-scoped for medical confidentiality.
    */
@@ -141,6 +169,9 @@ export class MedicalService {
 
     // Reject cross-event reference IDs before allocating a MED number or writing any resource.
     await this.assertReferencesInEvent(eventId, dto);
+    const owningUnitId = dto.assignedUnitId ?? await this.resolveIntakeUnit(eventId, user.id);
+    // A single medical-capable unit is safe to auto-select. Ambiguous/no unit stays
+    // owner-only instead of disclosing sensitive patient records to the wrong team.
     const encounterId = generateId();
 
     return this.db.transaction(async (tx) => {
@@ -156,7 +187,7 @@ export class MedicalService {
       await this.resourceService.registerResource(eventId, 'medical_encounter', {
         id: encounterId,
         visibility: (dto.visibility as ResourceVisibilityValue) || 'UNIT',
-        owningUnitId: dto.assignedUnitId || null,
+        owningUnitId,
         ownerUserId: user.id,
         txClient: tx,
       });
@@ -176,7 +207,7 @@ export class MedicalService {
           chiefComplaint: dto.chiefComplaint || null,
           mechanismOfInjury: dto.mechanismOfInjury || null,
           assessmentSummary: dto.assessmentSummary || null,
-          assignedUnitId: dto.assignedUnitId || null,
+          assignedUnitId: owningUnitId,
           assignedUserId: dto.assignedUserId || null,
         })
         .returning();
@@ -276,6 +307,13 @@ export class MedicalService {
       .limit(1);
     if (!existing) throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
     await this.assertReferencesInEvent(existing.eventId, dto);
+    const isTeamChange = dto.assignedUnitId !== undefined && dto.assignedUnitId !== null && dto.assignedUnitId !== undefined && (await this.db.select({ assignedUnitId: medicalEncounters.assignedUnitId }).from(medicalEncounters).where(eq(medicalEncounters.id, encounterId)).limit(1))[0]?.assignedUnitId !== dto.assignedUnitId;
+    if (isTeamChange) {
+      // A reassignment moves visibility to another team; ordinary editing rights
+      // must not be sufficient to disclose a patient's record to that team.
+      await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_TRANSFER);
+      await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_READ);
+    }
 
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (dto.personId !== undefined) updates.personId = dto.personId;
@@ -300,6 +338,14 @@ export class MedicalService {
       }
 
       await tx.update(medicalEncounters).set(updates).where(eq(medicalEncounters.id, encounterId));
+      if (dto.assignedUnitId !== undefined) {
+        await tx.update(resources).set({
+          owningUnitId: dto.assignedUnitId,
+          // Do not preserve a former team's private owner access after handoff.
+          ...(isTeamChange ? { ownerUserId: null } : {}),
+          updatedAt: new Date(),
+        }).where(and(eq(resources.id, encounterId), eq(resources.eventId, locked.eventId)));
+      }
 
       // Reconcile even an unchanged explicit personId: repairs a missing legacy link
       // without duplicating an already active PATIENT_RECORD relationship.
@@ -324,13 +370,16 @@ export class MedicalService {
         metadata: {
           medicalNumber: locked.medicalNumber,
           patientLinkChanged: dto.personId !== undefined && dto.personId !== locked.personId,
+          owningTeamChanged: isTeamChange,
         },
         txClient: tx,
       });
       await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId, tx);
     });
 
-    return this.getEncounterDetail(encounterId, user);
+    // The transfer actor was authorized before the ownership change and must
+    // receive an accurate success response even if the new unit cannot read it.
+    return isTeamChange ? this.loadEncounterDetail(encounterId) : this.getEncounterDetail(encounterId, user);
   }
 
   /**
@@ -612,79 +661,81 @@ export class MedicalService {
     dto: TransferMedicalEncounterRequest,
     user: AuthenticatedUser
   ): Promise<MedicalEncounterDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      encounterId,
-      Permissions.MEDICAL_TRANSFER
-    );
+    await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_TRANSFER);
+    await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_READ);
 
-    const [existing] = await this.db
-      .select()
-      .from(medicalEncounters)
-      .where(eq(medicalEncounters.id, encounterId))
-      .limit(1);
+    const [existing] = await this.db.select()
+      .from(medicalEncounters).where(eq(medicalEncounters.id, encounterId)).limit(1);
+    if (!existing) throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
 
-    if (!existing) {
-      throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
-    }
-
-    // Verify that neither the destination nor the receiving team comes from another exercise.
     await this.assertReferencesInEvent(existing.eventId, {
-      targetLocationId: dto.targetLocationId,
-      receivingUnitId: dto.receivingUnitId,
+      targetLocationId: dto.targetLocationId, receivingUnitId: dto.receivingUnitId,
     });
-
-    // Resolve the validated destination for the audit and handoff timeline.
-    const [loc] = await this.db
-      .select({ id: locations.id, name: locations.name })
-      .from(locations)
-      .where(eq(locations.id, dto.targetLocationId))
-      .limit(1);
-
-    if (!loc) {
-      throw new NotFoundException(`Target location '${dto.targetLocationId}' not found`);
-    }
+    const [destination] = await this.db.select({name:locations.name}).from(locations)
+      .where(eq(locations.id, dto.targetLocationId)).limit(1);
+    if (!destination) throw new NotFoundException('Transfer location not found');
 
     const now = new Date();
-    await this.db
-      .update(medicalEncounters)
-      .set({
+    await this.db.transaction(async tx => {
+      const [locked] = await tx.select().from(medicalEncounters)
+        .where(eq(medicalEncounters.id, encounterId)).limit(1).for('update');
+      if (!locked || locked.eventId !== existing.eventId) {
+        throw new NotFoundException('Medical encounter no longer belongs to this exercise');
+      }
+      const nextUnitId = dto.receivingUnitId ?? locked.assignedUnitId;
+      const teamChanged = nextUnitId !== locked.assignedUnitId;
+
+      await tx.update(medicalEncounters).set({
         status: 'TRANSFERRED',
         locationId: dto.targetLocationId,
         transferredAt: now,
         disposition: dto.disposition,
-        assignedUnitId: dto.receivingUnitId || existing.assignedUnitId,
+        assignedUnitId: nextUnitId,
+        // The old assignee is not automatically a member of the receiving unit.
+        assignedUserId: teamChanged ? null : locked.assignedUserId,
         updatedAt: now,
-      })
-      .where(eq(medicalEncounters.id, encounterId));
+      }).where(eq(medicalEncounters.id, encounterId));
 
-    await this.auditService.record({
-      action: 'medical.transferred',
-      category: 'medical',
-      eventId: existing.eventId,
-      resourceType: 'medical_encounter',
-      resourceId: encounterId,
-      actorUserId: user.id,
-      metadata: {
-        medicalNumber: existing.medicalNumber,
-        targetLocationId: dto.targetLocationId,
-        targetLocationName: loc.name,
-        disposition: dto.disposition,
-      },
+      // ResourceAccessService evaluates the resources table, not medicalEncounters.
+      // The domain ownership and access-control ownership must move together.
+      if (teamChanged) {
+        await tx.update(resources).set({
+          owningUnitId: nextUnitId,
+          ownerUserId: null,
+          updatedAt: now,
+        }).where(and(eq(resources.id, encounterId), eq(resources.eventId, locked.eventId)));
+      }
+
+      await this.auditService.record({
+        action: 'medical.transferred',
+        category: 'medical',
+        eventId: locked.eventId,
+        resourceType: 'medical_encounter',
+        resourceId: encounterId,
+        actorUserId: user.id,
+        metadata: {
+          medicalNumber: locked.medicalNumber,
+          targetLocationId: dto.targetLocationId,
+          targetLocationName: destination.name,
+          owningTeamChanged: teamChanged,
+          disposition: dto.disposition,
+        },
+        txClient: tx,
+      });
+      await this.activityService.recordActivity({
+        eventId: locked.eventId,
+        resourceId: encounterId,
+        activityType: 'medical.transferred',
+        actorUserId: user.id,
+        title: `Casualty Transferred: ${locked.medicalNumber} → ${destination.name}`,
+        summary: dto.disposition,
+      }, tx);
+      await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId, tx);
     });
 
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: encounterId,
-      activityType: 'medical.transferred',
-      actorUserId: user.id,
-      title: `Casualty Transferred: ${existing.medicalNumber} → ${loc.name}`,
-      summary: dto.disposition,
-    });
-
-    await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId);
-
-    return this.getEncounterDetail(encounterId, user);
+    // Safe one-time acknowledgement: transfer permissions were checked against
+    // the source unit BEFORE the atomic handoff. Future GETs enforce the new ACL.
+    return this.loadEncounterDetail(encounterId);
   }
 
   /**
@@ -759,11 +810,13 @@ export class MedicalService {
     user: AuthenticatedUser
   ): Promise<MedicalEncounterDetail> {
     await this.resourceAccessService.assertCanAccessResource(
-      user,
-      encounterId,
-      Permissions.MEDICAL_READ
+      user, encounterId, Permissions.MEDICAL_READ
     );
+    return this.loadEncounterDetail(encounterId);
+  }
 
+  /** Internal post-mutation response. Call only after pre-mutation access check. */
+  private async loadEncounterDetail(encounterId: string): Promise<MedicalEncounterDetail> {
     const [row] = await this.db
       .select({
         encounter: medicalEncounters,
