@@ -113,7 +113,23 @@ export default function AdminUsersPage() {
       const result = await apiClient.activateMembership(member.eventId, member.id);
       if (result.ok) setRevision(value => value + 1);
       else setActionError(result.error || tr('Aktivace členství se nezdařila.', 'Could not activate membership.'));
-    } finally { setActivating(null); }
+    } catch(err){setActionError(err instanceof Error?err.message:tr('Aktivace selhala.','Activation failed.'));}
+    finally { setActivating(null); }
+  }
+
+  async function pauseMembership(member: MembershipResponse) {
+    if(activating || member.status!=='ACTIVE' || member.user?.status!=='ACTIVE')return;
+    const name=member.user?.displayName||member.user?.email||member.userId;
+    if(!window.confirm(cs
+      ? 'Pozastavit členství uživatele '+name+' v cvičení '+(currentEvent?.name??'')+'? Účet CYRIS zůstane aktivní.'
+      : 'Pause '+name+' in exercise '+(currentEvent?.name??'')+'? Their CYRIS login remains active.'))return;
+    setActivating(member.id);setActionError(null);
+    try{
+      const result=await apiClient.deactivateMembership(member.eventId,member.id);
+      if(!result.ok)throw new Error(result.error||tr('Pozastavení členství selhalo.','Unable to pause membership.'));
+      setRevision(value=>value+1);
+    }catch(err){setActionError(err instanceof Error?err.message:tr('Pozastavení selhalo.','Unable to pause membership.'));}
+    finally{setActivating(null);}
   }
 
   const columns: Column<MembershipResponse>[] = [
@@ -123,6 +139,12 @@ export default function AdminUsersPage() {
     ...(isPlatformAdmin ? [{ header: cs ? 'Role platformy' : 'Platform roles', accessor: (member: MembershipResponse) => member.platformRoles.map(role => role.name).join(', ') || '—' }] : []),
     { header: cs ? 'Stav' : 'Status', accessor: member => <div>
       <span className={`roster-status ${member.status === 'ACTIVE' && member.user?.status === 'ACTIVE' ? 'is-active' : ''}`}>{member.user?.status === 'DISABLED' ? tr('Účet zakázán', 'Account disabled') : member.status === 'ACTIVE' ? tr('Aktivní', 'Active') : tr('Neaktivní členství', 'Inactive membership')}</span>
+      {isPlatformAdmin && member.status === 'ACTIVE' && member.user?.status === 'ACTIVE' &&
+        !['CLOSED', 'ARCHIVED'].includes(currentEvent?.status ?? '') &&
+        <button type="button" className="btn btn-secondary" disabled={Boolean(activating)}
+          onClick={()=>void pauseMembership(member)}>
+          {activating===member.id?'…':tr('Pozastavit členství','Pause membership')}
+        </button>}
       {isPlatformAdmin && member.status === 'INACTIVE' && member.user?.status === 'ACTIVE' && !['CLOSED', 'ARCHIVED'].includes(currentEvent?.status ?? '') &&
         <button type="button" className="btn btn-secondary" disabled={Boolean(activating)} onClick={() => void activate(member)}>
           {activating === member.id ? '…' : tr('Aktivovat členství', 'Activate membership')}
