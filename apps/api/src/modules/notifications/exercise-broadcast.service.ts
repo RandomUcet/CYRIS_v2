@@ -161,7 +161,8 @@ export class ExerciseBroadcastService {
       unitId: row.unitId ?? null,
       delivered: row.delivered,
       read: row.read,
-      sentAt: row.sentAt.toISOString(),
+      // Raw SQL aggregates are returned as strings by the PostgreSQL driver.
+      sentAt: new Date(row.sentAt).toISOString(),
     }));
   }
 }
