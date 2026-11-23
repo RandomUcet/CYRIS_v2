@@ -77,6 +77,10 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
   const canSaveDraft=Boolean(event)&&ready.canSave;
   const hasPlaceholders=containsUnfilledBroadcastTemplate(title+' '+message);
   const canSendNow=Boolean(event)&&ready.canSendNow&&!hasPlaceholders;
+  const kindLabels:Record<Kind,string>={
+    INFO:tr('Oznámení','Announcement'),UPDATE:tr('Aktualizace situace','Situation update'),
+    INSTRUCTION:tr('Pokyn k akci','Action instruction'),URGENT:tr('Naléhavá výstraha','Urgent alert'),
+  };
 
   function reset() {
     setKind('INFO');setAudience('ALL');setUnitId('');setTitle('');setMessage('');
@@ -160,6 +164,19 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
     if(sending.current||!canSendNow||step!=='REVIEW')return;
     sending.current=true;setBusy(true);setError('');
     try {
+      // Recheck the receiving audience immediately before delivery: during an
+      // exercise, people can join or leave teams after the first preview.
+      const latest=await apiClient.previewExerciseBroadcastAudience(eventId,{
+        kind,audience,...(audience==='UNIT'?{unitId}:{})
+      });
+      if(!latest.ok||!latest.data)throw new Error(latest.error||
+        tr('Počet příjemců nelze ověřit. Zkuste to znovu.','Could not verify recipients. Try again.'));
+      if(latest.data.eligible!==eligible){
+        setPreview({key:scopeKey,eligible:latest.data.eligible});
+        setError(tr('Počet příjemců se změnil. Zkontrolujte aktualizovaný počet a potvrďte odeslání znovu.',
+          'Recipient count changed. Review the updated number and confirm delivery again.'));
+        return;
+      }
       sendNonce.current??=crypto.randomUUID();
       const result=await apiClient.sendExerciseBroadcast(eventId,payload(sendNonce.current));
       if(!result.ok||!result.data)throw new Error(result.error||tr('Zprávu nelze odeslat.','Unable to send.'));
@@ -241,10 +258,7 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
               <div className={styles.twocol}>
                 <label>{tr('Typ zprávy','Message type')}
                   <select value={kind} onChange={e=>{setKind(e.target.value as Kind);changed();}}>
-                    {kinds.map(item=><option value={item} key={item}>{({
-                      INFO:tr('Oznámení','Announcement'),UPDATE:tr('Aktualizace situace','Situation update'),
-                      INSTRUCTION:tr('Pokyn k akci','Action instruction'),URGENT:tr('Naléhavá výstraha','Urgent alert'),
-                    } as Record<Kind,string>)[item]}</option>)}
+                    {kinds.map(item=><option value={item} key={item}>{kindLabels[item]}</option>)}
                   </select>
                 </label>
                 <label>{tr('Příjemci','Recipients')}
@@ -316,7 +330,7 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
               <dt>{tr('Cvičení','Exercise')}</dt><dd>{event?.name}</dd>
               <dt>{tr('Příjemci','Audience')}</dt><dd>{audience==='ALL'?tr('Všichni','All'):teams.find(t=>t.id===unitId)?.name||unitId}
                 {' · '}{eligible??'—'} {tr('příjemců','recipients')}</dd>
-              <dt>{tr('Typ','Type')}</dt><dd>{kind}</dd>
+              <dt>{tr('Typ','Type')}</dt><dd>{kindLabels[kind]}</dd>
               <dt>{tr('Nadpis','Title')}</dt><dd><strong>{title.trim()}</strong></dd>
               <dt>{tr('Zpráva','Message')}</dt><dd className={styles.messagePreview}>{message.trim()}</dd>
             </dl>
