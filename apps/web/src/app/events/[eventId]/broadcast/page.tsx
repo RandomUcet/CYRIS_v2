@@ -7,6 +7,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { apiClient } from '@/lib/api-client';
+import { broadcastComposerControls, copyBroadcastPlan } from '@/lib/broadcast-composer';
 import type { ExerciseBroadcastHistory, ExerciseBroadcastRequest, ExerciseBroadcastPlanResponse } from '@cyris/contracts';
 
 type Kind = ExerciseBroadcastRequest['kind'];
@@ -100,7 +101,8 @@ export default function ExerciseBroadcastPage() {
 
   async function send(ev:FormEvent) {
     ev.preventDefault();
-    if(sending||readOnly||eligible===null||eligible===0||!title.trim()||!message.trim())return;
+    if(!broadcastComposerControls({readOnly,loading,sending,planBusy,editingDraft:Boolean(editing),
+      eligible,audience,unitId,title,message}).canSendNow)return;
     const confirmation = window.confirm(tr(
       'Odeslat '+types.find(t=>t.key===kind)?.cs+' ('+eligible+' příjemců) v rámci tohoto cvičení? Tato akce se zaznamená do auditu.',
       'Send '+kind+' to '+eligible+' participants in this exercise? This action will be audited.'
@@ -132,7 +134,20 @@ export default function ExerciseBroadcastPage() {
     if(plan.status!=='DRAFT')return;
     setEditing(plan);setTitle(plan.title);setMessage(plan.message);
     setKind(plan.kind);setAudience(plan.audience);setUnitId(plan.unitId??'');
+    setScheduleAt('');
     changed();
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  function copyPlan(plan:ExerciseBroadcastPlanResponse) {
+    if(readOnly||sending||planBusy)return;
+    const copied=copyBroadcastPlan(plan);
+    setEditing(null);
+    setTitle(copied.title);setMessage(copied.message);setKind(copied.kind);
+    setAudience(copied.audience);setUnitId(copied.unitId);setScheduleAt('');
+    // Always generate a fresh idempotency key on explicit user confirmation.
+    changed();
+    setSuccess(tr('Zpráva byla zkopírována do nového návrhu. Před odesláním ji zkontrolujte.',
+      'Copied into a new message. Review before sending.'));
     window.scrollTo({top:0,behavior:'smooth'});
   }
   function localTimeToIso(value:string):string {
@@ -141,7 +156,8 @@ export default function ExerciseBroadcastPage() {
     return date.toISOString();
   }
   async function savePlan(schedule:boolean) {
-    if(readOnly||sending||planBusy||!title.trim()||!message.trim()||(audience==='UNIT'&&!unitId))return;
+    if(!broadcastComposerControls({readOnly,loading,sending,planBusy,editingDraft:Boolean(editing),
+      eligible,audience,unitId,title,message}).canSave)return;
     setPlanBusy(true);setError('');setSuccess('');
     try{
       const date=schedule?localTimeToIso(scheduleAt):null;
@@ -186,6 +202,10 @@ export default function ExerciseBroadcastPage() {
     {label:tr('Organizační upozornění','Operations notice'),title:tr('Důležitá informace EXCON','Important EXCON notice'),message:tr('Zkontrolujte aktuální organizační informace zveřejněné v CYRISu.','Please review the latest organizational information in CYRIS.')},
   ];
   const type = types.find(t=>t.key===kind)!;
+  const controls=broadcastComposerControls({
+    readOnly,loading,sending,planBusy,editingDraft:Boolean(editing),
+    eligible,audience,unitId,title,message,
+  });
   return <AppShell breadcrumbs={[
     {label:tr('Řízení cvičení','Exercise control'),href:'/events/'+eventId+'/command'},
     {label:tr('Komunikační centrum','Broadcast center')}
@@ -205,7 +225,7 @@ export default function ExerciseBroadcastPage() {
       <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
         <h2 className="mb-4 text-lg font-semibold text-slate-100">{tr('Nová zpráva','New message')}</h2>
         <form onSubmit={e=>void send(e)} className="space-y-4">
-          <fieldset disabled={loading||sending||readOnly} className="space-y-4">
+          <fieldset disabled={loading||sending||planBusy||readOnly} className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-slate-400">{tr('Připravené šablony:','Quick templates:')}</span>
               {templates.map(item=><button key={item.label} type="button"
@@ -214,6 +234,8 @@ export default function ExerciseBroadcastPage() {
             </div>
             {editing&&<div className="flex flex-wrap items-center justify-between gap-2 rounded border border-blue-800 bg-blue-950/50 p-2 text-sm text-blue-100">
               {tr('Upravujete uložený koncept: ','Editing saved draft: ')}{editing.title}
+              <span className="text-xs">{tr('Pro okamžité odeslání vytvořte novou kopii.',
+                'To send now, create a new copy.')}</span>
               <button type="button" onClick={resetEditor} className="rounded border border-blue-600 px-2 py-1">{tr('Nová zpráva','New message')}</button>
             </div>}
             <label className="block text-sm font-semibold text-slate-200">{tr('Typ zprávy','Message type')}
@@ -273,7 +295,7 @@ export default function ExerciseBroadcastPage() {
               'Messages appear in the CYRIS notification center; no email is sent. Urgent notices bypass regular in-app opt-outs.'
             )}</p>
             <div className="flex flex-wrap items-end gap-3 border-t border-slate-700 pt-4">
-              <button type="button" disabled={planBusy||sending||loading||readOnly||!title.trim()||!message.trim()}
+              <button type="button" disabled={!controls.canSave}
                 onClick={()=>void savePlan(false)} className="rounded border border-slate-500 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-40">
                 {planBusy?tr('Ukládám…','Saving…'):editing?tr('Uložit změny konceptu','Save draft changes'):tr('Uložit koncept','Save draft')}
               </button>
@@ -281,16 +303,20 @@ export default function ExerciseBroadcastPage() {
                 <input type="datetime-local" value={scheduleAt} onChange={e=>setScheduleAt(e.target.value)}
                   className="mt-1 block rounded border border-slate-600 bg-slate-950 p-2 text-slate-100"/>
               </label>
-              <button type="button" disabled={planBusy||sending||loading||readOnly||!title.trim()||!message.trim()||!scheduleAt}
+              <button type="button" disabled={!controls.canSave||!scheduleAt}
                 onClick={()=>{if(window.confirm(tr('Naplánovat automatické rozeslání?','Schedule automatic delivery?')))void savePlan(true);}}
                 className="rounded border border-sky-600 bg-sky-950 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-900 disabled:opacity-40">
                 {tr('Naplánovat zprávu','Schedule broadcast')}
               </button>
             </div>
-            <button type="submit" disabled={sending||loading||readOnly||eligible===null||eligible===0||!title.trim()||!message.trim()}
+            <button type="submit" disabled={!controls.canSendNow}
               className="rounded bg-blue-600 px-5 py-2 font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40">
               {sending?tr('Odesílám…','Sending…'):tr('Odeslat oznámení','Send notification')}
             </button>
+            {editing&&<p className="text-xs text-amber-700" role="note">{tr(
+              'Uložený koncept nelze omylem rozeslat z režimu úprav. Uložte ho, nebo vytvořte novou kopii tlačítkem níže.',
+              'A saved draft cannot be sent accidentally while editing. Save it, or create a new copy below.'
+            )}</p>}
           </fieldset>
         </form>
       </section>
@@ -313,6 +339,10 @@ export default function ExerciseBroadcastPage() {
             </p>
             <p className="my-2 whitespace-pre-wrap text-sm text-slate-300">{plan.message}</p>
             <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={planBusy||sending||readOnly}
+                onClick={()=>copyPlan(plan)} className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">
+                {tr('Použít jako novou zprávu','Reuse as new message')}
+              </button>
               {plan.status==='DRAFT'&&<button type="button" disabled={planBusy||readOnly}
                 onClick={()=>loadDraft(plan)} className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">{tr('Otevřít v editoru','Edit draft')}</button>}
               {(plan.status==='DRAFT'||plan.status==='SCHEDULED')&&<button type="button" disabled={planBusy||readOnly}
