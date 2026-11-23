@@ -173,7 +173,9 @@ export default function AdminUsersPage() {
       <div className="roster-toolbar">
         <label className="roster-event-label">{cs ? 'Cvičení' : 'Exercise'}
           <select aria-label={cs ? 'Vybrat cvičení' : 'Select exercise'} value={currentEvent?.id ?? ''} onChange={(event) => selectEvent(event.target.value)} disabled={loadingEvents || Boolean(starting || activating)}>
-            <option value="" disabled>{cs ? 'Vyber cvičení' : 'Select an exercise'}</option>
+            <option value="" disabled={tab!=='ldap'}>{tab==='ldap'
+              ?tr('Všechna LDAP konta (bez cvičení)','All LDAP accounts (no exercise)')
+              :tr('Vyber cvičení','Select an exercise')}</option>
             {events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
           </select>
         </label>
