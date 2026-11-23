@@ -16,7 +16,7 @@ const accountProvider = and(eq(integrations.category, 'LDAP'), sql`${integration
 export class LdapTeamsService {
   constructor(private readonly database: DatabaseService, private readonly audit: AuditService) {}
 
-  async listAccounts(eventId: string, q?: string, onlyUnassigned = false): Promise<{ accounts: LdapTeamAccount[]; hasMore: boolean }> {
+  async listAccounts(eventId: string, q?: string, onlyUnassigned = false, status?: 'ACTIVE' | 'DISABLED'): Promise<{ accounts: LdapTeamAccount[]; hasMore: boolean }> {
     const db = this.database.client;
     const [event] = await db.select({ id: events.id }).from(events).where(eq(events.id, eventId));
     if (!event) throw new NotFoundException('Cvičení nebylo nalezeno.');
@@ -36,6 +36,7 @@ export class LdapTeamsService {
       .innerJoin(integrations, accountProvider)
       .leftJoin(eventMemberships, and(eq(eventMemberships.userId, users.id), eq(eventMemberships.eventId, eventId)))
       .where(and(eq(userIdentities.providerType, 'LDAP'),
+        status ? eq(users.status, status) : undefined,
         q ? or(sql`strpos(lower(${users.displayName}), lower(${q})) > 0`, sql`strpos(lower(${users.email}), lower(${q})) > 0`) : undefined,
         onlyUnassigned ? or(isNull(eventMemberships.id), eq(eventMemberships.status, 'INACTIVE'), notExists(activeTeam)) : undefined,
       )).orderBy(asc(users.displayName), asc(users.email), asc(userIdentities.id)).limit(pageSize + 1);
