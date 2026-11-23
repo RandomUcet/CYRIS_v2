@@ -63,3 +63,47 @@ export const MarkNotificationReadSchema = z.object({
 });
 
 export type MarkNotificationRead = z.infer<typeof MarkNotificationReadSchema>;
+
+// Organizer-owned in-app exercise broadcasts. Explicit scope, server-chosen
+// action URL and a client idempotency key prevent accidental repeats.
+export const ExerciseBroadcastKindSchema = z.enum(['INFO', 'UPDATE', 'INSTRUCTION', 'URGENT']);
+export const ExerciseBroadcastAudienceSchema = z.discriminatedUnion('audience', [
+  z.object({ audience: z.literal('ALL'), unitId: z.undefined().optional() }),
+  z.object({ audience: z.literal('UNIT'), unitId: z.string().uuid() }),
+]);
+export const ExerciseBroadcastRequestSchema = ExerciseBroadcastAudienceSchema.and(z.object({
+  nonce: z.string().uuid(),
+  kind: ExerciseBroadcastKindSchema,
+  title: z.string().trim().min(3).max(120),
+  message: z.string().trim().min(3).max(900),
+}));
+export type ExerciseBroadcastRequest = z.infer<typeof ExerciseBroadcastRequestSchema>;
+
+export const ExerciseBroadcastAudienceQuerySchema = z.object({
+  kind: ExerciseBroadcastKindSchema.default('INFO'),
+  audience: z.enum(['ALL', 'UNIT']).default('ALL'),
+  unitId: z.string().uuid().optional(),
+}).superRefine((x,ctx)=>{
+  if(x.audience==='UNIT'&&!x.unitId) ctx.addIssue({code:'custom',message:'Team is required for unit audience'});
+  if(x.audience==='ALL'&&x.unitId) ctx.addIssue({code:'custom',message:'Unit must be omitted for all participants'});
+});
+export type ExerciseBroadcastAudienceQuery = z.infer<typeof ExerciseBroadcastAudienceQuerySchema>;
+
+export const ExerciseBroadcastReceiptSchema = z.object({
+  nonce: z.string().uuid(),
+  delivered: z.number().int().nonnegative(),
+  repeated: z.boolean(),
+});
+export type ExerciseBroadcastReceipt = z.infer<typeof ExerciseBroadcastReceiptSchema>;
+
+export const ExerciseBroadcastHistorySchema = z.array(z.object({
+  nonce: z.string().uuid(),
+  kind: ExerciseBroadcastKindSchema,
+  title: z.string(),
+  audience: z.enum(['ALL','UNIT']),
+  unitId: z.string().uuid().nullable(),
+  delivered: z.number().int(),
+  read: z.number().int(),
+  sentAt: z.string(),
+}));
+export type ExerciseBroadcastHistory = z.infer<typeof ExerciseBroadcastHistorySchema>;
