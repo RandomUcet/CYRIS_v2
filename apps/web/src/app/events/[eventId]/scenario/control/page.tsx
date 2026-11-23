@@ -168,6 +168,7 @@ function RunSheet({ eventId }: { eventId: string }) {
           <p className={styles.lead}>{tr('Režijní plán cvičení', 'Exercise director’s run sheet')}{event ? ' · ' + event.name : ''}</p>
           <nav className={styles.links} aria-label={tr('Související stránky', 'Related pages')}>
             {canOpenBriefings && <Link href={'/events/' + eventId + '/briefings'}>{tr('Moje briefingy', 'My briefings')}</Link>}
+            {hasPermission('scenario.manage', eventId) && <Link href={'/events/' + eventId + '/excon'}>EXCON</Link>}
             {hasPermission('scenario.manage', eventId) && <Link href={'/events/' + eventId + '/scenario-data'}>{tr('Scénářová data', 'Scenario data')}</Link>}
             {hasPermission('registry.read', eventId) && <Link href={'/events/' + eventId + '/registry'}>{tr('Registr', 'Registry')}</Link>}
           </nav>

@@ -51,7 +51,7 @@ interface SideNavProps {
 
 export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: SideNavProps) {
   const pathname = usePathname();
-  const { isPlatformAdmin, currentUser, viewAs } = useAuth();
+  const { isPlatformAdmin, currentUser, viewAs, hasPermission } = useAuth();
   const { selectedEventId, workspace, loadingWorkspace } = useEvent();
   const { locale } = usePreferences();
   const query = useSearchParams();
@@ -170,6 +170,17 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
       { id: 'nav-service-status', label: 'Service status', href: `${root}/service-status`, iconKey: 'activity' },
       { id: 'nav-exercise-help', label: 'Help & support', href: `${root}/support`, iconKey: 'mail' },
     ] });
+  }
+  // Organizer shortcut stays available regardless of server-defined workspace sections.
+  // Never expose future scenario control to ordinary members or during view-as.
+  if (!adminMode && !viewAs && selectedEventId && hasPermission('scenario.manage', selectedEventId)) {
+    const exconHref = '/events/' + selectedEventId + '/excon';
+    if (!seen.has(exconHref)) {
+      sectionsToRender.unshift({id:'excon-control',title:'EXCON',items:[
+        {id:'nav-excon-control',label:'EXCON Control Center',href:exconHref,iconKey:'activity'},
+      ]});
+      seen.add(exconHref);
+    }
   }
   const activeHref = activeWorkspaceHref(sectionsToRender.flatMap(section => section.items.map(item => item.href)), pathname, query.toString());
   const getSectionTitle = (title: string) => workspaceLabel(locale, title);

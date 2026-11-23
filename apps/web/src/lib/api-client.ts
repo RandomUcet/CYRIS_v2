@@ -99,6 +99,7 @@ import type {
   LockEvaluationRequest,
   PublishEvaluationRequest,
   OperationalPictureResponse,
+  ExconDashboardResponse,
   CreateSitrepRequest,
   UserPreferences,
   UpdateUserPreferences,
@@ -1598,6 +1599,10 @@ export class CyrisApiClient {
   // ============================================================================
   // Notifications
   // ============================================================================
+
+  getExconDashboard(eventId:string) {
+    return this.fetchJson<ExconDashboardResponse>('/events/'+encodeURIComponent(eventId)+'/command/excon');
+  }
 
   getExerciseBroadcastPlans(eventId:string) {
     return this.fetchJson<ExerciseBroadcastPlanResponse[]>('/events/'+encodeURIComponent(eventId)+'/notifications/plans');

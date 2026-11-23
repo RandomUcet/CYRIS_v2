@@ -496,6 +496,12 @@ export default function AdminEventsPage() {
             <ArrowRight size={12} color="var(--accent-active)" />
             {t('action.enter')}
           </button>
+          {(isPlatformAdmin || hasPermission('scenario.manage', item.id)) && <button type="button" className="btn btn-secondary"
+            title={cs?'Souhrn scénáře, zpráv a účasti':'Scenario, broadcasts and participation overview'}
+            onClick={() => router.push('/events/' + item.id + '/excon')}
+            style={{fontSize:'11px',padding:'3px 7px'}}>
+            <BarChart3 size={12}/> EXCON
+          </button>}
           {(isPlatformAdmin || hasPermission('scenario.manage', item.id)) && item.status !== 'CLOSED' && item.status !== 'ARCHIVED' && <button className="btn btn-secondary"
             title={cs?'Poslat zprávu účastníkům cvičení':'Send an exercise broadcast'}
             onClick={() => router.push('/events/' + item.id + '/broadcast')}
