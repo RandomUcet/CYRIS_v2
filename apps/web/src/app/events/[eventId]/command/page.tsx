@@ -132,6 +132,10 @@ export default function CommandPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {hasPermission('scenario.manage', eventId) && <Link href={'/events/' + eventId + '/excon'}
+              className="flex items-center gap-1.5 rounded border border-sky-700 bg-sky-950 px-3 py-1.5 text-xs font-semibold text-sky-100 hover:bg-sky-900">
+              <Activity size={13}/> EXCON
+            </Link>}
             {hasPermission('scenario.manage', eventId) && <Link href={'/events/' + eventId + '/broadcast'}
               className="flex items-center gap-1.5 rounded border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:bg-slate-700">
               <Radio size={13}/>{locale==='cs'?'Zprávy účastníkům':'Exercise broadcasts'}
