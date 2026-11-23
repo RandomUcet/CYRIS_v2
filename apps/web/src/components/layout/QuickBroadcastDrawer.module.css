@@ -21,6 +21,10 @@
 .templates>span{font-size:11px;line-height:1.45;color:var(--text-secondary);font-weight:700}
 .templateActions{display:flex;flex-wrap:wrap;gap:7px}
 .templateActions button{min-height:34px;padding:6px 10px}
+.moreTemplates{padding-top:9px;border-top:1px solid var(--border-default)}
+.moreTemplates summary{font-size:12px;line-height:1.5;color:var(--text-secondary);font-weight:700;cursor:pointer}
+.moreTemplates summary:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+.moreTemplates[open] .templateActions{padding-top:10px}
 .charCounter{text-align:right;font-size:11px;color:var(--text-muted);font-weight:500}
 .audience{padding:9px 12px;border-left:3px solid var(--accent-primary);background:var(--bg-surface);border-radius:var(--radius-sm);font-size:12px;color:var(--text-secondary)}
 .warning,.error{display:flex;align-items:flex-start;gap:9px;padding:11px 12px;border:1px solid var(--status-warning);background:var(--status-warning-bg);color:var(--text-primary);font-size:12px;line-height:1.5;border-radius:var(--radius-sm);overflow-wrap:anywhere}
