@@ -29,7 +29,8 @@ export class LdapTeamsService {
         eq(organizationalUnits.eventId, eventId), isNull(organizationalUnits.archivedAt))) : null;
     const rows = await db.select({
       identityId: userIdentities.id, userId: users.id, email: users.email, displayName: users.displayName,
-      providerName: integrations.name, userStatus: users.status, platformAdmin: platformAdminGrant,
+      providerName: integrations.name, providerEnabled: integrations.enabled,
+      lastLoginAt: users.lastLoginAt, userStatus: users.status, platformAdmin: platformAdminGrant,
       otherLoginMethods: sql<boolean>`exists (
         select 1 from user_identities i where i.user_id = ${users.id} and i.id <> ${userIdentities.id}
       )`,
@@ -57,6 +58,7 @@ export class LdapTeamsService {
         const saved = LdapTeamAssignmentSchema.safeParse(row.choice);
         return {
           identityId: row.identityId, userId: row.userId, displayName: row.displayName, email: row.email, providerName: row.providerName,
+          providerEnabled: row.providerEnabled, lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
           userStatus: row.userStatus === 'DISABLED' ? 'DISABLED' : 'ACTIVE',
           platformAdmin: row.platformAdmin, otherLoginMethods: row.otherLoginMethods,
           membershipStatus: row.status === 'ACTIVE' || row.status === 'INACTIVE' ? row.status : null,
