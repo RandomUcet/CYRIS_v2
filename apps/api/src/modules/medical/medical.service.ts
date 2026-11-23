@@ -704,6 +704,9 @@ export class MedicalService {
       if (!locked || locked.eventId !== existing.eventId) {
         throw new NotFoundException('Medical encounter no longer belongs to this exercise');
       }
+      if (locked.assignedUnitId !== existing.assignedUnitId || locked.status !== existing.status) {
+        throw new ConflictException('Medical handoff was changed concurrently; refresh and retry');
+      }
       const nextUnitId = dto.receivingUnitId ?? locked.assignedUnitId;
       const teamChanged = nextUnitId !== locked.assignedUnitId;
 
