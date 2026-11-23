@@ -66,7 +66,7 @@ function AccountEditor({ account, event, actorId, busy, setBusy, onChanged }: {
       if(!result.ok || !result.data)throw new Error(result.error || tr('Změna stavu účtu selhala.','Account status change failed.'));
       setAction(null);setReason('');setEmailConfirmation('');
       onChanged(enabled ? tr('LDAP účet byl znovu aktivován.','LDAP account reactivated.')
-        : tr('LDAP účet byl deaktivován a jeho relace byly zneplatněny.','LDAP account disabled and sessions invalidated.'));
+        : tr('LDAP účet byl deaktivován. Platné relace uživateli přístup neumožní.','LDAP account disabled. Existing sessions can no longer authorize access.'));
     }catch(e){setError(e instanceof Error?e.message:tr('Změna stavu selhala.','Status change failed.'));}
     finally{setBusy(false);}
   }
