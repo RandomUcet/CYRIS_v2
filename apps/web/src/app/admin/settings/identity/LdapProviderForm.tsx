@@ -147,7 +147,13 @@ export function LdapProviderForm({ provider, onClose, onSaved }: {
             <input value={config.groupFilter ?? ''} placeholder="(|(member={dn})(memberUid={username}))" onChange={e => field('groupFilter', e.target.value)} />
           </label>
         </fieldset>
-        {rules.map(rule => <div key={rule.key} className={styles.rule}>
+        {rules.map((rule,index) => <div key={rule.key} className={styles.rule}>
+          <div className={styles.full}>
+            <strong className={styles.ruleTitle}>
+              {cs?'Pravidlo '+(index+1):'Rule '+(index+1)}
+            </strong>
+            <p>{cs?'Vyberte LDAP skupinu, cvičení a rozsah přidělení role.':'Choose the LDAP group, exercise and role scope.'}</p>
+          </div>
           <label>{cs ? 'Skupina LDAP (CN nebo DN)' : 'LDAP group (CN or DN)'}
             <input required disabled={saving} value={rule.ldapGroup} onChange={e => editRule(rule.key, { ldapGroup: e.target.value })} />
           </label>
@@ -158,6 +164,14 @@ export function LdapProviderForm({ provider, onClose, onSaved }: {
                 <option value={event.id} key={event.id}>{event.name}</option>)}
             </select>
           </label>
+          <label className={styles.check+' '+styles.full}>
+            <input type="checkbox" checked={rule.allowEventWide} disabled={saving || !rule.eventId}
+              onChange={e => editRule(rule.key, { allowEventWide:e.target.checked, unitSlug:'' })}/>
+            {cs?'Role platí pro celé cvičení (bez konkrétního týmu)':'Exercise-wide role (no specific team)'}
+          </label>
+          <p className={styles.full}>{rule.allowEventWide
+            ?(cs?'Všichni členové této LDAP skupiny získají vybranou roli v daném cvičení bez týmového omezení.':'Members of the LDAP group receive the selected exercise role without a team assignment.')
+            :(cs?'Členové této LDAP skupiny získají roli v konkrétním týmu.':'Members of the LDAP group receive the role in the selected team.')}</p>
           <ExerciseTeamRoles cs={cs} hasEvent={Boolean(rule.eventId)} valueKey="slug" catalog={catalogs[rule.eventId ?? '']}
             unit={rule.unitSlug ?? ''} role={rule.roleSlug} allowEventWide={rule.allowEventWide} retry={retry} disabled={saving}
             onUnit={unitSlug => editRule(rule.key, { unitSlug })} onRole={roleSlug => editRule(rule.key, { roleSlug })} />
