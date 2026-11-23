@@ -275,6 +275,63 @@ export class ResourceService {
   }
 
   /**
+   * Reconciles the canonical medical patient association with the active graph.
+   * This is intentionally internal, and must be called inside the medical record
+   * update transaction. It soft-removes old links, preserving audit and history.
+   */
+  async synchronizeMedicalPatientLink(params: {
+    eventId: string;
+    encounterId: string;
+    personId: string | null;
+    medicalNumber: string;
+    actorUserId: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    txClient: any;
+  }): Promise<void> {
+    const db = params.txClient;
+    if (!db) throw new BadRequestException('A medical link synchronization transaction is required');
+
+    const encounter = await this.getResource(params.encounterId, db);
+    if (!encounter || encounter.eventId !== params.eventId || encounter.resourceType !== 'medical_encounter') {
+      throw new BadRequestException('Medical encounter must belong to the requested exercise');
+    }
+    if (params.personId) {
+      const person = await this.getResource(params.personId, db);
+      if (!person || person.eventId !== params.eventId || person.resourceType !== 'person') {
+        throw new BadRequestException('Patient must belong to the same exercise');
+      }
+    }
+
+    const links = await db.select({
+      id: resourceRelationships.id,
+      sourceResourceId: resourceRelationships.sourceResourceId,
+    }).from(resourceRelationships).where(and(
+      eq(resourceRelationships.eventId, params.eventId),
+      eq(resourceRelationships.targetResourceId, params.encounterId),
+      eq(resourceRelationships.relationshipType, 'PATIENT_RECORD'),
+      isNull(resourceRelationships.removedAt),
+    ));
+
+    for (const link of links) {
+      if (link.sourceResourceId !== params.personId) {
+        await this.removeRelationshipInTransaction(link.id, params.actorUserId, db);
+      }
+    }
+
+    if (params.personId && !links.some((link: {sourceResourceId: string}) => link.sourceResourceId === params.personId)) {
+      await this.createRelationship({
+        eventId: params.eventId,
+        sourceResourceId: params.personId,
+        targetResourceId: params.encounterId,
+        relationshipType: 'PATIENT_RECORD',
+        createdByUserId: params.actorUserId,
+        metadata: { medicalNumber: params.medicalNumber },
+        txClient: db,
+      });
+    }
+  }
+
+  /**
    * Soft-removes a relationship by setting removedAt.
    * Audited, emits activity, and schedules search reindex.
    */
