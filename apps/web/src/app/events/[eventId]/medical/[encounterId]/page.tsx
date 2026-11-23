@@ -707,6 +707,29 @@ export default function MedicalDetailPage() {
                     )}
                   </div>
                 </div>
+                <section aria-label={locale === 'cs' ? 'Historie předání pacienta' : 'Patient handoff history'} className="rounded-lg border border-slate-800 bg-slate-900 p-5">
+                  <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-300">
+                    {locale === 'cs' ? 'Historie předání a převzetí' : 'Handoff and receipt history'}
+                  </h4>
+                  {encounter.timeline.filter(entry => ['medical.transferred', 'medical.transfer.received'].includes(entry.activityType)).length === 0 ? (
+                    <p className="text-sm text-slate-500">{locale === 'cs' ? 'Zatím není evidováno žádné předání.' : 'No recorded handoffs yet.'}</p>
+                  ) : (
+                    <ol className="space-y-3">
+                      {encounter.timeline
+                        .filter(entry => ['medical.transferred', 'medical.transfer.received'].includes(entry.activityType))
+                        .map(entry => (
+                          <li key={entry.id} className="flex flex-wrap items-start gap-3 border-l-2 border-slate-700 pl-3 text-sm">
+                            <time className="shrink-0 text-xs text-slate-400">{formatTime(entry.occurredAt)}</time>
+                            <span className="text-slate-200">
+                              {entry.activityType === 'medical.transfer.received'
+                                ? (locale === 'cs' ? 'Pacient převzat do aktivní péče' : 'Patient received into active care')
+                                : (locale === 'cs' ? 'Pacient předán' : 'Patient transferred')}
+                            </span>
+                          </li>
+                        ))}
+                    </ol>
+                  )}
+                </section>
               </div>
             )}
           </>
