@@ -170,11 +170,11 @@ export default function MedicalDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   useDialogAccessibility(showTriageModal || showObservationModal || showInterventionModal || showTransferModal, () => { if (!actionPending) { setShowTriageModal(false); setShowObservationModal(false); setShowInterventionModal(false); setShowTransferModal(false); setActionError(null); } });
 
-  const canTriage = hasPermission('medical.triage');
-  const canObserve = hasPermission('medical.observe');
-  const canIntervene = hasPermission('medical.intervene');
-  const canTransfer = hasPermission('medical.transfer');
-  const canClose = hasPermission('medical.close');
+  const canTriage = hasPermission('medical.triage', eventId);
+  const canObserve = hasPermission('medical.observe', eventId);
+  const canIntervene = hasPermission('medical.intervene', eventId);
+  const canTransfer = hasPermission('medical.transfer', eventId);
+  const canClose = hasPermission('medical.close', eventId);
 
   const fetchEncounter = async () => {
     setLoading(true);

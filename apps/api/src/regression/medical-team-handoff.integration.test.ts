@@ -15,6 +15,7 @@ import { AuthorizationService } from '../modules/authorization/authorization.ser
 import { ResourceAccessService } from '../modules/resources/resource-access.service.js';
 import { ResourceService } from '../modules/resources/resource.service.js';
 import { MedicalService } from '../modules/medical/medical.service.js';
+import { WorkspaceResolverService } from '../modules/events/workspace-resolver.service.js';
 import { AuditService } from '../modules/audit/audit.service.js';
 import { ActivityService } from '../modules/resources/activity.service.js';
 import { SearchIndexerService } from '../modules/search/search-indexer.service.js';
@@ -90,6 +91,16 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
     ]);
     await db.insert(resources).values({id:locationId,eventId:eventA,resourceType:'location'});
     await db.insert(locations).values({id:locationId,name:'Field clinic'});
+
+    await t.test('medical team unit-scope grants a visible medical workspace, never event-wide medical authority', async () => {
+      assert.equal(await authz.authorize({user:recipient,permission:Permissions.MEDICAL_READ,context:{eventId:eventA}}),false);
+      assert.equal(await authz.hasEventCapability({
+        user:recipient,permission:Permissions.MEDICAL_READ,eventId:eventA,resourceScopes:['OWN','ASSIGNED'],
+      }),true);
+      const workspace=await new WorkspaceResolverService(database,authz).resolveWorkspace(recipient,eventA);
+      assert(workspace.sections.some(section=>section.items.some(item=>item.href===`/events/${eventA}/medical`)));
+      await assert.rejects(new WorkspaceResolverService(database,authz).resolveWorkspace(recipient,eventB),ForbiddenException);
+    });
 
     await t.test('a single active medical membership is auto-selected without user team input', async () => {
       assert.equal(await medical.resolveIntakeUnit(eventA,actorId),medA);
