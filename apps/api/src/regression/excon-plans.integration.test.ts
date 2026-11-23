@@ -129,6 +129,31 @@ skipWithoutVerifiedDatabase('EXCON durable drafts and due-worker delivery obey r
     assert.equal((await service.list(eventId,actor)).length,4);
     await assert.rejects(service.list(eventId,{id:alpha} as any),ForbiddenException);
     assert.equal((await db.select().from(notifications).where(eq(notifications.userId,foreign))).length,0);
+
+    // A backlog from an exercise stuck in PREPARATION must not starve active
+    // exercises when the worker asks for only five due schedules per tick.
+    await db.update(events).set({status:'PREPARATION'}).where(eq(events.id,eventId));
+    const overdue=new Date(Date.now()-60_000);
+    await db.insert(exerciseBroadcastPlans).values(Array.from({length:25},(_,i)=>({
+      id:generateId(),eventId,createdByUserId:admin,
+      kind:'INFO',audience:'ALL',title:'Prepared briefing '+i,
+      message:'Waiting for exercise activation.',
+      status:'SCHEDULED',scheduledAt:overdue,
+    })));
+    const another=await service.create(otherEvent,actor,{
+      nonce:generateId(),kind:'INFO',audience:'ALL',title:'Active exercise alert',
+      message:'This exercise is already live.',
+      scheduledAt:new Date(Date.now()+3600_000).toISOString(),
+    });
+    await db.update(exerciseBroadcastPlans).set({scheduledAt:new Date(Date.now()-30_000)})
+      .where(eq(exerciseBroadcastPlans.id,another.id));
+    const activeResult=await dispatchDueExerciseBroadcasts(db,5,new Date());
+    assert.equal(activeResult.sent,1);
+    const activeReceipts=await db.select().from(notifications)
+      .where(eq(notifications.sourceEventId,'exercise.broadcast:'+another.id));
+    assert.equal(activeReceipts.length,1);
+    assert.equal(activeReceipts[0]!.userId,foreign);
+
   }finally{
     await closeDatabaseConnection();
   }

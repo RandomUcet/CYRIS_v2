@@ -19,6 +19,8 @@ test('worker retains dedicated due-time processing and operator UI allows cancel
   const ui=readFileSync(new URL('../../../web/src/app/events/[eventId]/broadcast/page.tsx',import.meta.url),'utf8');
   assert.match(worker,/dispatchDueExerciseBroadcasts/);
   assert.match(runtime,/skipLocked:true/);
+  assert.match(runtime,/exclude.*LIMIT|before.*LIMIT/i);
+  assert.match(runtime,/NOT EXISTS/);
   assert.match(runtime,/isOperationalAutoReleaseHeld/);
   assert.match(runtime,/event\?\.status==='ACTIVE'/);
   assert.match(ui,/getExerciseBroadcastPlans/);
