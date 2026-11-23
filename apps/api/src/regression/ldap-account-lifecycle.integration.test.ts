@@ -79,6 +79,8 @@ test('LDAP operator deactivate/reactivate is audited, session-safe and denies pr
       assert.equal((await directory.listAccounts(eventId,targetId+'@example.test')).accounts[0]?.userStatus,'ACTIVE');
       const global=(await directory.listAccounts(undefined,targetId+'@example.test')).accounts;
       assert.equal(global.length,1,'LDAP directory browsing does not depend on selecting a workspace');
+      assert.equal(global[0]?.providerEnabled,true,'LDAP provider availability must be visible to administrators');
+      assert.equal(global[0]?.lastLoginAt,null,'never-signed-in profiles must be distinguishable');
       assert.equal(global[0]?.membershipStatus,null,'global view does not inherit exercise membership data');
       assert.deepEqual(global[0]?.units,[]);
       assert.equal((await directory.listAccounts(undefined,targetId+'@example.test',false,undefined,2)).accounts.length,0);
