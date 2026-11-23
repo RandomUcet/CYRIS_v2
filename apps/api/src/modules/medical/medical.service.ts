@@ -4,7 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, isNull } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
@@ -26,6 +26,8 @@ import {
   organizationalUnits,
   users,
   activityEvents,
+  eventMemberships,
+  MembershipStatus,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
 import type {
@@ -43,6 +45,16 @@ import type {
   CloseMedicalEncounterRequest,
   MedicalQueryFilters,
 } from '@cyris/contracts';
+
+type MedicalLinkedReferences = {
+  personId?: string | null;
+  incidentId?: string | null;
+  locationId?: string | null;
+  assignedUnitId?: string | null;
+  assignedUserId?: string | null;
+  targetLocationId?: string | null;
+  receivingUnitId?: string | null;
+};
 
 @Injectable()
 export class MedicalService {
@@ -62,6 +74,56 @@ export class MedicalService {
   }
 
   /**
+   * Validate every patient/incident/location/team assignment against this exercise.
+   * UUID foreign keys alone do not enforce event-level isolation.
+   * Also blocks assigning an inactive or non-member operator.
+   */
+  async assertReferencesInEvent(eventId: string, refs: MedicalLinkedReferences): Promise<void> {
+    const resourceRefs = [
+      ['personId', refs.personId, 'person'],
+      ['incidentId', refs.incidentId, 'incident'],
+      ['locationId', refs.locationId, 'location'],
+      ['targetLocationId', refs.targetLocationId, 'location'],
+    ] as const;
+    for (const [field, id, type] of resourceRefs) {
+      if (id == null) continue; // Explicit null clears an existing optional association.
+      const record = await this.resourceService.getResource(id);
+      if (!record || record.eventId !== eventId || record.resourceType !== type) {
+        throw new BadRequestException(`Invalid ${field}: reference is not in this exercise`);
+      }
+    }
+
+    const unitRefs = [
+      ['assignedUnitId', refs.assignedUnitId],
+      ['receivingUnitId', refs.receivingUnitId],
+    ] as const;
+    for (const [field, id] of unitRefs) {
+      if (id == null) continue;
+      const [unit] = await this.db.select({ id: organizationalUnits.id })
+        .from(organizationalUnits)
+        .where(and(
+          eq(organizationalUnits.id, id),
+          eq(organizationalUnits.eventId, eventId),
+          isNull(organizationalUnits.archivedAt),
+        )).limit(1);
+      if (!unit) throw new BadRequestException(`Invalid ${field}: active unit is not in this exercise`);
+    }
+
+    if (refs.assignedUserId != null) {
+      const [membership] = await this.db.select({ id: eventMemberships.id })
+        .from(eventMemberships)
+        .innerJoin(users, eq(users.id, eventMemberships.userId))
+        .where(and(
+          eq(eventMemberships.eventId, eventId),
+          eq(eventMemberships.userId, refs.assignedUserId),
+          eq(eventMemberships.status, MembershipStatus.ACTIVE),
+          eq(users.status, 'ACTIVE'),
+        )).limit(1);
+      if (!membership) throw new BadRequestException('Invalid assignedUserId: user is not an active exercise member');
+    }
+  }
+
+  /**
    * Creates a new casualty encounter.
    * Default visibility is UNIT-scoped for medical confidentiality.
    */
@@ -77,6 +139,8 @@ export class MedicalService {
       });
     if (!canCreate) throw new ForbiddenException('Medical encounter creation is not authorized for this exercise');
 
+    // Reject cross-event reference IDs before allocating a MED number or writing any resource.
+    await this.assertReferencesInEvent(eventId, dto);
     const encounterId = generateId();
 
     return this.db.transaction(async (tx) => {
@@ -213,6 +277,7 @@ export class MedicalService {
       throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
     }
 
+    await this.assertReferencesInEvent(existing.eventId, dto);
     const updates: Record<string, unknown> = {
       updatedAt: new Date(),
     };
@@ -540,7 +605,13 @@ export class MedicalService {
       throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
     }
 
-    // Verify target location exists
+    // Verify that neither the destination nor the receiving team comes from another exercise.
+    await this.assertReferencesInEvent(existing.eventId, {
+      targetLocationId: dto.targetLocationId,
+      receivingUnitId: dto.receivingUnitId,
+    });
+
+    // Resolve the validated destination for the audit and handoff timeline.
     const [loc] = await this.db
       .select({ id: locations.id, name: locations.name })
       .from(locations)
