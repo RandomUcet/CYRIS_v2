@@ -22,6 +22,18 @@ export default function AdminUsersPage() {
   const cs = locale === 'cs';
   const tr = (cz: string, en: string) => cs ? cz : en;
   const [tab,setTab] = useState<'participants'|'ldap'|'admins'>('participants');
+  useEffect(()=>{
+    const requested=new URLSearchParams(window.location.search).get('tab');
+    if(requested==='participants'||(isPlatformAdmin&&(requested==='ldap'||requested==='admins'))){
+      setTab(requested);
+    }
+  },[isPlatformAdmin]);
+  function switchTab(next:'participants'|'ldap'|'admins') {
+    setTab(next);
+    const url=new URL(window.location.href);
+    url.searchParams.set('tab',next);
+    window.history.replaceState(null,'',url.pathname+url.search);
+  }
   const [target, setTarget] = useState<MembershipResponse | null>(null);
   const [reason, setReason] = useState('');
   const [memberships, setMemberships] = useState<MembershipResponse[]>([]);
@@ -179,11 +191,11 @@ export default function AdminUsersPage() {
       </header>
       <nav className="access-workspace-tabs" aria-label={cs ? 'Sekce správy uživatelů' : 'User management sections'}>
         <button type="button" aria-current={tab==='participants'?'page':undefined} data-active={tab==='participants'}
-          onClick={()=>setTab('participants')}>{cs?'Účastníci cvičení':'Exercise participants'}</button>
+          onClick={()=>switchTab('participants')}>{cs?'Účastníci cvičení':'Exercise participants'}</button>
         {isPlatformAdmin&&<button type="button" aria-current={tab==='ldap'?'page':undefined} data-active={tab==='ldap'}
-          onClick={()=>setTab('ldap')}>{cs?'LDAP účty':'LDAP accounts'}</button>}
+          onClick={()=>switchTab('ldap')}>{cs?'LDAP účty':'LDAP accounts'}</button>}
         {isPlatformAdmin&&<button type="button" aria-current={tab==='admins'?'page':undefined} data-active={tab==='admins'}
-          onClick={()=>setTab('admins')}>{cs?'Správci a náhled':'Administrators & preview'}</button>}
+          onClick={()=>switchTab('admins')}>{cs?'Správci a náhled':'Administrators & preview'}</button>}
       </nav>
       <div className="roster-toolbar">
         <label className="roster-event-label">{cs ? 'Cvičení' : 'Exercise'}
