@@ -21,8 +21,8 @@ export const AuditEventItemSchema = z.object({
 export type AuditEventItem = z.infer<typeof AuditEventItemSchema>;
 
 export const AuditQueryFiltersSchema = z.object({
-  page: z.coerce.number().min(1).default(1).optional(),
-  limit: z.coerce.number().min(1).max(100).default(20).optional(),
+  page: z.coerce.number().int().min(1).max(100000).default(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(20).optional(),
   eventId: z.string().uuid().optional(),
   actorUserId: z.string().uuid().optional(),
   action: z.string().optional(),
