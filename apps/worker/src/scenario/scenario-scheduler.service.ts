@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { getDbClient, reconcileScenario, reconcileScenarioInject, releaseScenarioInject, isOperationalAutoReleaseHeld, type CyrisDatabase } from '@cyris/db';
+import { getDbClient, reconcileScenario, reconcileScenarioInject, releaseScenarioInject, isOperationalAutoReleaseHeld, dispatchDueExerciseBroadcasts, type CyrisDatabase } from '@cyris/db';
 import { loadConfig } from '@cyris/config';
 
 @Injectable()
@@ -14,7 +14,12 @@ export class ScenarioSchedulerWorkerService {
     this.isProcessing = true;
     try { await this.evaluateAllBlockedInjects(); }
     catch (error) { this.logger.error(`Scenario scheduler failed: ${(error as Error).message}`); }
-    finally { this.isProcessing = false; }
+    try {
+      const result=await dispatchDueExerciseBroadcasts(this.db);
+      if(result.sent||result.failed) this.logger.log(`EXCON scheduled announcements sent=${result.sent} failed=${result.failed}`);
+    } catch (error) {
+      this.logger.error(`EXCON broadcast dispatch failed: ${(error as Error).message}`);
+    } finally { this.isProcessing = false; }
   }
   async executeRelease(eventId: string, injectId: string): Promise<void> {
     if (await isOperationalAutoReleaseHeld(this.db, eventId)) return;
