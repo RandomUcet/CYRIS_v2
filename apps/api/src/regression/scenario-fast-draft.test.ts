@@ -48,4 +48,7 @@ test('fast strategy is explicit in UI and the backend uses one bounded AI reques
   assert.match(page, /setSparkStrategy/);
   assert.match(page, /strategy: sparkStrategy/);
   assert.match(page, /value="DETAILED"/);
+  assert.match(page, /estimatedDetailedRequests/);
+  assert.match(page, /Math\.ceil\(targetCounts\[kind\] \/ 12\)/);
+  assert.match(page, /sparkStrategy === 'DETAILED' && !window\.confirm/);
 });
