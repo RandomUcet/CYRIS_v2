@@ -121,13 +121,16 @@ export default function IdentitySettingsPage() {
     e.preventDefault();
     if(submitting||providerBusy)return;
     setSubmitting(true);setFeedback(null);
+    const previousConfig=editingOidc?.config as Partial<OidcConfig> | undefined;
     const config: OidcConfig = {
       displayName: oidcName.trim(),
       issuerUrl: oidcIssuer.trim(),
       clientId: oidcClientId.trim(),
-      scopes: ['openid', 'profile', 'email'],
-      allowedEmailDomains: [],
-      claimMappings: { email: 'email', displayName: 'name', subject: 'sub' },
+      // These settings are currently not edited in the compact form. Keep
+      // them intact when updating an existing provider.
+      scopes: previousConfig?.scopes ?? ['openid', 'profile', 'email'],
+      allowedEmailDomains: previousConfig?.allowedEmailDomains ?? [],
+      claimMappings: previousConfig?.claimMappings ?? { email: 'email', displayName: 'name', subject: 'sub' },
       jitEnabled: oidcJit,
     };
 
