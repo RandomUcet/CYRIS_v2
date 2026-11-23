@@ -260,6 +260,19 @@ export default function AdminAuditPage() {
                 onRowClick={(item) => setSelectedEntry(item)}
               />
             )}
+            {!loading&&!error&&total>100&&<nav aria-label={tr('Stránkování auditních záznamů','Audit pagination')}
+              style={{display:'flex',gap:12,alignItems:'center',justifyContent:'center',
+                padding:'14px 20px',borderTop:'1px solid var(--border-default)',flexWrap:'wrap'}}>
+              <button type="button" className="btn btn-secondary" disabled={page<=1}
+                onClick={()=>{setSelectedEntry(null);setPage(value=>Math.max(1,value-1));}}>
+                {tr('Předchozí','Previous')}</button>
+              <span style={{fontSize:'12px',color:'var(--text-secondary)'}}>
+                {tr('Strana','Page')} {page} / {Math.max(1,Math.ceil(total/100))}
+              </span>
+              <button type="button" className="btn btn-secondary" disabled={page>=Math.ceil(total/100)}
+                onClick={()=>{setSelectedEntry(null);setPage(value=>value+1);}}>
+                {tr('Další','Next')}</button>
+            </nav>}
           </div>
 
           {/* Right Inspector: Audit Event Payload Inspector */}
