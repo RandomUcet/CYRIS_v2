@@ -629,10 +629,13 @@ export class CyrisApiClient {
   }
 
   // Administration
-  async getAudit(filters?: { limit?: number; offset?: number; eventId?: string; action?: string; category?: string }) {
+  async getAudit(filters?: { limit?: number; page?: number; offset?: number; eventId?: string; action?: string; category?: string; resourceId?: string }) {
     const params = new URLSearchParams();
     if (filters?.limit) params.set('limit', String(filters.limit));
-    if (filters?.offset) params.set('offset', String(filters.offset));
+    // API paging is 1-based; keep legacy offset callers mapped to a page.
+    if (filters?.page) params.set('page', String(filters.page));
+    else if (filters?.offset) params.set('page', String(Math.floor(filters.offset / (filters.limit ?? 20)) + 1));
+    if (filters?.resourceId) params.set('resourceId', filters.resourceId);
     if (filters?.eventId) params.set('eventId', filters.eventId);
     if (filters?.action) params.set('action', filters.action);
     if (filters?.category) params.set('category', filters.category);
