@@ -340,6 +340,7 @@ export class MedicalService {
     if (dto.disposition !== undefined) updates.disposition = dto.disposition;
     if (dto.assignedUnitId !== undefined) updates.assignedUnitId = dto.assignedUnitId;
     if (dto.assignedUserId !== undefined) updates.assignedUserId = dto.assignedUserId;
+    else if (isTeamChange) updates.assignedUserId = null;
 
     // Lock this encounter so concurrent patient changes cannot leave stale active links.
     // The record, graph history, audit entries and search outbox commit together.
