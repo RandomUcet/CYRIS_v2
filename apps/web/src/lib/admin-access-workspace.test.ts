@@ -33,7 +33,7 @@ test('admin access UI exposes distinct tabs and LDAP lifecycle actions',()=>{
   const directory=readFileSync(new URL('../components/admin/LdapTeamAssignments.tsx',import.meta.url),'utf8');
   for(const tab of ['participants','ldap','admins'])assert.ok(page.includes("tab==='"+tab+"'"));
   for(const name of ['setLdapAccountEnabled','listLdapTeamAccounts','ldapAccountAction',
-    'isLdapStatusConfirmationValid','onClick={()=>setAction(lifecycle)'])assert.ok(directory.includes(name),name);
+    'isLdapStatusConfirmationValid','onClick={()=>{setAction(lifecycle)'])assert.ok(directory.includes(name),name);
   assert.ok(directory.includes("setStatus(e.target.value as StatusFilter)"));
   assert.ok(directory.includes("account.userStatus==='ACTIVE'"));
 });
