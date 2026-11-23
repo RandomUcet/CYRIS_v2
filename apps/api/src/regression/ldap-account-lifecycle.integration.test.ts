@@ -6,7 +6,7 @@ import { Reflector } from '@nestjs/core';
 import { eq } from 'drizzle-orm';
 import { auditEvents, closeDatabaseConnection, events, getDbClient, integrations, roleAssignments,
   rolePermissions, roles, userIdentities, users } from '@cyris/db';
-import { LdapAccountStatusChangeSchema, LdapTeamAccountQuerySchema } from '@cyris/contracts';
+import { AuditQueryFiltersSchema, LdapAccountStatusChangeSchema, LdapTeamAccountQuerySchema } from '@cyris/contracts';
 import { generateId, Permissions } from '@cyris/shared';
 import { AuditService } from '../modules/audit/audit.service.js';
 import { AuthorizationService } from '../modules/authorization/authorization.service.js';
@@ -32,6 +32,13 @@ test('global LDAP list accepts no exercise but still validates assignment filter
   assert.equal(LdapTeamAccountQuerySchema.safeParse({page:'0'}).success,false);
   assert.equal(LdapTeamAccountQuerySchema.safeParse({page:'1001'}).success,false);
   assert.equal(LdapTeamAccountQuerySchema.safeParse({}).data?.page,1);
+});
+
+test('audit query bounds server search and keeps filters explicitly scoped',()=>{
+  assert.equal(AuditQueryFiltersSchema.safeParse({q:' LDAP ',page:'2'}).data?.q,'LDAP');
+  assert.equal(AuditQueryFiltersSchema.safeParse({q:'z'.repeat(161)}).success,false);
+  assert.equal(AuditQueryFiltersSchema.safeParse({q:'z'.repeat(160)}).success,true);
+  assert.equal(AuditQueryFiltersSchema.safeParse({resourceId:'user-id',q:'identity'}).success,true);
 });
 
 const url=requireVerifiedIsolatedDatabase();
