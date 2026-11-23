@@ -25,4 +25,9 @@ test('global EXCON drawer is body-portalled, guards incomplete messages and expo
   assert.ok(code.includes('onClick={()=>applyTemplate(template)}'));
   assert.ok(code.includes('window.confirm(tr('));
   assert.ok(code.includes("step!=='REVIEW'"));
+  assert.ok(code.includes('const latest=await apiClient.previewExerciseBroadcastAudience(eventId,'));
+  assert.ok(code.includes('if(latest.data.eligible!==eligible)'));
+  assert.ok(code.includes('setPreview({key:scopeKey,eligible:latest.data.eligible})'));
+  assert.ok(code.includes("sendNonce.current??=crypto.randomUUID()"));
+  assert.ok(code.includes("kindLabels[kind]"),'confirm screen must use readable message kinds');
 });
