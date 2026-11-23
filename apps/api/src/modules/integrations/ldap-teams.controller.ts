@@ -19,8 +19,8 @@ export class LdapTeamsController {
   list(@Query() query: unknown) {
     const parsed = LdapTeamAccountQuerySchema.safeParse(query);
     if (!parsed.success) throw new BadRequestException('Vyberte cvičení a zadejte platné vyhledávání.');
-    const { eventId, q, unassigned, status } = parsed.data;
-    return this.teams.listAccounts(eventId, q, unassigned === 'true', status);
+    const { eventId, q, unassigned, status, page } = parsed.data;
+    return this.teams.listAccounts(eventId, q, unassigned === 'true', status, page);
   }
 
   @Patch(':identityId/status')
