@@ -107,3 +107,34 @@ export const ExerciseBroadcastHistorySchema = z.array(z.object({
   sentAt: z.string(),
 }));
 export type ExerciseBroadcastHistory = z.infer<typeof ExerciseBroadcastHistorySchema>;
+
+/** Persisted organizer-only plans (draft, scheduled, delivered or cancelled). */
+export const ExerciseBroadcastPlanStatusSchema = z.enum(['DRAFT','SCHEDULED','SENT','CANCELLED','FAILED']);
+export const ExerciseBroadcastPlanInputSchema = ExerciseBroadcastRequestSchema.and(z.object({
+  scheduledAt: z.string().datetime({offset:true}).optional(),
+}));
+export type ExerciseBroadcastPlanInput = z.infer<typeof ExerciseBroadcastPlanInputSchema>;
+export const ExerciseBroadcastPlanRevisionSchema = ExerciseBroadcastRequestSchema.and(z.object({
+  revision: z.number().int().positive(),
+}));
+export type ExerciseBroadcastPlanRevision = z.infer<typeof ExerciseBroadcastPlanRevisionSchema>;
+export const ExerciseBroadcastPlanTransitionSchema = z.object({
+  revision: z.number().int().positive(),
+  scheduledAt: z.string().datetime({offset:true}).optional(),
+});
+export type ExerciseBroadcastPlanTransition = z.infer<typeof ExerciseBroadcastPlanTransitionSchema>;
+export const ExerciseBroadcastPlanResponseSchema = z.object({
+  id:z.string().uuid(), eventId:z.string().uuid(),
+  kind:ExerciseBroadcastKindSchema,
+  audience:z.enum(['ALL','UNIT']),
+  unitId:z.string().uuid().nullable(),
+  title:z.string(),message:z.string(),
+  status:ExerciseBroadcastPlanStatusSchema,
+  scheduledAt:z.string().nullable(),
+  sentAt:z.string().nullable(),
+  deliveredCount:z.number().int().nonnegative(),
+  revision:z.number().int().positive(),
+  failureCode:z.string().nullable(),
+  createdAt:z.string(),updatedAt:z.string(),
+});
+export type ExerciseBroadcastPlanResponse = z.infer<typeof ExerciseBroadcastPlanResponseSchema>;
