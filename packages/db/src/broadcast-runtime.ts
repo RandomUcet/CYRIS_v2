@@ -105,8 +105,8 @@ export async function dispatchDueExerciseBroadcasts(db:CyrisDatabase,limit=20,no
           AND held.target_type='EVENT'
           AND held.module IN ('ALL','scenario','briefings')
           AND held.restored_at IS NULL
-          AND held.starts_at <= ${now}
-          AND (held.expires_at IS NULL OR held.expires_at > ${now})
+          AND held.starts_at <= ${now.toISOString()}::timestamptz
+          AND (held.expires_at IS NULL OR held.expires_at > ${now.toISOString()}::timestamptz)
       ))`))
     .orderBy(asc(exerciseBroadcastPlans.scheduledAt)).limit(Math.min(50,Math.max(1,limit)));
   const result={sent:0,failed:0,deferred:0};
