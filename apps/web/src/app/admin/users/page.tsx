@@ -21,6 +21,7 @@ export default function AdminUsersPage() {
   const { formatDate, locale } = usePreferences();
   const cs = locale === 'cs';
   const tr = (cz: string, en: string) => cs ? cz : en;
+  const [tab,setTab] = useState<'participants'|'ldap'|'admins'>('participants');
   const [target, setTarget] = useState<MembershipResponse | null>(null);
   const [reason, setReason] = useState('');
   const [memberships, setMemberships] = useState<MembershipResponse[]>([]);
@@ -133,8 +134,20 @@ export default function AdminUsersPage() {
 
   return <AppShell title={cs ? 'Uživatelé a přístupy' : 'Users & access'} breadcrumbs={[{ label: 'Administration' }, { label: 'Users & Access' }]}>
     <div className="roster-page">
-      {isPlatformAdmin && currentUser && <PlatformAdministrators actorId={currentUser.user.id} onChanged={() => setRevision(value => value + 1)} />}
-      {isPlatformAdmin && <TeamPreviewAccess />}
+      <header className="access-workspace-header">
+        <div><h2>{cs ? 'Správa přístupu' : 'Access management'}</h2>
+          <p>{cs ? 'Oddělená správa účastníků cvičení, LDAP identit a správců platformy.'
+            : 'Separate exercise memberships, LDAP identities and platform administrators.'}</p>
+        </div>
+      </header>
+      <nav className="access-workspace-tabs" aria-label={cs ? 'Sekce správy uživatelů' : 'User management sections'}>
+        <button type="button" aria-current={tab==='participants'?'page':undefined} data-active={tab==='participants'}
+          onClick={()=>setTab('participants')}>{cs?'Účastníci cvičení':'Exercise participants'}</button>
+        {isPlatformAdmin&&<button type="button" aria-current={tab==='ldap'?'page':undefined} data-active={tab==='ldap'}
+          onClick={()=>setTab('ldap')}>{cs?'LDAP účty':'LDAP accounts'}</button>}
+        {isPlatformAdmin&&<button type="button" aria-current={tab==='admins'?'page':undefined} data-active={tab==='admins'}
+          onClick={()=>setTab('admins')}>{cs?'Správci a náhled':'Administrators & preview'}</button>}
+      </nav>
       <div className="roster-toolbar">
         <label className="roster-event-label">{cs ? 'Cvičení' : 'Exercise'}
           <select aria-label={cs ? 'Vybrat cvičení' : 'Select exercise'} value={currentEvent?.id ?? ''} onChange={(event) => selectEvent(event.target.value)} disabled={loadingEvents || Boolean(starting || activating)}>
@@ -142,18 +155,24 @@ export default function AdminUsersPage() {
             {events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
           </select>
         </label>
-        <label className="roster-search"><Search size={16} aria-hidden="true" /><input aria-label={cs ? 'Hledat účastníka, tým nebo roli' : 'Search participant, team or role'} placeholder={cs ? 'Jméno, e-mail, tým nebo role…' : 'Name, email, team or role…'} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        {tab==='participants'&&<><label className="roster-search"><Search size={16} aria-hidden="true" /><input aria-label={cs ? 'Hledat účastníka, tým nebo roli' : 'Search participant, team or role'} placeholder={cs ? 'Jméno, e-mail, tým nebo role…' : 'Name, email, team or role…'} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         <select aria-label={cs ? 'Filtrovat podle stavu' : 'Filter by status'} value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="ALL">{cs ? 'Všechny stavy' : 'All statuses'}</option><option value="ACTIVE">{cs ? 'Aktivní' : 'Active'}</option><option value="INACTIVE">{cs ? 'Neaktivní' : 'Inactive'}</option>
         </select>
-        <button type="button" className="btn btn-secondary" disabled={loading || !currentEvent} onClick={() => setRevision((value) => value + 1)}><RefreshCw size={14} />{cs ? 'Obnovit' : 'Refresh'}</button>
+        <button type="button" className="btn btn-secondary" disabled={loading || !currentEvent} onClick={() => setRevision((value) => value + 1)}><RefreshCw size={14} />{cs ? 'Obnovit' : 'Refresh'}</button></>}
       </div>
-      {isPlatformAdmin && currentEvent && <LdapTeamAssignments key={currentEvent.id} event={currentEvent} onChanged={() => setRevision(value => value + 1)} />}
-      {actionError && <div role="alert" className="roster-action-error">{actionError}</div>}
+      {isPlatformAdmin && tab==='ldap' && currentEvent && <LdapTeamAssignments key={currentEvent.id} event={currentEvent} onChanged={() => setRevision(value => value + 1)} />}
+      {isPlatformAdmin && tab==='ldap' && !currentEvent && <EmptyState icon={<Users size={28}/>}
+        title={cs?'Vyberte cvičení':'Select an exercise'} description={cs?'Vyberte cvičení, ve kterém chcete spravovat zařazení LDAP účtů.':'Select an exercise to manage LDAP team assignments.'}/>}
+      {isPlatformAdmin && tab==='admins' && currentUser && <>
+        <PlatformAdministrators actorId={currentUser.user.id} onChanged={() => setRevision(value => value + 1)}/>
+        <TeamPreviewAccess />
+      </>}
+      {tab==='participants'&&<>{actionError && <div role="alert" className="roster-action-error">{actionError}</div>}
       {loading || loadingEvents ? <LoadingState /> : !currentEvent ? <EmptyState icon={<Users size={28} />} title={cs ? 'Vyber cvičení' : 'Select an exercise'} description={cs ? 'Zobrazí se jeho účastníci, týmy a přidělené role.' : 'See its participants, teams and assigned roles.'} /> : error ? <ErrorState message={error} onRetry={() => setRevision((value) => value + 1)} /> : <>
         <p className="roster-caption">{visible.length} / {memberships.length} {cs ? 'účastníků' : 'participants'} · {currentEvent.name}</p>
         <DataTable columns={columns} data={visible} keyField="id" emptyTitle={cs ? 'Žádní účastníci' : 'No participants'} emptyDescription={query || status !== 'ALL' ? (cs ? 'Zkus změnit hledání nebo filtr.' : 'Try a different search or filter.') : (cs ? 'V tomto cvičení zatím není žádný účastník.' : 'This exercise has no participants yet.')} />
-      </>}
+      </>}</>}
     </div>
     {target&&<div className="preview-dialog-backdrop" onClick={()=>{if(!starting)setTarget(null);}}><form className="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title" onSubmit={e => { e.preventDefault(); void startPreview(target); }} onClick={e=>e.stopPropagation()}>
        <Shield size={23}/><h2 id="preview-title">{tr('Náhled účastníka','Participant preview')}</h2>
