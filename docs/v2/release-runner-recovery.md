@@ -88,7 +88,7 @@ nepřepínat branch protection a nezveřejňovat neověřené artefakty.
 
    ```bash
    sudo cyrisctl self-update
-   sudo cyrisctl github verify
+   sudo cyrisctl github verify --version v2.4.12
    sudo cyrisctl versions
    sudo cyrisctl update --version v2.4.12
    sudo cyrisctl status
