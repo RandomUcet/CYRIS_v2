@@ -89,6 +89,8 @@ export function LdapProviderForm({ provider, onClose, onSaved }: {
       const result = await apiClient.saveLdapProvider({ id: provider?.id, name: payload.displayName, config: payload, bindPassword: password || undefined });
       if (result.ok) onSaved();
       else setError(result.error || (cs ? 'Uložení poskytovatele selhalo.' : 'Could not save provider.'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : (cs ? 'Spojení není dostupné.' : 'Connection unavailable.'));
     } finally { setSaving(false); }
   }
 
