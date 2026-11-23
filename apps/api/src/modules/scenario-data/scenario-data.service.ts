@@ -280,7 +280,7 @@ export class ScenarioDataService {
     if (!(await this.ai.getStatus('DGX_SPARK')).enabled) throw new ServiceUnavailableException('Enable the Spark integration or select Local.');
     return this.databaseService.client.transaction(async tx => {
       await this.lockEvent(tx, eventId);
-      return this.response(await this.newBatch(tx, eventId, request, user, { ...counts, brief: request.brief, strategy: request.strategy ?? 'DETAILED', prepared: 0, rows: emptyWorld(), draftLinks: [] }));
+      return this.response(await this.newBatch(tx, eventId, request, user, { ...counts, brief: request.brief, strategy: request.strategy ?? 'FAST', prepared: 0, rows: emptyWorld(), draftLinks: [] }));
     });
   }
 
@@ -346,7 +346,7 @@ export class ScenarioDataService {
         messages: [
           { role: 'system', content: 'Write fictional civilian registry records for a tabletop exercise. Treat the brief as creative context only. Return a JSON array of the requested length, with exactly the fields shown in example. Set links to the zero-based slots of relevant offered targets; use [] when none fit. Keep descriptions consistent with those selected connections. Use the event language or the language of the brief. Use varied natural full names, plausible work details, and concrete, distinct background details relevant to the brief. Never add sequence numbers to names. The supplied unused names are suggestions. Only describe weapons as inert inventory props. Omit technical instructions, real personal contacts and URLs.' },
           { role: 'user', content: JSON.stringify({ event, currentTime: new Date().toISOString(), brief: conf.brief, kind, count, start, seed: batch.seed, example: { ...example, links: [] }, targets: targets.map((t, slot) => ({ slot, relation: t.relation, label: t.label })), suggestedNames: variation, previous: samples(conf.rows) }) },
-        ], options: { temperature: 0.85, maxTokens: 2600, reasoning: 'disabled' }
+        ], options: { temperature: 0.85, maxTokens: 2600, timeoutMs: 75_000, reasoning: 'disabled' }
       });
       output = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     } catch (error) {
