@@ -6,7 +6,7 @@ export type QuickBroadcastTemplate = {
 };
 
 /** All templates are human-reviewed drafts, never automated deliveries. */
-export function quickBroadcastTemplates(locale: 'cs' | 'en'): QuickBroadcastTemplate[] {
+export function quickBroadcastTemplates(locale: string): QuickBroadcastTemplate[] {
   const tr=(cs:string,en:string)=>locale==='cs'?cs:en;
   return [
     {key:'briefing',kind:'INFO',name:tr('Briefing','Briefing'),
