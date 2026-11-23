@@ -284,7 +284,7 @@ export function LdapTeamAssignments({event,onChanged}: {event?:EventResponse;onC
           <span role="status">{tr('Strana','Page')} {page}</span>
           <button type="button" className={styles.secondaryButton} disabled={loading||saving||!hasMore}
             onClick={()=>setPage(p=>Math.min(1000,p+1))}>{tr('Další','Next')}</button>
-        </div>
+        </div>}
       </div>
       <div className={styles.detailColumn}>
         {account?<AccountEditor key={account.identityId+':'+account.userStatus+':'+JSON.stringify(account.assignment)}
