@@ -20,6 +20,7 @@ export const LdapTeamAccountQuerySchema = z.object({
   eventId: z.string().uuid(),
   q: z.string().trim().max(160).optional(),
   unassigned: z.enum(['true', 'false']).optional(),
+  status: z.enum(['ACTIVE', 'DISABLED']).optional(),
 });
 
 export interface LdapTeamAccount {
