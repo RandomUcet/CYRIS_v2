@@ -63,6 +63,16 @@ Servisní účet musí mít přístup ke všem třem balíčkům; klasický PAT 
 expiraci tokenu. Při chybě se release nezmění a databáze se nemigruje.
 Neřeš 403 změnou SHA nebo vypnutím kontroly manifestu.
 
+## Když GitHub Actions neprovede build
+
+Pokud CI na pull requestu skončí s `runner_id=0`, bez kroků a bez logů,
+nejde o výsledek testování CYRIS. Přesný postup diagnostiky, opravy
+GitHub Actions účtu a možnosti izolovaného vlastního runneru je v
+[obnovení vydávání](../docs/v2/release-runner-recovery.md).
+Na Macu lze bez změny serveru spustit
+`node scripts/release-doctor.mjs --run CISLO_BĚHU`.
+Vydání nesmí přeskočit build, testy, ověření GHCR digestů ani obnovu zálohy.
+
 ## Vydání a aktualizace
 
 Vývoj a kontrola změn probíhají v pull requestech do main. Vydání vzniká změnou
