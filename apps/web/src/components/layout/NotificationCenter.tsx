@@ -14,7 +14,11 @@ import type {NotificationView} from '@/lib/notification-navigation';
 export function NotificationCenter(){
   const {t,formatTime}=usePreferences();
   const {selectedEvent}=useEvent();
-  const {viewAs}=useAuth();
+  const {viewAs,user}=useAuth();
+  // Never display cached receipts after a user, exercise or preview switch.
+  const scopeKey=[user?.user.id??'',selectedEvent?.id??'',viewAs?.id??''].join(':');
+  const scopeRef=useRef(scopeKey);
+  scopeRef.current=scopeKey;
   const hostRef=useRef<HTMLDivElement>(null);
   const triggerRef=useRef<HTMLButtonElement>(null);
   const requestRef=useRef(0);
@@ -24,6 +28,7 @@ export function NotificationCenter(){
   const panelId=useId();
   const [open,setOpen]=useState(false);
   const [data,setData]=useState<NotificationListResponse>({unreadCount:0,newItems:[],earlierItems:[]});
+  const [dataScope,setDataScope]=useState(scopeKey);
   const [loading,setLoading]=useState(true);
   const [loadError,setLoadError]=useState(false);
   const [actionError,setActionError]=useState(false);
@@ -36,19 +41,21 @@ export function NotificationCenter(){
     const request=++requestRef.current;
     try{
       const res=await apiClient.getNotifications(eventId);
-      if(request!==requestRef.current || currentEventRef.current!==eventId)return;
+      if(request!==requestRef.current || currentEventRef.current!==eventId || scopeRef.current!==scopeKey)return;
       if(!res.ok || !res.data)throw new Error(res.error || 'Notification retrieval failed');
       setData(res.data);
+      setDataScope(scopeKey);
       setLoadError(false);
     }catch{
-      if(request===requestRef.current && currentEventRef.current===eventId)setLoadError(true);
+      if(request===requestRef.current && currentEventRef.current===eventId && scopeRef.current===scopeKey)setLoadError(true);
     }finally{
-      if(request===requestRef.current && currentEventRef.current===eventId)setLoading(false);
+      if(request===requestRef.current && currentEventRef.current===eventId && scopeRef.current===scopeKey)setLoading(false);
     }
-  },[selectedEvent?.id]);
+  },[selectedEvent?.id,scopeKey]);
 
   useEffect(()=>{
     setData({unreadCount:0,newItems:[],earlierItems:[]});
+    setDataScope(scopeKey);
     setLoading(true);
     setLoadError(false);
     setActionError(false);
@@ -146,9 +153,10 @@ export function NotificationCenter(){
     </li>;
   }
 
-  const shownNew=selectNotificationItems(data.newItems,view,query,itemTitle);
-  const shownEarlier=selectNotificationItems(data.earlierItems,view,query,itemTitle);
-  const hasItems=data.newItems.length>0||data.earlierItems.length>0;
+  const visibleData=dataScope===scopeKey?data:{unreadCount:0,newItems:[],earlierItems:[]};
+  const shownNew=selectNotificationItems(visibleData.newItems,view,query,itemTitle);
+  const shownEarlier=selectNotificationItems(visibleData.earlierItems,view,query,itemTitle);
+  const hasItems=visibleData.newItems.length>0||visibleData.earlierItems.length>0;
   const noMatches=shownNew.length===0&&shownEarlier.length===0;
 
   return <div className={styles.host} ref={hostRef}>
@@ -157,15 +165,15 @@ export function NotificationCenter(){
       aria-expanded={open} aria-haspopup="dialog" aria-controls={open?panelId:undefined}
       onClick={()=>setOpen(v=>!v)}>
       <Bell size={16} aria-hidden="true"/>
-      {data.unreadCount>0&&<span className={styles.counter} aria-label={String(data.unreadCount)}>
-        {data.unreadCount>99?'99+':data.unreadCount}
+      {visibleData.unreadCount>0&&<span className={styles.counter} aria-label={String(visibleData.unreadCount)}>
+        {visibleData.unreadCount>99?'99+':visibleData.unreadCount}
       </span>}
     </button>
     {open&&<section id={panelId} className={styles.panel} role="dialog" aria-modal="false" aria-labelledby={titleId}>
       <header className={styles.header}>
         <h2 id={titleId}>{t('notification.title')}</h2>
         <div className={styles.headerActions}>
-          {data.unreadCount>0&&!isReadOnly&&<button type="button" className={styles.markAll}
+          {visibleData.unreadCount>0&&!isReadOnly&&<button type="button" className={styles.markAll}
             disabled={busy||loading} onClick={()=>void mutate('all',()=>apiClient.markAllNotificationsRead(selectedEvent?.id))}>
             <CheckCheck size={15} aria-hidden="true"/>
             <span>{t('action.markAllRead')}</span>
@@ -198,7 +206,7 @@ export function NotificationCenter(){
           ] as const).map(([key,label])=><button key={key} type="button"
             className={styles.filterButton} aria-pressed={view===key}
             data-active={view===key} onClick={()=>setView(key)}>
-            {t(label)}{key==='UNREAD'&&data.unreadCount>0?' ('+data.unreadCount+')':''}
+            {t(label)}{key==='UNREAD'&&visibleData.unreadCount>0?' ('+visibleData.unreadCount+')':''}
           </button>)}
         </div>
         <input type="search" className={styles.search} value={query}
