@@ -2174,3 +2174,13 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
     color: black !important; min-height: 0 !important;
   }
 }
+
+/* Compact user management tabs: participants, directory accounts and administrators. */
+.access-workspace-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.access-workspace-header h2{font-size:18px;font-weight:750;line-height:1.35;margin:0 0 4px}
+.access-workspace-header p{color:var(--text-secondary);font-size:13px;line-height:1.5;margin:0}
+.access-workspace-tabs{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:4px;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:var(--radius-sm)}
+.access-workspace-tabs button{background:transparent;color:var(--text-secondary);border:1px solid transparent;border-radius:var(--radius-sm);font:inherit;font-size:13px;font-weight:650;padding:9px 13px;min-height:38px;cursor:pointer}
+.access-workspace-tabs button[data-active=true]{background:var(--bg-panel);color:var(--text-primary);border-color:var(--border-strong);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.access-workspace-tabs button:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+@media(max-width:620px){.access-workspace-tabs button{flex:1 1 auto}.roster-page{min-width:0}.roster-toolbar{align-items:stretch}}
