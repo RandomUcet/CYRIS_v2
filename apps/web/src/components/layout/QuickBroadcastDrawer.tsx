@@ -11,6 +11,7 @@ import { usePreferences } from '@/contexts/PreferencesContext';
 import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { apiClient } from '@/lib/api-client';
 import { broadcastComposerControls } from '@/lib/broadcast-composer';
+import { containsUnfilledBroadcastTemplate } from '@/lib/quick-broadcast-validation';
 import styles from './QuickBroadcastDrawer.module.css';
 
 type Kind = ExerciseBroadcastRequest['kind'];
@@ -74,7 +75,8 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
     planBusy:busy,editingDraft:false,eligible,audience,unitId,title,message,
   });
   const canSaveDraft=Boolean(event)&&ready.canSave;
-  const canSendNow=Boolean(event)&&ready.canSendNow;
+  const hasPlaceholders=containsUnfilledBroadcastTemplate(title+' '+message);
+  const canSendNow=Boolean(event)&&ready.canSendNow&&!hasPlaceholders;
 
   function reset() {
     setKind('INFO');setAudience('ALL');setUnitId('');setTitle('');setMessage('');
@@ -284,6 +286,10 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
                     'Clear instructions or operational information for participants…')}/>
                 <span className={styles.charCounter}>{message.length}/900</span>
               </label>
+              {hasPlaceholders&&<p className={styles.warning} role="status"><AlertTriangle size={16}/>
+                {tr('Před odesláním nahraďte všechny údaje označené [DOPLŇTE]. Koncept lze uložit i nedokončený.',
+                  'Replace all [FILL IN] fields before sending. Incomplete templates may still be saved as drafts.')}
+              </p>}
               <div className={styles.aiArea}>
                 <button className={styles.secondary} type="button" disabled={!message.trim()||aiBusy||busy}
                   onClick={()=>void improveWithAI()}><Sparkles size={15}/>{aiBusy
