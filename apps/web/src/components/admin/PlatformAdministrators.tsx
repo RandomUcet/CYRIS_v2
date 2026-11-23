@@ -23,14 +23,22 @@ export function PlatformAdministrators({ actorId, onChanged }: { actorId: string
     setMore(false);
     setLoading(true);
     setError('');
-    const timer = window.setTimeout(async () => {
-      const result = await apiClient.listPlatformAdmins(query.trim());
-      if (!active) return;
-      if (result.ok && result.data) {
-        setRows(result.data.accounts);
-        setMore(result.data.hasMore);
-      } else setError(result.error || (cs ? 'Načtení účtů selhalo.' : 'Could not load accounts.'));
-      setLoading(false);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await apiClient.listPlatformAdmins(query.trim());
+          if (!active) return;
+          if (!result.ok || !result.data) throw new Error(result.error ||
+            (cs ? 'Načtení účtů selhalo.' : 'Could not load accounts.'));
+          setRows(result.data.accounts);
+          setMore(result.data.hasMore);
+        } catch (err) {
+          if (active) setError(err instanceof Error ? err.message :
+            (cs ? 'Seznam správců není dostupný.' : 'Administrator list unavailable.'));
+        } finally {
+          if (active) setLoading(false);
+        }
+      })();
     }, query.trim() ? 200 : 0);
     return () => { active = false; window.clearTimeout(timer); };
   }, [query, revision, cs]);
@@ -54,6 +62,9 @@ export function PlatformAdministrators({ actorId, onChanged }: { actorId: string
       setQuery('');
       setRevision(value => value + 1);
       onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message :
+        (cs ? 'Změnu správce nelze dokončit.' : 'Unable to update administrator access.'));
     } finally { setSaving(false); }
   }
 
@@ -68,7 +79,9 @@ export function PlatformAdministrators({ actorId, onChanged }: { actorId: string
     </label>
     <h3>{query.trim() ? (cs ? 'Výsledky hledání' : 'Search results') : (cs ? 'Současní správci' : 'Current administrators')}</h3>
     {loading && <p role="status">{cs ? 'Načítání…' : 'Loading…'}</p>}
-    {error && <p role="alert">{error}</p>}
+    {error && <p role="alert">{error} <button type="button" className="btn btn-secondary"
+      disabled={saving} onClick={() => setRevision(value => value + 1)}>
+      {cs ? 'Zkusit znovu' : 'Retry'}</button></p>}
     {message && <p role="status">{message}</p>}
     {!loading && !rows.length && !error && <p>{cs ? 'Žádný odpovídající účet.' : 'No matching accounts.'}</p>}
     <ul className="platform-admin-list">{rows.map(person => <li key={person.id}>
