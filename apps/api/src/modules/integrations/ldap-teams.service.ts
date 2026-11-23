@@ -45,8 +45,8 @@ export class LdapTeamsService {
         onlyUnassigned && activeTeam ? or(isNull(eventMemberships.id), eq(eventMemberships.status, 'INACTIVE'), notExists(activeTeam)) : undefined,
       )).orderBy(asc(users.displayName), asc(users.email), asc(userIdentities.id))
       .limit(pageSize + 1).offset((page - 1) * pageSize);
-    const page = rows.slice(0, pageSize);
-    const membershipIds = page.flatMap(row => row.membershipId ? [row.membershipId] : []);
+    const accountRows = rows.slice(0, pageSize);
+    const membershipIds = accountRows.flatMap(row => row.membershipId ? [row.membershipId] : []);
     const units = membershipIds.length ? await db.select({
       membershipId: membershipUnitAssignments.membershipId, id: organizationalUnits.id, name: organizationalUnits.name,
     }).from(membershipUnitAssignments).innerJoin(organizationalUnits, eq(organizationalUnits.id, membershipUnitAssignments.unitId))
@@ -54,7 +54,7 @@ export class LdapTeamsService {
       .orderBy(asc(organizationalUnits.name)) : [];
     return {
       hasMore: rows.length > pageSize,
-      accounts: page.map(row => {
+      accounts: accountRows.map(row => {
         const saved = LdapTeamAssignmentSchema.safeParse(row.choice);
         return {
           identityId: row.identityId, userId: row.userId, displayName: row.displayName, email: row.email, providerName: row.providerName,
