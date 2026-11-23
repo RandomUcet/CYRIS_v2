@@ -47,11 +47,17 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
       assert.equal(profile, 'DGX_SPARK');
       return { enabled: true };
     },
-    execute: async ({ messages, eventId, userId }: any) => {
+    execute: async ({ messages, eventId, userId, promptTemplateVersion, options }: any) => {
       calls++;
       assert.equal(eventId, a);
       assert.equal(userId, uid);
       const ctx = JSON.parse(messages[1].content);
+      if (promptTemplateVersion === 'scenario-blueprint-fast-v1') {
+        assert.equal(options.timeoutMs, 45_000);
+        assert.equal(options.maxTokens, 450);
+        assert.equal(ctx.scenario, 'Regional railway depot');
+        return { text: JSON.stringify({ setting: 'Simulované železniční depo', activities: ['předání směny', 'příjem zboží'], roles: ['dispečer', 'technik'], sites: ['depo', 'sklad'], organisations: ['dopravce', 'dodavatel'], equipment: ['přeprava dokumentů', 'evidence materiálu'] }) };
+      }
       assert.equal(ctx.brief, 'Regional railway depot');
       assert.equal(ctx.event.name, a);
       if (broken) return { text: 'not JSON' };
@@ -133,6 +139,22 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
       .where(eq(registryMedia.resourceId, rows[0]!.id));
     assert.equal(publishedMedia?.objectKey, attachment.objectKey);
     assert.equal((await db.select().from(scenarioDraftMedia).where(eq(scenarioDraftMedia.batchId,draft.id))).length, 0);
+
+    // Fast hybrid mode creates all records and linked relations with exactly one AI request.
+    const fastRequest = { ...req, seed: 9341, counts: { ...empty, persons: 7, locations: 2, organisations: 1, devices: 2 }, brief: 'Regional railway depot', strategy: 'FAST' as const };
+    const fast = await svc.startDraft(a, fastRequest, user);
+    const beforeFast = calls;
+    const fastPage = await svc.advance(a, fast.id, 0, user);
+    assert.equal(calls, beforeFast + 1);
+    assert.equal(fastPage.prepared, 12);
+    assert((fastPage.relationshipCount ?? 0) > 0);
+    assert.match(fastPage.personDetails![0]!.description, /železniční depo/);
+    assert.equal((await svc.advance(a, fast.id, 0, user)).prepared, 12);
+    assert.equal(calls, beforeFast + 1);
+    const fastPublished = await svc.publish(a, fast.id, user);
+    assert.equal(fastPublished.counts?.persons, 7);
+    assert(fastPublished.relationshipCount > 0);
+    await svc.cleanup(a, fast.id, user);
 
     await svc.cleanup(a, draft.id, user);
     assert.equal(objects.has(attachment.objectKey), false);

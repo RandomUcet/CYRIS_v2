@@ -40,6 +40,7 @@ export const ScenarioDataBatchResponseSchema = z.object({
   source: z.enum(['LOCAL', 'SPARK']).optional(),
   prepared: z.number().int().optional(),
   brief: z.string().optional(),
+  strategy: z.enum(['FAST', 'DETAILED']).optional(),
   samples: z.record(z.array(z.string())).optional(),
   personDetails: z.array(z.object({ name: z.string(), description: z.string(), dateOfBirth: z.string() })).optional(),
 });
@@ -63,6 +64,9 @@ export type ScenarioDataPreview = z.infer<typeof ScenarioDataPreviewSchema>;
 
 export const SparkDraftRequestSchema = ScenarioDataRequestSchema.extend({
   brief: z.string().trim().min(1).max(1200),
+  // FAST: one short AI scene blueprint + local deterministic records.
+  // DETAILED: AI writes every page. Missing preserves the old detailed API path.
+  strategy: z.enum(['FAST', 'DETAILED']).optional(),
 });
 export type SparkDraftRequest = z.infer<typeof SparkDraftRequestSchema>;
 
@@ -105,3 +109,16 @@ export const ScenarioBatchMediaListSchema = z.object({
   })),
 });
 export type ScenarioBatchMediaList = z.infer<typeof ScenarioBatchMediaListSchema>;
+
+
+const BlueprintDetail = z.string().trim().min(2).max(120);
+const BlueprintList = z.array(BlueprintDetail).min(2).max(5);
+export const ScenarioBlueprintSchema = z.object({
+  setting: BlueprintDetail,
+  activities: BlueprintList,
+  roles: BlueprintList,
+  sites: BlueprintList,
+  organisations: BlueprintList,
+  equipment: BlueprintList,
+});
+export type ScenarioBlueprint = z.infer<typeof ScenarioBlueprintSchema>;
