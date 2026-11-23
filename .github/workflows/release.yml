@@ -119,6 +119,32 @@ jobs:
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-web:${{ steps.meta.outputs.version }}
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
+      - name: Verify every published image digest and both server architectures
+        env:
+          OWNER: ${{ steps.meta.outputs.owner_lower }}
+          API_DIGEST: ${{ steps.api.outputs.digest }}
+          WORKER_DIGEST: ${{ steps.worker.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+        run: |
+          set -euo pipefail
+          for entry in "api:$API_DIGEST" "worker:$WORKER_DIGEST" "web:$WEB_DIGEST"; do
+            name="${entry%%:*}"
+            digest="${entry#*:}"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "Invalid $name digest" >&2; exit 1; }
+            manifest="$RUNNER_TEMP/cyris-$name-multiarch.json"
+            docker buildx imagetools inspect "ghcr.io/$OWNER/cyris-$name@$digest" --raw > "$manifest"
+            python3 - "$manifest" "$name" <<'PY'
+          import json, sys
+          manifest=json.load(open(sys.argv[1], encoding="utf-8"))
+          platforms={(entry.get("platform", {}).get("os"), entry.get("platform", {}).get("architecture"))
+                     for entry in manifest.get("manifests", [])}
+          required={("linux", "amd64"), ("linux", "arm64")}
+          missing=required-platforms
+          if missing:
+              raise SystemExit(f"Missing supported platforms for {sys.argv[2]}: {sorted(missing)}")
+          print(f"Verified {sys.argv[2]}: linux/amd64 and linux/arm64")
+          PY
+          done
       - name: Generate Release Manifest
         run: |
           python3 - <<EOF
