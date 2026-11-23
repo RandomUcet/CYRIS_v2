@@ -20,7 +20,7 @@ jobs:
     # Optional isolated Linux runner for private-repo Actions budget/runner incidents.
     # GitHub variable CYRIS_CI_RUNNER defaults to the standard hosted runner.
     # Do not execute untrusted PR code on a production or long-lived host.
-    runs-on: ${{ vars.CYRIS_CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.CYRIS_CI_RUNNER || 'ubuntu-latest' }}
     # Hard stop for stalled regressions and failed runner environments.
     # This bounds the reusable Release preflight, not the image publishing job.
     timeout-minutes: 25
