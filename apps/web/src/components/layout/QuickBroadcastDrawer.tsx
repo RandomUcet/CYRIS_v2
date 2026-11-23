@@ -105,12 +105,12 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
     setStep('EDIT');setError('');setSuccess('');setSuggestion('');setAiError('');
   }
 
-  function requestClose() {
-    if(sending.current)return;
+  function requestClose():boolean {
+    if(sending.current)return false;
     if(step!=='DONE'&&(title.trim()||message.trim())&&!window.confirm(tr(
       'Zahodit rozepsanou zprávu? Pokud ji chcete zachovat, uložte koncept.',
-      'Discard the unsaved message? Save a draft to keep it.')))return;
-    onClose();
+      'Discard the unsaved message? Save a draft to keep it.')))return false;
+    onClose();return true;
   }
   useDialogAccessibility(open,requestClose);
 
@@ -286,7 +286,7 @@ export function QuickBroadcastDrawer({open,onClose}:{open:boolean;onClose:()=>vo
         </>}
       </div>
       {eventId&&<div className={styles.advanced}>
-        <Link href={'/events/'+eventId+'/broadcast'} onClick={requestClose}>
+        <Link href={'/events/'+eventId+'/broadcast'} onClick={e=>{if(!requestClose())e.preventDefault();}}>
           {tr('Otevřít plné komunikační centrum (plánování, historie)','Open full broadcast center (schedule, history)')}</Link>
       </div>}
     </section>
