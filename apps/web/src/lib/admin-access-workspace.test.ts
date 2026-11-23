@@ -81,3 +81,13 @@ test('exercise membership pause is distinct from global account deactivation',()
   assert.ok(api.includes("status: 'INACTIVE'"));
   assert.ok(api.includes("status: 'ACTIVE'"));
 });
+
+test('LDAP group mappings expose whole-exercise role scope explicitly',()=>{
+  const provider=readFileSync(new URL('../app/admin/settings/identity/LdapProviderForm.tsx',import.meta.url),'utf8');
+  assert.ok(provider.includes('checked={rule.allowEventWide}'));
+  assert.ok(provider.includes("onChange={e => editRule(rule.key, { allowEventWide:e.target.checked, unitSlug:'' })}"));
+  assert.ok(provider.includes('allowEventWide={rule.allowEventWide}'));
+  assert.ok(provider.includes('Role platí pro celé cvičení'));
+  assert.ok(provider.includes('if (result.ok) onSaved();'));
+  assert.ok(provider.includes("catch (err)"));
+});
