@@ -99,6 +99,37 @@ test('exercise membership pause is distinct from global account deactivation',()
   assert.ok(api.includes("status: 'ACTIVE'"));
 });
 
+test('LDAP admin details explain provider outages separately from account disablement',()=>{
+  const directory=readFileSync(new URL('../components/admin/LdapTeamAssignments.tsx',import.meta.url),'utf8');
+  assert.ok(directory.includes("account.providerEnabled===false"));
+  assert.ok(directory.includes("account.lastLoginAt ? formatTime(account.lastLoginAt)"));
+  assert.ok(directory.includes("setAccounts([]);setHasMore(false);setSelected('')"));
+});
+
+test('provider editor keeps LDAP Save/Cancel accessible with long group mappings',()=>{
+  const provider=readFileSync(new URL('../app/admin/settings/identity/LdapProviderForm.tsx',import.meta.url),'utf8');
+  const css=readFileSync(new URL('../components/admin/LdapTeams.module.css',import.meta.url),'utf8');
+  assert.ok(provider.includes("styles.ldapEditorDialog"));
+  assert.ok(provider.includes('className={styles.ldapEditorBody}'));
+  assert.ok(provider.includes('className={styles.ldapEditorFooter}'));
+  assert.ok(css.includes('.ldapEditorDialog[open]'));
+  assert.ok(css.includes('.ldapEditorBody{display:grid;gap:17px;min-height:0;overflow-y:auto'));
+  assert.ok(css.includes('.ldapEditorFooter{display:flex'));
+  assert.ok(provider.includes("if (!saving) onClose()"),'form must not be dismissed during save');
+});
+
+test('access management handles network failures and confirms command or membership changes',()=>{
+  const users=readFileSync(new URL('../app/admin/users/page.tsx',import.meta.url),'utf8');
+  const admins=readFileSync(new URL('../components/admin/PlatformAdministrators.tsx',import.meta.url),'utf8');
+  assert.ok(users.includes('}).catch(err => {'),'participant fetch needs a network catch');
+  assert.ok(users.includes("setChangingRole(true);"),'role operations still available');
+  assert.ok(users.includes("if (!window.confirm(operation + target"),'exercise-command grant requires confirmation');
+  assert.ok(users.includes("if (!window.confirm(tr("),'membership activation requires confirmation');
+  assert.ok(admins.includes("if (active) setLoading(false)"),'spinner must stop even if the admin API throws');
+  assert.ok(admins.includes("} catch (err) {"),'platform admin role updates need error feedback');
+  assert.ok(admins.includes("cs ? 'Zkusit znovu' : 'Retry'"));
+});
+
 test('LDAP group mappings expose whole-exercise role scope explicitly',()=>{
   const provider=readFileSync(new URL('../app/admin/settings/identity/LdapProviderForm.tsx',import.meta.url),'utf8');
   assert.ok(provider.includes('checked={rule.allowEventWide}'));
