@@ -39,6 +39,11 @@ test('audit query bounds server search and keeps filters explicitly scoped',()=>
   assert.equal(AuditQueryFiltersSchema.safeParse({q:'z'.repeat(161)}).success,false);
   assert.equal(AuditQueryFiltersSchema.safeParse({q:'z'.repeat(160)}).success,true);
   assert.equal(AuditQueryFiltersSchema.safeParse({resourceId:'user-id',q:'identity'}).success,true);
+  assert.equal(AuditQueryFiltersSchema.safeParse({page:'1.5'}).success,false);
+  assert.equal(AuditQueryFiltersSchema.safeParse({limit:'2.1'}).success,false);
+  assert.equal(AuditQueryFiltersSchema.safeParse({page:'0'}).success,false);
+  assert.equal(AuditQueryFiltersSchema.safeParse({page:'100001'}).success,false);
+  assert.equal(AuditQueryFiltersSchema.safeParse({page:'3',limit:'50'}).success,true);
 });
 
 const url=requireVerifiedIsolatedDatabase();
