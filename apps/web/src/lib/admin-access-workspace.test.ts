@@ -54,3 +54,19 @@ test('everywhere EXCON composer requires server audience preview and a human con
   assert.ok(drawer.includes("draftNonce.current??=crypto.randomUUID()"));
   assert.ok(drawer.includes("if(!requestClose())e.preventDefault()"));
 });
+
+
+test('identity provider manager can edit OIDC without overwriting hidden configuration',()=>{
+  const page=readFileSync(new URL('../app/admin/settings/identity/page.tsx',import.meta.url),'utf8');
+  assert.ok(page.includes('openOidc(p)'),'existing OIDC providers need an edit action');
+  assert.ok(page.includes('id:editingOidc?.id'),'OIDC edits must preserve provider identity');
+  for(const option of ['scopes','allowedEmailDomains','claimMappings']){
+    assert.ok(page.includes('previousConfig?.'+option),'OIDC edit should preserve '+option);
+  }
+  for(const field of ['oidc-name','oidc-issuer','oidc-client','oidc-secret']){
+    assert.ok(page.includes('htmlFor="'+field+'"'),'accessible OIDC label: '+field);
+    assert.ok(page.includes('id="'+field+'"'),'OIDC control: '+field);
+  }
+  assert.ok(page.includes('disabled={Boolean(providerBusy)||Boolean(testingId)}'));
+  assert.ok(page.includes('href="/admin/users"'));
+});
