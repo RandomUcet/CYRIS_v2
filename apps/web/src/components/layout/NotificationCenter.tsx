@@ -8,7 +8,8 @@ import {usePreferences} from '@/contexts/PreferencesContext';
 import {apiClient} from '@/lib/api-client';
 import type {NotificationItem,NotificationListResponse} from '@cyris/contracts';
 import styles from './NotificationCenter.module.css';
-import {safeNotificationHref} from '@/lib/notification-navigation';
+import {safeNotificationHref,notificationDetail,selectNotificationItems} from '@/lib/notification-navigation';
+import type {NotificationView} from '@/lib/notification-navigation';
 
 export function NotificationCenter(){
   const {t,formatTime}=usePreferences();
@@ -27,6 +28,8 @@ export function NotificationCenter(){
   const [loadError,setLoadError]=useState(false);
   const [actionError,setActionError]=useState(false);
   const [pending,setPending]=useState<string|null>(null);
+  const [view,setView]=useState<NotificationView>('ALL');
+  const [query,setQuery]=useState('');
 
   const reload=useCallback(async()=>{
     const eventId=selectedEvent?.id;
@@ -50,9 +53,12 @@ export function NotificationCenter(){
     setLoadError(false);
     setActionError(false);
     setPending(null);
+    setView('ALL');setQuery('');
     void reload();
-    const timer=window.setInterval(()=>{void reload();},15000);
-    return()=>{requestRef.current++;window.clearInterval(timer);};
+    const timer=window.setInterval(()=>{if(!document.hidden)void reload();},15000);
+    const onVisibility=()=>{if(!document.hidden)void reload();};
+    document.addEventListener('visibilitychange',onVisibility);
+    return()=>{requestRef.current++;window.clearInterval(timer);document.removeEventListener('visibilitychange',onVisibility);};
   },[reload]);
 
   useEffect(()=>{
@@ -108,14 +114,19 @@ export function NotificationCenter(){
 
   function renderItem(item:NotificationItem,isNew:boolean){
     const p=item.templateParams||{};
-    const detail=p.title??p.description;
-    const detailText=typeof detail==='string'?detail:'';
+    const detailText=notificationDetail(item);
+    const kind=item.templateKey==='exercise.broadcast'&&typeof p.kind==='string' ? p.kind : '';
+    const kindKey=kind==='URGENT'?'notification.broadcastUrgent'
+      :kind==='INSTRUCTION'?'notification.broadcastInstruction'
+      :kind==='UPDATE'?'notification.broadcastUpdate'
+      :kind==='INFO'?'notification.broadcastInfo':null;
     const href=safeNotificationHref(item.actionUrl);
     return <li key={item.id} className={isNew?styles.unreadItem:styles.item}>
       <div className={styles.itemTop}>
         <div className={styles.itemMeta}>
           <span className={styles.severity} data-severity={item.severity} aria-hidden="true"/>
           <time dateTime={item.createdAt}>{formatTime(item.createdAt)}</time>
+          {kindKey&&<span className={styles.itemKind}>{t(kindKey)}</span>}
         </div>
         {!isReadOnly&&<div className={styles.itemActions}>
           {isNew&&<button type="button" aria-label={t('action.markRead')}
@@ -134,6 +145,11 @@ export function NotificationCenter(){
       </a>}
     </li>;
   }
+
+  const shownNew=selectNotificationItems(data.newItems,view,query,itemTitle);
+  const shownEarlier=selectNotificationItems(data.earlierItems,view,query,itemTitle);
+  const hasItems=data.newItems.length>0||data.earlierItems.length>0;
+  const noMatches=shownNew.length===0&&shownEarlier.length===0;
 
   return <div className={styles.host} ref={hostRef}>
     <button ref={triggerRef} type="button" className={styles.trigger}
@@ -174,19 +190,36 @@ export function NotificationCenter(){
           <X size={14}/>
         </button>
       </div>}
+      <div className={styles.filters}>
+        <div className={styles.filterButtons} role="group" aria-label={t('notification.filters')}>
+          {([
+            ['ALL','notification.filterAll'],['UNREAD','notification.filterUnread'],
+            ['ATTENTION','notification.filterAttention'],
+          ] as const).map(([key,label])=><button key={key} type="button"
+            className={styles.filterButton} aria-pressed={view===key}
+            data-active={view===key} onClick={()=>setView(key)}>
+            {t(label)}{key==='UNREAD'&&data.unreadCount>0?' ('+data.unreadCount+')':''}
+          </button>)}
+        </div>
+        <input type="search" className={styles.search} value={query}
+          onChange={event=>setQuery(event.target.value)}
+          aria-label={t('notification.search')} placeholder={t('notification.search')}/>
+      </div>
       <div className={styles.body} aria-busy={loading}>
-        {loading&&data.newItems.length===0&&data.earlierItems.length===0
+        {loading&&!hasItems
           ?<p className={styles.empty}>{t('state.loading')}</p>
-          :data.newItems.length===0&&data.earlierItems.length===0
+          :!hasItems
             ?<p className={styles.empty}>{t('notification.empty')}</p>
+            :noMatches
+              ?<p className={styles.empty}>{t('notification.noMatches')}</p>
             :<>
-              {data.newItems.length>0&&<section aria-label={t('notification.new')}>
-                <h3 className={styles.sectionTitle}>{t('notification.new')} ({data.newItems.length})</h3>
-                <ul className={styles.list}>{data.newItems.map(item=>renderItem(item,true))}</ul>
+              {shownNew.length>0&&<section aria-label={t('notification.new')}>
+                <h3 className={styles.sectionTitle}>{t('notification.new')} ({shownNew.length})</h3>
+                <ul className={styles.list}>{shownNew.map(item=>renderItem(item,true))}</ul>
               </section>}
-              {data.earlierItems.length>0&&<section aria-label={t('notification.earlier')}>
+              {shownEarlier.length>0&&<section aria-label={t('notification.earlier')}>
                 <h3 className={styles.sectionTitle}>{t('notification.earlier')}</h3>
-                <ul className={styles.list}>{data.earlierItems.map(item=>renderItem(item,false))}</ul>
+                <ul className={styles.list}>{shownEarlier.map(item=>renderItem(item,false))}</ul>
               </section>}
             </>}
       </div>
