@@ -156,3 +156,29 @@
 .pagination{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px;border-top:1px solid var(--border-default);background:var(--bg-panel)}
 .pagination span{font-size:12px;font-weight:700;color:var(--text-secondary)}
 .pagination button{min-height:36px}
+
+/* LDAP provider modal: independent scroll region with persistent, visible actions.
+   Critical when a directory has many team/role mapping rules. */
+.ldapEditorDialog[open]{
+  display:flex;flex-direction:column;overflow:hidden;gap:0;padding:0;
+  width:min(48rem,calc(100vw - 20px));max-height:calc(100dvh - 24px);
+}
+.ldapEditorHeader{flex:0 0 auto;padding:18px 22px 14px;border-bottom:1px solid var(--border-default);
+  color:var(--text-primary);background:var(--bg-surface)}
+.ldapEditorForm{display:flex;flex-direction:column;gap:0;margin:0;min-height:0;overflow:hidden;flex:1}
+.ldapEditorBody{display:grid;gap:17px;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  padding:18px 22px}
+.ldapEditorBody>fieldset,.ldapEditorBody>section{min-width:0}
+.ldapEditorBody .rule{min-width:0}
+.ldapEditorFooter{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  flex-wrap:wrap;flex:0 0 auto;padding:13px 22px;border-top:1px solid var(--border-default);
+  background:var(--bg-surface)}
+.ldapEditorFooter>span{font-size:11px;color:var(--text-secondary)}
+.ldapEditorFooter .actions{justify-content:flex-end}
+.ldapEditorFooter button{min-height:38px}
+@media(max-width:580px){
+  .ldapEditorDialog[open]{width:calc(100vw - 12px);max-height:calc(100dvh - 12px)}
+  .ldapEditorHeader,.ldapEditorBody,.ldapEditorFooter{padding:14px}
+  .ldapEditorFooter .actions{flex:1 1 100%}
+  .ldapEditorFooter .actions button{flex:1 1 115px}
+}
