@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { eq, and, gte, lte, desc, isNull, notInArray, notLike, or, count } from 'drizzle-orm';
+import { eq, and, gte, lte, desc, isNull, notInArray, notLike, or, count, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import {
   auditEvents,
@@ -138,6 +138,18 @@ export class AuditService {
     }
     if (filters.resourceId) {
       conditions.push(eq(auditEvents.resourceId, filters.resourceId));
+    }
+    if (filters.q?.trim()) {
+      const term=filters.q.trim();
+      // Literal substring matching: parameterized, no user-controlled ILIKE wildcards.
+      // Applied before paging, to the full authorized audit history.
+      conditions.push(or(
+        sql`strpos(lower(${auditEvents.action}), lower(${term})) > 0`,
+        sql`strpos(lower(${auditEvents.category}), lower(${term})) > 0`,
+        sql`strpos(lower(coalesce(${auditEvents.resourceId}, '')), lower(${term})) > 0`,
+        sql`strpos(lower(coalesce(${auditEvents.actorUserId}::text, '')), lower(${term})) > 0`,
+        sql`strpos(lower(coalesce(${auditEvents.ipAddress}, '')), lower(${term})) > 0`,
+      )!);
     }
     if (filters.outcome) {
       conditions.push(eq(auditEvents.outcome, filters.outcome));
