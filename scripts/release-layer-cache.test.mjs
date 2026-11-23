@@ -24,3 +24,25 @@ test('release builds use per-image GHA layer cache without relaxing dual-archite
   assert.match(release,/fail_on_unmatched_files: true/);
   assert(!/cache-to:.*ghcr\.io/.test(release),'Avoid mutable registry cache tags in production');
 });
+
+test('CI and publisher support isolated runner recovery without bypassing verification',()=>{
+  const ci=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8');
+  assert.ok(ci.includes("vars.CYRIS_CI_RUNNER || 'ubuntu-latest'"));
+  assert.ok(release.includes("vars.CYRIS_RELEASE_RUNNER || 'ubuntu-latest'"));
+  assert.ok(ci.includes("run: sudo env GITHUB_ACTIONS=true"),'restore integration gate is mandatory');
+  assert.ok(ci.includes("run: pnpm typecheck"));
+  assert.ok(ci.includes("pnpm test:run"));
+  assert.ok(release.includes("needs: validate"));
+});
+
+test('never publish a release with missing image digest or architecture',()=>{
+  const check=release.indexOf('name: Verify every published image digest and both server architectures');
+  const manifest=release.indexOf('name: Generate Release Manifest');
+  const publish=release.indexOf('name: Create GitHub Release');
+  assert.ok(check>0 && manifest>check && publish>manifest);
+  assert.match(release,/docker buildx imagetools inspect/);
+  assert.match(release,/required=\{\("linux", "amd64"\), \("linux", "arm64"\)\}/);
+  for(const service of ['api','worker','web']) {
+    assert.ok(release.includes('"'+service+':$'+service.toUpperCase()+'_DIGEST"'));
+  }
+});
