@@ -49,6 +49,20 @@ export function diagnoseRun(run, jobs) {
   };
 }
 
+/**
+ * Pre-run scheduling failures appear as check-run annotations, while job
+ * logs and job steps can both be empty. Return bounded, nonsecret metadata.
+ */
+export function formatAnnotations(annotations) {
+  const entries = Array.isArray(annotations) ? annotations : [];
+  return entries.slice(0, 10).map(entry => ({
+    level: ['failure','warning','notice'].includes(entry.annotation_level) ? entry.annotation_level : 'notice',
+    file: typeof entry.path === 'string' ? entry.path : '',
+    title: typeof entry.title === 'string' ? entry.title.slice(0, 200) : '',
+    message: typeof entry.message === 'string' ? entry.message.slice(0, 2000) : '',
+  }));
+}
+
 export function inspectReleaseAssets(release) {
   const names = new Set((release?.assets ?? []).map(asset => asset.name));
   const missing = REQUIRED_RELEASE_ASSETS.filter(name => !names.has(name));
@@ -94,6 +108,21 @@ async function main() {
   for (const job of jobs) {
     process.stdout.write('  ' + job.name + ': ' + job.conclusion + ', runner=' +
       (job.runner_name || 'not allocated') + ', steps=' + (job.steps?.length ?? 0) + '\n');
+    if (job.conclusion === 'failure') {
+      try {
+        const annotations = formatAnnotations(
+          githubApi('repos/' + repo + '/check-runs/' + job.id + '/annotations')
+        );
+        if (!annotations.length) process.stdout.write('    No GitHub check-run annotations available.\n');
+        for (const note of annotations) {
+          process.stdout.write('    GitHub annotation [' + note.level + '] ' +
+            note.title + (note.file ? ' (' + note.file + ')' : '') + '\n');
+          process.stdout.write('    ' + note.message + '\n');
+        }
+      } catch {
+        process.stdout.write('    Check-run annotation not readable with current GitHub permissions.\n');
+      }
+    }
   }
   try {
     const release = githubApi('repos/' + repo + '/releases/latest');
