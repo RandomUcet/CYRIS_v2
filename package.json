@@ -1,6 +1,6 @@
 {
   "name": "cyris-v2-monorepo",
-  "version": "2.4.5",
+  "version": "2.4.6",
   "private": true,
   "packageManager": "pnpm@12.14.0",
   "scripts": {
