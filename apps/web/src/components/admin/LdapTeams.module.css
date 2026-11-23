@@ -151,3 +151,8 @@
 .rule>.full:not(label){min-width:0}
 .rule .check input[type=checkbox]{width:16px;height:16px;flex:0 0 auto;accent-color:var(--accent-primary)}
 .rule .check:has(input:disabled){opacity:.5}
+
+/* Explicit directory pagination; keyboard-friendly without hiding extra accounts. */
+.pagination{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px;border-top:1px solid var(--border-default);background:var(--bg-panel)}
+.pagination span{font-size:12px;font-weight:700;color:var(--text-secondary)}
+.pagination button{min-height:36px}
