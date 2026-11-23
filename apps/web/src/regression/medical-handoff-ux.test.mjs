@@ -16,6 +16,15 @@ test('medical handoff dialog includes a real required destination and only medic
   assert.ok(p.includes('role="status"'));
 });
 
+test('intake asks for team selection only when multiple active medical teams exist',()=>{
+  const page=readFileSync(new URL('../app/events/[eventId]/medical/page.tsx',import.meta.url),'utf8');
+  assert.ok(page.includes('workspace?.unitIds'));
+  assert.ok(page.includes("unit.capabilities?.includes('medical_operations')"));
+  assert.ok(page.includes('medicalTeams.length > 1'));
+  assert.ok(page.includes('id="new-medical-team" required'));
+  assert.ok(page.includes('assignedUnitId: formData.assignedUnitId || undefined'));
+});
+
 test('handoff reuses the one existing registry locations method',()=>{
   const client=readFileSync(new URL('../lib/api-client.ts',import.meta.url),'utf8');
   assert.equal((client.match(/async getLocations\(/g)||[]).length,1);
