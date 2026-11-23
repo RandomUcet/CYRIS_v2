@@ -17,7 +17,8 @@ export const LdapTeamAssignmentSchema = z.discriminatedUnion('mode', [
 export type LdapTeamAssignment = z.infer<typeof LdapTeamAssignmentSchema>;
 
 export const LdapTeamAccountQuerySchema = z.object({
-  eventId: z.string().uuid(),
+  // Global LDAP account operations must not require an active exercise.
+  eventId: z.string().uuid().optional(),
   q: z.string().trim().max(160).optional(),
   unassigned: z.enum(['true', 'false']).optional(),
   status: z.enum(['ACTIVE', 'DISABLED']).optional(),
