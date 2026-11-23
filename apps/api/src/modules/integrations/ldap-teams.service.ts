@@ -16,7 +16,7 @@ const accountProvider = and(eq(integrations.category, 'LDAP'), sql`${integration
 export class LdapTeamsService {
   constructor(private readonly database: DatabaseService, private readonly audit: AuditService) {}
 
-  async listAccounts(eventId?: string, q?: string, onlyUnassigned = false, status?: 'ACTIVE' | 'DISABLED'): Promise<{ accounts: LdapTeamAccount[]; hasMore: boolean }> {
+  async listAccounts(eventId?: string, q?: string, onlyUnassigned = false, status?: 'ACTIVE' | 'DISABLED', page = 1): Promise<{ accounts: LdapTeamAccount[]; hasMore: boolean }> {
     const db = this.database.client;
     if (onlyUnassigned && !eventId) throw new BadRequestException('Choose an exercise to filter unassigned members');
     if (eventId) {
@@ -42,7 +42,8 @@ export class LdapTeamsService {
         status ? eq(users.status, status) : undefined,
         q ? or(sql`strpos(lower(${users.displayName}), lower(${q})) > 0`, sql`strpos(lower(${users.email}), lower(${q})) > 0`) : undefined,
         onlyUnassigned && activeTeam ? or(isNull(eventMemberships.id), eq(eventMemberships.status, 'INACTIVE'), notExists(activeTeam)) : undefined,
-      )).orderBy(asc(users.displayName), asc(users.email), asc(userIdentities.id)).limit(pageSize + 1);
+      )).orderBy(asc(users.displayName), asc(users.email), asc(userIdentities.id))
+      .limit(pageSize + 1).offset((page - 1) * pageSize);
     const page = rows.slice(0, pageSize);
     const membershipIds = page.flatMap(row => row.membershipId ? [row.membershipId] : []);
     const units = membershipIds.length ? await db.select({
