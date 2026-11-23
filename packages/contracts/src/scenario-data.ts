@@ -109,3 +109,16 @@ export const ScenarioBatchMediaListSchema = z.object({
   })),
 });
 export type ScenarioBatchMediaList = z.infer<typeof ScenarioBatchMediaListSchema>;
+
+
+const BlueprintDetail = z.string().trim().min(2).max(120);
+const BlueprintList = z.array(BlueprintDetail).min(2).max(5);
+export const ScenarioBlueprintSchema = z.object({
+  setting: BlueprintDetail,
+  activities: BlueprintList,
+  roles: BlueprintList,
+  sites: BlueprintList,
+  organisations: BlueprintList,
+  equipment: BlueprintList,
+});
+export type ScenarioBlueprint = z.infer<typeof ScenarioBlueprintSchema>;

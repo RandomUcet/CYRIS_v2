@@ -1,19 +1,9 @@
-import { z } from 'zod';
 import type { World, Kind } from './world.js';
+import type { ScenarioBlueprint } from '@cyris/contracts';
+export { ScenarioBlueprintSchema } from '@cyris/contracts';
 
 // The model only proposes a compact scene vocabulary. It never invents IDs,
 // foreign keys, addresses or operational instructions for the dataset.
-const detail = z.string().trim().min(2).max(120);
-const list = z.array(detail).min(2).max(5);
-export const ScenarioBlueprintSchema = z.object({
-  setting: detail,
-  activities: list,
-  roles: list,
-  sites: list,
-  organisations: list,
-  equipment: list,
-});
-export type ScenarioBlueprint = z.infer<typeof ScenarioBlueprintSchema>;
 
 export function applyScenarioBlueprint(world: World, scene: ScenarioBlueprint): World {
   const choose = (items: string[], i: number) => items[i % items.length]!;

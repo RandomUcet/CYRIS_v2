@@ -79,7 +79,7 @@ skipWithoutVerifiedDatabase('organizer broadcasts have event isolation, safe aud
 
     const teamNotice=ExerciseBroadcastRequestSchema.parse({nonce:generateId(),audience:'UNIT',unitId:unitA,kind:'INSTRUCTION',title:'Team Alpha instruction',message:'Report the latest situation to command.'});
     assert.equal((await service.send(eventA,actor,teamNotice)).delivered,1);
-    await assert.rejects(service.send(eventA,actor,{...teamNotice,nonce:generateId(),unitId:unitB}),/does not belong/);
+    await assert.rejects(service.send(eventA,actor,ExerciseBroadcastRequestSchema.parse({...teamNotice,audience:'UNIT',nonce:generateId(),unitId:unitB})),/does not belong/);
     const foreign=await db.select().from(notifications).where(eq(notifications.userId,outsider));
     assert.equal(foreign.length,0);
 
