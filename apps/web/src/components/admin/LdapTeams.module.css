@@ -136,3 +136,13 @@
 .providerRow{min-width:0}
 .providerRow>div{min-width:0}
 @media(max-width:720px){.providerToolbar>div:last-child{flex-wrap:wrap}.providerRow{row-gap:8px}}
+
+.oidcEditorForm{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}
+.oidcEditorForm>.dialog-body{display:grid;gap:13px;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.oidcEditorForm>.dialog-body>div{display:grid;gap:5px;min-width:0}
+.oidcEditorForm>.dialog-body>div:has(input[type=checkbox]){display:flex;gap:8px;align-items:center}
+.oidcEditorForm :is(input:not([type=checkbox]),select,textarea){width:100%;max-width:100%;min-width:0;min-height:38px;border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:8px 10px;background:var(--bg-panel);color:var(--text-primary);font-size:13px}
+.oidcEditorForm input[type=checkbox]{height:16px;width:16px;flex:0 0 auto;accent-color:var(--accent-primary)}
+.oidcEditorForm input:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+.oidcEditorForm button{min-height:35px;padding:8px 12px;border-radius:var(--radius-sm)}
+.oidcEditorForm button:disabled{opacity:.5;cursor:not-allowed}
