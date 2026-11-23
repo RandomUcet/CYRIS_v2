@@ -34,7 +34,7 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
   const activity = new ActivityService(database,authz,access);
   const registry = new ResourceService(database,audit,activity,indexer);
   const medical = new MedicalService(database,registry,access,
-    {allocate:async ()=>'MED-'+generateId().slice(0,8)} as never,
+    {allocate:async ()=>'MED-'+generateId()} as never,
     audit,activity,indexer,authz);
   const eventA=generateId(),eventB=generateId();
   const medA=generateId(),medB=generateId(),medExtra=generateId(),otherEventUnit=generateId();
