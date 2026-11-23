@@ -43,6 +43,9 @@ export default function AdminUsersPage() {
       if (cancelled) return;
       if (res.ok && res.data) setMemberships(res.data);
       else setError(res.error || (cs ? 'Účastníky se nepodařilo načíst.' : 'Unable to load participants.'));
+    }).catch(err => {
+      if (!cancelled) setError(err instanceof Error ? err.message :
+        (cs ? 'Seznam účastníků je nedostupný.' : 'Participant list unavailable.'));
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [currentEvent?.id, revision]);
@@ -70,6 +73,11 @@ export default function AdminUsersPage() {
     const label = grant ? tr('Odebrat roli štábu', 'Remove command role') : tr('Pověřit řízením cvičení', 'Grant exercise command');
     async function changeRole() {
       if (changingRole || !commandRole) return;
+      const target = member.user?.displayName || member.user?.email || member.userId;
+      const operation = grant
+        ? tr('Odebrat roli štábu účastníkovi ', 'Revoke command role for ')
+        : tr('Přidělit roli řízení cvičení účastníkovi ', 'Grant exercise command to ');
+      if (!window.confirm(operation + target + ' · ' + (currentEvent?.name ?? member.eventId) + '?')) return;
       setChangingRole(true);
       setActionError(null);
       try {
@@ -77,6 +85,9 @@ export default function AdminUsersPage() {
           await apiClient.assignRole(member.eventId, { roleId: commandRole.id, membershipId: member.id });
         if (result.ok) setRevision(value => value + 1);
         else setActionError(result.error || tr('Změna role se nezdařila.', 'Unable to change the role.'));
+      } catch(err) {
+        setActionError(err instanceof Error ? err.message :
+          tr('Změna role nebyla dokončena.', 'Role update failed.'));
       } finally { setChangingRole(false); }
     }
     return <button className="btn btn-secondary" disabled={changingRole || Boolean(grant && !grant.assignmentId)} onClick={changeRole}>{label}</button>;
@@ -106,7 +117,11 @@ export default function AdminUsersPage() {
   };
 
   async function activate(member: MembershipResponse) {
-    if (activating) return;
+    if (activating || member.status !== 'INACTIVE' || member.user?.status !== 'ACTIVE') return;
+    const target = member.user?.displayName || member.user?.email || member.userId;
+    if (!window.confirm(tr(
+      'Znovu aktivovat členství uživatele ' + target + ' v cvičení ' + (currentEvent?.name ?? member.eventId) + '?',
+      'Reactivate ' + target + ' in exercise ' + (currentEvent?.name ?? member.eventId) + '?'))) return;
     setActivating(member.id);
     setActionError(null);
     try {
