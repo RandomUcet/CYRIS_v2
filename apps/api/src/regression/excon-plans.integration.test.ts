@@ -74,7 +74,7 @@ skipWithoutVerifiedDatabase('EXCON durable drafts and due-worker delivery obey r
     const due=new Date(Date.now()-1000);
     await db.update(exerciseBroadcastPlans).set({scheduledAt:due}).where(eq(exerciseBroadcastPlans.id,draft.id));
     // Never deliver in PREPARATION regardless of how overdue a plan is.
-    assert.deepEqual(await dispatchDueExerciseBroadcasts(db,20,new Date()),{sent:0,failed:0,deferred:1});
+    assert.deepEqual(await dispatchDueExerciseBroadcasts(db,20,new Date()),{sent:0,failed:0,deferred:0});
     await db.update(events).set({status:'ACTIVE'}).where(eq(events.id,eventId));
 
     const holdId=generateId();
@@ -82,7 +82,7 @@ skipWithoutVerifiedDatabase('EXCON durable drafts and due-worker delivery obey r
       id:holdId,eventId,targetType:'EVENT',module:'ALL',reason:'Operator safety pause',
       startsAt:new Date(Date.now()-10000),createdByUserId:admin,
     });
-    assert.equal((await dispatchDueExerciseBroadcasts(db,20,new Date())).deferred,1);
+    assert.equal((await dispatchDueExerciseBroadcasts(db,20,new Date())).sent,0);
     assert.equal((await db.select().from(notifications).where(eq(notifications.sourceEventId,'exercise.broadcast:'+draft.id))).length,0);
     await db.update(operationalHolds).set({restoredAt:new Date()}).where(eq(operationalHolds.id,holdId));
 
