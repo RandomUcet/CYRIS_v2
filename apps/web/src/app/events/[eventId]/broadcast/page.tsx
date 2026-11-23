@@ -159,10 +159,11 @@ export default function ExerciseBroadcastPage() {
         if(!planned.ok||!planned.data)throw new Error(planned.error||'Draft saved, but scheduling failed');
         saved=planned.data;
       }
+      resetEditor();
       setSuccess(schedule
         ?tr('Zpráva je naplánovaná.','Broadcast scheduled.')
         :tr('Koncept byl uložen.','Draft saved.'));
-      resetEditor();await refresh();
+      await refresh();
     }catch(e){setError(e instanceof Error?e.message:'Unable to save broadcast plan');}
     finally{setPlanBusy(false);}
   }
