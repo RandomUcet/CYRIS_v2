@@ -31,3 +31,13 @@
 .error{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 14px;background:var(--status-danger-bg);color:var(--status-danger);font-size:12px;line-height:1.5}
 .error button{border:0;background:transparent;color:inherit;text-decoration:underline;cursor:pointer;padding:4px}
 @media(max-width:640px){.panel{position:fixed;top:calc(var(--topbar-height) + 8px);left:12px;right:12px;width:auto;max-height:calc(100dvh - var(--topbar-height) - 20px)}.header{align-items:flex-start}.headerActions{max-width:65%}.header .markAll{font-size:11px}}
+
+/* Local filters preserve backend event and permission boundaries. */
+.filters{padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--bg-panel);border-bottom:1px solid var(--border-default)}
+.filterButtons{display:flex;flex-wrap:wrap;gap:5px}
+.filterButton{cursor:pointer;min-height:30px;padding:5px 9px;border-radius:var(--radius-xs);border:1px solid var(--border-default);background:var(--bg-surface);color:var(--text-secondary);font:inherit;font-size:12px;line-height:1.4}
+.filterButton[data-active=true]{background:var(--bg-active);border-color:var(--accent-active);color:var(--text-primary);font-weight:700}
+.filterButton:focus-visible,.search:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+.search{width:100%;min-height:34px;border:1px solid var(--border-default);border-radius:var(--radius-xs);padding:6px 9px;background:var(--bg-surface);color:var(--text-primary);font:inherit;font-size:12px}
+.search::placeholder{color:var(--text-muted)}
+.itemKind{color:var(--text-secondary);background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:4px;padding:1px 5px;font-size:10px;line-height:1.35}
