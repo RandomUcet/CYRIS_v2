@@ -49,7 +49,7 @@ export class UnitsController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid unit payload');
     }
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.createUnit(eventId, parse.data, user.id, requestId);
   }
 
@@ -66,7 +66,7 @@ export class UnitsController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid payload');
     }
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.updateUnit(eventId, unitId, parse.data, user.id, requestId);
   }
 
@@ -108,7 +108,7 @@ export class UnitsController {
         parse.error.errors[0]?.message ?? 'Invalid capabilities payload'
       );
     }
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.setUnitCapabilities(
       eventId,
       unitId,

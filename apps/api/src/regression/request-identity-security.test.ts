@@ -43,6 +43,21 @@ test('request identity accepts only modest, allowlisted caller correlation hints
   assert.equal(sanitizeRequestId(' GOOD_CORRELATION_ID '),'GOOD_CORRELATION_ID');
 });
 
+test('event administration controllers use validated request IDs for audit', () => {
+  const paths = [
+    '../modules/events/units.controller.ts',
+    '../modules/events/roles.controller.ts',
+    '../modules/events/events.controller.ts',
+    '../modules/events/memberships.controller.ts',
+  ];
+  for (const path of paths) {
+    const source = readFileSync(new URL(path, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /req\.headers\['x-request-id'\]/,
+      `Controller ${path} must not read raw request correlation headers`);
+    assert.match(source, /const requestId = req\.id;/);
+  }
+});
+
 test('denied-permission audit never trusts caller X-Forwarded-For or X-Request-ID', async () => {
   const records: Array<{ipAddress:string;requestId:string}> = [];
   const guard = new PermissionsGuard(

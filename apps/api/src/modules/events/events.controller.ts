@@ -46,7 +46,7 @@ export class EventsController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid event payload');
     }
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.createEvent(parse.data, user.id, requestId);
   }
 
@@ -68,7 +68,7 @@ export class EventsController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid update payload');
     }
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.updateEvent(eventId, parse.data, user.id, requestId);
   }
 
@@ -84,7 +84,7 @@ export class EventsController {
     if (!parse.success) {
       throw new BadRequestException(parse.error.errors[0]?.message ?? 'Invalid duplicate payload');
     }
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.duplicateEvent(eventId, parse.data, user.id, requestId);
   }
 
@@ -95,7 +95,7 @@ export class EventsController {
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: CyrisRequest
   ) {
-    const requestId = (req.headers['x-request-id'] as string) || req.id;
+    const requestId = req.id;
     return this.eventsService.archiveEvent(eventId, user.id, requestId);
   }
 }
