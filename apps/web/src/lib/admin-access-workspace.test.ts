@@ -71,6 +71,19 @@ test('identity provider manager can edit OIDC without overwriting hidden configu
   assert.ok(page.includes('href="/admin/users"'));
 });
 
+test('global LDAP account list works without exercise while event-team assignment stays scoped',()=>{
+  const page=readFileSync(new URL('../app/admin/users/page.tsx',import.meta.url),'utf8');
+  const directory=readFileSync(new URL('../components/admin/LdapTeamAssignments.tsx',import.meta.url),'utf8');
+  const client=readFileSync(new URL('./api-client.ts',import.meta.url),'utf8');
+  assert.ok(page.includes("key={currentEvent?.id??'global'}"),'global LDAP list should mount without an exercise');
+  assert.ok(page.includes("disabled={tab!=='ldap'}"),'LDAP view should allow clearing selected event');
+  assert.ok(directory.includes('event?:EventResponse'),'account editor must accept no event');
+  assert.ok(directory.includes('event?.id,query.trim()'),'global list must omit eventId');
+  assert.ok(directory.includes('disabled={saving||!event}'),'team filters are event-scoped');
+  assert.ok(directory.includes('if (busy || !event || !canAssign'),'team changes require explicit event');
+  assert.ok(client.includes('if(eventId)params.set(\'eventId\',eventId)'));
+});
+
 test('exercise membership pause is distinct from global account deactivation',()=>{
   const page=readFileSync(new URL('../app/admin/users/page.tsx',import.meta.url),'utf8');
   const api=readFileSync(new URL('./api-client.ts',import.meta.url),'utf8');
