@@ -92,8 +92,22 @@ async function recordAutomatedBroadcastAudit(tx:Tx,plan:typeof exerciseBroadcast
 export async function dispatchDueExerciseBroadcasts(db:CyrisDatabase,limit=20,now=new Date()):Promise<{
   sent:number;failed:number;deferred:number;
 }> {
+  // Filter blocked/preparation exercises *before* LIMIT: otherwise 20 overdue
+  // messages from a paused exercise can starve a separate live event forever.
   const due=await db.select({id:exerciseBroadcastPlans.id}).from(exerciseBroadcastPlans)
-    .where(and(eq(exerciseBroadcastPlans.status,'SCHEDULED'),lte(exerciseBroadcastPlans.scheduledAt,now)))
+    .innerJoin(events,eq(events.id,exerciseBroadcastPlans.eventId))
+    .where(and(eq(exerciseBroadcastPlans.status,'SCHEDULED'),
+      lte(exerciseBroadcastPlans.scheduledAt,now),
+      inArray(events.status,['ACTIVE','CLOSED','ARCHIVED']),
+      sql`(${events.status} <> 'ACTIVE' OR NOT EXISTS (
+        SELECT 1 FROM exercise_operation_holds held
+        WHERE held.event_id=${exerciseBroadcastPlans.eventId}
+          AND held.target_type='EVENT'
+          AND held.module IN ('ALL','scenario','briefings')
+          AND held.restored_at IS NULL
+          AND held.starts_at <= ${now}
+          AND (held.expires_at IS NULL OR held.expires_at > ${now})
+      ))`))
     .orderBy(asc(exerciseBroadcastPlans.scheduledAt)).limit(Math.min(50,Math.max(1,limit)));
   const result={sent:0,failed:0,deferred:0};
   for(const {id} of due){
