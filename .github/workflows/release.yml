@@ -76,6 +76,10 @@ jobs:
           context: .
           file: docker/api.Dockerfile
           platforms: linux/amd64,linux/arm64
+          # Reuse immutable Docker build layers across releases on main.
+          # A unique scope per image prevents eviction/overwrite collisions.
+          cache-from: type=gha,scope=cyris-api-stable
+          cache-to: type=gha,mode=max,scope=cyris-api-stable,ignore-error=true
           push: true
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-api:${{ steps.meta.outputs.version }}
@@ -88,6 +92,10 @@ jobs:
           context: .
           file: docker/worker.Dockerfile
           platforms: linux/amd64,linux/arm64
+          # Reuse immutable Docker build layers across releases on main.
+          # A unique scope per image prevents eviction/overwrite collisions.
+          cache-from: type=gha,scope=cyris-worker-stable
+          cache-to: type=gha,mode=max,scope=cyris-worker-stable,ignore-error=true
           push: true
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-worker:${{ steps.meta.outputs.version }}
@@ -100,6 +108,10 @@ jobs:
           context: .
           file: docker/web.Dockerfile
           platforms: linux/amd64,linux/arm64
+          # Reuse immutable Docker build layers across releases on main.
+          # A unique scope per image prevents eviction/overwrite collisions.
+          cache-from: type=gha,scope=cyris-web-stable
+          cache-to: type=gha,mode=max,scope=cyris-web-stable,ignore-error=true
           push: true
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/cyris-web:${{ steps.meta.outputs.version }}
