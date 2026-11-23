@@ -60,6 +60,20 @@ export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcr
       document.removeEventListener('keydown', escape);
     };
   }, [isUserMenuOpen]);
+  // Fast EXCON access without leaving the current workspace.
+  // Requires the same permissions as the toolbar action and never auto-sends.
+  useEffect(() => {
+    if (!canBroadcast) return;
+    const openQuickComposer = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey ||
+          event.key.toLowerCase() !== 'm' || event.repeat) return;
+      event.preventDefault();
+      setQuickBroadcastOpen(true);
+    };
+    window.addEventListener('keydown', openQuickComposer);
+    return () => window.removeEventListener('keydown', openQuickComposer);
+  }, [canBroadcast]);
+
   const { snapshot: readiness, stale: readinessStale } = useReadiness();
 
   return (
@@ -180,7 +194,7 @@ export function TopBar({ onOpenSearch, menuButton, menuOpen, onOpenMenu, breadcr
           </button>
 
           {canBroadcast&&<button type="button" className="topbar-broadcast-trigger"
-            title={locale==='cs'?'Odeslat zprávu účastníkům z libovolné stránky':'Send exercise notice from any page'}
+            title={locale==='cs'?'Odeslat zprávu účastníkům (⌘/Ctrl + Shift + M)':'Send exercise notice (⌘/Ctrl + Shift + M)'}
             aria-haspopup="dialog" aria-expanded={quickBroadcastOpen}
             onClick={()=>setQuickBroadcastOpen(true)}>
             <Send size={14} aria-hidden="true"/>
