@@ -42,6 +42,31 @@ test('seven local team accounts are exercise-scoped and a second setup preserves
       const keys = staff.map(permission => permission.permission_key);
       for (const permission of ['command.read', 'command.defcon.change', 'document.create', 'task.assign']) assert(keys.includes(permission));
       assert(!keys.includes('registry.read'));
+      const medicalGrants = await tx.execute(sql`
+        SELECT rp.permission_key, rp.scope, ra.unit_id, u.slug AS unit_slug
+        FROM role_assignments ra
+        JOIN roles r ON r.id = ra.role_id
+        JOIN role_permissions rp ON rp.role_id = r.id
+        JOIN organizational_units u ON u.id = ra.unit_id
+        JOIN event_memberships m ON m.id = ra.membership_id
+        WHERE m.event_id = ${eventId}
+          AND m.user_id = ${accounts.zdravotnici!.id}
+          AND r.slug = 'medical-responder'
+      `);
+      const expectedMedical = ['medical.read','medical.create','medical.update','medical.triage',
+        'medical.observe','medical.intervene','medical.transfer','medical.close'].sort();
+      assert.deepEqual(medicalGrants.map(g => String(g.permission_key)).sort(),expectedMedical);
+      assert(medicalGrants.every(g => g.scope === 'UNIT' && g.unit_slug === 'zachranna-a-zdravotni-sluzba'));
+      const broadMedical = await tx.execute(sql`
+        SELECT rp.permission_key FROM role_permissions rp
+        JOIN roles r ON r.id = rp.role_id
+        JOIN role_assignments ra ON ra.role_id = r.id
+        JOIN event_memberships m ON m.id = ra.membership_id
+        WHERE m.event_id = ${eventId}
+          AND m.user_id = ${accounts.zdravotnici!.id}
+          AND rp.permission_key LIKE 'medical.%' AND rp.scope = 'EVENT'
+      `);
+      assert.equal(broadMedical.length,0,'medical preview operator must not inherit exercise-wide medical rights');
       await tx.execute(sql`UPDATE preview_team_accounts SET enabled=true WHERE user_id=${accounts.stab!.id}`);
       const id = rows[0]!.task_id as string;
       await tx.execute(sql`UPDATE operational_tasks SET status='COMPLETED' WHERE id=${id}`);

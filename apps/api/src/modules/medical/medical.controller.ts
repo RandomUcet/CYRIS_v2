@@ -129,6 +129,17 @@ export class MedicalController {
     return this.medicalService.stabilizeEncounter(encounterId, user);
   }
 
+  /** A receiving team acknowledges the handoff before resuming patient care. */
+  @Post(':encounterId/receive')
+  async receiveTransferredEncounter(
+    @Param('eventId') eventId: string,
+    @Param('encounterId') encounterId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<MedicalEncounterDetail> {
+    await this.medicalService.assertEncounterInEvent(eventId, encounterId);
+    return this.medicalService.receiveTransferredEncounter(encounterId, user);
+  }
+
   @Post(':encounterId/transfer')
   async transferEncounter(
     @Param('eventId') eventId: string,

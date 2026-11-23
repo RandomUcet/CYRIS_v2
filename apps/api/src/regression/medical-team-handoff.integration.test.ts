@@ -2,11 +2,11 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { eq, and } from 'drizzle-orm';
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import {
   getDbClient, closeDatabaseConnection, users, events, eventMemberships,
   membershipUnitAssignments, organizationalUnits, unitCapabilities,
-  roles, rolePermissions, roleAssignments, resources, medicalEncounters, locations,
+  roles, rolePermissions, roleAssignments, resources, medicalEncounters, medicalInterventions, locations,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
 import { UnitCapabilityKeys } from '@cyris/contracts';
@@ -15,6 +15,7 @@ import { AuthorizationService } from '../modules/authorization/authorization.ser
 import { ResourceAccessService } from '../modules/resources/resource-access.service.js';
 import { ResourceService } from '../modules/resources/resource.service.js';
 import { MedicalService } from '../modules/medical/medical.service.js';
+import { WorkspaceResolverService } from '../modules/events/workspace-resolver.service.js';
 import { AuditService } from '../modules/audit/audit.service.js';
 import { ActivityService } from '../modules/resources/activity.service.js';
 import { SearchIndexerService } from '../modules/search/search-indexer.service.js';
@@ -80,7 +81,9 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
     await db.insert(rolePermissions).values([
       ...[Permissions.MEDICAL_READ,Permissions.MEDICAL_CREATE,Permissions.MEDICAL_UPDATE,Permissions.MEDICAL_TRANSFER]
         .map(permissionKey=>({roleId:roleA,permissionKey,scope:'UNIT' as const})),
-      {roleId:roleB,permissionKey:Permissions.MEDICAL_READ,scope:'UNIT' as const},
+      ...[Permissions.MEDICAL_READ,Permissions.MEDICAL_INTERVENE,Permissions.MEDICAL_CLOSE,
+        Permissions.MEDICAL_TRIAGE,Permissions.MEDICAL_TRANSFER]
+        .map(permissionKey=>({roleId:roleB,permissionKey,scope:'UNIT' as const})),
     ]);
     await db.insert(roleAssignments).values([
       {roleId:roleA,membershipId:membershipA,unitId:medA},
@@ -88,6 +91,16 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
     ]);
     await db.insert(resources).values({id:locationId,eventId:eventA,resourceType:'location'});
     await db.insert(locations).values({id:locationId,name:'Field clinic'});
+
+    await t.test('medical team unit-scope grants a visible medical workspace, never event-wide medical authority', async () => {
+      assert.equal(await authz.authorize({user:recipient,permission:Permissions.MEDICAL_READ,context:{eventId:eventA}}),false);
+      assert.equal(await authz.hasEventCapability({
+        user:recipient,permission:Permissions.MEDICAL_READ,eventId:eventA,resourceScopes:['OWN','ASSIGNED'],
+      }),true);
+      const workspace=await new WorkspaceResolverService(database,authz).resolveWorkspace(recipient,eventA);
+      assert(workspace.sections.some(section=>section.items.some(item=>item.href===`/events/${eventA}/medical`)));
+      await assert.rejects(new WorkspaceResolverService(database,authz).resolveWorkspace(recipient,eventB),ForbiddenException);
+    });
 
     await t.test('a single active medical membership is auto-selected without user team input', async () => {
       assert.equal(await medical.resolveIntakeUnit(eventA,actorId),medA);
@@ -123,7 +136,7 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
       ));
     });
 
-    await t.test('failed handoff rolls back both domain and access-control ownership', async () => {
+    await t.test('failed handoff rolls back both domain and access-control ownership', async (handoff) => {
       const created=await medical.createEncounter(eventA,{triageCategory:'MINOR',visibility:'UNIT'},actor);
       const original=await lookup(created.id);
       const originalEmit=indexer.emitSearchUpsert.bind(indexer);
@@ -151,6 +164,82 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
       assert.equal(transferred.record?.status,'TRANSFERRED');
       assert.equal(await access.canAccessResource(actor,created.id,Permissions.MEDICAL_READ),false);
       assert.equal(await access.canAccessResource(recipient,created.id,Permissions.MEDICAL_READ),true);
+
+      await handoff.test('only the receiving operator can acknowledge transferred patient', async () => {
+        await assert.rejects(medical.receiveTransferredEncounter(created.id,actor),ForbiddenException);
+        await assert.rejects(medical.stabilizeEncounter(created.id,recipient),ConflictException);
+        await assert.rejects(medical.addIntervention(created.id,{
+          interventionType:'ASSESSMENT',description:'Must first accept handoff',
+        },recipient),ConflictException);
+        await assert.rejects(medical.triageEncounter(created.id,{triageCategory:'MINOR'},recipient),ConflictException);
+        await assert.rejects(medical.transferEncounter(created.id,{
+          targetLocationId:locationId,disposition:'Handoff replay',
+        },recipient),ConflictException);
+
+        const before=await db.select().from(medicalEncounters).where(eq(medicalEncounters.id,created.id));
+        const previousEmit=indexer.emitSearchUpsert.bind(indexer);
+        indexer.emitSearchUpsert=async()=>{throw new Error('Receipt outbox failure');};
+        try {
+          await assert.rejects(medical.receiveTransferredEncounter(created.id,recipient),/Receipt outbox failure/);
+        } finally { indexer.emitSearchUpsert=previousEmit; }
+        const [unchanged]=await db.select().from(medicalEncounters).where(eq(medicalEncounters.id,created.id));
+        assert.equal(unchanged?.status,'TRANSFERRED');
+        assert.deepEqual(unchanged?.transferredAt,before[0]?.transferredAt);
+
+        const received=await medical.receiveTransferredEncounter(created.id,recipient);
+        assert.equal(received.status,'UNDER_CARE');
+        assert.equal(received.assignedUnitId,medB);
+        assert.equal(received.locationId,locationId);
+        assert.equal(received.transferredAt?.toString(),success.transferredAt?.toString());
+        assert.equal(received.disposition,'Clinic B');
+        assert.equal((await lookup(created.id)).resource?.owningUnitId,medB);
+        await assert.rejects(medical.receiveTransferredEncounter(created.id,recipient),ConflictException);
+        assert.equal(await access.canAccessResource(actor,created.id,Permissions.MEDICAL_READ),false);
+
+        // The receiving team may continue treatment on the same patient record,
+        // and a failing search/audit outbox must not leave a partial intervention.
+        const prior=await db.select().from(medicalInterventions)
+          .where(eq(medicalInterventions.encounterId,created.id));
+        const oldIndex=indexer.emitSearchUpsert.bind(indexer);
+        indexer.emitSearchUpsert=async()=>{throw new Error('Care outbox rollback');};
+        try {
+          await assert.rejects(medical.addIntervention(created.id,{
+            interventionType:'ASSESSMENT',description:'Must roll back',
+          },recipient),/Care outbox rollback/);
+        } finally { indexer.emitSearchUpsert=oldIndex; }
+        assert.equal((await db.select().from(medicalInterventions)
+          .where(eq(medicalInterventions.encounterId,created.id))).length,prior.length);
+
+        const after=await medical.addIntervention(created.id,{
+          interventionType:'ASSESSMENT',description:'Simulated assessment after receipt',
+        },recipient);
+        assert.equal(after.interventionType,'ASSESSMENT');
+        assert.equal((await medical.getEncounterDetail(created.id,recipient)).interventions.length,1);
+
+        const oldForClosure=indexer.emitSearchUpsert.bind(indexer);
+        indexer.emitSearchUpsert=async()=>{throw new Error('Close outbox rollback');};
+        try {
+          await assert.rejects(medical.closeEncounter(created.id,{
+            status:'CLOSED',disposition:'Failed simulated discharge',
+          },recipient),/Close outbox rollback/);
+        } finally { indexer.emitSearchUpsert=oldForClosure; }
+        assert.equal((await db.select().from(medicalEncounters).where(eq(medicalEncounters.id,created.id)))[0]?.status,'UNDER_CARE');
+
+        // A final disposition cannot be undone by ordinary triage or transfer endpoints.
+        const final=await medical.closeEncounter(created.id,{status:'CLOSED',disposition:'Simulated discharge'},recipient);
+        assert.equal(final.status,'CLOSED');
+        await assert.rejects(medical.stabilizeEncounter(created.id,recipient),ConflictException);
+        await assert.rejects(medical.triageEncounter(created.id,{triageCategory:'MINOR'},recipient),ConflictException);
+        await assert.rejects(medical.transferEncounter(created.id,{
+          targetLocationId:locationId,disposition:'Invalid post-close handoff',
+        },recipient),ConflictException);
+        await assert.rejects(medical.addIntervention(created.id,{
+          interventionType:'AFTER_CLOSE',description:'Not allowed',
+        },recipient),ConflictException);
+        await assert.rejects(medical.closeEncounter(created.id,{status:'CLOSED',disposition:'Duplicate close'},recipient),ConflictException);
+        await assert.rejects(medical.receiveTransferredEncounter(created.id,recipient),ConflictException);
+        assert.equal((await db.select().from(medicalEncounters).where(eq(medicalEncounters.id,created.id)))[0]?.status,'CLOSED');
+      });
     });
   } finally {
     await closeDatabaseConnection();

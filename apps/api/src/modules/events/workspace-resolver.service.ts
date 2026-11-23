@@ -212,10 +212,8 @@ export class WorkspaceResolverService {
       isPlatformAdmin || this.authzService.hasEventCapability({
         user, permission: Permissions.TASK_READ, eventId, resourceScopes: ['OWN', 'ASSIGNED'],
       }),
-      this.authzService.authorize({
-        user,
-        permission: Permissions.MEDICAL_READ,
-        context: { eventId },
+      isPlatformAdmin || this.authzService.hasEventCapability({
+        user, permission: Permissions.MEDICAL_READ, eventId, resourceScopes: ['OWN', 'ASSIGNED'],
       }),
       this.authzService.authorize({
         user,

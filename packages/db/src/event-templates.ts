@@ -54,6 +54,12 @@ export const teamMemberPermissions = [
     { key: Permissions.TASK_COMPLETE, scope: PermissionScopes.ASSIGNED },
   ];
 
+export const medicalResponderPermissions = [
+  Permissions.MEDICAL_READ, Permissions.MEDICAL_CREATE, Permissions.MEDICAL_UPDATE,
+  Permissions.MEDICAL_TRIAGE, Permissions.MEDICAL_OBSERVE,
+  Permissions.MEDICAL_INTERVENE, Permissions.MEDICAL_TRANSFER, Permissions.MEDICAL_CLOSE,
+].map(key => ({key, scope: PermissionScopes.UNIT}));
+
 export const crisisCommandPermissions = [
   ...teamMemberPermissions.filter(({ key }) => key !== Permissions.REGISTRY_READ && key !== Permissions.TASK_READ),
   ...[Permissions.COMMAND_READ, Permissions.COMMAND_DEFCON_CHANGE, Permissions.TASK_CREATE,
@@ -198,6 +204,9 @@ const eventRoleTemplates = [
     description: 'Exercise-scoped coordination, support and corrective authority; no platform administration', permissions: exerciseOrganizerPermissions,
   },
   { slug: 'exercise-command', name: 'Krizový štáb', description: 'Řízení připravenosti, úkolů a situačních zpráv cvičení', permissions: crisisCommandPermissions },
+  { slug: 'medical-responder', name: 'Zdravotník / Medical Responder',
+    description: 'Receives exercise casualties and records triage, treatment and transfers only within assigned medical unit',
+    permissions: medicalResponderPermissions },
   ...laboratoryRoles,
   ...legalRoleTemplates,
 ];

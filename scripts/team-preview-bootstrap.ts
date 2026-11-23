@@ -43,7 +43,7 @@ const profiles = {
     instruction: 'Na cvičné předávce CH-02 je čas 10:05 a chybí podpis příjemce. Zapište nesrovnalost a komu ji vracíte k doplnění.',
   },
   zdravotnici: {
-    rights: [P.MEDICAL_READ, P.MEDICAL_CREATE, P.MEDICAL_OBSERVE],
+    rights: [], // Medical permissions come from the unit-scoped medical-responder role below.
     title: 'Připravit předání cvičného pacienta',
     instruction: 'Pro figuranta Z-03 připravte předání ze stanoviště B na shromaždiště. Zapište identifikátor, výchozí místo a místo předání.',
   },
@@ -82,14 +82,19 @@ export async function provisionTeamPreview(db: Pick<CyrisDatabase, 'transaction'
       const roleId = randomUUID();
       await tx.insert(roles).values({ id: roleId, eventId, slug: team.slug, name: team.name });
       const grants = team.login === 'stab' ? crisisCommandPermissions : profile.rights.map(key => ({ key, scope: 'EVENT' }));
-      await tx.insert(rolePermissions).values(grants.map(({key, scope}) => ({ roleId, permissionKey: key, scope })));
+      if (grants.length > 0) {
+        await tx.insert(rolePermissions).values(grants.map(({key, scope}) => ({ roleId, permissionKey: key, scope })));
+      }
       await tx.insert(roleAssignments).values({ roleId, membershipId });
       const roleSlugs = team.login === 'stab' ? [] : ['team-member'];
       if (team.login === 'levandule' || team.login === 'chemie') roleSlugs.push('laboratory-worker');
       if (team.login === 'bps') roleSlugs.push('laboratory-requester');
+      if (team.login === 'zdravotnici') roleSlugs.push('medical-responder');
       for (const slug of roleSlugs) {
         const [role] = await tx.execute(sql`SELECT id FROM roles WHERE event_id = ${eventId} AND slug = ${slug}`);
-        await tx.insert(roleAssignments).values({ roleId: role!.id as string, membershipId });
+        await tx.insert(roleAssignments).values({ roleId: role!.id as string, membershipId,
+          ...(slug === 'medical-responder' ? { unitId } : {}),
+        });
       }
       if (team.login === 'bps') {
         const id = randomUUID();

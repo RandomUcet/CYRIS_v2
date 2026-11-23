@@ -147,6 +147,7 @@ export default function MedicalDetailPage() {
   const [transferOptionsLoading, setTransferOptionsLoading] = useState(false);
   const [transferOptionsError, setTransferOptionsError] = useState('');
   const [handoffSuccess, setHandoffSuccess] = useState('');
+  const [receiveSuccess, setReceiveSuccess] = useState('');
 
   useEffect(() => {
     if (!showTransferModal || !eventId) return;
@@ -169,11 +170,11 @@ export default function MedicalDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   useDialogAccessibility(showTriageModal || showObservationModal || showInterventionModal || showTransferModal, () => { if (!actionPending) { setShowTriageModal(false); setShowObservationModal(false); setShowInterventionModal(false); setShowTransferModal(false); setActionError(null); } });
 
-  const canTriage = hasPermission('medical.triage');
-  const canObserve = hasPermission('medical.observe');
-  const canIntervene = hasPermission('medical.intervene');
-  const canTransfer = hasPermission('medical.transfer');
-  const canClose = hasPermission('medical.close');
+  const canTriage = hasPermission('medical.triage', eventId);
+  const canObserve = hasPermission('medical.observe', eventId);
+  const canIntervene = hasPermission('medical.intervene', eventId);
+  const canTransfer = hasPermission('medical.transfer', eventId);
+  const canClose = hasPermission('medical.close', eventId);
 
   const fetchEncounter = async () => {
     setLoading(true);
@@ -312,6 +313,28 @@ export default function MedicalDetailPage() {
     }
   };
 
+  const handleReceive = async () => {
+    if (actionPending) return;
+    setActionPending(true);
+    setActionError(null);
+    setReceiveSuccess('');
+    try {
+      const result = await apiClient.receiveMedicalEncounter(eventId, encounterId);
+      if (!result.ok || !result.data) {
+        setActionError(result.error || (locale === 'cs' ? 'Pacienta se nepodařilo převzít.' : 'Unable to receive patient.'));
+        return;
+      }
+      setEncounter(result.data);
+      setReceiveSuccess(locale === 'cs'
+        ? 'Převzetí pacienta potvrzeno. Nyní můžete pokračovat v péči. Historie předání zůstala zachována.'
+        : 'Handoff acknowledged. You can now continue care; transfer history is preserved.');
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : 'Network error');
+    } finally {
+      setActionPending(false);
+    }
+  };
+
   const handleStabilize = async () => {
     setActionPending(true);
     setActionError(null);
@@ -369,7 +392,7 @@ export default function MedicalDetailPage() {
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             Refresh
           </button>
-          {canTriage && (
+          {canTriage && encounter && !['TRANSFERRED', 'CLOSED', 'DECEASED'].includes(encounter.status) && (
             <button
               onClick={() => setShowTriageModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-500 rounded transition"
@@ -378,7 +401,17 @@ export default function MedicalDetailPage() {
               Set Triage
             </button>
           )}
-          {encounter?.status !== 'STABILIZED' && encounter?.status !== 'CLOSED' && (
+          {canIntervene && encounter?.status === 'TRANSFERRED' && (
+            <button
+              onClick={handleReceive}
+              disabled={actionPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-600 rounded transition"
+            >
+              <CheckCircle size={13} />
+              {actionPending ? (locale === 'cs' ? 'Přebírám…' : 'Receiving…') : (locale === 'cs' ? 'Převzít pacienta' : 'Receive Patient')}
+            </button>
+          )}
+          {canIntervene && encounter && ['RECEIVED', 'TRIAGED', 'UNDER_CARE'].includes(encounter.status) && (
             <button
               onClick={handleStabilize}
               disabled={actionPending}
@@ -388,7 +421,7 @@ export default function MedicalDetailPage() {
               Mark Stabilized
             </button>
           )}
-          {canTransfer && encounter?.status !== 'CLOSED' && (
+          {canTransfer && encounter && ['RECEIVED', 'TRIAGED', 'UNDER_CARE', 'STABILIZED'].includes(encounter.status) && (
             <button
               onClick={() => setShowTransferModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded transition"
@@ -397,7 +430,7 @@ export default function MedicalDetailPage() {
               Transfer
             </button>
           )}
-          {canClose && encounter?.status !== 'CLOSED' && (
+          {canClose && encounter && ['RECEIVED', 'TRIAGED', 'UNDER_CARE', 'STABILIZED'].includes(encounter.status) && (
             <button
               onClick={handleClose}
               disabled={actionPending}
@@ -450,6 +483,14 @@ export default function MedicalDetailPage() {
               </div>
             </div>
 
+            {encounter.status === 'TRANSFERRED' && (
+              <p role="status" className="rounded border border-blue-700/50 bg-blue-950/30 px-4 py-3 text-sm text-blue-100">
+                {locale === 'cs'
+                  ? 'Pacient byl předán. Přijímající zdravotnický tým musí potvrdit převzetí před pokračováním v péči.'
+                  : 'Patient transferred. The receiving medical team must acknowledge the handoff before care continues.'}
+              </p>
+            )}
+            {receiveSuccess && <p role="status" className="rounded border border-emerald-700/50 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-100">{receiveSuccess}</p>}
             {actionError && (
               <div className="p-3 bg-red-950/50 border border-red-800 rounded text-red-300 text-xs font-mono">
                 {actionError}
@@ -596,7 +637,7 @@ export default function MedicalDetailPage() {
                   <h3 className="text-xs font-bold font-mono uppercase text-slate-300">
                     Medical Procedures & Interventions
                   </h3>
-                  {canIntervene && (
+                  {canIntervene && !['TRANSFERRED', 'CLOSED', 'DECEASED'].includes(encounter.status) && (
                     <button
                       onClick={() => setShowInterventionModal(true)}
                       className="px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded transition flex items-center gap-1.5"
@@ -666,6 +707,29 @@ export default function MedicalDetailPage() {
                     )}
                   </div>
                 </div>
+                <section aria-label={locale === 'cs' ? 'Historie předání pacienta' : 'Patient handoff history'} className="rounded-lg border border-slate-800 bg-slate-900 p-5">
+                  <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-300">
+                    {locale === 'cs' ? 'Historie předání a převzetí' : 'Handoff and receipt history'}
+                  </h4>
+                  {encounter.timeline.filter(entry => ['medical.transferred', 'medical.transfer.received'].includes(entry.activityType)).length === 0 ? (
+                    <p className="text-sm text-slate-500">{locale === 'cs' ? 'Zatím není evidováno žádné předání.' : 'No recorded handoffs yet.'}</p>
+                  ) : (
+                    <ol className="space-y-3">
+                      {encounter.timeline
+                        .filter(entry => ['medical.transferred', 'medical.transfer.received'].includes(entry.activityType))
+                        .map(entry => (
+                          <li key={entry.id} className="flex flex-wrap items-start gap-3 border-l-2 border-slate-700 pl-3 text-sm">
+                            <time className="shrink-0 text-xs text-slate-400">{formatTime(entry.occurredAt)}</time>
+                            <span className="text-slate-200">
+                              {entry.activityType === 'medical.transfer.received'
+                                ? (locale === 'cs' ? 'Pacient převzat do aktivní péče' : 'Patient received into active care')
+                                : (locale === 'cs' ? 'Pacient předán' : 'Patient transferred')}
+                            </span>
+                          </li>
+                        ))}
+                    </ol>
+                  )}
+                </section>
               </div>
             )}
           </>

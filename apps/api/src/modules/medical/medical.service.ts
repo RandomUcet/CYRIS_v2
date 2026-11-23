@@ -410,61 +410,49 @@ export class MedicalService {
     dto: TriageMedicalEncounterRequest,
     user: AuthenticatedUser
   ): Promise<MedicalEncounterDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      encounterId,
-      Permissions.MEDICAL_TRIAGE
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(medicalEncounters)
-      .where(eq(medicalEncounters.id, encounterId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
-    }
-
-    const now = new Date();
-    const newStatus = existing.status === 'RECEIVED' ? 'TRIAGED' : existing.status;
-
-    await this.db
-      .update(medicalEncounters)
-      .set({
+    await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_TRIAGE);
+    // Serialize with closure/transfer so a late triage request cannot reopen a patient.
+    await this.db.transaction(async tx => {
+      const [existing] = await tx.select().from(medicalEncounters)
+        .where(eq(medicalEncounters.id, encounterId)).limit(1).for('update');
+      if (!existing) throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
+      if (['TRANSFERRED', 'CLOSED', 'DECEASED'].includes(existing.status)) {
+        throw new ConflictException('Transferred or finalized medical records cannot be triaged');
+      }
+      const now = new Date();
+      await tx.update(medicalEncounters).set({
         triageCategory: dto.triageCategory,
-        status: newStatus,
+        status: existing.status === 'RECEIVED' ? 'TRIAGED' : existing.status,
         updatedAt: now,
-      })
-      .where(eq(medicalEncounters.id, encounterId));
+      }).where(eq(medicalEncounters.id, encounterId));
 
-    await this.auditService.record({
-      action: 'medical.triaged',
-      category: 'medical',
-      eventId: existing.eventId,
-      resourceType: 'medical_encounter',
-      resourceId: encounterId,
-      actorUserId: user.id,
-      metadata: {
-        medicalNumber: existing.medicalNumber,
-        previousTriage: existing.triageCategory,
-        newTriage: dto.triageCategory,
-        notes: dto.notes,
-      },
+      await this.auditService.record({
+        action: 'medical.triaged',
+        category: 'medical',
+        eventId: existing.eventId,
+        resourceType: 'medical_encounter',
+        resourceId: encounterId,
+        actorUserId: user.id,
+        metadata: {
+          medicalNumber: existing.medicalNumber,
+          previousTriage: existing.triageCategory,
+          newTriage: dto.triageCategory,
+          notes: dto.notes,
+        },
+        txClient: tx,
+      });
+      await this.activityService.recordActivity({
+        eventId: existing.eventId,
+        resourceId: encounterId,
+        activityType: 'medical.triaged',
+        actorUserId: user.id,
+        title: `Casualty Triaged: ${existing.medicalNumber} — ${dto.triageCategory}`,
+        // Clinical justification belongs in the controlled audit, not an event-wide timeline.
+        summary: `Triage category updated to ${dto.triageCategory}`,
+      },tx);
+      await this.searchIndexer.emitSearchUpsert('medical_encounter',encounterId,tx);
     });
-
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: encounterId,
-      activityType: 'medical.triaged',
-      actorUserId: user.id,
-      title: `Casualty Triaged: ${existing.medicalNumber} — ${dto.triageCategory}`,
-      summary: dto.notes || `Assigned triage category ${dto.triageCategory}`,
-    });
-
-    await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId);
-
-    return this.getEncounterDetail(encounterId, user);
+    return this.getEncounterDetail(encounterId,user);
   }
 
   /**
@@ -545,75 +533,113 @@ export class MedicalService {
     dto: CreateMedicalInterventionRequest,
     user: AuthenticatedUser
   ): Promise<MedicalInterventionItem> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      encounterId,
-      Permissions.MEDICAL_INTERVENE
-    );
+    await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_INTERVENE);
+    const intId=generateId();
+    const now=new Date();
+    const [created] = await this.db.transaction(async tx => {
+      const [existing] = await tx.select().from(medicalEncounters)
+        .where(eq(medicalEncounters.id, encounterId)).limit(1).for('update');
+      if (!existing) throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
+      if (['TRANSFERRED', 'CLOSED', 'DECEASED'].includes(existing.status)) {
+        throw new ConflictException('Receive a transferred patient before interventions; finalized encounters cannot be changed');
+      }
 
-    const [existing] = await this.db
-      .select({
-        eventId: medicalEncounters.eventId,
-        medicalNumber: medicalEncounters.medicalNumber,
-        status: medicalEncounters.status,
-      })
-      .from(medicalEncounters)
-      .where(eq(medicalEncounters.id, encounterId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
-    }
-
-    const intId = generateId();
-    const now = new Date();
-
-    const [created] = await this.db
-      .insert(medicalInterventions)
-      .values({
-        id: intId,
+      const [created] = await tx.insert(medicalInterventions).values({
+        id:intId,
         encounterId,
-        interventionType: dto.interventionType,
-        description: dto.description,
-        performedAt: now,
-        performedByUserId: user.id,
-        outcome: dto.outcome || null,
-        createdAt: now,
-      })
-      .returning();
-
-    // Transition status to UNDER_CARE if previously RECEIVED or TRIAGED
-    if (existing.status === 'RECEIVED' || existing.status === 'TRIAGED') {
-      await this.db
-        .update(medicalEncounters)
-        .set({ status: 'UNDER_CARE', updatedAt: now })
-        .where(eq(medicalEncounters.id, encounterId));
-    }
-
-    await this.auditService.record({
-      action: 'medical.intervention.added',
-      category: 'medical',
-      eventId: existing.eventId,
-      resourceType: 'medical_intervention',
-      resourceId: intId,
-      actorUserId: user.id,
-      metadata: {
-        medicalNumber: existing.medicalNumber,
-        interventionType: dto.interventionType,
-      },
+        interventionType:dto.interventionType,
+        description:dto.description,
+        performedAt:now,
+        performedByUserId:user.id,
+        outcome:dto.outcome||null,
+        createdAt:now,
+      }).returning();
+      if (existing.status === 'RECEIVED' || existing.status === 'TRIAGED') {
+        await tx.update(medicalEncounters).set({status:'UNDER_CARE',updatedAt:now})
+          .where(eq(medicalEncounters.id,encounterId));
+      }
+      await this.auditService.record({
+        action:'medical.intervention.added',
+        category:'medical',
+        eventId:existing.eventId,
+        resourceType:'medical_intervention',
+        resourceId:intId,
+        actorUserId:user.id,
+        metadata:{
+          medicalNumber:existing.medicalNumber,
+          interventionType:dto.interventionType,
+        },
+        txClient:tx,
+      });
+      await this.searchIndexer.emitSearchUpsert('medical_encounter',encounterId,tx);
+      return [created];
     });
 
     return {
-      id: created!.id,
-      encounterId: created!.encounterId,
-      interventionType: created!.interventionType,
-      description: created!.description,
-      performedAt: created!.performedAt.toISOString(),
-      performedByUserId: created!.performedByUserId,
-      performedByUserDisplayName: user.displayName,
-      outcome: created!.outcome,
-      createdAt: created!.createdAt.toISOString(),
+      id:created!.id,
+      encounterId:created!.encounterId,
+      interventionType:created!.interventionType,
+      description:created!.description,
+      performedAt:created!.performedAt.toISOString(),
+      performedByUserId:created!.performedByUserId,
+      performedByUserDisplayName:user.displayName,
+      outcome:created!.outcome,
+      createdAt:created!.createdAt.toISOString(),
     };
+  }
+
+  /**
+   * A receiving medical team explicitly acknowledges a transfer before continuing care.
+   * The original transferredAt and disposition are immutable handoff history; the
+   * current status moves back to UNDER_CARE without a new patient record.
+   */
+  async receiveTransferredEncounter(encounterId: string, user: AuthenticatedUser): Promise<MedicalEncounterDetail> {
+    await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_INTERVENE);
+    await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_READ);
+
+    await this.db.transaction(async (tx) => {
+      const [encounter] = await tx.select().from(medicalEncounters)
+        .where(eq(medicalEncounters.id, encounterId)).limit(1).for('update');
+      if (!encounter) throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
+      if (encounter.status !== 'TRANSFERRED') {
+        throw new ConflictException('Only a transferred patient can be received into active medical care');
+      }
+      const [resource] = await tx.select({owningUnitId: resources.owningUnitId})
+        .from(resources).where(and(eq(resources.id, encounterId), eq(resources.eventId, encounter.eventId))).limit(1);
+      if (!resource || resource.owningUnitId !== encounter.assignedUnitId) {
+        throw new ConflictException('Medical handoff unit does not match current resource ownership');
+      }
+      const now = new Date();
+      await tx.update(medicalEncounters)
+        .set({status:'UNDER_CARE', updatedAt:now})
+        .where(eq(medicalEncounters.id, encounterId));
+
+      await this.auditService.record({
+        action:'medical.transfer.received',
+        category:'medical',
+        eventId: encounter.eventId,
+        resourceType:'medical_encounter',
+        resourceId:encounterId,
+        actorUserId:user.id,
+        metadata:{
+          medicalNumber:encounter.medicalNumber,
+          assignedUnitId:encounter.assignedUnitId,
+          previousStatus:'TRANSFERRED',
+          nextStatus:'UNDER_CARE',
+        },
+        txClient:tx,
+      });
+      await this.activityService.recordActivity({
+        eventId:encounter.eventId,
+        resourceId:encounterId,
+        activityType:'medical.transfer.received',
+        actorUserId:user.id,
+        title:`Patient handoff received: ${encounter.medicalNumber}`,
+        summary:'Receiving medical team acknowledged the handoff and resumed active care',
+      },tx);
+      await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId, tx);
+    });
+    return this.getEncounterDetail(encounterId,user);
   }
 
   /**
@@ -623,54 +649,39 @@ export class MedicalService {
     encounterId: string,
     user: AuthenticatedUser
   ): Promise<MedicalEncounterDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      encounterId,
-      Permissions.MEDICAL_INTERVENE
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(medicalEncounters)
-      .where(eq(medicalEncounters.id, encounterId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
-    }
-
-    const now = new Date();
-    await this.db
-      .update(medicalEncounters)
-      .set({
-        status: 'STABILIZED',
-        stabilizedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(medicalEncounters.id, encounterId));
-
-    await this.auditService.record({
-      action: 'medical.stabilized',
-      category: 'medical',
-      eventId: existing.eventId,
-      resourceType: 'medical_encounter',
-      resourceId: encounterId,
-      actorUserId: user.id,
-      metadata: { medicalNumber: existing.medicalNumber },
+    await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_INTERVENE);
+    await this.db.transaction(async tx => {
+      const [existing] = await tx.select().from(medicalEncounters)
+        .where(eq(medicalEncounters.id, encounterId)).limit(1).for('update');
+      if (!existing) throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
+      if (!['RECEIVED','TRIAGED','UNDER_CARE'].includes(existing.status)) {
+        throw new ConflictException('Only an active patient can be stabilized; receive transfers first');
+      }
+      const now = new Date();
+      await tx.update(medicalEncounters).set({
+        status:'STABILIZED',stabilizedAt:now,updatedAt:now,
+      }).where(eq(medicalEncounters.id,encounterId));
+      await this.auditService.record({
+        action:'medical.stabilized',
+        category:'medical',
+        eventId:existing.eventId,
+        resourceType:'medical_encounter',
+        resourceId:encounterId,
+        actorUserId:user.id,
+        metadata:{medicalNumber:existing.medicalNumber},
+        txClient:tx,
+      });
+      await this.activityService.recordActivity({
+        eventId:existing.eventId,
+        resourceId:encounterId,
+        activityType:'medical.stabilized',
+        actorUserId:user.id,
+        title:`Casualty Stabilized: ${existing.medicalNumber}`,
+        summary:'Vitals stabilized; awaiting evacuation or ongoing monitoring',
+      },tx);
+      await this.searchIndexer.emitSearchUpsert('medical_encounter',encounterId,tx);
     });
-
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: encounterId,
-      activityType: 'medical.stabilized',
-      actorUserId: user.id,
-      title: `Casualty Stabilized: ${existing.medicalNumber}`,
-      summary: `Vitals stabilized; awaiting evacuation or ongoing monitoring`,
-    });
-
-    await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId);
-
-    return this.getEncounterDetail(encounterId, user);
+    return this.getEncounterDetail(encounterId,user);
   }
 
   /**
@@ -707,6 +718,9 @@ export class MedicalService {
       }
       if (locked.assignedUnitId !== existing.assignedUnitId || locked.status !== existing.status) {
         throw new ConflictException('Medical handoff was changed concurrently; refresh and retry');
+      }
+      if (['TRANSFERRED', 'CLOSED', 'DECEASED'].includes(locked.status)) {
+        throw new ConflictException('Medical handoff requires an active patient; receive transfers before another handoff');
       }
       const nextUnitId = dto.receivingUnitId ?? locked.assignedUnitId;
       const teamChanged = nextUnitId !== locked.assignedUnitId;
@@ -754,7 +768,7 @@ export class MedicalService {
         activityType: 'medical.transferred',
         actorUserId: user.id,
         title: `Casualty Transferred: ${locked.medicalNumber} → ${destination.name}`,
-        summary: dto.disposition,
+        summary: 'Patient transferred to a receiving medical facility',
       }, tx);
       await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId, tx);
     });
@@ -772,59 +786,47 @@ export class MedicalService {
     dto: CloseMedicalEncounterRequest,
     user: AuthenticatedUser
   ): Promise<MedicalEncounterDetail> {
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      encounterId,
-      Permissions.MEDICAL_CLOSE
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(medicalEncounters)
-      .where(eq(medicalEncounters.id, encounterId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
-    }
-
-    const now = new Date();
-    await this.db
-      .update(medicalEncounters)
-      .set({
-        status: dto.status || 'CLOSED',
-        closedAt: now,
-        disposition: dto.disposition,
-        updatedAt: now,
-      })
-      .where(eq(medicalEncounters.id, encounterId));
-
-    await this.auditService.record({
-      action: 'medical.closed',
-      category: 'medical',
-      eventId: existing.eventId,
-      resourceType: 'medical_encounter',
-      resourceId: encounterId,
-      actorUserId: user.id,
-      metadata: {
-        medicalNumber: existing.medicalNumber,
-        finalStatus: dto.status,
-        disposition: dto.disposition,
-      },
+    await this.resourceAccessService.assertCanAccessResource(user,encounterId,Permissions.MEDICAL_CLOSE);
+    await this.db.transaction(async tx => {
+      const [existing] = await tx.select().from(medicalEncounters)
+        .where(eq(medicalEncounters.id,encounterId)).limit(1).for('update');
+      if (!existing) throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
+      if (['TRANSFERRED','CLOSED','DECEASED'].includes(existing.status)) {
+        throw new ConflictException('Transferred patients must be received before closing; finalized records cannot be closed again');
+      }
+      const now=new Date();
+      await tx.update(medicalEncounters).set({
+        status:dto.status||'CLOSED',
+        closedAt:now,
+        disposition:dto.disposition,
+        updatedAt:now,
+      }).where(eq(medicalEncounters.id,encounterId));
+      await this.auditService.record({
+        action:'medical.closed',
+        category:'medical',
+        eventId:existing.eventId,
+        resourceType:'medical_encounter',
+        resourceId:encounterId,
+        actorUserId:user.id,
+        metadata:{
+          medicalNumber:existing.medicalNumber,
+          finalStatus:dto.status,
+          disposition:dto.disposition,
+        },
+        txClient:tx,
+      });
+      await this.activityService.recordActivity({
+        eventId:existing.eventId,
+        resourceId:encounterId,
+        activityType:'medical.closed',
+        actorUserId:user.id,
+        title:`Medical Encounter Closed: ${existing.medicalNumber} (${dto.status})`,
+        // Do not broadcast sensitive medical disposition prose into the event timeline.
+        summary:'Medical encounter finalized',
+      },tx);
+      await this.searchIndexer.emitSearchUpsert('medical_encounter',encounterId,tx);
     });
-
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: encounterId,
-      activityType: 'medical.closed',
-      actorUserId: user.id,
-      title: `Medical Encounter Closed: ${existing.medicalNumber} (${dto.status})`,
-      summary: dto.disposition,
-    });
-
-    await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId);
-
-    return this.getEncounterDetail(encounterId, user);
+    return this.getEncounterDetail(encounterId,user);
   }
 
   /**
