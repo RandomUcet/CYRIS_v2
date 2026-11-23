@@ -267,20 +267,17 @@ export class MedicalService {
       Permissions.MEDICAL_UPDATE
     );
 
+    // Validate all optional references before touching the encounter.
+    // A second event match is enforced on the locked row inside the transaction.
     const [existing] = await this.db
-      .select()
+      .select({ eventId: medicalEncounters.eventId })
       .from(medicalEncounters)
       .where(eq(medicalEncounters.id, encounterId))
       .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
-    }
-
+    if (!existing) throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
     await this.assertReferencesInEvent(existing.eventId, dto);
-    const updates: Record<string, unknown> = {
-      updatedAt: new Date(),
-    };
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (dto.personId !== undefined) updates.personId = dto.personId;
     if (dto.locationId !== undefined) updates.locationId = dto.locationId;
     if (dto.chiefComplaint !== undefined) updates.chiefComplaint = dto.chiefComplaint;
@@ -290,22 +287,48 @@ export class MedicalService {
     if (dto.assignedUnitId !== undefined) updates.assignedUnitId = dto.assignedUnitId;
     if (dto.assignedUserId !== undefined) updates.assignedUserId = dto.assignedUserId;
 
-    await this.db
-      .update(medicalEncounters)
-      .set(updates)
-      .where(eq(medicalEncounters.id, encounterId));
+    // Lock this encounter so concurrent patient changes cannot leave stale active links.
+    // The record, graph history, audit entries and search outbox commit together.
+    await this.db.transaction(async (tx) => {
+      const [locked] = await tx.select()
+        .from(medicalEncounters)
+        .where(eq(medicalEncounters.id, encounterId))
+        .for('update')
+        .limit(1);
+      if (!locked || locked.eventId !== existing.eventId) {
+        throw new NotFoundException('Medical encounter no longer belongs to the requested exercise');
+      }
 
-    await this.auditService.record({
-      action: 'medical.encounter.updated',
-      category: 'medical',
-      eventId: existing.eventId,
-      resourceType: 'medical_encounter',
-      resourceId: encounterId,
-      actorUserId: user.id,
-      metadata: { medicalNumber: existing.medicalNumber },
+      await tx.update(medicalEncounters).set(updates).where(eq(medicalEncounters.id, encounterId));
+
+      // Reconcile even an unchanged explicit personId: repairs a missing legacy link
+      // without duplicating an already active PATIENT_RECORD relationship.
+      if (dto.personId !== undefined) {
+        await this.resourceService.synchronizeMedicalPatientLink({
+          eventId: locked.eventId,
+          encounterId,
+          personId: dto.personId,
+          medicalNumber: locked.medicalNumber,
+          actorUserId: user.id,
+          txClient: tx,
+        });
+      }
+
+      await this.auditService.record({
+        action: 'medical.encounter.updated',
+        category: 'medical',
+        eventId: locked.eventId,
+        resourceType: 'medical_encounter',
+        resourceId: encounterId,
+        actorUserId: user.id,
+        metadata: {
+          medicalNumber: locked.medicalNumber,
+          patientLinkChanged: dto.personId !== undefined && dto.personId !== locked.personId,
+        },
+        txClient: tx,
+      });
+      await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId, tx);
     });
-
-    await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId);
 
     return this.getEncounterDetail(encounterId, user);
   }
