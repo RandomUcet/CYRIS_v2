@@ -8,7 +8,6 @@ import { apiClient } from '@/lib/api-client';
 export function PlatformAdministrators({ actorId, onChanged }: { actorId: string; onChanged: () => void }) {
   const { locale } = usePreferences();
   const cs = locale === 'cs';
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<PlatformAdminAccount[]>([]);
   const [more, setMore] = useState(false);
@@ -19,7 +18,6 @@ export function PlatformAdministrators({ actorId, onChanged }: { actorId: string
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
     let active = true;
     setRows([]);
     setMore(false);
@@ -35,7 +33,7 @@ export function PlatformAdministrators({ actorId, onChanged }: { actorId: string
       setLoading(false);
     }, query.trim() ? 200 : 0);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [open, query, revision, cs]);
+  }, [query, revision, cs]);
 
   async function change(person: PlatformAdminAccount) {
     const label = person.displayName + ' (' + person.email + ')';
@@ -59,8 +57,8 @@ export function PlatformAdministrators({ actorId, onChanged }: { actorId: string
     } finally { setSaving(false); }
   }
 
-  return <details className="preview-access" onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary>{cs ? 'Správci platformy' : 'Platform administrators'}</summary>
+  return <section className="preview-access platform-admin-management">
+    <h2>{cs ? 'Správci platformy' : 'Platform administrators'}</h2>
     <p>{cs ? 'Správce řídí celý CYRIS a všechna cvičení. Pro přidání vyhledejte uživatele po jeho prvním přihlášení přes LDAP.'
       : 'Administrators control CYRIS and all exercises. To add someone, search after their first LDAP sign-in.'}</p>
     <label>{cs ? 'Vyhledat LDAP účet' : 'Find an LDAP account'}{' '}
@@ -73,14 +71,18 @@ export function PlatformAdministrators({ actorId, onChanged }: { actorId: string
     {error && <p role="alert">{error}</p>}
     {message && <p role="status">{message}</p>}
     {!loading && !rows.length && !error && <p>{cs ? 'Žádný odpovídající účet.' : 'No matching accounts.'}</p>}
-    <ul>{rows.map(person => <li key={person.id}>
-      <strong>{person.displayName}</strong> · {person.email}
-      {person.id === actorId && (cs ? ' · váš účet' : ' · your account')}
-      {person.status !== 'ACTIVE' && (cs ? ' · deaktivován' : ' · disabled')}
-      {person.ldap && person.id !== actorId && <> <button type="button" className="btn btn-secondary"
-        disabled={saving} onClick={() => void change(person)}>{person.admin ? (cs ? 'Odebrat roli' : 'Revoke role')
-          : (cs ? 'Přidat správce' : 'Grant administrator')}</button></>}
+    <ul className="platform-admin-list">{rows.map(person => <li key={person.id}>
+      <div><strong>{person.displayName}</strong><small>{person.email}</small>
+        <span>{person.id === actorId ? (cs ? 'Váš účet' : 'Your account')
+          : person.status !== 'ACTIVE' ? (cs ? 'Deaktivovaný účet' : 'Disabled account')
+          : person.admin ? (cs ? 'Správce platformy' : 'Platform administrator')
+          : (cs ? 'Běžný účet LDAP' : 'LDAP participant')}</span>
+      </div>
+      {person.ldap && person.id !== actorId && <button type="button" className="btn btn-secondary"
+        disabled={saving || (!person.admin && person.status !== 'ACTIVE')}
+        onClick={() => void change(person)}>{person.admin ? (cs ? 'Odebrat roli' : 'Revoke role')
+          : (cs ? 'Přidat správce' : 'Grant administrator')}</button>}
     </li>)}</ul>
     {more && <p>{cs ? 'Zobrazeno prvních 25 účtů. Upřesněte hledání.' : 'Showing the first 25 accounts. Refine your search.'}</p>}
-  </details>;
+  </section>;
 }
