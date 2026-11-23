@@ -1,16 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { apiClient } from '@/lib/api-client';
-import type { ExerciseBroadcastHistory, ExerciseBroadcastKindSchema, ExerciseBroadcastRequest } from '@cyris/contracts';
-import type { z } from 'zod';
+import type { ExerciseBroadcastHistory, ExerciseBroadcastRequest } from '@cyris/contracts';
 
-type Kind = z.infer<typeof ExerciseBroadcastKindSchema>;
+type Kind = ExerciseBroadcastRequest['kind'];
 const types: Array<{key:Kind;cs:string;en:string;hintCs:string;hintEn:string}> = [
   {key:'INFO',cs:'Oznámení',en:'Announcement',hintCs:'Provozní informace pro účastníky',hintEn:'General exercise information'},
   {key:'UPDATE',cs:'Změna situace',en:'Situation update',hintCs:'Novinky v průběhu cvičení',hintEn:'Updates during the exercise'},
@@ -74,7 +73,7 @@ export default function ExerciseBroadcastPage() {
     return ()=>{live=false;};
   },[eventId,kind,audience,unitId,loading,history.length]);
 
-  async function send(ev:React.FormEvent) {
+  async function send(ev:FormEvent) {
     ev.preventDefault();
     if(sending||readOnly||eligible===null||eligible===0||!title.trim()||!message.trim())return;
     const confirmation = window.confirm(tr(
