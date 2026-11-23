@@ -660,6 +660,10 @@ export class CyrisApiClient {
   async activateMembership(eventId: string, membershipId: string) {
     return this.patchJson<unknown>(`/events/${eventId}/memberships/${membershipId}`, { status: 'ACTIVE' });
   }
+  async deactivateMembership(eventId: string, membershipId: string) {
+    return this.patchJson<unknown>(`/events/${encodeURIComponent(eventId)}/memberships/${encodeURIComponent(membershipId)}`,
+      { status: 'INACTIVE' });
+  }
   async getRoles(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/roles`);
   }
