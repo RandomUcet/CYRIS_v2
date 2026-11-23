@@ -425,6 +425,9 @@ export class MedicalService {
     if (!existing) {
       throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
     }
+    if (['TRANSFERRED', 'CLOSED', 'DECEASED'].includes(existing.status)) {
+      throw new ConflictException('Transferred or finalized medical records cannot be triaged');
+    }
 
     const now = new Date();
     const newStatus = existing.status === 'RECEIVED' ? 'TRIAGED' : existing.status;
@@ -565,6 +568,9 @@ export class MedicalService {
       throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
     }
 
+    if (['TRANSFERRED', 'CLOSED', 'DECEASED'].includes(existing.status)) {
+      throw new ConflictException('Receive a transferred patient before interventions; finalized encounters cannot be changed');
+    }
     const intId = generateId();
     const now = new Date();
 
@@ -617,6 +623,60 @@ export class MedicalService {
   }
 
   /**
+   * A receiving medical team explicitly acknowledges a transfer before continuing care.
+   * The original transferredAt and disposition are immutable handoff history; the
+   * current status moves back to UNDER_CARE without a new patient record.
+   */
+  async receiveTransferredEncounter(encounterId: string, user: AuthenticatedUser): Promise<MedicalEncounterDetail> {
+    await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_INTERVENE);
+    await this.resourceAccessService.assertCanAccessResource(user, encounterId, Permissions.MEDICAL_READ);
+
+    await this.db.transaction(async (tx) => {
+      const [encounter] = await tx.select().from(medicalEncounters)
+        .where(eq(medicalEncounters.id, encounterId)).limit(1).for('update');
+      if (!encounter) throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
+      if (encounter.status !== 'TRANSFERRED') {
+        throw new ConflictException('Only a transferred patient can be received into active medical care');
+      }
+      const [resource] = await tx.select({owningUnitId: resources.owningUnitId})
+        .from(resources).where(and(eq(resources.id, encounterId), eq(resources.eventId, encounter.eventId))).limit(1);
+      if (!resource || resource.owningUnitId !== encounter.assignedUnitId) {
+        throw new ConflictException('Medical handoff unit does not match current resource ownership');
+      }
+      const now = new Date();
+      await tx.update(medicalEncounters)
+        .set({status:'UNDER_CARE', updatedAt:now})
+        .where(eq(medicalEncounters.id, encounterId));
+
+      await this.auditService.record({
+        action:'medical.transfer.received',
+        category:'medical',
+        eventId: encounter.eventId,
+        resourceType:'medical_encounter',
+        resourceId:encounterId,
+        actorUserId:user.id,
+        metadata:{
+          medicalNumber:encounter.medicalNumber,
+          assignedUnitId:encounter.assignedUnitId,
+          previousStatus:'TRANSFERRED',
+          nextStatus:'UNDER_CARE',
+        },
+        txClient:tx,
+      });
+      await this.activityService.recordActivity({
+        eventId:encounter.eventId,
+        resourceId:encounterId,
+        activityType:'medical.transfer.received',
+        actorUserId:user.id,
+        title:`Patient handoff received: ${encounter.medicalNumber}`,
+        summary:'Receiving medical team acknowledged the handoff and resumed active care',
+      },tx);
+      await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId, tx);
+    });
+    return this.getEncounterDetail(encounterId,user);
+  }
+
+  /**
    * Marks casualty as stabilized.
    */
   async stabilizeEncounter(
@@ -639,15 +699,16 @@ export class MedicalService {
       throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
     }
 
+    if (!['RECEIVED', 'TRIAGED', 'UNDER_CARE'].includes(existing.status)) {
+      throw new ConflictException('Only an active patient can be stabilized; receive transfers first');
+    }
+
     const now = new Date();
-    await this.db
-      .update(medicalEncounters)
-      .set({
-        status: 'STABILIZED',
-        stabilizedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(medicalEncounters.id, encounterId));
+    const [stabilized] = await this.db.update(medicalEncounters)
+      .set({status:'STABILIZED', stabilizedAt:now, updatedAt:now})
+      .where(and(eq(medicalEncounters.id, encounterId), eq(medicalEncounters.status, existing.status)))
+      .returning({id:medicalEncounters.id});
+    if (!stabilized) throw new ConflictException('Patient status changed; refresh the record');
 
     await this.auditService.record({
       action: 'medical.stabilized',
@@ -707,6 +768,9 @@ export class MedicalService {
       }
       if (locked.assignedUnitId !== existing.assignedUnitId || locked.status !== existing.status) {
         throw new ConflictException('Medical handoff was changed concurrently; refresh and retry');
+      }
+      if (['TRANSFERRED', 'CLOSED', 'DECEASED'].includes(locked.status)) {
+        throw new ConflictException('Medical handoff requires an active patient; receive transfers before another handoff');
       }
       const nextUnitId = dto.receivingUnitId ?? locked.assignedUnitId;
       const teamChanged = nextUnitId !== locked.assignedUnitId;
@@ -788,16 +852,16 @@ export class MedicalService {
       throw new NotFoundException(`Medical encounter '${encounterId}' not found`);
     }
 
+    if (['TRANSFERRED', 'CLOSED', 'DECEASED'].includes(existing.status)) {
+      throw new ConflictException('Transferred patients must be received before closing; finalized records cannot be closed again');
+    }
+
     const now = new Date();
-    await this.db
-      .update(medicalEncounters)
-      .set({
-        status: dto.status || 'CLOSED',
-        closedAt: now,
-        disposition: dto.disposition,
-        updatedAt: now,
-      })
-      .where(eq(medicalEncounters.id, encounterId));
+    const [closed] = await this.db.update(medicalEncounters)
+      .set({status:dto.status || 'CLOSED',closedAt:now,disposition:dto.disposition,updatedAt:now})
+      .where(and(eq(medicalEncounters.id,encounterId),eq(medicalEncounters.status,existing.status)))
+      .returning({id:medicalEncounters.id});
+    if (!closed) throw new ConflictException('Patient status changed; refresh the record');
 
     await this.auditService.record({
       action: 'medical.closed',
