@@ -1,17 +1,21 @@
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, type ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { eq } from 'drizzle-orm';
 import { auditEvents, closeDatabaseConnection, events, getDbClient, integrations, roleAssignments,
   rolePermissions, roles, userIdentities, users } from '@cyris/db';
 import { LdapAccountStatusChangeSchema } from '@cyris/contracts';
 import { generateId, Permissions } from '@cyris/shared';
 import { AuditService } from '../modules/audit/audit.service.js';
+import { AuthorizationService } from '../modules/authorization/authorization.service.js';
+import { PermissionsGuard } from '../modules/authorization/guards/permissions.guard.js';
 import { SessionService } from '../modules/auth/session.service.js';
 import { DatabaseService } from '../modules/database/database.service.js';
 import { LdapAccountLifecycleService } from '../modules/integrations/ldap-account-lifecycle.service.js';
 import { LdapTeamsService } from '../modules/integrations/ldap-teams.service.js';
+import { LdapTeamsController } from '../modules/integrations/ldap-teams.controller.js';
 import { requireVerifiedIsolatedDatabase } from './isolated-postgres-harness.js';
 
 test('LDAP account lifecycle input is explicit and requires a reason',()=>{
@@ -55,6 +59,14 @@ test('LDAP operator deactivate/reactivate is audited, session-safe and denies pr
       ]);
       await db.insert(roleAssignments).values({userId:privilegedId,roleId:adminRoleId});
       const directory=new LdapTeamsService(database,audit);
+      const guard=new PermissionsGuard(new Reflector(),new AuthorizationService(database),audit);
+      const context=(user:typeof actor)=>({
+        getHandler:()=>LdapTeamsController.prototype.changeAccountStatus,
+        getClass:()=>LdapTeamsController,
+        switchToHttp:()=>({getRequest:()=>({user,headers:{},params:{identityId}})}),
+      } as unknown as ExecutionContext);
+      assert.equal(await guard.canActivate(context(actor)),true);
+      await assert.rejects(guard.canActivate(context({...actor,id:targetId})),ForbiddenException);
       assert.equal((await directory.listAccounts(eventId,targetId+'@example.test')).accounts[0]?.userStatus,'ACTIVE');
       await assert.rejects(lifecycle.setEnabled(actorIdentityId,{enabled:false,reason:'Audit self-lockout prevention'},actor),ConflictException);
       const disable={enabled:false,reason:'Participant offboarding approved'};
@@ -74,6 +86,7 @@ test('LDAP operator deactivate/reactivate is audited, session-safe and denies pr
       const enable=await lifecycle.setEnabled(identityId,{enabled:true,reason:'Reinstatement approved'},actor);
       assert.equal(enable.status,'ACTIVE');
       assert.equal(enable.changed,true);
+      assert.equal((await lifecycle.setEnabled(identityId,{enabled:true,reason:'Reinstatement approved'},actor)).changed,false);
       assert.deepEqual(revoked,[targetId],'reactivation never revokes newly created sessions');
       const actions=await db.select({action:auditEvents.action}).from(auditEvents)
         .where(eq(auditEvents.resourceId,targetId));
