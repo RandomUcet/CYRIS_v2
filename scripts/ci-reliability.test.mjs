@@ -9,7 +9,7 @@ const release = readFileSync(new URL('../.github/workflows/release.yml', import.
 const runner = readFileSync(new URL('./run-tests.mjs', import.meta.url), 'utf8');
 
 test('PR CI checks only PR events, main push, reusable releases and explicit dispatch', () => {
-  assert.match(workflow, /^on:\n  push:\n    branches: \[main\]\n  pull_request:\n  [^\n]*\n  workflow_call:\n  workflow_dispatch:/m);
+  assert.match(workflow, /^on:\n(?:  #[^\n]*\n)*  push:\n    branches: \[main\]\n  pull_request:\n(?:  #[^\n]*\n)*  workflow_call:\n  workflow_dispatch:/m);
   assert.match(workflow, /group: cyris-ci-.*github\.workflow.*github\.event_name == 'pull_request'.*github\.run_id/);
   assert.match(workflow, /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/);
   assert.match(workflow, /timeout-minutes: 25/);
