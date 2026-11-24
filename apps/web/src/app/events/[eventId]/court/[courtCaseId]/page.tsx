@@ -50,11 +50,14 @@ import type {
 
 export default function CourtCaseDetailPage() {
   const params = useParams();
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const eventId = params.eventId as string;
   const courtCaseId = params.courtCaseId as string;
-  const { hasPermission } = useAuth();
+  return <CourtCaseWorkspace key={eventId+':'+courtCaseId} eventId={eventId} courtCaseId={courtCaseId}/>;
+}
+function CourtCaseWorkspace({eventId,courtCaseId}:{eventId:string;courtCaseId:string}) {
+  const router=useRouter();
+  const searchParams=useSearchParams();
+  const { hasPermission,viewAs } = useAuth();
   const { formatTime, formatDate } = usePreferences();
 
   const [activeTab, setActiveTab] = useState<
@@ -105,14 +108,14 @@ export default function CourtCaseDetailPage() {
   useDialogAccessibility(showPartyModal || showChargeModal || showExhibitModal || showHearingModal || showFilingModal || showDecisionModal, () => { if (!modalSubmitting) { setShowPartyModal(false); setShowChargeModal(false); setShowExhibitModal(false); setShowHearingModal(false); setShowFilingModal(false); setShowDecisionModal(false); } });
 
   // Permissions
-  const canUpdateCourt = hasPermission('court.update');
-  const canManageCharges = hasPermission('court.charge.manage');
-  const canSubmitExhibit = hasPermission('court.exhibit.submit');
-  const canDecideExhibit = hasPermission('court.exhibit.decide');
-  const canManageHearing = hasPermission('court.hearing.manage');
-  const canCreateFiling = hasPermission('court.filing.create');
-  const canCreateDecision = hasPermission('court.decision.create');
-  const canReadRequests = hasPermission('court.request.read');
+  const canUpdateCourt = !viewAs && hasPermission('court.update',eventId);
+  const canManageCharges = !viewAs && hasPermission('court.charge.manage',eventId);
+  const canSubmitExhibit = !viewAs && hasPermission('court.exhibit.submit',eventId);
+  const canDecideExhibit = !viewAs && hasPermission('court.exhibit.decide',eventId);
+  const canManageHearing = !viewAs && hasPermission('court.hearing.manage',eventId);
+  const canCreateFiling = !viewAs && hasPermission('court.filing.create',eventId);
+  const canCreateDecision = !viewAs && hasPermission('court.decision.create',eventId);
+  const canReadRequests = hasPermission('court.request.read',eventId);
 
   const fetchCourtCaseDetails = async () => {
     setLoading(true);
@@ -466,10 +469,10 @@ export default function CourtCaseDetailPage() {
 
         {/* Tab Content */}
         <div style={{ marginTop: '16px' }}>
-          {activeTab === 'requests' && canReadRequests && <CourtRequestsPanel eventId={eventId} courtCaseId={courtCaseId}/>}
+          {activeTab === 'requests' && canReadRequests && <CourtRequestsPanel key={courtCaseId} eventId={eventId} courtCaseId={courtCaseId}/>}
                     {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: '16px' }}>
               <div className="card" style={{ padding: '20px' }}>
                 <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--color-text-bright)', marginBottom: '12px' }}>
                   Matter Summary & Scope

@@ -6,33 +6,36 @@ import { AppShell } from '@/components/layout/AppShell';
 import { apiClient } from '@/lib/api-client';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { FileText, RefreshCw } from 'lucide-react';
+import { legalRequestQueue,legalRequestCounts,requestOverdue } from '@/lib/legal-request-queue';
 import type { CourtRequestItem } from '@cyris/contracts';
 
 export default function LegalRequestInboxPage() {
   const params=useParams(),eventId=params.eventId as string;
+  return <LegalRequestInbox key={eventId} eventId={eventId}/>;
+}
+function LegalRequestInbox({eventId}:{eventId:string}) {
   const {locale,formatTime}=usePreferences();
   const cs=locale==='cs', tr=(c:string,e:string)=>cs?c:e;
   const [requests,setRequests]=useState<CourtRequestItem[]>([]);
   const [loading,setLoading]=useState(true),[error,setError]=useState('');
   const [status,setStatus]=useState('ALL'),[query,setQuery]=useState('');
   const [refresh,setRefresh]=useState(0);
+  const [kind,setKind]=useState('ALL'),[deadline,setDeadline]=useState('ALL');
+  const [now,setNow]=useState(()=>Date.now());
+  useEffect(()=>{const timer=window.setInterval(()=>setNow(Date.now()),60000);return()=>window.clearInterval(timer);},[]);
   useEffect(()=>{
     let active=true;
     setLoading(true);
     void apiClient.listLegalRequests(eventId).then(res=>{
       if(!active)return;
       if(!res.ok)throw new Error(res.error||'Unable to load legal requests');
-      setRequests(res.data??[]);setError('');
+      setRequests((res.data??[]).filter(row=>row.eventId===eventId));setError('');setNow(Date.now());
     }).catch(e=>{if(active)setError(e instanceof Error?e.message:'Error');})
       .finally(()=>{if(active)setLoading(false)});
     return ()=>{active=false};
   },[eventId,refresh]);
-  const visible=useMemo(()=>requests.filter(req=>{
-    if(status!=='ALL'&&req.status!==status)return false;
-    const needle=query.trim().toLocaleLowerCase();
-    return !needle||[req.subject,req.details,req.kind,req.response||'']
-      .join(' ').toLocaleLowerCase().includes(needle);
-  }),[requests,status,query]);
+  const visible=useMemo(()=>legalRequestQueue(requests,{status,kind,query,deadline},now),[requests,status,kind,query,deadline,now]);
+  const counts=legalRequestCounts(requests,now);
   return <AppShell breadcrumbs={[{label:tr('Cvičení','Exercise'),href:'/events/'+eventId+'/overview'},
     {label:tr('Právní spolupráce','Legal collaboration')}]}>
     <div className="workspace-container" style={{maxWidth:1120,margin:'auto'}}>
@@ -46,6 +49,9 @@ export default function LegalRequestInboxPage() {
         <button type="button" className="btn btn-secondary" disabled={loading}
           onClick={()=>setRefresh(x=>x+1)}><RefreshCw size={15}/> {tr('Obnovit','Refresh')}</button>
       </header>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',margin:'16px 0'}}>
+        {[[tr('Všechny','All'),counts.total,'ALL'],[tr('Nevyřízené','Pending'),counts.pending,'PENDING'],[tr('Po termínu','Overdue'),counts.overdue,'OVERDUE'],[tr('Vyřízené','Fulfilled'),counts.fulfilled,'FULFILLED']].map(([label,count,key])=><button type="button" key={key} className="btn btn-secondary" aria-pressed={key==='OVERDUE'?deadline==='OVERDUE':status===key&&deadline==='ALL'} onClick={()=>{setStatus(key==='OVERDUE'?'PENDING':String(key));setDeadline(key==='OVERDUE'?'OVERDUE':'ALL');}}>{label} · {count}</button>)}
+      </div>
       <div style={{display:'flex',gap:12,flexWrap:'wrap',margin:'16px 0'}}>
         <label style={{display:'grid',flex:'1 1 220px',gap:5}}>
           {tr('Hledat','Search')}
@@ -58,11 +64,15 @@ export default function LegalRequestInboxPage() {
           {tr('Stav','Status')}
           <select style={{padding:9,background:'var(--bg-panel)',color:'var(--text-primary)',
             border:'1px solid var(--border-default)',borderRadius:6}} value={status} onChange={e=>setStatus(e.target.value)}>
-            {['ALL','OPEN','IN_PROGRESS','FULFILLED','DECLINED','CANCELLED'].map(value=>
+            {['ALL','PENDING','OPEN','IN_PROGRESS','FULFILLED','DECLINED','CANCELLED'].map(value=>
               <option key={value} value={value}>{value==='ALL'?tr('Všechny','All'):value.replaceAll('_',' ')}</option>)}
           </select>
         </label>
+        <label style={{display:'grid',gap:5,minWidth:160}}>{tr('Typ podkladu','Material type')}<select className="field-input" value={kind} onChange={e=>setKind(e.target.value)}>{['ALL','EVIDENCE','DOCUMENT','FORENSIC_REPORT','LAB_REPORT','MEDICAL_REPORT','EXPERT_OPINION','OTHER'].map(value=><option key={value} value={value}>{value==='ALL'?tr('Všechny','All'):value.replaceAll('_',' ')}</option>)}</select></label>
+        <label style={{display:'grid',gap:5,minWidth:140}}>{tr('Termín','Deadline')}<select className="field-input" value={deadline} onChange={e=>setDeadline(e.target.value)}><option value="ALL">{tr('Všechny','All')}</option><option value="OVERDUE">{tr('Po termínu','Overdue')}</option></select></label>
+        <button type="button" className="btn btn-secondary" onClick={()=>{setStatus('ALL');setKind('ALL');setDeadline('ALL');setQuery('');}}>{tr('Vymazat filtry','Clear filters')}</button>
       </div>
+      <p role="status">{visible.length} / {counts.total} {tr('žádostí','requests')}</p>
       {error&&<p role="alert">{error}</p>}
       {loading?<p>{tr('Načítám…','Loading…')}</p>:visible.length===0
         ?<p>{tr('Žádné odpovídající žádosti.','No matching requests.')}</p>
@@ -74,6 +84,7 @@ export default function LegalRequestInboxPage() {
             <span>{req.status.replaceAll('_',' ')}</span>
           </div>
           <small>{req.kind.replaceAll('_',' ')} · {formatTime(req.createdAt)} · {tr('Revize','Revision')} {req.revision} · {tr('Vyjádření','Replies')}: {req.history.length}</small>
+          {req.dueAt&&<p style={{color:requestOverdue(req,now)?'var(--status-danger)':'var(--text-secondary)'}}>{tr('Termín','Due')}: {new Date(req.dueAt).toLocaleString(cs?'cs-CZ':'en-GB')}{requestOverdue(req,now)?' · '+tr('Po termínu','Overdue'):''}</p>}
           <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{req.details}</p>
           {req.response&&<p style={{padding:8,borderLeft:'3px solid var(--border-focus)'}}>
             <strong>{tr('Odpověď','Response')}:</strong> {req.response}</p>}
