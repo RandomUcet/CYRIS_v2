@@ -19,3 +19,6 @@ Release 2.4.22 remains a draft until a substantial tested scope is ready. No new
 - https://e-sbirka.gov.cz/restful-api — REST access registration and incremental changed/repealed text endpoints.
 - https://e-sbirka.gov.cz/pristup-pres-stale-url-a-eli — stable URLs and provision citations.
 - https://zakony.gov.cz/omezeni-esbirky-spojene-s-postupnym-spoustenim-elegislativy-do-ostreho-provozu — transitional schema/identifier caveats; do not assume stable fragment IDs through the transition. Import/version reconciliation must be verified before production. No corpus downloaded or legal assistant enabled yet.
+
+## Observer first implementation
+The worker produces short-lived aggregate observations independently of browser visits. It examines EVENT-visible task rows only, uses 12 real hours as an initial review threshold, suppresses current pauses/holds, and stores no personal information or prompt. The EXCON-only endpoint validates identity and freshness; no signal authorizes a hint or proves a team is inactive. No durable longitudinal history or autonomous intervention yet.

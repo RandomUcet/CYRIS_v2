@@ -5,6 +5,7 @@ import { Redis, type RedisOptions } from 'ioredis';
 import { Worker, type Processor, type WorkerOptions } from 'bullmq';
 import { OutboxProcessorService } from './outbox/outbox-processor.service.js';
 import { ScenarioSchedulerWorkerService } from './scenario/scenario-scheduler.service.js';
+import { ExerciseObserverWorkerService } from './scenario/exercise-observer.service.js';
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
@@ -15,11 +16,13 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly activeWorkers: Worker[] = [];
   private outboxTimer: NodeJS.Timeout | null = null;
   private scenarioTimer: NodeJS.Timeout | null = null;
+  private observerTimer: NodeJS.Timeout | null = null;
   private isProcessingOutbox = false;
 
   constructor(
     private readonly outboxProcessor: OutboxProcessorService,
-    private readonly scenarioScheduler: ScenarioSchedulerWorkerService
+    private readonly scenarioScheduler: ScenarioSchedulerWorkerService,
+    private readonly exerciseObserver: ExerciseObserverWorkerService
   ) {
     this.config = loadConfig();
     const url = new URL(this.config.REDIS_URL);
@@ -75,7 +78,9 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       void this.scenarioScheduler.tick();
     }, 4000);
 
-    this.logger.log('CYRIS Worker runtime initialized: Outbox archival & Scenario background scheduling active.');
+    void this.exerciseObserver.tick();
+    this.observerTimer=setInterval(()=>void this.exerciseObserver.tick(),60000);
+    this.logger.log('CYRIS Worker runtime initialized: Outbox archival, scenario scheduling and exercise observation active.');
   }
 
   /**
@@ -122,6 +127,8 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       clearInterval(this.scenarioTimer);
       this.scenarioTimer = null;
     }
+    if(this.observerTimer){clearInterval(this.observerTimer);this.observerTimer=null;}
+    await this.exerciseObserver.stop();
     await Promise.all(this.activeWorkers.map((w) => w.close()));
     if (this.redisClient) {
       await this.redisClient.quit();

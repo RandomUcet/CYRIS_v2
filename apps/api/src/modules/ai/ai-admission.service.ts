@@ -69,6 +69,15 @@ export class AIAdmissionService implements OnModuleDestroy {
     }
   }
 
+  /** Global admitted leases, not GPU utilization or a queue length. */
+  async snapshot():Promise<{limit:number;active:number;regular:number}|null>{
+    try{
+      const values=await this.redis.eval(`local c=redis.call('TIME'); local now=tonumber(c[1])*1000+math.floor(tonumber(c[2])/1000); return {redis.call('ZCOUNT',KEYS[1],'('..now,'+inf'),redis.call('ZCOUNT',KEYS[2],'('..now,'+inf')}`,2,keyPrefix+'active',keyPrefix+'regular');
+      if(!Array.isArray(values)||values.length!==2||values.some(v=>!Number.isInteger(v)||v<0))return null;
+      return {limit:this.limit,active:Number(values[0]),regular:Number(values[1])};
+    }catch{return null;}
+  }
+
   onModuleDestroy(): void {
     this.redis.disconnect();
   }

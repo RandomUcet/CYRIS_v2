@@ -13,6 +13,7 @@ import { ResourcesModule } from '../resources/resources.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { AIModule } from '../ai/ai.module.js';
 import { ExerciseIntelligenceService } from './exercise-intelligence.service.js';
+import { ExerciseObserverReader } from './exercise-observer-reader.service.js';
 
 @Module({
   imports: [
@@ -27,7 +28,7 @@ import { ExerciseIntelligenceService } from './exercise-intelligence.service.js'
     AIModule,
   ],
   controllers: [CommandController, ExconDashboardController],
-  providers: [CommandService, ExconDashboardService, ExerciseIntelligenceService],
+  providers: [CommandService, ExconDashboardService, ExerciseIntelligenceService, ExerciseObserverReader],
   exports: [CommandService],
 })
 export class CommandModule {}

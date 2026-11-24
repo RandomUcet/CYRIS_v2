@@ -114,6 +114,8 @@ export class AIGatewayService {
     };
   }
 
+  admissionSnapshot(){return this.admission.snapshot();}
+
   async embed(
     input: string | string[],
     options?: AIEmbeddingOptions
