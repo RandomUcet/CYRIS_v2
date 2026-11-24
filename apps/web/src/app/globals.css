@@ -2203,3 +2203,25 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
 .topbar-broadcast-trigger:hover{background:var(--accent-hover)}
 .topbar-broadcast-trigger:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
 @media(max-width:860px){.topbar-broadcast-trigger{width:34px;padding:5px}.topbar-broadcast-trigger span{display:none}}
+
+/* Dedicated investigation workspace: real CSS, independent of utility frameworks. */
+.relationships-workspace-tools,.relationships-focus,.relationships-pagination{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.relationships-workspace-tools>div[role=group]{display:flex;gap:5px}
+.relationships-workspace-tools button[aria-pressed=true]{border-color:var(--accent-primary);color:var(--accent-primary)}
+.relationships-focus{padding:8px 12px;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-panel);min-width:0}
+.relationships-focus strong{overflow-wrap:anywhere}
+.relationships-focus label{display:flex;align-items:center;gap:6px;font-size:12px}
+.relationships-network-notice{padding:10px 12px;background:var(--bg-panel);border-left:3px solid var(--accent-primary);font-size:13px;color:var(--text-secondary)}
+.relationships-list-stage{min-width:0;border:1px solid var(--border-default);border-radius:8px;background:var(--bg-panel)}
+.relationships-list-scroll{overflow-x:auto}
+.relationships-table{width:100%;border-collapse:collapse;table-layout:fixed;text-align:left;font-size:13px}
+.relationships-table th,.relationships-table td{padding:12px;vertical-align:top;overflow-wrap:anywhere;border-bottom:1px solid var(--border-subtle)}
+.relationships-table th:nth-child(2){width:24%}
+.relationships-table th{color:var(--text-secondary);font-size:12px}
+.relationships-endpoint{display:grid;gap:4px;min-width:0}
+.relationships-endpoint small{color:var(--text-secondary)}
+.relationships-endpoint>div{display:flex;gap:10px;flex-wrap:wrap}
+.relationships-endpoint a,.relationships-endpoint button{font:inherit;font-size:12px;color:var(--accent-primary);text-decoration:underline;background:none;border:0;padding:3px 0;cursor:pointer}
+.relationships-pagination{justify-content:center;padding:10px;color:var(--text-secondary);font-size:12px}
+.relationships-count{flex-wrap:wrap}
+@media(max-width:600px){.relationships-table{min-width:520px}.relationships-table td,.relationships-table th{padding:8px}.relationships-focus{width:100%}}

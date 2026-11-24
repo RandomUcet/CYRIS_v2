@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { filterRelationships, relatedNodeCount } from './relationship-filter.js';
+import { filterRelationships, relatedNodeCount, relationshipNeighborhood, relationshipEndpoint, relationshipGraphAllowed } from './relationship-filter.js';
 
 const records = [
   { id: 'r1', relationshipType: 'OWNS', sourceResourceId: 'alice', targetResourceId: 'device',
@@ -27,4 +27,24 @@ describe('Relationship graph controls', () => {
     assert.deepEqual(filterRelationships([{ id: 'empty' }], 'ALL', 'name'), []);
     assert.equal(relatedNodeCount([{ id: 'empty' }]), 0);
   });
+});
+
+it('finds Czech words with accents and multiple tokens',()=>{
+  const rows=[{source:{title:'Černá skříň'},target:{title:'Praha'}}];
+  assert.equal(filterRelationships(rows,'ALL','praha cerna').length,1);
+});
+it('traverses direct and two-hop links without including disconnected components',()=>{
+  const rows=[...records,{id:'r4',sourceResourceId:'device',targetResourceId:'server'}];
+  assert.deepEqual(relationshipNeighborhood(rows,'alice',1).map(r=>r.id),['r1','r2']);
+  assert.deepEqual(relationshipNeighborhood(rows,'alice',2).map(r=>r.id),['r1','r2','r4']);
+  assert.deepEqual(relationshipNeighborhood(rows,'server',2).map(r=>r.id),['r1','r4']);
+  assert.deepEqual(relationshipNeighborhood(rows,'missing',2),[]);
+  assert.deepEqual(relationshipNeighborhood(rows,'',1),rows);
+});
+it('bounds graph rendering without dropping rows and handles endpoint metadata',()=>{
+  const many=Array.from({length:301},(_,i)=>({sourceId:'a',targetId:'b',id:String(i)}));
+  assert.equal(relationshipGraphAllowed(many),false);
+  assert.equal(relationshipGraphAllowed(records),true);
+  assert.deepEqual(relationshipEndpoint(records[0]!,'source'),{id:'alice',title:'Alice Example',identifier:'PER-0001',type:'resource'});
+  assert.equal(relationshipEndpoint({},'target'),null);
 });
