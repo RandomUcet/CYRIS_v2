@@ -9,6 +9,7 @@ import {
   UseGuards,
   BadRequestException,
   ForbiddenException,
+  NotFoundException,
   Res,
   Query,
   ParseUUIDPipe,
@@ -21,7 +22,7 @@ import { RegistryService } from './registry.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
-import { organizationalUnits } from '@cyris/db';
+import { resources, organizationalUnits } from '@cyris/db';
 import { and,eq,isNull } from 'drizzle-orm';
 import { Permissions } from '@cyris/shared';
 import {
@@ -73,6 +74,21 @@ export class RegistryController {
     const parsed = RegistryPickerQuerySchema.safeParse(query ?? {});
     if (!parsed.success) throw new BadRequestException('Enter at least two search characters (maximum 80).');
     return this.registryService.searchPicker(eventId, parsed.data, user);
+  }
+
+  /** UI affordances are derived from the same resource policy as mutations. */
+  @Get('records/:id/actions')
+  async recordActions(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('id',ParseUUIDPipe) id:string,@CurrentUser() user:AuthenticatedUser) {
+    const [record]=await this.database.client.select({type:resources.resourceType}).from(resources)
+      .where(and(eq(resources.id,id),eq(resources.eventId,eventId))).limit(1);
+    if(!record||!['person','organisation','location','vehicle','device','weapon','licence'].includes(record.type))throw new NotFoundException('Registry record not found');
+    await this.access.assertCanAccessResource(user,id,Permissions.REGISTRY_READ);
+    const [edit,link,timeline]=await Promise.all([
+      this.access.canAccessResource(user,id,Permissions.REGISTRY_UPDATE),
+      this.access.canAccessResource(user,id,Permissions.REGISTRY_RELATIONSHIP_MANAGE),
+      this.access.canAccessResource(user,id,Permissions.TIMELINE_READ),
+    ]);
+    return {edit,link,timeline};
   }
 
   // --- Persons ---

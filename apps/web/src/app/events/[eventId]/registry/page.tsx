@@ -139,6 +139,7 @@ export default function RegistryPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(!canManage||submitting||scope!==currentScope.current)return;
     setSubmitting(true);
     setFormError(null);
     try {
@@ -601,7 +602,7 @@ export default function RegistryPage() {
         )}
 
         {/* Modal: Register Entity */}
-        {showCreateModal && (
+        {showCreateModal && canManage && (
           <div className="dialog-overlay dialog-overlay-top" role="presentation">
             <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Register Intelligence Entity" style={{ maxWidth: '500px' }}>
               <div

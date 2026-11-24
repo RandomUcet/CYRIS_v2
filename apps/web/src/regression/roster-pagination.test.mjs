@@ -14,10 +14,5 @@ test('preview does not leave users management in perpetual loading',()=>{
 
 test('participant roster exposes generic, scoped role management without platform assignment',()=>{
  const p=readFileSync(new URL('../app/admin/users/page.tsx',import.meta.url),'utf8');
- assert.match(p,/canManageRoles/);
- assert.match(p,/role.eventId===eventId/);
- assert.match(p,/membershipId:roleTarget.id,unitId:roleUnit||undefined/);
- assert.match(p,/roleTarget.roles.some(role=>role.assignmentId===assignmentId)/);
- assert.match(p,/useDialogAccessibility(Boolean(roleTarget/);
- assert.match(p,/roleTarget.userId===currentUser?.user.id)void refreshSession/);
+ for(const literal of ['canManageRoles','role.eventId===eventId','membershipId:roleTarget.id,unitId:roleUnit||undefined','roleTarget.roles.some(role=>role.assignmentId===assignmentId)','useDialogAccessibility(Boolean(roleTarget','roleTarget.userId===currentUser?.user.id)void refreshSession'])assert.ok(p.includes(literal),literal);
 });

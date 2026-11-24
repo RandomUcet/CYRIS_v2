@@ -14,6 +14,8 @@ import { RelationshipGraph } from '@/components/common/RelationshipGraph';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
 import { apiClient } from '@/lib/api-client';
 import styles from './registry-detail.module.css';
+import { effectiveLicenceStatus, LicenceStatusSchema } from '@cyris/contracts';
+import { relationshipRecordHref } from '@/lib/relationship-routing';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import {
@@ -37,12 +39,22 @@ export default function RegistryEntityDetailPage() {
   const eventId = params.eventId as string;
   const entityType = params.entityType as string; // persons, organisations, vehicles, devices, locations, weapons
   const id = params.id as string;
-  const { hasPermission, isPlatformAdmin, viewAs } = useAuth();
+  const { currentUser, viewAs } = useAuth();
   const { formatTime, formatDate, locale } = usePreferences();
   const cs = locale === 'cs';
   const tr = (cz: string, en: string) => cs ? cz : en;
-  const canEdit = !viewAs && (isPlatformAdmin || hasPermission('registry.update', eventId));
-  const canLink = !viewAs && (isPlatformAdmin || hasPermission('registry.relationship.manage', eventId));
+  const scope=JSON.stringify([eventId,entityType,id,currentUser?.user.id,currentUser?.memberships,currentUser?.platformPermissions,viewAs?.id]);
+  const scopeRef=useRef(scope);scopeRef.current=scope;
+  const detailRequest=useRef(0);
+  const timelineRequest=useRef(0);
+  const [loadedScope,setLoadedScope]=useState('');
+  const [actions,setActions]=useState<{edit:boolean;link:boolean;timeline:boolean}|null>(null);
+  const canEdit = !viewAs && loadedScope===scope && Boolean(actions?.edit);
+  const canLink = !viewAs && loadedScope===scope && Boolean(actions?.link);
+  const canTimeline = loadedScope===scope && Boolean(actions?.timeline);
+  const [checkDate,setCheckDate]=useState('');
+  const [timelineError,setTimelineError]=useState<string|null>(null);
+  const [relationsLoadError,setRelationsLoadError]=useState<string|null>(null);
 
   const [activeTab, setActiveTab] = useState<'overview' | 'relations' | 'timeline'>('overview');
   const [loading, setLoading] = useState(true);
@@ -74,8 +86,11 @@ export default function RegistryEntityDetailPage() {
   const mediaInputRef = useRef<HTMLInputElement>(null);
 
   const fetchEntityDetails = async () => {
-    setLoading(true);
-    setError(null);
+    if(scopeRef.current!==scope)return;
+    const request=++detailRequest.current;
+    const valid=()=>scopeRef.current===scope&&detailRequest.current===request;
+    setLoading(true);setActions(null);
+    setError(null);setRelationsLoadError(null);setRelationships([]);
     try {
       let res;
       if (entityType === 'persons') res = await apiClient.getPerson(eventId, id);
@@ -86,49 +101,54 @@ export default function RegistryEntityDetailPage() {
       else if (entityType === 'weapons') res = await apiClient.getWeapon(eventId, id);
       else if (entityType === 'licences') res = await apiClient.getLicence(eventId, id);
 
-      if (res?.ok && res.data) {
-        setEntityData(res.data);
-      } else {
+      if(!valid())return;
+      if (!res?.ok || !res.data || res.data.eventId!==eventId || res.data.id!==id) {
+        setEntityData(null);
         setError(res?.error || `Failed to load ${entityType} record`);
+        return;
       }
-
-      // Fetch relationships for this resource
-      const relRes = await apiClient.getRelationships(id);
-      if (relRes?.ok && relRes.data) {
-        setRelationships(Array.isArray(relRes.data) ? relRes.data : []);
-      }
+      setEntityData(res.data);
+      const [relRes,actionRes] = await Promise.allSettled([apiClient.getRelationships(id),apiClient.getRegistryRecordActions(eventId,id)]);
+      if(!valid())return;
+      if(relRes.status==='fulfilled'&&relRes.value.ok&&Array.isArray(relRes.value.data))setRelationships(relRes.value.data);
+      else setRelationsLoadError(tr('Vazby se nepodařilo načíst.','Unable to load relationships.'));
+      if(actionRes.status==='fulfilled'&&actionRes.value.ok&&actionRes.value.data)setActions(actionRes.value.data);
+      setLoadedScope(scope);
     } catch (err: any) {
-      setError(err.message || 'Network error');
+      if(valid()){setEntityData(null);setError(err.message || 'Network error');}
     } finally {
-      setLoading(false);
+      if(valid())setLoading(false);
     }
   };
 
   const fetchTimeline = async () => {
-    setTimelineLoading(true);
+    if(!canTimeline)return;
+    const request=++timelineRequest.current;
+    const valid=()=>scopeRef.current===scope&&timelineRequest.current===request;
+    setTimelineLoading(true);setTimelineError(null);setTimelineItems([]);
     try {
       const res = await apiClient.getResourceTimeline(id);
+      if(!valid())return;
       if (res?.ok && res.data) {
         setTimelineItems(Array.isArray(res.data) ? res.data : []);
-      }
+      } else setTimelineError(res?.error||tr('Aktivita není dostupná.','Activity unavailable.'));
     } catch (err) {
-      console.error('Failed to load timeline', err);
+      if(valid())setTimelineError(err instanceof Error?err.message:tr('Aktivita není dostupná.','Activity unavailable.'));
     } finally {
-      setTimelineLoading(false);
+      if(valid())setTimelineLoading(false);
     }
   };
 
   useEffect(() => {
-    if (eventId && entityType && id) {
-      fetchEntityDetails();
-    }
-  }, [eventId, entityType, id]);
+    setEditOpen(false);setShowRelModal(false);setActiveTab('overview');setTimelineItems([]);setCheckDate('');
+    if (eventId && entityType && id) void fetchEntityDetails();
+    return ()=>{++detailRequest.current;++timelineRequest.current;};
+  }, [scope]);
 
   useEffect(() => {
-    if (id && activeTab === 'timeline') {
-      fetchTimeline();
-    }
-  }, [id, activeTab]);
+    if (id && activeTab === 'timeline' && canTimeline) void fetchTimeline();
+    return ()=>{++timelineRequest.current;};
+  }, [scope, activeTab,canTimeline]);
 
   // Search only visible records in the selected exercise, without downloading
   // every person, organisation and device into the user's browser.
@@ -185,7 +205,7 @@ export default function RegistryEntityDetailPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canEdit) return;
+    if (!canEdit || saving || scopeRef.current!==scope) return;
     setSaving(true);
     setSaveError(null);
     const payload = Object.fromEntries(Object.entries(editData).filter(([key, value]) => !['id', 'eventId', 'identifier', 'createdAt', 'updatedAt', 'visibility', 'owningUnitId'].includes(key) && value !== null));
@@ -199,14 +219,17 @@ export default function RegistryEntityDetailPage() {
         validFrom:editData.validFrom,validUntil:editData.validUntil || null,status:editData.status,description:editData.description || null,
       })
       : apiClient.updateWeapon(eventId, id, payload);
+    try {
     const result = await update;
+    if(scopeRef.current!==scope)return;
     if (result.ok) {
       setEditOpen(false);
       await fetchEntityDetails();
     } else {
       setSaveError(result.error || 'Unable to save record');
     }
-    setSaving(false);
+    } catch(err) {if(scopeRef.current===scope)setSaveError(err instanceof Error?err.message:'Unable to save record');}
+    finally {setSaving(false);}
   };
 
   const updateContact = (kind: 'emails' | 'phones', index: number, field: string, value: string | boolean) => {
@@ -289,7 +312,7 @@ export default function RegistryEntityDetailPage() {
     else setRelationshipError(result.error || 'Unable to remove relationship');
   };
 
-  if (loading) {
+  if (loading || (loadedScope!==scope && !error)) {
     return (
       <AppShell
         breadcrumbs={[
@@ -400,7 +423,7 @@ export default function RegistryEntityDetailPage() {
           tabs={[
             { id: 'overview', label: tr('Profil záznamu', 'Entity profile'), icon: <Database size={14} /> },
             { id: 'relations', label: tr('Vazby', 'Relationship graph'), count: relationships.length, icon: <Share2 size={14} /> },
-            { id: 'timeline', label: tr('Aktivita', 'Operational activity'), count: timelineItems.length, icon: <Clock size={14} /> },
+            ...(canTimeline?[{ id: 'timeline', label: tr('Aktivita', 'Operational activity'), count: timelineItems.length, icon: <Clock size={14} /> }]:[]),
           ]}
           activeTab={activeTab}
           onChange={(tab) => setActiveTab(tab as any)}
@@ -473,6 +496,11 @@ export default function RegistryEntityDetailPage() {
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                    {entityType==='licences'&&<div style={{gridColumn:'1 / -1',padding:'12px 0'}}>
+                      <label className="form-label">{tr('Ověřit platnost k datu','Check validity on date')}<input type="date" className="input-field" value={checkDate} onChange={e=>setCheckDate(e.target.value)}/></label>
+                      {checkDate&&LicenceStatusSchema.safeParse(entityData.status).success&&<p role="status">{tr('Stav k vybranému datu: ','Status on selected date: ')}{effectiveLicenceStatus(entityData.status,entityData.validFrom,entityData.validUntil,checkDate)}</p>}
+                      <p style={{fontSize:12,color:'var(--color-text-dim)'}}>{tr('Pouze scénářový záznam. Vyberte datum cvičení; nejde o právní ověření skutečného oprávnění.','Fictional exercise record only. Select the exercise date; this is not a real legal verification.')}</p>
+                    </div>}
                     {Object.entries(entityData)
                       .filter(([k]) => !['id', 'createdAt', 'updatedAt', 'eventId', 'owningUnitId'].includes(k))
                       .map(([key, val]) => (
@@ -519,7 +547,7 @@ export default function RegistryEntityDetailPage() {
                     </button>
                   </div>
                   <div style={{ padding: '8px 12px' }}>
-                    {relationships.length === 0 ? (
+                    {relationsLoadError ? <ErrorState message={relationsLoadError} onRetry={fetchEntityDetails}/> : relationships.length === 0 ? (
                       <div style={{ padding: '16px', textAlign: 'center', color: 'var(--color-text-dim)', fontSize: '12px' }}>
                         No relationship links attached to this intelligence record.
                       </div>
@@ -557,7 +585,7 @@ export default function RegistryEntityDetailPage() {
                                   <RecordIdentifier id={other?.identifier || otherId.slice(0, 8)} prefix="" />
                                   {other?.title && (
                                     <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>
-                                      {other.title}
+                                      {other.type && relationshipRecordHref(eventId,{id:otherId,type:other.type}) ? <Link href={relationshipRecordHref(eventId,{id:otherId,type:other.type})!}>{other.title}</Link> : other.title}
                                     </span>
                                   )}
                                 </div>
@@ -613,7 +641,7 @@ export default function RegistryEntityDetailPage() {
             )}
 
             {/* TIMELINE TAB */}
-            {activeTab === 'timeline' && (
+            {activeTab === 'timeline' && canTimeline && (
               <div>
                 <div style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--color-text-dim)' }}>
                   {tr('Chronologický přehled událostí souvisejících se záznamem.', 'Chronological activity associated with this record.')}
@@ -621,7 +649,7 @@ export default function RegistryEntityDetailPage() {
                 {timelineLoading ? (
                   <LoadingState message="Reconstructing entity timeline..." />
                 ) : (
-                  <TimelineView items={timelineItems} />
+                  timelineError?<ErrorState message={timelineError} onRetry={fetchTimeline}/>:<TimelineView items={timelineItems} />
                 )}
               </div>
             )}

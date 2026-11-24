@@ -548,6 +548,9 @@ export class CyrisApiClient {
   async updateDevice(eventId: string, deviceId: string, data: any) {
     return this.patchJson<any>(`/events/${eventId}/registry/devices/${deviceId}`, data);
   }
+  async getRegistryRecordActions(eventId:string,id:string) {
+    return this.fetchJson<{edit:boolean;link:boolean;timeline:boolean}>(`/events/${eventId}/registry/records/${id}/actions`);
+  }
   async getLicences(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/registry/licences`);
   }
