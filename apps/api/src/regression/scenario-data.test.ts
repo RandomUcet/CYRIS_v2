@@ -47,10 +47,11 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
       assert.equal(profile, 'DGX_SPARK');
       return { enabled: true };
     },
-    execute: async ({ messages, eventId, userId, promptTemplateVersion, options }: any) => {
+    execute: async ({ messages, eventId, userId, promptTemplateVersion, options, exclusiveScope }: any) => {
       calls++;
       assert.equal(eventId, a);
       assert.equal(userId, uid);
+      assert.match(exclusiveScope, /^scenario-draft:[0-9a-f-]{36}$/);
       const ctx = JSON.parse(messages[1].content);
       if (promptTemplateVersion === 'scenario-blueprint-fast-v1') {
         assert.equal(options.timeoutMs, 45_000);
@@ -150,6 +151,9 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
     assert((fastPage.relationshipCount ?? 0) > 0);
     assert.match(fastPage.personDetails![0]!.description, /železniční depo/);
     assert.equal((await svc.advance(a, fast.id, 0, user)).prepared, 12);
+    const completedCalls = calls;
+    assert.equal((await svc.advance(a, fast.id, 12, user)).prepared, 12);
+    assert.equal(calls, completedCalls, 'completed FAST drafts must not invoke Spark again');
     assert.equal(calls, beforeFast + 1);
     const fastPublished = await svc.publish(a, fast.id, user);
     assert.equal(fastPublished.counts?.persons, 7);

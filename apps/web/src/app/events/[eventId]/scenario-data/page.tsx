@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import type { ScenarioDataRequest, ScenarioDataPreview, ScenarioDataCounts, ScenarioDataBatchResponse, ScenarioQualityReport } from '@cyris/contracts';
 import { AppShell } from '@/components/layout/AppShell';
 import { apiClient } from '@/lib/api-client';
-import { draftProgress, assertDraftAdvance, formatElapsed } from '@/lib/scenario-draft-progress';
+import { draftProgress, assertDraftAdvance, formatElapsed, plannedInferenceCalls } from '@/lib/scenario-draft-progress';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import styles from './scenario-data.module.css';
 import { ScenarioBatchMediaManager } from './ScenarioBatchMediaManager';
@@ -211,6 +211,8 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
   const history = batches.filter(batch => (historyFilter === 'ALL' || batch.status === historyFilter) &&
     [batch.identifier, batch.brief, batch.source, batch.seed].join(' ').toLowerCase().includes(historyQuery.trim().toLowerCase()));
   const complete = draft?.status === 'DRAFT' && draft.prepared === total(draft.configuration);
+  const planCounts = preset === 'CUSTOM' ? counts : presets[preset as keyof typeof presets];
+  const inferenceCalls = plannedInferenceCalls(Object.values(planCounts), sparkStrategy);
   const countsValid=keys.every(k=>Number.isInteger(counts[k])&&counts[k]>=0&&counts[k]<=limitByKind[k])&&total(counts)<=12000&&total(counts)>0;
   const seedValid=seed!==null&&Number.isInteger(seed)&&seed>=-2147483648&&seed<=2147483647;
   return <AppShell breadcrumbs={[{ label: 'Operations', href: `/events/${eventId}/overview` }, { label: tr('Data scénáře','Scenario data') }]}>
@@ -260,6 +262,7 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
               setSeed(freshSeed());
             }}>{tr('Nový seed','New seed')}</button></details>
             {preset==='CUSTOM'&&!countsValid&&<p role="alert">{tr('Zkontrolujte počty záznamů (maximum 12 000 celkem).','Check record counts (maximum 12,000 total).')}</p>}
+            {mode==='SPARK' && (preset!=='CUSTOM' || countsValid) && <p className={styles.sparkHint}>{tr('Plánovaný počet AI požadavků bez opakování','Planned AI requests without retries')}: <strong>{inferenceCalls}</strong> · {tr('Nejde o časový odhad.','This is not an ETA.')}</p>}
             {!seedValid&&<p role="alert">{tr('Seed musí být celé 32bitové číslo.','Seed must be a 32-bit integer.')}</p>}
             <button className={styles.primary} disabled={!seedValid || (preset === 'CUSTOM' && !countsValid) || (mode === 'SPARK' && !brief.trim())} onClick={() => void action(runPreview)}>{mode === 'LOCAL' ? tr('Zobrazit náhled','Preview dataset') : tr('Připravit se Sparkem','Prepare with Spark')}</button>
           </fieldset>

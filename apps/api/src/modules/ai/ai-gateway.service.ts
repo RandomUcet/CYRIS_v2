@@ -33,6 +33,8 @@ export interface ExecuteAIOperationParams {
   operationType: 'WRITING_ASSIST' | 'CASE_SUMMARY' | 'CATCH_ME_UP' | 'TIMELINE_EXPLAIN' | 'SUPPORT_REPLY' | 'SUPPORT_HANDOVER' | 'SCENARIO_DATA';
   promptTemplateVersion?: string;
   contextResourceIds?: string[];
+  /** Internal server-derived scope; never supplied by the browser. */
+  exclusiveScope?: string;
   messages: AIMessage[];
   options?: AIGenerateOptions;
 }
@@ -205,7 +207,7 @@ export class AIGatewayService {
       const support = params.operationType === 'SUPPORT_REPLY' || params.operationType === 'SUPPORT_HANDOVER';
       const timeoutMs = inferenceTimeoutMs(params.options?.timeoutMs ?? active.timeoutMs);
       result = await this.admission.run(support ? 'support' : 'regular', params.userId, timeoutMs,
-        () => provider.generate(params.messages, { ...params.options, timeoutMs }));
+        () => provider.generate(params.messages, { ...params.options, timeoutMs }), params.exclusiveScope);
       return {
         text: result.text,
         model: result.model,

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { draftProgress, assertDraftAdvance, formatElapsed } from './scenario-draft-progress.js';
+import { draftProgress, assertDraftAdvance, formatElapsed, plannedInferenceCalls } from './scenario-draft-progress.js';
 test('progress reflects saved rows and stays bounded', () => {
   assert.deepEqual(draftProgress(12,108), {prepared:12,expected:108,percent:11});
   assert.deepEqual(draftProgress(108,108), {prepared:108,expected:108,percent:100});
@@ -26,4 +26,12 @@ test('workspace isolates event state, protects generation and restores draft str
   assert.ok(page.includes('setSparkStrategy(r.data.strategy ?? \'DETAILED\')'));
   assert.ok(page.includes('request !== historyRequest.current'));
   assert.ok(page.includes('paused.current = true;'));
+});
+
+test('inference plan counts actual category pages, not just total records', () => {
+  assert.equal(plannedInferenceCalls([40,6,12,20,25,5],'DETAILED'),12);
+  assert.equal(plannedInferenceCalls([40,6,12,20,25,5],'FAST'),1);
+  assert.equal(plannedInferenceCalls([1,1,0],'DETAILED'),2);
+  assert.equal(plannedInferenceCalls([0,0],'FAST'),0);
+  assert.equal(plannedInferenceCalls([-1,12],'DETAILED'),0);
 });

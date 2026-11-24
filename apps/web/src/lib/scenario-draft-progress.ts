@@ -12,3 +12,9 @@ export function formatElapsed(seconds: number): string {
   const elapsed = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
   return Math.floor(elapsed / 60) + ':' + String(elapsed % 60).padStart(2, '0');
 }
+
+/** Detailed requests cannot span record categories; each page holds up to 12. */
+export function plannedInferenceCalls(counts: readonly number[], strategy: 'FAST' | 'DETAILED'): number {
+  if (!counts.length || counts.some(n => !Number.isSafeInteger(n) || n < 0) || !counts.some(n => n > 0)) return 0;
+  return strategy === 'FAST' ? 1 : counts.reduce((sum, n) => sum + Math.ceil(n / 12), 0);
+}
