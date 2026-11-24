@@ -659,8 +659,8 @@ export class CyrisApiClient {
   async getWorkspace(eventId: string) {
     return this.fetchJson<WorkspaceResolutionResponse>(`/events/${eventId}/workspace`);
   }
-  async getMemberships(eventId: string) {
-    return this.fetchJson<MembershipResponse[]>(`/events/${eventId}/memberships`);
+  async getMemberships(eventId: string,signal?:AbortSignal) {
+    return this.fetchJson<MembershipResponse[]>(`/events/${eventId}/memberships`,signal);
   }
   async activateMembership(eventId: string, membershipId: string) {
     return this.patchJson<unknown>(`/events/${eventId}/memberships/${membershipId}`, { status: 'ACTIVE' });
@@ -669,8 +669,8 @@ export class CyrisApiClient {
     return this.patchJson<unknown>(`/events/${encodeURIComponent(eventId)}/memberships/${encodeURIComponent(membershipId)}`,
       { status: 'INACTIVE' });
   }
-  async getRoles(eventId: string) {
-    return this.fetchJson<any[]>(`/events/${eventId}/roles`);
+  async getRoles(eventId: string,signal?:AbortSignal) {
+    return this.fetchJson<any[]>(`/events/${eventId}/roles`,signal);
   }
   getEventAfterActionReport(eventId: string) {
     return this.fetchJson<EventAfterActionReport>(

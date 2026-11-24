@@ -28,6 +28,9 @@ export interface DataTableProps<T> {
   emptyTitle?: string;
   emptyDescription?: string;
   emptyMessage?: string;
+  /** Opt-in client pagination; sorting always applies to the whole dataset. */
+  pageSize?:number;
+  pageResetKey?:string;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -40,11 +43,13 @@ export function DataTable<T extends Record<string, any>>({
   loading = false,
   emptyTitle,
   emptyDescription,
-  emptyMessage,
+  emptyMessage,pageSize,pageResetKey='',
 }: DataTableProps<T>) {
   const { t, locale } = usePreferences();
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [paging,setPaging]=useState({key:'',page:1});
+  const pagingKey=JSON.stringify([pageResetKey,sortKey,sortDirection,pageSize]);
 
   const handleHeaderClick = (col: Column<T>) => {
     const sKey = col.sortKey || col.key;
@@ -77,6 +82,11 @@ export function DataTable<T extends Record<string, any>>({
     });
   }, [data, sortKey, sortDirection]);
 
+  const size=pageSize&&Number.isFinite(pageSize)?Math.max(1,Math.floor(pageSize)):Math.max(1,sortedData.length);
+  const pages=Math.max(1,Math.ceil(sortedData.length/size));
+  const page=Math.min(pages,paging.key===pagingKey?paging.page:1);
+  const visible=pageSize?sortedData.slice((page-1)*size,page*size):sortedData;
+  const cs=locale==='cs';
   const getRowId = (row: T): string => {
     if (keyExtractor) {
       return keyExtractor(row);
@@ -104,6 +114,7 @@ export function DataTable<T extends Record<string, any>>({
   }
 
   return (
+    <React.Fragment>
     <div className="data-table-container">
       <table className="data-table">
         <thead>
@@ -145,7 +156,7 @@ export function DataTable<T extends Record<string, any>>({
           </tr>
         </thead>
         <tbody>
-          {sortedData.map((row) => {
+          {visible.map((row) => {
             const rowId = getRowId(row);
             const isSelected = selectedRowId === rowId;
             return (
@@ -176,5 +187,12 @@ export function DataTable<T extends Record<string, any>>({
         </tbody>
       </table>
     </div>
+    {pageSize&&pages>1&&<nav className="data-table-pagination" aria-label={cs?'Stránkování tabulky':'Table pagination'}>
+      <span role="status">{(page-1)*size+1}–{Math.min(page*size,sortedData.length)} / {sortedData.length}</span>
+      <button type="button" className="btn btn-secondary" disabled={page===1} onClick={()=>setPaging({key:pagingKey,page:page-1})}>{cs?'Předchozí':'Previous'}</button>
+      <span>{page} / {pages}</span>
+      <button type="button" className="btn btn-secondary" disabled={page===pages} onClick={()=>setPaging({key:pagingKey,page:page+1})}>{cs?'Další':'Next'}</button>
+    </nav>}
+    </React.Fragment>
   );
 }

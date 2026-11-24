@@ -18,6 +18,7 @@ export function filterRoster<T extends RosterMember>(members: readonly T[], quer
   return members.filter(member => {
     if (status !== 'ALL' && rosterStatus(member) !== status) return false;
     if (team === 'NONE' ? member.units.length !== 0 : team !== 'ALL' && !member.units.some(unit => unit.id === team)) return false;
+    if(!terms.length)return true;
     const text = normalize([member.user?.displayName, member.user?.email, ...member.units.map(unit => unit.name), ...member.roles.map(role => role.name)].join(' '));
     return terms.every(term => text.includes(term));
   });
