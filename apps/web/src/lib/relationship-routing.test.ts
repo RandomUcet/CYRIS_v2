@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {relationshipRecordHref as href} from './relationship-routing';
 const eventId='e1';
 test('links supported resources inside their own exercise',()=>{
+  assert.equal(href(eventId,{id:'lic1',type:'LICENCE'}),'/events/e1/registry/licences/lic1');
   assert.equal(href(eventId,{id:'p1',type:'PERSON'}),'/events/e1/registry/persons/p1');
   assert.equal(href(eventId,{id:'org',type:'ORGANIZATION'}),'/events/e1/registry/organisations/org');
   assert.equal(href(eventId,{id:'i1',type:'INCIDENT'}),'/events/e1/incidents/i1');

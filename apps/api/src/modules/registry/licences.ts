@@ -53,7 +53,6 @@ export class LicencesService {
     const context = {eventId, resourceOwnerId:user.id};
     await this.authorization.assertAuthorized({user,permission:Permissions.REGISTRY_CREATE,context});
     await this.authorization.assertAuthorized({user,permission:Permissions.REGISTRY_RELATIONSHIP_MANAGE,context});
-    if (data.visibility === 'UNIT') throw new BadRequestException('Unit-scoped licences require an owning unit');
     if (data.visibility === 'SCENARIO') {
       await this.authorization.assertAuthorized({user,permission:Permissions.SCENARIO_READ,context});
     }

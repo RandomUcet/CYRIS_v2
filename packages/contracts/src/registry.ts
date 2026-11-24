@@ -338,7 +338,7 @@ export function licenceDatesOrdered(from: string, until?: string | null): boolea
 export const CreateLicenceRequestSchema = LicenceFieldsSchema.extend({
   holderId: z.string().uuid(),
   issuerId: z.string().uuid(),
-  visibility: ResourceVisibilitySchema.default('EVENT'),
+  visibility: z.enum(['EVENT','RESTRICTED','SCENARIO']).default('EVENT'),
 }).strict().refine(data => data.holderId !== data.issuerId, 'Holder and issuer must be different')
   .refine(data => licenceDatesOrdered(data.validFrom, data.validUntil), 'End date precedes start date');
 export const UpdateLicenceRequestSchema = LicenceFieldsSchema.partial().strict();

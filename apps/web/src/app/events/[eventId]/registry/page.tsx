@@ -30,7 +30,7 @@ export default function RegistryPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
-  const { hasPermission } = useAuth();
+  const { hasPermission, viewAs } = useAuth();
   const { formatDate, t } = usePreferences();
 
   const [activeTab, setActiveTab] = useState<RegistryTab>('persons');
@@ -51,7 +51,7 @@ export default function RegistryPage() {
   // Dynamic form state
   const [formData, setFormData] = useState<Record<string, any>>({});
 
-  const canManage = hasPermission('registry.create', eventId) && (activeTab !== 'licences' || hasPermission('registry.relationship.manage', eventId));
+  const canManage = !viewAs && hasPermission('registry.create', eventId) && (activeTab !== 'licences' || hasPermission('registry.relationship.manage', eventId));
   const [licenceParties,setLicenceParties] = useState<{persons:any[];organisations:any[]}>({persons:[],organisations:[]});
   const [partiesError,setPartiesError] = useState('');
   useEffect(() => {
@@ -67,7 +67,14 @@ export default function RegistryPage() {
     return () => {cancelled = true;};
   },[showCreateModal,activeTab,eventId]);
 
+  const requestId = React.useRef(0);
+  const [loadedScope,setLoadedScope] = useState('');
+  const scope = eventId + ':' + activeTab;
+  const currentScope = React.useRef(scope);
+  currentScope.current = scope;
   const fetchData = async () => {
+    if (scope !== currentScope.current) return;
+    const request = ++requestId.current;
     setLoading(true);
     setError(null);
     try {
@@ -80,15 +87,17 @@ export default function RegistryPage() {
       else if (activeTab === 'weapons') res = await apiClient.getWeapons(eventId);
       else if (activeTab === 'licences') res = await apiClient.getLicences(eventId);
 
+      if (request !== requestId.current || scope !== currentScope.current) return;
       if (res?.ok && res.data) {
         setDataList(res.data);
+        setLoadedScope(scope);
       } else {
         setError(res?.error || `Failed to load ${activeTab}`);
       }
     } catch (err: any) {
-      setError(err.message || 'Network error');
+      if (request === requestId.current && scope === currentScope.current) setError(err.message || 'Network error');
     } finally {
-      setLoading(false);
+      if (request === requestId.current && scope === currentScope.current) setLoading(false);
     }
   };
 
@@ -96,9 +105,11 @@ export default function RegistryPage() {
     if (eventId) {
       fetchData();
     }
+    return () => {++requestId.current;};
   }, [eventId, activeTab]);
 
   const filteredData = useMemo(() => {
+    if (loadedScope !== scope) return [];
     return dataList.filter((item) => {
       if (provenanceFilter && item.provenance !== provenanceFilter) return false;
       if (!search) return true;
@@ -124,7 +135,7 @@ export default function RegistryPage() {
         || item.licenceNumber?.toLowerCase().includes(s)
       );
     });
-  }, [dataList, search, provenanceFilter]);
+  }, [dataList, search, provenanceFilter, loadedScope, scope]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
