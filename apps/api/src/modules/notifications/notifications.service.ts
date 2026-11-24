@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { eq, and, isNull, desc } from 'drizzle-orm';
+import { eq, and, isNull, desc, or, inArray, lte } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { PreferencesService } from '../preferences/preferences.service.js';
 import { InAppNotificationProvider } from './providers/in-app-notification.provider.js';
@@ -14,6 +14,7 @@ import type {
   NotificationItem,
   NotificationListResponse,
   NotificationSeverityValue,
+  ServiceModule, RestrictedServiceMode,
 } from '@cyris/contracts';
 
 @Injectable()
@@ -143,14 +144,9 @@ export class NotificationsService {
     const newItems: NotificationItem[] = [];
     const earlierItems: NotificationItem[] = [];
 
-    const visibility = new Map<string, Promise<boolean>>();
-    for (const row of rows) {
-      const module = serviceModuleForAction(row.templateKey);
-      if (row.eventId && module) {
-        const key = row.eventId + '/' + module;
-        if (!visibility.has(key)) visibility.set(key, this.canShowModule(row.eventId, row.templateKey, userId));
-        if (!await visibility.get(key)) continue;
-      }
+    const canShow=this.moduleVisibility(userId);
+    for(const row of rows){
+      if(!await canShow(row.eventId,row.templateKey))continue;
       const item = this.mapToItem(row);
       if (!row.readAt) {
         newItems.push(item);
@@ -216,13 +212,26 @@ export class NotificationsService {
       conditions.push(eq(notifications.eventId, eventId));
     }
 
-    const res = await db
-      .update(notifications)
-      .set({
-        readAt: new Date(),
-      })
-      .where(and(...conditions))
-      .returning({ id: notifications.id });
+    // Only acknowledge groups that the recipient could actually see. Grouping
+    // in SQL avoids transferring unread notification bodies and UUID lists.
+    const readAt=new Date();
+    conditions.push(lte(notifications.createdAt,readAt));
+    const groups=await db.selectDistinct({eventId:notifications.eventId,templateKey:notifications.templateKey})
+      .from(notifications).where(and(...conditions));
+    const canShow=this.moduleVisibility(userId);
+    const allowed=new Map<string|null,string[]>();
+    for(const group of groups){
+      if(!await canShow(group.eventId,group.templateKey))continue;
+      const keys=allowed.get(group.eventId)??[];
+      keys.push(group.templateKey);allowed.set(group.eventId,keys);
+    }
+    if(!allowed.size)return {updatedCount:0};
+    const visible=or(...[...allowed].map(([id,keys])=>and(
+      id===null?isNull(notifications.eventId):eq(notifications.eventId,id),
+      inArray(notifications.templateKey,keys),
+    )));
+    const res=await db.update(notifications).set({readAt})
+      .where(and(...conditions,visible)).returning({id:notifications.id});
 
     return { updatedCount: res.length };
   }
@@ -246,6 +255,9 @@ export class NotificationsService {
       throw new ForbiddenException('Cannot dismiss notifications of other users');
     }
 
+    if(!await this.canShowModule(existing.eventId,existing.templateKey,userId)){
+      throw new NotFoundException('Notification not found');
+    }
     await db
       .update(notifications)
       .set({
@@ -254,14 +266,28 @@ export class NotificationsService {
       .where(eq(notifications.id, notificationId));
   }
 
-  private async canShowModule(eventId: string | null | undefined, templateKey: string, userId: string): Promise<boolean> {
-    const module = serviceModuleForAction(templateKey);
-    if (!eventId || !module) return true;
-    const db = this.databaseService.client;
-    if ((await readModuleImpacts(db, eventId, userId)).get(module) !== 'UNAVAILABLE') return true;
-    const [user] = await db.select({ id: users.id, email: users.email, displayName: users.displayName, status: users.status })
-      .from(users).where(eq(users.id, userId)).limit(1);
-    return Boolean(user && await this.authorization.authorize({ user, permission: Permissions.PLATFORM_MANAGE }));
+  /** One request-local lookup per event, and at most one admin check.
+   * Never retain authorization across calls; restrictions can change at any time. */
+  private moduleVisibility(userId:string){
+    const db=this.databaseService.client;
+    const impacts=new Map<string,Promise<ReadonlyMap<ServiceModule,RestrictedServiceMode>>>();
+    let admin:Promise<boolean>|undefined;
+    const isAdmin=()=>admin??=(async()=>{
+      const [user]=await db.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status})
+        .from(users).where(eq(users.id,userId)).limit(1);
+      return Boolean(user&&await this.authorization.authorize({user,permission:Permissions.PLATFORM_MANAGE}));
+    })();
+    return async(eventId:string|null|undefined,templateKey:string):Promise<boolean>=>{
+      const module=serviceModuleForAction(templateKey);
+      if(!eventId||!module)return true;
+      let pending=impacts.get(eventId);
+      if(!pending){pending=readModuleImpacts(db,eventId,userId);impacts.set(eventId,pending);}
+      return (await pending).get(module)!=='UNAVAILABLE'||await isAdmin();
+    };
+  }
+
+  private canShowModule(eventId:string|null|undefined,templateKey:string,userId:string):Promise<boolean>{
+    return this.moduleVisibility(userId)(eventId,templateKey);
   }
 
   private mapToItem(row: typeof notifications.$inferSelect): NotificationItem {

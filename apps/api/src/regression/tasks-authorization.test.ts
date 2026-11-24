@@ -6,7 +6,7 @@ import { ForbiddenException, NotFoundException, BadRequestException, ConflictExc
 import {
   getDbClient, closeDatabaseConnection, users, events, eventMemberships,
   organizationalUnits, membershipUnitAssignments, roles, roleAssignments, rolePermissions,
-  unitCapabilities, resources, evidence, operationalTasks, auditEvents, outboxEvents,
+  unitCapabilities, resources, evidence, operationalTasks, auditEvents, outboxEvents, notifications as notificationRows,
 } from '@cyris/db';
 import { generateId, Permissions, type PermissionKey } from '@cyris/shared';
 import { MyWorkQuerySchema, CreateOperationalTaskRequestSchema } from '@cyris/contracts';
@@ -285,7 +285,25 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       assert.equal((await audit.getById(auditEvent!.id, true))?.actorUserId, admin.id);
       assert.equal(await audit.getById(auditEvent!.id), null);
       assert.equal((await audit.list({ eventId: eventA, action: 'exercise.disruption.started', page: 1, limit: 5 })).total, 0);
+      const inbox=new NotificationsService(database,{} as never,{} as never,{} as never,auth);
+      const hiddenId=generateId(),visibleId=generateId(),otherId=generateId(),globalId=generateId();
+      await db.insert(notificationRows).values([
+        {id:hiddenId,userId:worker.id,eventId:eventA,type:'TASK_ASSIGNED',templateKey:'task.assigned'},
+        {id:visibleId,userId:worker.id,eventId:eventA,type:'BROADCAST',templateKey:'exercise.broadcast'},
+        {id:otherId,userId:worker.id,eventId:eventB,type:'BROADCAST',templateKey:'exercise.broadcast'},
+        {id:globalId,userId:worker.id,type:'BROADCAST',templateKey:'exercise.broadcast'},
+      ]);
+      const visibleInbox=await inbox.getNotifications(worker.id,eventA);
+      assert.deepEqual(visibleInbox.newItems.map(row=>row.id),[visibleId]);
+      await assert.rejects(inbox.markRead(hiddenId,worker.id),NotFoundException);
+      await assert.rejects(inbox.dismiss(hiddenId,worker.id),NotFoundException);
+      assert.equal((await inbox.markAllRead(worker.id,eventA)).updatedCount,1);
+      assert.equal((await inbox.markAllRead(worker.id)).updatedCount,2);
+      assert.equal((await inbox.markAllRead(worker.id)).updatedCount,0);
       await disruptions.restore(eventA, outage.id, { expectedRevision: 1, reason }, admin);
+      const restoredInbox=await inbox.getNotifications(worker.id,eventA);
+      assert.deepEqual(restoredInbox.newItems.map(row=>row.id),[hiddenId]);
+      assert.equal((await inbox.markAllRead(worker.id,eventA)).updatedCount,1);
       await assert.rejects(disruptions.restore(eventA, outage.id, { expectedRevision: 1, reason }, admin), ConflictException);
       assert.deepEqual((await disruptions.getServiceStatus(eventA, worker)).items, [{ service: 'tasks', impact: 'READ_ONLY' }]);
 

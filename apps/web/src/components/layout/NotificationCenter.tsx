@@ -22,6 +22,9 @@ export function NotificationCenter(){
   const hostRef=useRef<HTMLDivElement>(null);
   const triggerRef=useRef<HTMLButtonElement>(null);
   const requestRef=useRef(0);
+  const activeRef=useRef(false);
+  const flightRef=useRef<{scope:string;promise:Promise<void>}|null>(null);
+  const mutationRef=useRef<object|null>(null);
   const currentEventRef=useRef(selectedEvent?.id);
   currentEventRef.current=selectedEvent?.id;
   const titleId=useId();
@@ -36,9 +39,18 @@ export function NotificationCenter(){
   const [view,setView]=useState<NotificationView>('ALL');
   const [query,setQuery]=useState('');
 
-  const reload=useCallback(async()=>{
+  const reload=useCallback(async(fresh=false):Promise<void>=>{
+    if(!activeRef.current||scopeRef.current!==scopeKey)return;
+    const existing=flightRef.current;
+    if(existing?.scope===scopeKey){
+      await existing.promise;
+      if(!fresh||!activeRef.current||scopeRef.current!==scopeKey)return;
+      const newer=flightRef.current;
+      if(newer?.scope===scopeKey&&newer!==existing)return newer.promise;
+    }
     const eventId=selectedEvent?.id;
     const request=++requestRef.current;
+    const run=async()=>{
     try{
       const res=await apiClient.getNotifications(eventId);
       if(request!==requestRef.current || currentEventRef.current!==eventId || scopeRef.current!==scopeKey)return;
@@ -51,9 +63,15 @@ export function NotificationCenter(){
     }finally{
       if(request===requestRef.current && currentEventRef.current===eventId && scopeRef.current===scopeKey)setLoading(false);
     }
+    };
+    const flight={scope:scopeKey,promise:run()};
+    flightRef.current=flight;
+    try{await flight.promise;}finally{if(flightRef.current===flight)flightRef.current=null;}
   },[selectedEvent?.id,scopeKey]);
 
   useEffect(()=>{
+    activeRef.current=true;
+    mutationRef.current=null;
     setData({unreadCount:0,newItems:[],earlierItems:[]});
     setDataScope(scopeKey);
     setLoading(true);
@@ -65,7 +83,7 @@ export function NotificationCenter(){
     const timer=window.setInterval(()=>{if(!document.hidden)void reload();},15000);
     const onVisibility=()=>{if(!document.hidden)void reload();};
     document.addEventListener('visibilitychange',onVisibility);
-    return()=>{requestRef.current++;window.clearInterval(timer);document.removeEventListener('visibilitychange',onVisibility);};
+    return()=>{activeRef.current=false;requestRef.current++;flightRef.current=null;mutationRef.current=null;window.clearInterval(timer);document.removeEventListener('visibilitychange',onVisibility);};
   },[reload]);
 
   useEffect(()=>{
@@ -88,16 +106,18 @@ export function NotificationCenter(){
   const busy=pending!==null;
 
   async function mutate(key:string,request:()=>Promise<{ok:boolean;error?:string}>){
-    if(busy||isReadOnly)return;
+    if(busy||mutationRef.current||isReadOnly||!activeRef.current||scopeRef.current!==scopeKey)return;
+    const token={};mutationRef.current=token;
+    const current=()=>activeRef.current&&scopeRef.current===scopeKey&&mutationRef.current===token;
     setPending(key);setActionError(false);
     try{
       const result=await request();
       if(!result.ok)throw new Error(result.error||'Notification update failed');
-      await reload();
+      if(current())await reload(true);
     }catch{
-      setActionError(true);
+      if(current())setActionError(true);
     }finally{
-      setPending(null);
+      if(current()){mutationRef.current=null;setPending(null);}
     }
   }
 
