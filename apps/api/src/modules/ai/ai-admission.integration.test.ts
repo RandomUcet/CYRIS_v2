@@ -37,8 +37,10 @@ test('AI admission across two replicas reserves EXCON capacity, rejects a burst 
     while (holds.length < 2) await delay(5);
     await assert.rejects(replicas[0]!.run('support', 'other-operator', 5000, hold), expectStatus(429));
     assert.equal(peak, 2);
+    assert.deepEqual(await replicas[0]!.snapshot(),{limit:2,active:2,regular:1});
     holds.splice(0).forEach(release => release());
     await Promise.all([ordinary, priority]);
+    assert.deepEqual(await replicas[1]!.snapshot(),{limit:2,active:0,regular:0});
     await assert.rejects(replicas[0]!.run('support', 'operator', 1000, async () => { throw Error('provider timeout'); }), /provider timeout/);
     assert.equal(await replicas[1]!.run('regular', 'operator', 1000, async () => 'ok'), 'ok');
     replicas[0]!.onModuleDestroy();

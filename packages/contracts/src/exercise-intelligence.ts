@@ -10,7 +10,8 @@ export const ExerciseObserverSnapshotSchema=z.object({eventId:z.string().uuid(),
 export type ExerciseObserverSnapshot=z.infer<typeof ExerciseObserverSnapshotSchema>;
 export const exerciseObserverKey=(eventId:string)=>'cyris:exercise-observer:v1:'+eventId;
 export const ExerciseIntelligenceOverviewSchema=z.object({
- eventId:z.string().uuid(),asOf:z.string(),provider:z.object({configured:z.boolean(),enabled:z.boolean(),status:z.string(),providerName:z.string().optional(),chatModel:z.string().optional()}),
+ eventId:z.string().uuid(),asOf:z.string(),
+ event:z.object({id:z.string().uuid(),name:z.string(),status:z.string(),timezone:z.string()}),defcon:z.object({level:z.number().int().min(1).max(5).nullable(),updatedAt:z.string().nullable()}),phases:z.object({total:z.number().int(),completed:z.number().int()}),activePhase:z.object({id:z.string().uuid(),code:z.string(),title:z.string()}).nullable(),participation:z.object({activeUsers:z.number().int(),activeTeams:z.number().int()}),provider:z.object({configured:z.boolean(),enabled:z.boolean(),status:z.string(),providerName:z.string().optional(),chatModel:z.string().optional()}),
  usage:z.object({total:z.number(),successful:z.number(),failed:z.number(),averageMs:z.number().nullable(),byOperation:z.array(z.object({operation:z.string(),count:z.number()}))}),
  signals:z.array(ExerciseSignalSchema),
  observer:ExerciseObserverSnapshotSchema.nullable(),

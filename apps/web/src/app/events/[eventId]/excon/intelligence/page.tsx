@@ -21,7 +21,7 @@ function Workspace({eventId}:{eventId:string}){
  const lock=useRef(false),alive=useRef(true);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  useEffect(()=>{const controller=new AbortController();let active=true,flight=false;
- const refresh=async()=>{if(flight)return;flight=true;try{const res=await apiClient.getExerciseIntelligence(eventId,controller.signal);if(!active)return;if(res.ok&&res.data?.eventId===eventId){setOverview(res.data);setError('');}else{setOverview(null);setError(res.error||tr('Přehled není dostupný','Overview unavailable'));}}catch{if(active){setOverview(null);setError(tr('Přehled není dostupný','Overview unavailable'));}}finally{flight=false;}};
+ const refresh=async()=>{if(flight)return;flight=true;try{const res=await apiClient.getExerciseIntelligence(eventId,controller.signal);if(!active)return;if(res.ok&&res.data?.eventId===eventId){setOverview(res.data);setError('');}else{setOverview(null);if(res.status===401||res.status===403||res.status===404)setResult(null);setError(res.error||tr('Přehled není dostupný','Overview unavailable'));}}catch{if(active){setOverview(null);setError(tr('Přehled není dostupný','Overview unavailable'));}}finally{flight=false;}};
  void refresh();const timer=window.setInterval(()=>{if(!document.hidden)void refresh();},30000);
  return()=>{active=false;controller.abort();window.clearInterval(timer);};
  },[eventId,revision,cs]);
@@ -37,6 +37,7 @@ function Workspace({eventId}:{eventId:string}){
  {error&&<p role="alert">{error}</p>}
  {!overview&&!error&&<p role="status">{tr('Načítám přehled…','Loading overview…')}</p>}
  {overview&&<>
+ <section className="intel-card"><h2>{overview.event.name}</h2><p className="intel-muted">{overview.event.status} · {overview.event.timezone} · {overview.activePhase?.title??tr('Bez aktivní fáze','No active phase')}</p><div className="intel-grid"><div><small>DEFCON</small><div className="intel-kpi">{overview.defcon.level??'—'}</div></div><div><small>{tr('Aktivní členství','Active memberships')}</small><div className="intel-kpi">{overview.participation.activeUsers}</div></div><div><small>{tr('Týmy','Teams')}</small><div className="intel-kpi">{overview.participation.activeTeams}</div></div><div><small>{tr('Dokončené fáze','Completed phases')}</small><div className="intel-kpi">{overview.phases.completed} / {overview.phases.total}</div></div></div><p className="intel-muted">{tr('Členství není údaj o počtu právě připojených uživatelů.','Membership is not concurrent online presence.')}</p></section>
  <section className="intel-grid">
  <article className="intel-card"><h2>DGX Spark</h2><div className="intel-kpi">{overview.provider.enabled?tr('Povoleno','Enabled'):tr('Vypnuto','Disabled')}</div><p className="intel-muted">{overview.provider.chatModel??'—'} · {overview.provider.status}</p><p className="intel-muted">{tr('Konfigurační stav, nikoli živý GPU monitoring.','Configuration status, not live GPU telemetry.')}</p></article>
  <article className="intel-card"><h2>{tr('AI pokusy · 24 h','AI attempts · 24 h')}</h2><div className="intel-kpi">{overview.usage.total}</div><p>{overview.usage.successful} {tr('úspěšných','successful')} · {overview.usage.failed} {tr('neúspěšných','unsuccessful')}</p></article>
