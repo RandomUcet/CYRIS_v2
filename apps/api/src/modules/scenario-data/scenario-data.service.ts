@@ -156,7 +156,7 @@ export class ScenarioDataService {
 
   async list(eventId: string, user: AuthenticatedUser) {
     await this.assertManage(eventId, user);
-    const rows = await this.databaseService.client.select({ ...getTableColumns(scenarioDataBatches), configuration: sql<Settings>`${scenarioDataBatches.configuration} - 'rows' - 'draftLinks'` }).from(scenarioDataBatches)
+    const rows = await this.databaseService.client.select({ ...getTableColumns(scenarioDataBatches), configuration: sql<Settings>`${scenarioDataBatches.configuration} - 'rows' - 'draftLinks'`, relationshipCount: sql<number>`case when jsonb_typeof(${scenarioDataBatches.configuration}->'draftLinks') = 'array' then jsonb_array_length(${scenarioDataBatches.configuration}->'draftLinks') else ${scenarioDataBatches.relationshipCount} end` }).from(scenarioDataBatches)
       .where(eq(scenarioDataBatches.eventId, eventId)).orderBy(desc(scenarioDataBatches.createdAt));
     return rows.map((row) => this.response(row));
   }
@@ -297,11 +297,12 @@ export class ScenarioDataService {
       // One concise request replaces up to hundreds of sequential 12-record AI calls.
       // All structured records and relations are then generated in-process and
       // saved atomically so failures leave a fully resumable untouched draft.
-      const [event] = await db.select({ name: events.name, locale: events.defaultLocale })
-        .from(events).where(eq(events.id, eventId)).limit(1);
+      const [[event],existing]=await Promise.all([
+        db.select({name:events.name,locale:events.defaultLocale}).from(events).where(eq(events.id,eventId)).limit(1),
+        this.existingNames(eventId),
+      ]);
       if (!event) throw new BadRequestException('Exercise unavailable');
-      const existing = await this.existingNames(eventId);
-      let blueprint: unknown;
+      let blueprint: ReturnType<typeof ScenarioBlueprintSchema.parse>;
       try {
         const result = await this.ai.execute({
           eventId, userId: user.id, operationType: 'SCENARIO_DATA',
@@ -319,7 +320,7 @@ export class ScenarioDataService {
         this.logger.warn('Fast Spark blueprint failed or exceeded its 45-second provider limit');
         throw new ServiceUnavailableException('Spark did not finish the compact scenario blueprint. This draft is saved; retry or choose Local.');
       }
-      const world = applyScenarioBlueprint(localWorld(batch.seed, cleanCounts(conf), existing), ScenarioBlueprintSchema.parse(blueprint));
+      const world = applyScenarioBlueprint(localWorld(batch.seed, cleanCounts(conf), existing), blueprint);
       const links = fastDraftLinks(world);
       const [saved] = await db.update(scenarioDataBatches).set({
         configuration: { ...conf, rows: world, draftLinks: links, prepared: total(cleanCounts(conf)) },
@@ -332,12 +333,14 @@ export class ScenarioDataService {
     if (!kind) return this.response(batch);
     const start = conf.rows[kind].length;
     const count = Math.min(12, conf[kind] - start);
-    const [event] = await db.select({ name: events.name, timezone: events.defaultTimezone, locale: events.defaultLocale, startsAt: events.startsAt }).from(events).where(eq(events.id, eventId));
+    const [[event],taken]=await Promise.all([
+      db.select({name:events.name,timezone:events.defaultTimezone,locale:events.defaultLocale,startsAt:events.startsAt}).from(events).where(eq(events.id,eventId)),
+      kind==='persons'?this.existingNames(eventId):Promise.resolve(new Set<string>()),
+    ]);
     const demoCounts = { persons: 0, organisations: 0, locations: 0, vehicles: 0, devices: 0, weapons: 0, [kind]: 1 };
     const example = localWorld(batch.seed + expected, demoCounts, new Set())[kind][0];
-    const taken = kind === 'persons' ? await this.existingNames(eventId) : new Set<string>();
-    for (const person of conf.rows.persons) taken.add(nameKey(fullName(person)));
-    const variation = localWorld(batch.seed + expected, { ...demoCounts, persons: kind === 'persons' ? count : 0 }, taken).persons.map(fullName);
+    if(kind==='persons')for(const person of conf.rows.persons)taken.add(nameKey(fullName(person)));
+    const variation=kind==='persons'?localWorld(batch.seed+expected,{...demoCounts,persons:count},taken).persons.map(fullName):[];
     const targets = candidateLinks(kind, conf.rows, start);
     let output: string;
     try {

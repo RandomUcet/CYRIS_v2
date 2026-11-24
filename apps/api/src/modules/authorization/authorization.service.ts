@@ -1,5 +1,5 @@
 import { Injectable, ForbiddenException, Logger } from '@nestjs/common';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
@@ -187,44 +187,63 @@ export class AuthorizationService {
     resourceScopes: readonly ('OWN' | 'ASSIGNED')[];
     requireUnitMembership?: boolean;
   }): Promise<boolean> {
-    const { user, permission, eventId, unitId, resourceScopes } = params;
-    if (!user || user.status !== 'ACTIVE') return false;
-    const db = this.databaseService.client;
-    const [membership] = await db.select({ id: eventMemberships.id })
-      .from(eventMemberships)
-      .innerJoin(users, eq(users.id, eventMemberships.userId))
-      .where(and(
-        eq(eventMemberships.eventId, eventId),
-        eq(eventMemberships.userId, user.id),
-        eq(eventMemberships.status, MembershipStatus.ACTIVE),
-        eq(users.status, 'ACTIVE'),
-      )).limit(1);
-    if (!membership) return false;
-    const unitRows = await db.select({ unitId: membershipUnitAssignments.unitId })
-      .from(membershipUnitAssignments)
-      .where(eq(membershipUnitAssignments.membershipId, membership.id));
-    const unitIds = unitRows.map((row) => row.unitId);
-    if (params.requireUnitMembership && (!unitId || !unitIds.includes(unitId))) return false;
-    if (await this.authorize({ user, permission })) return true;
-    const grants = await db.select({ scope: rolePermissions.scope, unitId: roleAssignments.unitId })
-      .from(roleAssignments)
-      .innerJoin(roles, eq(roles.id, roleAssignments.roleId))
-      .innerJoin(rolePermissions, eq(rolePermissions.roleId, roles.id))
-      .where(and(
-        eq(roleAssignments.membershipId, membership.id), eq(rolePermissions.permissionKey, permission),
-        eq(roles.eventId, eventId), isNull(roleAssignments.userId),
-      ));
-    return grants.some((grant) => {
-      // A role explicitly attached to a unit cannot confer capabilities elsewhere.
-      if (unitId && grant.unitId && grant.unitId !== unitId) return false;
-      if (grant.scope === PermissionScopes.EVENT) return true;
-      if (grant.scope === PermissionScopes.UNIT) {
-        return unitId
-          ? grant.unitId === unitId || (!grant.unitId && unitIds.includes(unitId))
-          : grant.unitId ? unitIds.includes(grant.unitId) : unitIds.length > 0;
-      }
-      return resourceScopes.some((scope) => grant.scope === scope);
-    });
+    const {permission,...context}=params;
+    return (await this.eventCapabilities({...context,permissions:[permission]})).has(permission);
+  }
+
+  /** Batch capability checks for a single effective identity and exercise.
+   * No cross-request cache: revocation, unit membership and DB user status are checked anew.
+   * These are availability grants, not permission to access individual records. */
+  async eventCapabilities(params:{
+    user:AuthenticatedUser;
+    permissions:readonly PermissionKey[];
+    eventId:string;
+    unitId?:string;
+    resourceScopes:readonly ('OWN'|'ASSIGNED')[];
+    requireUnitMembership?:boolean;
+  }):Promise<ReadonlySet<PermissionKey>>{
+    const {user,eventId,unitId,resourceScopes}=params;
+    const requested=[...new Set(params.permissions)];
+    const allowed=new Set<PermissionKey>();
+    if(!user||user.status!=='ACTIVE'||!requested.length)return allowed;
+    const db=this.databaseService.client;
+    const [membership]=await db.select({id:eventMemberships.id})
+      .from(eventMemberships).innerJoin(users,eq(users.id,eventMemberships.userId))
+      .where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,user.id),
+        eq(eventMemberships.status,MembershipStatus.ACTIVE),eq(users.status,'ACTIVE'))).limit(1);
+    if(!membership)return allowed;
+    const [unitRows,platformGrants,grants]=await Promise.all([
+      db.select({unitId:membershipUnitAssignments.unitId}).from(membershipUnitAssignments)
+        .where(eq(membershipUnitAssignments.membershipId,membership.id)),
+      db.select({permissionKey:rolePermissions.permissionKey,scope:rolePermissions.scope})
+        .from(roleAssignments).innerJoin(roles,eq(roleAssignments.roleId,roles.id))
+        .innerJoin(rolePermissions,eq(roles.id,rolePermissions.roleId))
+        .where(and(eq(roleAssignments.userId,user.id),isNull(roleAssignments.membershipId),
+          isNull(roleAssignments.unitId),isNull(roles.eventId),eq(rolePermissions.scope,PermissionScopes.PLATFORM),
+          inArray(rolePermissions.permissionKey,[...new Set([...requested,Permissions.PLATFORM_MANAGE])]))),
+      db.select({permissionKey:rolePermissions.permissionKey,scope:rolePermissions.scope,unitId:roleAssignments.unitId})
+        .from(roleAssignments).innerJoin(roles,eq(roles.id,roleAssignments.roleId))
+        .innerJoin(rolePermissions,eq(rolePermissions.roleId,roles.id))
+        .where(and(eq(roleAssignments.membershipId,membership.id),inArray(rolePermissions.permissionKey,requested),
+          eq(roles.eventId,eventId),isNull(roleAssignments.userId))),
+    ]);
+    const unitIds=new Set(unitRows.map(row=>row.unitId));
+    if(params.requireUnitMembership&&(!unitId||!unitIds.has(unitId)))return allowed;
+    if(platformGrants.some(row=>row.permissionKey===Permissions.PLATFORM_MANAGE))return new Set(requested);
+    const platformKeys=new Set(platformGrants.map(row=>row.permissionKey));
+    for(const permission of requested)if(platformKeys.has(permission))allowed.add(permission);
+    const requestedKeys=new Set<string>(requested);
+    for(const grant of grants){
+      if(!requestedKeys.has(grant.permissionKey))continue;
+      if(unitId&&grant.unitId&&grant.unitId!==unitId)continue;
+      const matches=grant.scope===PermissionScopes.EVENT||
+        (grant.scope===PermissionScopes.UNIT
+          ? (unitId?grant.unitId===unitId||(!grant.unitId&&unitIds.has(unitId))
+            :grant.unitId?unitIds.has(grant.unitId):unitIds.size>0)
+          :resourceScopes.some(scope=>grant.scope===scope));
+      if(matches)allowed.add(grant.permissionKey as PermissionKey);
+    }
+    return allowed;
   }
 
   /**

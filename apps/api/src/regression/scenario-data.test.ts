@@ -149,6 +149,10 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
     assert.equal(calls, beforeFast + 1);
     assert.equal(fastPage.prepared, 12);
     assert((fastPage.relationshipCount ?? 0) > 0);
+    const fastHistory=(await svc.list(a,user)).find(row=>row.id===fast.id);
+    assert.equal(fastHistory?.relationshipCount,fastPage.relationshipCount);
+    assert.equal(fastHistory?.prepared,fastPage.prepared);
+    assert.equal(fastHistory?.samples,undefined,'history must not load full generated rows');
     assert.match(fastPage.personDetails![0]!.description, /železniční depo/);
     assert.equal((await svc.advance(a, fast.id, 0, user)).prepared, 12);
     const completedCalls = calls;

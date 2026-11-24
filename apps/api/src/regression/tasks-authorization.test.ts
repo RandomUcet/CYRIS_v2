@@ -167,6 +167,16 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       assert.equal(await auth.hasEventCapability({ user: { ...disabled, status: 'ACTIVE' }, ...capability }), false);
       assert.equal(await auth.hasEventCapability({ user: worker, ...capability, unitId: unitB }), false);
       assert.equal(await auth.hasEventCapability({ user: worker, ...capability, eventId: eventB }), false);
+      const permissions=[Permissions.LAB_WORK,Permissions.TASK_READ,Permissions.LAB_REASSIGN,Permissions.MEDICAL_READ] as const;
+      for(const subject of [worker,leader,outsider,inactive,{...disabled,status:'ACTIVE' as const}]){
+        const batch=await auth.eventCapabilities({...capability,user:subject,permissions});
+        for(const permission of permissions)assert.equal(batch.has(permission),await auth.hasEventCapability({...capability,user:subject,permission}));
+      }
+      const granted=await auth.eventCapabilities({...capability,user:worker,permissions});
+      assert.ok(granted.has(Permissions.LAB_WORK));
+      assert.equal(granted.has(Permissions.LAB_REASSIGN),false);
+      assert.equal((await auth.eventCapabilities({...capability,user:worker,permissions,eventId:eventB})).size,0);
+      assert.equal((await auth.eventCapabilities({...capability,user:worker,permissions:[]})).size,0);
     });
     let labId = '';
     await t.test('concurrent lab requests assign real eligible workers with balanced workload', async () => {

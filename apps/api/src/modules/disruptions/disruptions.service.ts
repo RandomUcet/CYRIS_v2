@@ -61,11 +61,11 @@ export class DisruptionsService {
   async getServiceStatus(eventId: string, user: AuthenticatedUser): Promise<ServiceStatusResponse> {
     await this.assertStatusAccess(eventId, user);
     const impacts = await this.getModuleImpacts(eventId, user);
-    const visible = await Promise.all([...impacts].map(async ([service, impact]) =>
-      await this.hasModuleCapability(eventId, user, service) ? { service, impact } : null
-    ));
-    const items = visible.filter((item): item is ServiceStatusItem => item !== null)
-      .sort((a, b) => a.service.localeCompare(b.service));
+    const capabilities=await this.authorizationService.eventCapabilities({user,eventId,
+      permissions:[...impacts.keys()].flatMap(service=>serviceReadPermissions[service]),resourceScopes:['OWN','ASSIGNED']});
+    const items:ServiceStatusItem[]=[...impacts]
+      .filter(([service])=>serviceReadPermissions[service].some(permission=>capabilities.has(permission)))
+      .map(([service,impact])=>({service,impact})).sort((a,b)=>a.service.localeCompare(b.service));
     return {
       eventId,
       generatedAt: new Date().toISOString(),
