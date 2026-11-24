@@ -1,1 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#152937"/><g fill="#74d2d2"><path d="M9 3h13l5 5v2h-4v-.4L20.4 7h-9.8L7 10.6v10.8l3.6 3.6h9.8l2.6-2.6V22h4v2l-5 5H9l-6-6V9z M11 13h2.6v6H11z M16 10h2.6v12H16z M21 13h2.6v6H21z"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><title>CYRIS</title><rect width="32" height="32" rx="6" fill="#0b1728"/><g transform="translate(1.2 3.6) scale(.79)"><path fill="#38d8d5" d="M2 8.5 16 0.5 23 4.5 9 12.5Z"/>
+      <path fill="#12b9bd" d="M16 .5 23 4.5 30 8.5 23 12.5 16 8.5 9 12.5 2 8.5Z" opacity=".35"/>
+      <path fill="#087b88" d="M23 4.5 30 8.5 23 12.5 16 8.5Z"/>
+      <path fill="#078c9a" d="M2 8.5 9 12.5 9 20.5 2 24.5Z"/>
+      <path fill="#087080" d="M2 24.5 9 20.5 16 24.5 16 31.5Z"/>
+      <path fill="#10aeb6" d="M16 24.5 23 20.5 23 16.5 30 12.5 30 24.5 16 31.5Z"/>
+      <path fill="#f97316" d="M14 16.5 21 12.5 27 16 33 12.5 37 15 27 21 21 20.5Z"/>
+      <path fill="#ffb34f" d="M21 12.5 27 16 33 12.5 37 15 27 21Z"/></g></svg>

@@ -6,10 +6,7 @@ RUN npm install --global pnpm@12.14.0
 WORKDIR /app
 
 # Copy monorepo manifests
-COPY pnpm-lock.yaml pnpm-workspace.yaml ./
-# Fetch the locked dependency store before versioned manifests invalidate the layer.
-RUN pnpm fetch --frozen-lockfile
-COPY package.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/config/package.json ./packages/config/
 COPY packages/contracts/package.json ./packages/contracts/
 COPY packages/shared/package.json ./packages/shared/
