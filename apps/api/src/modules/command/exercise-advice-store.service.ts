@@ -36,8 +36,8 @@ export class ExerciseAdviceStore{
    if(['CLOSED','ARCHIVED'].includes(event.status))throw new ConflictException('Exercise is read-only');
    if(blueprintRevision!==null){const [latest]=await tx.select({revision:exerciseBlueprints.revision}).from(exerciseBlueprints).where(eq(exerciseBlueprints.eventId,eventId)).orderBy(desc(exerciseBlueprints.revision)).limit(1);if(latest?.revision!==blueprintRevision)throw new ConflictException('Blueprint changed during inference');}
    if(fence){
-    const [account]=await tx.select({status:users.status}).from(users).where(eq(users.id,actor.id)).limit(1);
-    if(account?.status!=='ACTIVE')throw new ConflictException('Job owner unavailable');
+    const [account]=await tx.select({status:users.status,testExpiresAt:users.testExpiresAt}).from(users).where(eq(users.id,actor.id)).limit(1);
+    if(account?.status!=='ACTIVE'||(account.testExpiresAt!=null&&account.testExpiresAt.getTime()<=Date.now()))throw new ConflictException('Job owner unavailable');
     await this.authorize(eventId,actor);
     const [job]=await tx.update(exerciseJobs).set({status:'SUCCEEDED',resultRunId:runId,input:null,claimToken:null,leaseUntil:null,updatedAt:new Date(),errorCode:null}).where(and(eq(exerciseJobs.id,fence.id),eq(exerciseJobs.eventId,eventId),eq(exerciseJobs.createdBy,actor.id),eq(exerciseJobs.status,'RUNNING'),eq(exerciseJobs.claimToken,fence.claimToken),gt(exerciseJobs.leaseUntil,new Date()))).returning({id:exerciseJobs.id});
     if(!job)throw new ConflictException('Job claim expired');

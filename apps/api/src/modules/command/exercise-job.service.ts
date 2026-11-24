@@ -72,8 +72,8 @@ export class ExerciseJobService implements OnModuleInit,OnModuleDestroy{
    const token=row.claimToken!;
    try{
     if(!row.createdBy)throw new ForbiddenException();
-    const [actor]=await this.db.client.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status,preview:previewTeamAccounts.userId}).from(users).leftJoin(previewTeamAccounts,eq(users.id,previewTeamAccounts.userId)).where(eq(users.id,row.createdBy)).limit(1);
-    if(!actor||actor.status!=='ACTIVE'||actor.preview)throw new ForbiddenException();
+    const [actor]=await this.db.client.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status,testExpiresAt:users.testExpiresAt,preview:previewTeamAccounts.userId}).from(users).leftJoin(previewTeamAccounts,eq(users.id,previewTeamAccounts.userId)).where(eq(users.id,row.createdBy)).limit(1);
+    if(!actor||actor.status!=='ACTIVE'||actor.preview||(actor.testExpiresAt!=null&&actor.testExpiresAt.getTime()<=Date.now()))throw new ForbiddenException();
     await this.authorize(row.eventId,actor);
     const [event]=await this.db.client.select({status:events.status}).from(events).where(eq(events.id,row.eventId)).limit(1);
     if(!event||['CLOSED','ARCHIVED'].includes(event.status))throw new ConflictException();

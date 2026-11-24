@@ -5,6 +5,7 @@ import { Eye, RefreshCw, Search, Shield, Users } from 'lucide-react';
 import type { MembershipResponse } from '@cyris/contracts';
 import { LdapTeamAssignments } from '@/components/admin/LdapTeamAssignments';
 import { PlatformAdministrators } from '@/components/admin/PlatformAdministrators';
+import { LocalTestAccounts } from '@/components/admin/LocalTestAccounts';
 import { TeamPreviewAccess } from '@/components/admin/TeamPreviewAccess';
 import { AppShell } from '@/components/layout/AppShell';
 import { DataTable, type Column } from '@/components/common/DataTable';
@@ -247,6 +248,7 @@ export default function AdminUsersPage() {
       {isPlatformAdmin && tab==='ldap' && <LdapTeamAssignments key={currentEvent?.id??'global'} event={currentEvent??undefined} onChanged={() => setRevision(value => value + 1)} />}
       {isPlatformAdmin && tab==='admins' && currentUser && <>
         <PlatformAdministrators actorId={currentUser.user.id} onChanged={() => setRevision(value => value + 1)}/>
+        {!viewAs&&eventId&&<LocalTestAccounts key={scopeKey} eventId={eventId} eventName={currentEvent?.name??eventId} onChanged={()=>setRevision(v=>v+1)}/>}
         <TeamPreviewAccess />
       </>}
       {tab==='participants'&&<>{rosterReady && actionError && <div role="alert" className="roster-action-error">{actionError}</div>}

@@ -5,6 +5,7 @@ import {users,userIdentities,events,eventMemberships,organizationalUnits,members
 import {Permissions,PermissionScopes,generateId} from '@cyris/shared';
 import {CreateLocalTestAccountSchema,type LocalTestAccount,type LocalTestAccountCreated} from '@cyris/contracts';
 import {AuthGuard} from './guards/auth.guard.js';
+import {AuthorizationService} from '../authorization/authorization.service.js';
 import {PermissionsGuard} from '../authorization/guards/permissions.guard.js';
 import {RequirePermission} from '../authorization/decorators/require-permission.decorator.js';
 import {CurrentUser} from './decorators/current-user.decorator.js';
@@ -21,10 +22,11 @@ function dto(row:{id:string;email:string;displayName:string;status:string;testEx
 @UseGuards(AuthGuard,PermissionsGuard)
 @RequirePermission(Permissions.PLATFORM_MANAGE)
 export class LocalTestAccountsController{
- constructor(private readonly db:DatabaseService,private readonly audit:AuditService,private readonly local:LocalIdentityProvider,private readonly sessions:SessionService){}
+ constructor(private readonly db:DatabaseService,private readonly audit:AuditService,private readonly local:LocalIdentityProvider,private readonly sessions:SessionService,private readonly auth:AuthorizationService){}
  @Get()
  @RequirePermission(Permissions.PLATFORM_MANAGE)
- async list(@Param('eventId',ParseUUIDPipe) eventId:string){
+ async list(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() actor:AuthenticatedUser){
+  await this.auth.assertAuthorized({user:actor,permission:Permissions.PLATFORM_MANAGE});
   const rows=await this.db.client.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status,testExpiresAt:users.testExpiresAt}).from(users).innerJoin(eventMemberships,eq(eventMemberships.userId,users.id)).where(and(eq(eventMemberships.eventId,eventId),isNotNull(users.testExpiresAt))).orderBy(desc(users.createdAt)).limit(100);
   return rows.map(dto);
  }
@@ -32,6 +34,7 @@ export class LocalTestAccountsController{
  @RequirePermission(Permissions.PLATFORM_MANAGE)
  @Header('Cache-Control','no-store')
  async create(@Param('eventId',ParseUUIDPipe) eventId:string,@Body() body:unknown,@CurrentUser() actor:AuthenticatedUser):Promise<LocalTestAccountCreated>{
+  await this.auth.assertAuthorized({user:actor,permission:Permissions.PLATFORM_MANAGE});
   const parsed=CreateLocalTestAccountSchema.safeParse(body);if(!parsed.success)throw new BadRequestException('Invalid test account');
   const input=parsed.data,id=generateId(),email='test-'+id+'@test.cyris.invalid',password=randomBytes(24).toString('base64url'),hash=await this.local.hashPassword(password);
   return this.db.client.transaction(async tx=>{
@@ -57,6 +60,7 @@ export class LocalTestAccountsController{
  @Post(':userId/disable')
  @RequirePermission(Permissions.PLATFORM_MANAGE)
  async disable(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('userId',ParseUUIDPipe) id:string,@CurrentUser() actor:AuthenticatedUser){
+  await this.auth.assertAuthorized({user:actor,permission:Permissions.PLATFORM_MANAGE});
   const result=await this.db.client.transaction(async tx=>{
    const [member]=await tx.select({id:eventMemberships.id}).from(eventMemberships).where(and(eq(eventMemberships.userId,id),eq(eventMemberships.eventId,eventId))).limit(1);
    if(!member)throw new NotFoundException('Test account not found');
