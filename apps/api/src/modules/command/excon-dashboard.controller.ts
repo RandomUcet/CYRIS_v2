@@ -4,7 +4,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { ExconDashboardService } from './excon-dashboard.service.js';
 import { ExerciseIntelligenceService } from './exercise-intelligence.service.js';
-import { ExerciseAdviceInputSchema, ExerciseBlueprintInputSchema, ExerciseAdviceDecisionSchema } from '@cyris/contracts';
+import { ExerciseAdviceInputSchema, ExerciseBlueprintInputSchema, ExerciseAdviceDecisionSchema, ExerciseAdviceHandoffInputSchema } from '@cyris/contracts';
 import { ExerciseAdviceStore } from './exercise-advice-store.service.js';
 import { ExerciseBlueprintService } from './exercise-blueprint.service.js';
 
@@ -31,6 +31,13 @@ export class ExconDashboardController {
     const parsed=ExerciseAdviceDecisionSchema.safeParse(body);
     if(!parsed.success)throw new BadRequestException('Invalid advice review');
     return this.adviceStore.review(eventId,runId,actor,parsed.data);
+  }
+
+  @Post('intelligence/history/:runId/handoff')
+  handoff(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('runId',ParseUUIDPipe) runId:string,@CurrentUser() actor:AuthenticatedUser,@Body() body:unknown){
+    const parsed=ExerciseAdviceHandoffInputSchema.safeParse(body);
+    if(!parsed.success)throw new BadRequestException('Invalid handoff');
+    return this.adviceStore.handoff(eventId,runId,actor,parsed.data);
   }
 
   @Get('intelligence')

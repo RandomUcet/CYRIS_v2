@@ -1,4 +1,4 @@
-import type {StoredExerciseAdvice,ExerciseAdviceDecision} from '@cyris/contracts';
+import type {StoredExerciseAdvice,ExerciseAdviceDecision,ExerciseAdviceHandoffInput} from '@cyris/contracts';
 import type {ExerciseBlueprintInput,ExerciseBlueprint,ExerciseBlueprintOverview} from '@cyris/contracts';
 import type { ExerciseAdviceInput, ExerciseAdviceResult, ExerciseIntelligenceOverview } from '@cyris/contracts';
 import type {
@@ -1614,6 +1614,7 @@ export class CyrisApiClient {
   // Notifications
   // ============================================================================
 
+  handoffExerciseAdvice(eventId:string,runId:string,input:ExerciseAdviceHandoffInput){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/handoff',input);}
   getExerciseAdviceHistory(eventId:string,signal?:AbortSignal){return this.fetchJson<StoredExerciseAdvice[]>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history',signal);}
   reviewExerciseAdvice(eventId:string,runId:string,input:ExerciseAdviceDecision){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/review',input);}
   getExerciseBlueprint(eventId:string,signal?:AbortSignal){return this.fetchJson<ExerciseBlueprintOverview>('/events/'+encodeURIComponent(eventId)+'/command/excon/blueprint',signal);}

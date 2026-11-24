@@ -49,4 +49,10 @@ export const ExerciseAdviceDecisionSchema=z.object({actionIndex:z.number().int()
 export type ExerciseAdviceDecision=z.infer<typeof ExerciseAdviceDecisionSchema>;
 export const ExerciseAdviceReviewSchema=z.object({actionIndex:z.number().int().min(0).max(11),decision:z.enum(['ACCEPTED','REJECTED','PENDING']),note:z.string().max(1000),reviewedAt:z.string().datetime(),reviewedBy:z.string().uuid()}).strict();
 export type ExerciseAdviceReview=z.infer<typeof ExerciseAdviceReviewSchema>;
-export type StoredExerciseAdvice=ExerciseAdviceResult&{revision:number;observedAt:string;signals:ExerciseSignal[];reviews:ExerciseAdviceReview[];createdBy:string|null};
+export type StoredExerciseAdvice=ExerciseAdviceResult&{revision:number;observedAt:string;signals:ExerciseSignal[];reviews:ExerciseAdviceReview[];handoffs:ExerciseAdviceHandoff[];createdBy:string|null};
+
+/** Explicit human-written, team-scoped handoff. No model text is copied automatically. */
+export const ExerciseAdviceHandoffInputSchema=z.object({actionIndex:z.number().int().min(0).max(11),expectedRevision:z.number().int().positive(),unitId:z.string().uuid(),title:z.string().trim().min(3).max(120),message:z.string().trim().min(3).max(900),confirmedSafe:z.literal(true)}).strict();
+export type ExerciseAdviceHandoffInput=z.infer<typeof ExerciseAdviceHandoffInputSchema>;
+export const ExerciseAdviceHandoffSchema=z.object({actionIndex:z.number().int().min(0).max(11),planId:z.string().uuid(),unitId:z.string().uuid(),createdAt:z.string().datetime(),createdBy:z.string().uuid()}).strict();
+export type ExerciseAdviceHandoff=z.infer<typeof ExerciseAdviceHandoffSchema>;

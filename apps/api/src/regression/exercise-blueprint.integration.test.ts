@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
-import {ConflictException,ForbiddenException} from '@nestjs/common';
+import {ConflictException,ForbiddenException,BadRequestException} from '@nestjs/common';
 import {eq} from 'drizzle-orm';
-import {getDbClient,closeDatabaseConnection,events,users,eventMemberships,roles,rolePermissions,roleAssignments,exerciseBlueprints,auditEvents,exerciseAdvice} from '@cyris/db';
+import {getDbClient,closeDatabaseConnection,events,users,eventMemberships,roles,rolePermissions,roleAssignments,exerciseBlueprints,auditEvents,exerciseAdvice,exerciseBroadcastPlans,organizationalUnits} from '@cyris/db';
 import {generateId,Permissions} from '@cyris/shared';
 import {AuthorizationService} from '../modules/authorization/authorization.service.js';
 import {AuditService} from '../modules/audit/audit.service.js';
@@ -40,6 +40,23 @@ skipWithoutVerifiedDatabase('private exercise blueprint revisions are atomic, sc
   assert.equal(concurrent.filter(r=>r.status==='fulfilled').length,1);
   assert.equal(concurrent.filter(r=>r.status==='rejected'&&r.reason instanceof ConflictException).length,1);
   assert.equal((await store.list(eventId,actor))[0]?.revision,2);
+  const team=generateId(),foreignTeam=generateId();
+  await db.insert(organizationalUnits).values([{id:team,eventId,name:'Fixture team',slug:'fixture'},{id:foreignTeam,eventId:other,name:'Other team',slug:'other'}]);
+  const handoff={actionIndex:0,expectedRevision:2,unitId:team,title:'Review process',message:'Review your current list of leads.',confirmedSafe:true as const};
+  await assert.rejects(store.handoff(eventId,runId,actor,handoff),ConflictException); // not active
+  await db.update(events).set({status:'ACTIVE'}).where(eq(events.id,eventId));
+  await assert.rejects(store.handoff(eventId,runId,actor,{...handoff,unitId:foreignTeam}),BadRequestException);
+  await assert.rejects(store.handoff(eventId,runId,{id:student,status:'ACTIVE'} as any,handoff),ForbiddenException);
+  // Use a separate draft so stale review behavior remains independently covered.
+  const secondRun=generateId();await store.persist(actor,{...draft,runId:secondRun},now,signals);
+  await assert.rejects(store.handoff(eventId,secondRun,actor,{...handoff,expectedRevision:1}),ConflictException);
+  await store.review(eventId,secondRun,actor,review);
+  const handoffs=await Promise.allSettled([store.handoff(eventId,secondRun,actor,handoff),store.handoff(eventId,secondRun,actor,handoff)]);
+  assert.equal(handoffs.filter(r=>r.status==='fulfilled').length,1);
+  const plans=await db.select().from(exerciseBroadcastPlans).where(eq(exerciseBroadcastPlans.eventId,eventId));
+  assert.equal(plans.length,1);assert.equal(plans[0]?.status,'DRAFT');assert.equal(plans[0]?.scheduledAt,null);assert.equal(plans[0]?.deliveredCount,0);assert.equal(plans[0]?.message,handoff.message);assert.equal(plans[0]?.unitId,team);
+  assert.equal((await store.list(eventId,actor)).find(r=>r.runId===secondRun)?.handoffs[0]?.planId,plans[0]?.id);
+  await assert.rejects(store.review(eventId,secondRun,actor,{...review,expectedRevision:3,decision:'REJECTED'}),ConflictException);
   const results=await Promise.allSettled([svc.save(eventId,actor,{...input,expectedRevision:1,title:'Revision A'}),svc.save(eventId,actor,{...input,expectedRevision:1,title:'Revision B'})]);
   assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
   assert.equal(results.filter(r=>r.status==='rejected'&&r.reason instanceof ConflictException).length,1);
@@ -48,12 +65,13 @@ skipWithoutVerifiedDatabase('private exercise blueprint revisions are atomic, sc
   await assert.rejects(store.review(eventId,runId,actor,{...review,expectedRevision:2}),ConflictException);
   await assert.rejects(store.persist(actor,{...draft,runId:generateId()},now,signals),ConflictException);
   const reset=await store.review(eventId,runId,actor,{...review,expectedRevision:2,decision:'REJECTED'});assert.equal(reset.reviews[0]?.decision,'REJECTED');
-  assert.equal((await db.select().from(exerciseAdvice).where(eq(exerciseAdvice.eventId,eventId))).length,1);
+  assert.equal((await db.select().from(exerciseAdvice).where(eq(exerciseAdvice.eventId,eventId))).length,2);
   const audits=await db.select().from(auditEvents).where(eq(auditEvents.eventId,eventId));
   assert.equal(audits.filter(a=>a.action==='exercise.blueprint.revised').length,2);assert.ok(!JSON.stringify(audits).includes(input.brief));
-  assert.equal(audits.filter(a=>a.action==='exercise.advice.created').length,1);
-  assert.equal(audits.filter(a=>a.action==='exercise.advice.reviewed').length,2);
+  assert.equal(audits.filter(a=>a.action==='exercise.advice.created').length,2);
+  assert.equal(audits.filter(a=>a.action==='exercise.advice.reviewed').length,3);
   assert.ok(!JSON.stringify(audits).includes(draft.summary));assert.ok(!JSON.stringify(audits).includes(review.note));
+  assert.equal(audits.filter(a=>a.action==='exercise.advice.handoff').length,1);
   await db.update(events).set({status:'CLOSED'}).where(eq(events.id,eventId));
   await assert.rejects(svc.save(eventId,actor,{...input,expectedRevision:2}),ConflictException);
   await assert.rejects(store.review(eventId,runId,actor,{...review,expectedRevision:3}),ConflictException);

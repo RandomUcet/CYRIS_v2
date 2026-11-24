@@ -232,6 +232,13 @@
       "when": 1792634000000,
       "tag": "0032_exercise_advice",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792635000000,
+      "tag": "0033_exercise_advice_handoffs",
+      "breakpoints": true
     }
   ]
 }
