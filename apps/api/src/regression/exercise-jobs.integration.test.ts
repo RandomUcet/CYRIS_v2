@@ -55,6 +55,7 @@ skipWithoutVerifiedDatabase('durable intelligence jobs are isolated, idempotent 
   const [failed]=await db.select().from(exerciseJobs).where(eq(exerciseJobs.id,fourth.id));
   assert.equal(failed?.status,'FAILED');assert.equal(failed?.errorCode,'ACCESS_REVOKED');assert.equal(failed?.input,null);
  }finally{
-  await db.delete(events).where(eq(events.id,eventId));await db.delete(events).where(eq(events.id,other));await closeDatabaseConnection();
+  // Audit rows are immutable; the verified isolated database is discarded by CI.
+  await closeDatabaseConnection();
  }
 });

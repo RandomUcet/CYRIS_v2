@@ -62,3 +62,14 @@ export type ExerciseJobStatus=z.infer<typeof ExerciseJobStatusSchema>;
 export type ExerciseJob={id:string;eventId:string;mode:ExerciseAdviceInput['mode'];status:ExerciseJobStatus;blueprintRevision:number|null;createdAt:string;updatedAt:string;resultRunId:string|null;errorCode:string|null;attempts:number;createdBy:string|null};
 export const ExerciseJobSubmitSchema=z.object({requestId:z.string().uuid(),input:ExerciseAdviceInputSchema}).strict();
 export type ExerciseJobSubmit=z.infer<typeof ExerciseJobSubmitSchema>;
+
+export const OBSERVER_HISTORY_INTERVAL_MS=15*60*1000;
+export const observerBucket=(date:Date)=>new Date(Math.floor(date.getTime()/OBSERVER_HISTORY_INTERVAL_MS)*OBSERVER_HISTORY_INTERVAL_MS);
+export const ExerciseObserverHistorySchema=z.object({eventId:z.string().uuid(),asOf:z.string().datetime(),windowHours:z.literal(72),intervalMinutes:z.literal(15),samples:z.array(ExerciseObserverSnapshotSchema).max(289)}).strict();
+export type ExerciseObserverHistory=z.infer<typeof ExerciseObserverHistorySchema>;
+/** Compare only consecutive observations using the same review threshold. Missing intervals are unknown. */
+export function observerChange(previous:ExerciseObserverSnapshot,current:ExerciseObserverSnapshot){
+ const elapsed=Date.parse(current.observedAt)-Date.parse(previous.observedAt);
+ if(previous.eventId!==current.eventId||previous.reviewAfterHours!==current.reviewAfterHours||!Number.isFinite(elapsed)||elapsed<=0||elapsed>20*60*1000)return null;
+ return {pending:current.pending-previous.pending,unchanged:current.unchanged-previous.unchanged,blocked:current.blocked-previous.blocked};
+}

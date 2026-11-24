@@ -24,6 +24,9 @@ export class ExconDashboardController {
     return this.blueprints.save(eventId,actor,input.data);
   }
 
+  @Get('intelligence/observer-history')
+  observerHistory(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() actor:AuthenticatedUser){return this.intelligence.observerHistory(eventId,actor);}
+
   @Get('intelligence/jobs')
   listJobs(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() actor:AuthenticatedUser){return this.jobs.list(eventId,actor);}
 

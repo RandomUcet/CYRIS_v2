@@ -43,3 +43,5 @@ export * from './exercise-advice.js';
 export * from './legal-library.js';
 
 export * from './exercise-jobs.js';
+
+export * from './exercise-observations.js';

@@ -253,6 +253,13 @@
       "when": 1792637000000,
       "tag": "0035_exercise_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792638000000,
+      "tag": "0036_exercise_observations",
+      "breakpoints": true
     }
   ]
 }
