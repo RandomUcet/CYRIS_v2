@@ -25,3 +25,6 @@ The worker produces short-lived aggregate observations independently of browser 
 
 ## Persistent blueprint increment
 Organizer-authored versioned scenario context is stored separately from events and public descriptions, in PostgreSQL with atomic revision/audit writes. It is not an answer key API for participants. Saving requires the current revision, and closed/archived exercises are read-only. Old content is retained for revision provenance; no raw scenario text in audit metadata. Migration 0031 needs isolated verification and backup before production.
+
+## Advice review increment
+Validated server-produced drafts are retained in a dedicated organizer-only store with exact observed signal counts and blueprint revision, run ID, model, generation time, and latest per-action review. Review updates use optimistic locking and atomic metadata-only audit. History displays the latest 20 drafts, including after reload. Accept means internal human review only; it does not create tasks, deliver hints or change configuration. Full prompt is not retained. Private generated content is included in database backups and must follow exercise retention policy.

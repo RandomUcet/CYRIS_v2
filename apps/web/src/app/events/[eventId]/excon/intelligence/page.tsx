@@ -6,6 +6,7 @@ import {AppShell} from '@/components/layout/AppShell';
 import {useAuth} from '@/contexts/AuthContext';
 import {usePreferences} from '@/contexts/PreferencesContext';
 import {apiClient} from '@/lib/api-client';
+import {ExerciseAdviceHistory} from '@/components/excon/ExerciseAdviceHistory';
 import {ExerciseBlueprintPanel} from '@/components/excon/ExerciseBlueprintPanel';
 import type {ExerciseBlueprint,ExerciseAdviceResult,ExerciseIntelligenceOverview} from '@cyris/contracts';
 
@@ -57,6 +58,8 @@ function Workspace({eventId}:{eventId:string}){
  <p className="intel-muted">{tr('Pouze návrh pro organizátora. Nic se automaticky nezaloží ani neodešle.','Organizer draft only. Nothing is automatically created or sent.')}</p>
  <button type="submit" disabled={busy||brief.trim().length<10||!overview?.provider.enabled}>{busy?tr('Spark připravuje návrh…','Spark is drafting…'):tr('Připravit návrh přes Spark','Generate with Spark')}</button></form>
  {adviceError&&<p role="alert">{adviceError}</p>}
- {result&&<div><h3>{tr('Návrh ke schválení','Draft for review')}</h3><p>{result.summary}</p><p className="intel-muted">{result.model} · {(result.durationMs/1000).toFixed(1)} s · {result.runId}{result.blueprintRevision!==null?' · Blueprint r'+result.blueprintRevision:''}</p><ul className="intel-list">{result.actions.map((action,i)=><li key={i}><strong>{action.module} · {action.title}</strong><p>{action.proposal}</p><p className="intel-muted">{action.reason}</p>{action.signalIds.length>0&&<small>{action.signalIds.join(' · ')}</small>}</li>)}</ul>{result.reviewNotes.map((note,i)=><p key={i}>{note}</p>)}</div>}
- </section></div></main></AppShell>;
+ {overview&&result&&<div><h3>{tr('Návrh ke schválení','Draft for review')}</h3><p>{result.summary}</p><p className="intel-muted">{result.model} · {(result.durationMs/1000).toFixed(1)} s · {result.runId}{result.blueprintRevision!==null?' · Blueprint r'+result.blueprintRevision:''}</p><ul className="intel-list">{result.actions.map((action,i)=><li key={i}><strong>{action.module} · {action.title}</strong><p>{action.proposal}</p><p className="intel-muted">{action.reason}</p>{action.signalIds.length>0&&<small>{action.signalIds.join(' · ')}</small>}</li>)}</ul>{result.reviewNotes.map((note,i)=><p key={i}>{note}</p>)}</div>}
+ </section>
+ {overview&&<ExerciseAdviceHistory eventId={eventId} cs={cs} refreshKey={revision} blueprintRevision={blueprint?.revision??null}/>}
+ </div></main></AppShell>;
 }
