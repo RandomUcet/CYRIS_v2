@@ -5,6 +5,7 @@ import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { LoadingState, EmptyState } from './StateViews';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { workspaceLabel } from '@/lib/workspace-navigation';
+import { reconcileTablePage, isInteractiveTableTarget } from '@/lib/table-interaction';
 
 export interface Column<T> {
   key?: string;
@@ -84,7 +85,10 @@ export function DataTable<T extends Record<string, any>>({
 
   const size=pageSize&&Number.isFinite(pageSize)?Math.max(1,Math.floor(pageSize)):Math.max(1,sortedData.length);
   const pages=Math.max(1,Math.ceil(sortedData.length/size));
-  const page=Math.min(pages,paging.key===pagingKey?paging.page:1);
+  const nextPaging=reconcileTablePage(paging,pagingKey,pages);
+  // Persist reset and clamp even if a previous filter is restored later.
+  if(nextPaging!==paging)setPaging(nextPaging);
+  const page=nextPaging.page;
   const visible=pageSize?sortedData.slice((page-1)*size,page*size):sortedData;
   const cs=locale==='cs';
   const getRowId = (row: T): string => {
@@ -163,10 +167,10 @@ export function DataTable<T extends Record<string, any>>({
               <tr
                 key={rowId}
                 className={`${onRowClick ? 'clickable' : ''} ${isSelected ? 'selected' : ''}`}
-                onClick={() => onRowClick && onRowClick(row)}
+                onClick={(event) => { if (onRowClick && !isInteractiveTableTarget(event.target,event.currentTarget)) onRowClick(row); }}
                 tabIndex={onRowClick ? 0 : undefined}
                 onKeyDown={(e) => {
-                  if (onRowClick && (e.key === 'Enter' || e.key === ' ')) {
+                  if (onRowClick && e.target===e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                     e.preventDefault();
                     onRowClick(row);
                   }

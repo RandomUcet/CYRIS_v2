@@ -362,12 +362,12 @@ export class CyrisApiClient {
   async previewScenarioData(eventId: string, payload: ScenarioDataRequest) {
     return this.postJson<ScenarioDataPreview>(`/events/${eventId}/scenario-data/preview`, payload);
   }
-  listJsocLogs(eventId:string,query:JsocLogQuery){
+  listJsocLogs(eventId:string,query:JsocLogQuery,signal?:AbortSignal){
     const params=new URLSearchParams({page:String(query.page),limit:String(query.limit)});
     if(query.category)params.set('category',query.category);
     if(query.severity)params.set('severity',query.severity);
     if(query.search)params.set('search',query.search);
-    return this.fetchJson<JsocLogPage>(`/events/${eventId}/jsoc/logs?${params}`);
+    return this.fetchJson<JsocLogPage>(`/events/${eventId}/jsoc/logs?${params}`,signal);
   }
   generateJsocLogs(eventId:string,input:GenerateJsocLogs){
     return this.postJson<{created:number;simulation:true}>(`/events/${eventId}/jsoc/generate`,input);

@@ -1458,8 +1458,9 @@ a.my-work-item { color: inherit; text-decoration: none; }
 
 .cyris-signature {
   display: block;
-  height: 28px;
-  width: 116px;
+  height: 30px;
+  width: 114px;
+  max-width: 100%;
   flex: 0 0 auto;
   color: #14263b;
 }
@@ -1474,7 +1475,7 @@ a.my-work-item { color: inherit; text-decoration: none; }
 }
 
 .login-brand .cyris-signature {
-  width: 144px;
+  width: 159px;
   height: 42px;
 }
 

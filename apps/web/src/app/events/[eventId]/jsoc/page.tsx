@@ -9,6 +9,7 @@ import {usePreferences} from '@/contexts/PreferencesContext';
 import {useAuth} from '@/contexts/AuthContext';
 import type {JsocCategory,JsocSeverity,JsocLog,JsocLogPage,JsocLogQuery} from '@cyris/contracts';
 import styles from './jsoc.module.css';
+import {formatSimulatedLog} from '@/lib/jsoc-reference';
 
 const categories:JsocCategory[]=['AUTH','NETWORK','DNS','ENDPOINT','APPLICATION'];
 const severities:JsocSeverity[]=['INFO','LOW','MEDIUM','HIGH','CRITICAL'];
@@ -51,18 +52,25 @@ function JsocWorkspace({eventId}:{eventId:string}){
   const [focusCategory,setFocusCategory]=useState<JsocCategory|''>('');
   const generatingRef=useRef(false);
   const [showGenerator,setShowGenerator]=useState(false);
+  const [copyState,setCopyState]=useState<'idle'|'copied'|'failed'>('idle');
+  useEffect(()=>setCopyState('idle'),[selected]);
   useEffect(()=>{setCategory('');setSeverity('');setSearch('');setSubmitted('');setSelected(null);setPage(1);},[eventId]);
   useEffect(()=>{
     let active=true;
+    const controller=new AbortController();
     setData(null);setLoadedEvent('');setLoading(true);setError('');setSelected(null);
     const query:JsocLogQuery={page,limit:25,...(category&&{category}),...(severity&&{severity}),...(submitted&&{search:submitted})};
-    void apiClient.listJsocLogs(eventId,query).then(result=>{
+    void apiClient.listJsocLogs(eventId,query,controller.signal).then(result=>{
       if(!active)return;
-      if(result.ok&&result.data?.simulation===true&&result.data.eventId===eventId){setData(result.data);setLoadedEvent(eventId);}
+      if(result.ok&&result.data?.simulation===true&&result.data.eventId===eventId){
+        const maxPage=Math.max(1,Math.ceil(result.data.total/result.data.limit));
+        if(page>maxPage){setPage(maxPage);return;}
+        setData(result.data);setLoadedEvent(eventId);
+      }
       else setError(result.error||'Unable to load synthetic logs');
     }).catch(e=>{if(active)setError(e instanceof Error?e.message:String(e))})
       .finally(()=>{if(active)setLoading(false)});
-    return ()=>{active=false};
+    return ()=>{active=false;controller.abort();};
   },[eventId,category,severity,submitted,page,version]);
   const current=loadedEvent===eventId?data:null;
   const entries=current?.items??[];
@@ -71,7 +79,7 @@ function JsocWorkspace({eventId}:{eventId:string}){
   const labelSeverity=(key:JsocSeverity)=>sevNames[key][cs?0:1];
   async function generate(e:React.FormEvent<HTMLFormElement>){
     e.preventDefault();
-    if(!allowed||generatingRef.current||generating||!Number.isInteger(seed)||!Number.isInteger(count)||count<10||count>100||scenario.trim().length<3)return;
+    if(!allowed||generatingRef.current||generating||!Number.isInteger(seed)||seed < -2147483648||seed > 2147483647||!Number.isInteger(count)||count<10||count>100||scenario.trim().length<3)return;
     if(!window.confirm(tr('Vytvořit nové FIKTIVNÍ technické události ve vybraném cvičení?','Create new SYNTHETIC technical events in this exercise?')))return;
     generatingRef.current=true;setGenerating(true);setGenerateError('');setNotice('');
     try{
@@ -124,7 +132,7 @@ function JsocWorkspace({eventId}:{eventId:string}){
         {generateError&&<p className={styles.error} role="alert">{generateError}</p>}
         <div className={styles.buttons}>
           <button type="button" className="btn btn-secondary" disabled={generating} onClick={()=>setShowGenerator(false)}>{tr('Zrušit','Cancel')}</button>
-          <button type="submit" className="btn btn-primary" disabled={generating||!scenario.trim()||count<10||count>100||!Number.isInteger(seed)}>{generating?tr('Vytvářím…','Generating…'):tr('Přidat do cvičení','Add to exercise')}</button>
+          <button type="submit" className="btn btn-primary" disabled={generating||scenario.trim().length<3||!Number.isInteger(count)||count<10||count>100||!Number.isInteger(seed)||seed < -2147483648||seed > 2147483647}>{generating?tr('Vytvářím…','Generating…'):tr('Přidat do cvičení','Add to exercise')}</button>
         </div>
       </form>}
       {notice&&<p className={styles.notice} role="status">{notice}</p>}
@@ -164,6 +172,8 @@ function JsocWorkspace({eventId}:{eventId:string}){
           </nav>
           {selected&&entries.some(e=>e.id===selected.id)&&<section className={styles.detail} aria-label={tr('Detail události','Event detail')}>
             <header><h3>{tr('Detail simulovaného záznamu','Simulated record detail')}</h3><button type="button" onClick={()=>setSelected(null)}>{tr('Zavřít','Close')}</button></header>
+            <button type="button" className="btn btn-secondary" onClick={async()=>{try{await navigator.clipboard.writeText(formatSimulatedLog(selected));setCopyState('copied');}catch{setCopyState('failed');}}}>{tr('Kopírovat podklad pro vyšetřování','Copy investigation reference')}</button>
+            {copyState!=='idle'&&<p role="status">{copyState==='copied'?tr('Zkopírováno jako simulovaný podklad.','Copied as a simulated reference.'):tr('Schránka není dostupná. Text můžete vybrat ručně.','Clipboard unavailable. Select the text manually.')}</p>}
             <dl>
               <div><dt>ID</dt><dd><code>{selected.id}</code></dd></div>
               <div><dt>{tr('Scénář','Scenario')}</dt><dd>{selected.scenario}</dd></div>
