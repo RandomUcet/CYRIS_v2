@@ -1,3 +1,4 @@
+import { activeUnitGrant } from '../authorization/active-unit-grants.js';
 import { Injectable, ForbiddenException, NotFoundException, Logger } from '@nestjs/common';
 import { eq, and, isNull, ne } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
@@ -9,6 +10,7 @@ import {
   resourceAssignments,
   eventMemberships,
   membershipUnitAssignments,
+  organizationalUnits,
   roleAssignments,
   roles,
   rolePermissions,
@@ -115,7 +117,8 @@ export class ResourceAccessService {
     const unitAssignments = await db
       .select({ unitId: membershipUnitAssignments.unitId })
       .from(membershipUnitAssignments)
-      .where(eq(membershipUnitAssignments.membershipId, membership.id));
+      .innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId))
+      .where(and(eq(membershipUnitAssignments.membershipId,membership.id),eq(organizationalUnits.eventId,resource.eventId),isNull(organizationalUnits.archivedAt)));
 
     const userUnitIds = unitAssignments.map((u: { unitId: string }) => u.unitId);
 
@@ -215,7 +218,9 @@ export class ResourceAccessService {
     }
 
     // Check if operator has the required permission under an applicable scope
+    const activeUnits = new Set<string>(userUnitIds);
     for (const ra of eventRoleRows) {
+      if (!activeUnitGrant(ra.assignmentUnitId,activeUnits)) continue;
       if (ra.permissionKey !== permission) {
         continue;
       }

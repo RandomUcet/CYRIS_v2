@@ -1,3 +1,4 @@
+import { activeUnitGrant } from '../authorization/active-unit-grants.js';
 import {
   Injectable,
   UnauthorizedException,
@@ -21,6 +22,7 @@ import {
   events,
   eventMemberships,
   membershipUnitAssignments,
+  organizationalUnits,
 } from '@cyris/db';
 import type { CurrentUserResponse } from '@cyris/contracts';
 
@@ -245,6 +247,7 @@ export class AuthService {
         const eventRoleRows = await db
           .select({
             roleSlug: roles.slug,
+            unitId: roleAssignments.unitId,
           })
           .from(roleAssignments)
           .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
@@ -253,6 +256,8 @@ export class AuthService {
         const eventPermissionRows = await db
           .select({
             permissionKey: rolePermissions.permissionKey,
+            unitId: roleAssignments.unitId,
+            scope: rolePermissions.scope,
           })
           .from(roleAssignments)
           .innerJoin(roles, eq(roles.id, roleAssignments.roleId))
@@ -265,7 +270,9 @@ export class AuthService {
             unitId: membershipUnitAssignments.unitId,
           })
           .from(membershipUnitAssignments)
-          .where(eq(membershipUnitAssignments.membershipId, m.membershipId));
+          .innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId))
+          .where(and(eq(membershipUnitAssignments.membershipId,m.membershipId),eq(organizationalUnits.eventId,m.eventId),isNull(organizationalUnits.archivedAt)));
+        const activeUnits = new Set(unitRows.map(row=>row.unitId));
 
         return {
           id: m.membershipId,
@@ -273,8 +280,8 @@ export class AuthService {
           eventSlug: m.eventSlug,
           eventName: m.eventName,
           status: m.status,
-          roles: eventRoleRows.map((r) => r.roleSlug),
-          permissions: [...new Set(eventPermissionRows.map((p) => p.permissionKey))],
+          roles: m.status === 'ACTIVE' ? [...new Set(eventRoleRows.filter(r=>activeUnitGrant(r.unitId,activeUnits)).map(r=>r.roleSlug))] : [],
+          permissions: m.status === 'ACTIVE' ? [...new Set(eventPermissionRows.filter(p=>activeUnitGrant(p.unitId,activeUnits) && (p.scope !== 'UNIT' || activeUnits.size>0)).map(p=>p.permissionKey))] : [],
           unitIds: unitRows.map((u) => u.unitId),
         };
       })

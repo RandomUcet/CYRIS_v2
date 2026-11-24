@@ -43,8 +43,14 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
   const workspaceRequest=useRef(0);
+  const eventsRequest=useRef(0);
+  const scope = JSON.stringify([currentUser?.user.id,viewAs,selectedEventId,currentUser?.memberships,currentUser?.platformPermissions]);
+  const latestScope = useRef(scope);
+  latestScope.current = scope;
+  const [loadedScope,setLoadedScope]=useState('');
 
   const refreshEvents = useCallback(async () => {
+    const request = ++eventsRequest.current;
     if (!currentUser) {
       setEvents([]);
       setSelectedEventId(null);
@@ -55,20 +61,22 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     setLoadingEvents(true);
     try {
       const res = await apiClient.getEvents();
+      if (request !== eventsRequest.current) return;
       if (res.ok && res.data) {
         setEvents(res.data);
         if (res.data.length > 0) {
           const saved = viewAs?.eventId ?? (typeof window !== 'undefined' ? localStorage.getItem('cyris_selected_event') : null);
           const match = saved ? res.data.find((e) => e.id === saved) : null;
-          setSelectedEventId(match ? match.id : isPlatformAdmin ? null : res.data[0]!.id);
+          const available=res.data;
+          setSelectedEventId(previous=>previous && available.some(e=>e.id===previous) ? previous : match ? match.id : isPlatformAdmin ? null : available[0]!.id);
         } else {
           setSelectedEventId(null);
         }
       }
     } catch {
-      setEvents([]);
+      if(request===eventsRequest.current)setEvents([]);
     } finally {
-      setLoadingEvents(false);
+      if(request===eventsRequest.current)setLoadingEvents(false);
     }
   }, [currentUser, isPlatformAdmin, viewAs]);
 
@@ -77,15 +85,17 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     setWorkspace(null);
     if (!selectedEventId || !currentUser) {
       setWorkspace(null);
+      setLoadingWorkspace(false);
       return;
     }
 
     setLoadingWorkspace(true);
     try {
       const res = await apiClient.getWorkspace(selectedEventId);
-      if(request!==workspaceRequest.current)return;
-      if (res.ok && res.data) {
+      if(request!==workspaceRequest.current || scope!==latestScope.current)return;
+      if (res.ok && res.data?.eventId===selectedEventId) {
         setWorkspace(res.data);
+        setLoadedScope(scope);
       } else {
         setWorkspace(null);
       }
@@ -94,14 +104,16 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     } finally {
       if(request===workspaceRequest.current)setLoadingWorkspace(false);
     }
-  }, [selectedEventId, currentUser]);
+  }, [selectedEventId, currentUser, scope]);
 
   useEffect(() => {
     void refreshEvents();
+    return ()=>{++eventsRequest.current;};
   }, [refreshEvents]);
 
   useEffect(() => {
     void refreshWorkspace();
+    return ()=>{++workspaceRequest.current;};
   }, [refreshWorkspace]);
 
   const selectEvent = (eventId: string) => {
@@ -120,7 +132,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
         selectedEventId,
         selectedEvent,
         currentEvent: selectedEvent,
-        workspace,
+        workspace: loadedScope===scope ? workspace : null,
         loadingEvents,
         loadingWorkspace,
         selectEvent,

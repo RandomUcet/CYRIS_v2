@@ -141,7 +141,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
   };
 
   const baseSections: WorkspaceNavSection[] =
-    workspace && workspace.sections.length > 0
+    workspace && workspace.eventId === selectedEventId && workspace.sections.length > 0
       ? workspace.sections
       : isPlatformAdmin
       ? [staticAdminSection]
@@ -151,6 +151,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
   const seen = new Set<string>();
   const sectionsToRender = source.map(section => ({...section, items: section.items.filter(item => {
     if (item.href.startsWith('/admin') !== adminMode || seen.has(item.href)) return false;
+    if (viewAs && item.href.startsWith('/admin')) return false;
     if (item.href === '/admin/settings/modules' && !isPlatformAdmin) return false;
     seen.add(item.href); return true;
   })})).filter(section => section.items.length > 0);
