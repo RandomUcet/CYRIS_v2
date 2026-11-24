@@ -8,6 +8,7 @@ import {
   Body,
   UseGuards,
   BadRequestException,
+  ForbiddenException,
   Res,
   Query,
   ParseUUIDPipe,
@@ -17,6 +18,12 @@ import { AuthGuard } from '../auth/guards/auth.guard.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { RegistryService } from './registry.service.js';
+import { AuthorizationService } from '../authorization/authorization.service.js';
+import { DatabaseService } from '../database/database.service.js';
+import { ResourceAccessService } from '../resources/resource-access.service.js';
+import { organizationalUnits } from '@cyris/db';
+import { and,eq,isNull } from 'drizzle-orm';
+import { Permissions } from '@cyris/shared';
 import {
   CreatePersonRequestSchema,
   UpdatePersonRequestSchema,
@@ -36,7 +43,22 @@ import {
 @Controller('events/:eventId/registry')
 @UseGuards(AuthGuard)
 export class RegistryController {
-  constructor(private readonly registryService: RegistryService) {}
+  constructor(private readonly registryService: RegistryService,private readonly authorization:AuthorizationService,
+    private readonly database:DatabaseService,private readonly access:ResourceAccessService) {}
+
+  private async assertCreate(eventId:string,data:{visibility?:string;owningUnitId?:string},user:AuthenticatedUser) {
+    const context={eventId,unitId:data.owningUnitId,resourceOwnerId:user.id};
+    await this.authorization.assertAuthorized({user,permission:Permissions.REGISTRY_CREATE,context});
+    if(data.visibility==='UNIT'&&!data.owningUnitId)throw new BadRequestException('Select an owning unit');
+    if(data.owningUnitId){
+      const [unit]=await this.database.client.select({id:organizationalUnits.id}).from(organizationalUnits)
+        .where(and(eq(organizationalUnits.id,data.owningUnitId),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt))).limit(1);
+      if(!unit)throw new BadRequestException('Owning unit must be active in this exercise');
+    }
+    if(data.visibility==='SCENARIO' && !await this.authorization.authorize({user,permission:Permissions.SCENARIO_READ,context}) &&
+      !await this.authorization.authorize({user,permission:Permissions.SCENARIO_SECRET_READ,context}))throw new ForbiddenException('Scenario access required');
+    if((await this.access.getModuleImpacts(eventId,user)).get('registry')==='UNAVAILABLE')throw new ForbiddenException('Registry is unavailable');
+  }
 
   /**
    * Query the canonical registry rather than Typesense projections.
@@ -73,6 +95,7 @@ export class RegistryController {
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.errors[0]?.message ?? 'Invalid person payload');
     }
+    await this.assertCreate(eventId,parsed.data,user);
     return this.registryService.createPerson(eventId, parsed.data, user);
   }
 
@@ -119,6 +142,7 @@ export class RegistryController {
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.errors[0]?.message ?? 'Invalid organisation payload');
     }
+    await this.assertCreate(eventId,parsed.data,user);
     return this.registryService.createOrganisation(eventId, parsed.data, user);
   }
 
@@ -165,6 +189,7 @@ export class RegistryController {
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.errors[0]?.message ?? 'Invalid location payload');
     }
+    await this.assertCreate(eventId,parsed.data,user);
     return this.registryService.createLocation(eventId, parsed.data, user);
   }
 
@@ -211,6 +236,7 @@ export class RegistryController {
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.errors[0]?.message ?? 'Invalid vehicle payload');
     }
+    await this.assertCreate(eventId,parsed.data,user);
     return this.registryService.createVehicle(eventId, parsed.data, user);
   }
 
@@ -257,6 +283,7 @@ export class RegistryController {
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.errors[0]?.message ?? 'Invalid device payload');
     }
+    await this.assertCreate(eventId,parsed.data,user);
     return this.registryService.createDevice(eventId, parsed.data, user);
   }
 
@@ -292,6 +319,7 @@ export class RegistryController {
   async createWeapon(@Param('eventId') eventId: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     const parsed = CreateWeaponRequestSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.errors[0]?.message ?? 'Invalid weapon payload');
+    await this.assertCreate(eventId,parsed.data,user);
     return this.registryService.createWeapon(eventId, parsed.data, user);
   }
 

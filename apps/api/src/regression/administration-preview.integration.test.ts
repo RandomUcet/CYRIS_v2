@@ -17,6 +17,7 @@ import { AuditService } from '../modules/audit/audit.service.js';
 import { EventsService } from '../modules/events/events.service.js';
 import { EventTemplatesController } from '../modules/events/event-templates.controller.js';
 import { SearchIndexerService } from '../modules/search/search-indexer.service.js';
+import { WorkspaceResolverService } from '../modules/events/workspace-resolver.service.js';
 import { SearchAuthzService } from '../modules/search/search-authz.service.js';
 import { AuthService } from '../modules/auth/auth.service.js';
 import { AuthGuard, type CyrisRequest } from '../modules/auth/guards/auth.guard.js';
@@ -105,6 +106,26 @@ test('event administration and read-only participant preview against isolated Po
       await assert.rejects(service.updateRole(eventB, participantRole, { name: 'Cross-event edit' }, organizer.id), ForbiddenException);
       assert.equal(await authz.authorize({ user: participant, permission: Permissions.CASE_READ, context: { eventId: eventA, unitId: unitA } }), true);
       assert.equal(await authz.authorize({ user: participant, permission: Permissions.CASE_READ, context: { eventId: eventA, unitId: unitB } }), false);
+    });
+
+    await t.test('unit grant controls navigation, profile and search; archival revokes it without a new login',async()=>{
+      const resolver=new WorkspaceResolverService(database,authz);
+      const getHrefs=async()=> (await resolver.resolveWorkspace(participant,eventA)).sections.flatMap(s=>s.items.map(i=>i.href));
+      assert.ok((await getHrefs()).includes('/events/'+eventA+'/cases'));
+      assert.ok(!(await getHrefs()).includes('/events/'+eventA+'/command'));
+      await db.update(organizationalUnits).set({archivedAt:new Date()}).where(eq(organizationalUnits.id,unitA));
+      try {
+        assert.equal(await authz.authorize({user:participant,permission:Permissions.CASE_READ,context:{eventId:eventA,unitId:unitA}}),false);
+        assert.equal(await authz.hasEventCapability({user:participant,permission:Permissions.CASE_READ,eventId:eventA,resourceScopes:['OWN','ASSIGNED']}),false);
+        const membership=(await profile.getCurrentUserProfile(participant.id)).memberships.find(m=>m.eventId===eventA)!;
+        assert.ok(!membership.permissions.includes(Permissions.CASE_READ));
+        assert.ok(!membership.unitIds.includes(unitA));
+        assert.ok(!(await getHrefs()).includes('/events/'+eventA+'/cases'));
+        const filter=await new SearchAuthzService(database).buildTypesenseFilter(participant,{eventFilter:eventA});
+        assert.ok(!filter?.includes(unitA));
+      } finally {
+        await db.update(organizationalUnits).set({archivedAt:null}).where(eq(organizationalUnits.id,unitA));
+      }
     });
 
     await t.test('roster matches its shared contract and returns names, all teams, roles and joinedAt', async () => {

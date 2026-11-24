@@ -14,3 +14,7 @@ The licence table, validated create/update contracts, event-scoped API, canonica
 
 ## Retained roadmap
 Structured draft injects and dependencies, proactive Observer, scenario generation speed, legal corpus import and participant assistant remain in scope. Ship cohesive increments only after CI; server/Spark/browser acceptance remains separate.
+
+## Role-to-workspace quality gate (2.5)
+Treat capability labels as relevance, not authority. A mixed-role member must receive the union of permitted modules, including scoped record lists; exact event-only endpoints must not be advertised based solely on a capability. Unit-bound roles must become inactive when membership or the unit ceases to be active, consistently in resource access, profile, search and navigation. Real test accounts use the selected active unit and validated event role. Verify grant/revoke while signed in, multiple teams, disabled/expired accounts, view-as, cross-exercise direct URLs and resource visibility.
+Browser acceptance matrix: organizer, investigator, laboratory operator/lead, forensics/JSOC, medical, command, tactical, prosecutor, defence, judge, observer, read-only and no-grant members. For every role verify menu, landing page, list, detail, empty/loading/error state, record actions, direct URL, search and mutations with actual DB grants; compare desktop/mobile and light/dark. No visual acceptance claim until a browser and running isolated deployment are available. Add integration coverage for each identified mismatch rather than replacing existing checks.
