@@ -1,3 +1,4 @@
+import type { ExerciseAdviceInput, ExerciseAdviceResult, ExerciseIntelligenceOverview } from '@cyris/contracts';
 import type {
   HealthResponse,
   PlatformAdminAccount,
@@ -1611,6 +1612,12 @@ export class CyrisApiClient {
   // Notifications
   // ============================================================================
 
+  getExerciseIntelligence(eventId:string,signal?:AbortSignal){
+    return this.fetchJson<ExerciseIntelligenceOverview>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence',signal);
+  }
+  requestExerciseAdvice(eventId:string,input:ExerciseAdviceInput){
+    return this.postJson<ExerciseAdviceResult>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/advice',input);
+  }
   getExconDashboard(eventId:string,signal?:AbortSignal) {
     return this.fetchJson<ExconDashboardResponse>('/events/'+encodeURIComponent(eventId)+'/command/excon',signal);
   }

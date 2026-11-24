@@ -38,3 +38,5 @@ export * from './support.js';
 export * from './preview-teams.js';
 
 export * from './jsoc.js';
+
+export * from './exercise-intelligence.js';

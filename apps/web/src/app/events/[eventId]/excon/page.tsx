@@ -18,6 +18,7 @@ import { apiClient } from '@/lib/api-client';
 type Dashboard = ExconDashboardResponse;
 
 const actionLinks = [
+  {suffix:'/excon/intelligence',cs:'Intelligence Center · Spark',en:'Intelligence Center · Spark',icon:Sparkles,permission:'scenario.manage'},
   {suffix:'/scenario/control',cs:'Režie scénáře',en:'Scenario run sheet',icon:ClipboardList,permission:'scenario.read'},
   {suffix:'/broadcast',cs:'Zprávy účastníkům',en:'Exercise broadcasts',icon:BellRing,permission:'scenario.manage'},
   {suffix:'/command',cs:'Krizové řízení',en:'Command & DEFCON',icon:Gauge,permission:'command.read'},
