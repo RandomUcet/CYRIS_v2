@@ -1,3 +1,4 @@
+import { writeChunks } from '../database/write-chunks.js';
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { eq, and, or, isNull, desc, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
@@ -89,6 +90,12 @@ export class ResourceService {
       createdAt: created!.createdAt.toISOString(),
       updatedAt: created!.updatedAt.toISOString(),
     };
+  }
+
+  /** Atomic bulk registration for the synthetic dataset publisher. */
+  async registerResourceBatch(eventId:string, rows:ReadonlyArray<{id:string;resourceType:string}>, ownerUserId:string,
+    tx:Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0]):Promise<void> {
+    for(const page of writeChunks(rows))await tx.insert(resources).values(page.map(row=>({...row,eventId,ownerUserId,visibility:ResourceVisibility.EVENT})));
   }
 
   /**

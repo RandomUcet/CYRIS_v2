@@ -1,3 +1,4 @@
+import { writeChunks } from '../database/write-chunks.js';
 import { createHash } from 'node:crypto';
 import { Injectable, BadRequestException, ConflictException, ForbiddenException, BadGatewayException, HttpException, ServiceUnavailableException, Logger } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
@@ -27,8 +28,6 @@ import {
   resources,
   registryMedia,
   resourceRelationships,
-  outboxEvents,
-  OutboxStatus,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
 import { ScenarioLinkSlots } from '@cyris/contracts';
@@ -422,70 +421,49 @@ export class ScenarioDataService {
   }
 
   private async populate(eventId: string, batchId: string, seed: number, world: World, userId: string, tx: Tx, draftLinks?: DraftLink[]) {
-    const ids: Record<string, string[]> = { persons: [], organisations: [], locations: [], vehicles: [], devices: [], weapons: [] };
-    const addResource = async (type: string, key: keyof typeof ids) => {
-      const id = generateId();
-      await this.resourceService.registerResource(eventId, type, { id, ownerUserId: userId, txClient: tx });
-      ids[key].push(id);
-      return id;
-    };
-    const addSearch = async (type: string, id: string) => this.searchIndexerService.emitSearchUpsert(type, id, tx);
+    const ids: Record<Kind, string[]> = { persons: [], organisations: [], locations: [], vehicles: [], devices: [], weapons: [] };
     const provenance = { provenance: 'SYNTHETIC', generationBatchId: batchId, generationSeed: String(seed) };
     const series: Record<string, number> = {};
     const registryTypes = [['persons', 'person', 'PER'], ['organisations', 'organisation', 'ORG'], ['locations', 'location', 'LOC'],
     ['vehicles', 'vehicle', 'VEH'], ['devices', 'device', 'DEV'], ['weapons', 'weapon', 'WPN']] as const;
+    const registered: Array<{id:string;resourceType:string}> = [];
     for (const [kind, type, prefix] of registryTypes) {
       if (world[kind].length) series[prefix] = await this.identifiers.reserveRegistry(eventId, type, prefix, world[kind].length, tx);
+      ids[kind] = world[kind].map(()=>generateId());
+      registered.push(...ids[kind].map(id=>({id,resourceType:type})));
     }
+    await this.resourceService.registerResourceBatch(eventId,registered,userId,tx);
     const key = (prefix: string, i: number) => `${prefix}-${String(series[prefix]! + i).padStart(6, '0')}`;
-    for (const [i, row] of world.organisations.entries()) {
-      const id = await addResource('organisation', 'organisations');
-      const domain = key('ORG', i).toLowerCase() + '.example.test';
-      await tx.insert(organisations).values({ id, identifier: key('ORG', i), ...row, email: 'office@' + domain, website: 'https://' + domain, ...provenance });
-      await addSearch('organisation', id);
-    }
-    for (const [i, row] of world.locations.entries()) {
-      const id = await addResource('location', 'locations');
-      await tx.insert(locations).values({ id, identifier: key('LOC', i), ...row, ...provenance });
-      await addSearch('location', id);
-    }
-    for (const [i, row] of world.persons.entries()) {
-      const id = await addResource('person', 'persons');
-      await tx.insert(persons).values({
-        id, identifier: key('PER', i), ...row, displayName: fullName(row),
-        phones: i % 3 ? [{ value: String(1000 + series.PER! + i), label: 'Exercise extension', primary: true }] : [],
-        emails: [{ value: `${nameKey(fullName(row)).replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '').slice(0, 40) || 'staff'}.${series.PER! + i}@scenario.example.test`, primary: true }], ...provenance
-      });
-      await addSearch('person', id);
-    }
-    for (const [i, row] of world.vehicles.entries()) {
-      const id = await addResource('vehicle', 'vehicles');
-      await tx.insert(vehicles).values({ id, identifier: key('VEH', i), ...row, label: row.make + ' ' + row.model, registrationPlate: 'SIM-' + String(series.VEH! + i).padStart(6, '0'), ...provenance });
-      await addSearch('vehicle', id);
-    }
-    for (const [i, row] of world.devices.entries()) {
-      const id = await addResource('device', 'devices');
-      const tag = key('DEV', i);
-      const address = (series.DEV! + i).toString(16).padStart(8, '0');
-      await tx.insert(devices).values({
-        id, identifier: tag, ...row, label: row.manufacturer + ' ' + row.model,
-        serialNumber: 'SN-' + tag, assetTag: tag, hostname: tag.toLowerCase() + '.example.test',
-        ipAddress: '2001:db8::' + address.slice(0, 4) + ':' + address.slice(4), ...provenance
-      });
-      await addSearch('device', id);
-    }
-    for (const [i, row] of world.weapons.entries()) {
-      const id = await addResource('weapon', 'weapons');
-      await tx.insert(weapons).values({ id, identifier: key('WPN', i), ...row, serialNumber: 'PROP-' + key('WPN', i), ...provenance });
-      await addSearch('weapon', id);
-    }
+    for(const page of writeChunks(world.organisations.map((row,i)=>{
+      const domain=key('ORG',i).toLowerCase()+'.example.test';
+      return {id:ids.organisations[i]!,identifier:key('ORG',i),...row,email:'office@'+domain,website:'https://'+domain,...provenance};
+    })))await tx.insert(organisations).values(page);
+    for(const page of writeChunks(world.locations.map((row,i)=>({id:ids.locations[i]!,identifier:key('LOC',i),...row,...provenance}))))
+      await tx.insert(locations).values(page);
+    for(const page of writeChunks(world.persons.map((row,i)=>({
+      id:ids.persons[i]!,identifier:key('PER',i),...row,displayName:fullName(row),
+      phones:i%3?[{value:String(1000+series.PER!+i),label:'Exercise extension',primary:true}]:[],
+      emails:[{value:`${nameKey(fullName(row)).replace(/[^a-z0-9]+/g,'.').replace(/^\\.|\\.$/g,'').slice(0,40)||'staff'}.${series.PER!+i}@scenario.example.test`,primary:true}],
+      ...provenance,
+    }))))await tx.insert(persons).values(page);
+    for(const page of writeChunks(world.vehicles.map((row,i)=>({
+      id:ids.vehicles[i]!,identifier:key('VEH',i),...row,label:row.make+' '+row.model,registrationPlate:'SIM-'+String(series.VEH!+i).padStart(6,'0'),...provenance,
+    }))))await tx.insert(vehicles).values(page);
+    for(const page of writeChunks(world.devices.map((row,i)=>{
+      const tag=key('DEV',i),address=(series.DEV!+i).toString(16).padStart(8,'0');
+      return {id:ids.devices[i]!,identifier:tag,...row,label:row.manufacturer+' '+row.model,serialNumber:'SN-'+tag,assetTag:tag,
+        hostname:tag.toLowerCase()+'.example.test',ipAddress:'2001:db8::'+address.slice(0,4)+':'+address.slice(4),...provenance};
+    })))await tx.insert(devices).values(page);
+    for(const page of writeChunks(world.weapons.map((row,i)=>({
+      id:ids.weapons[i]!,identifier:key('WPN',i),...row,serialNumber:'PROP-'+key('WPN',i),...provenance,
+    }))))await tx.insert(weapons).values(page);
     // Draft media metadata becomes permanent atomically with the new registry
     // records. Binary objects are already in private MinIO; no payload reaches AI.
     const stagedImages = await tx.select().from(scenarioDraftMedia)
       .where(and(eq(scenarioDraftMedia.eventId, eventId), eq(scenarioDraftMedia.batchId, batchId)));
     if (stagedImages.length) {
       const mediaRows = stagedImages.map(image => {
-        const recordIds = ids[image.kind];
+        const recordIds = ids[image.kind as Kind];
         const resourceId = recordIds?.[image.recordIndex];
         if (!resourceId) throw new ConflictException('A staged image references a missing generated record');
         return {
@@ -493,7 +471,7 @@ export class ScenarioDataService {
           filename: image.filename, mimeType: image.mimeType, byteSize: String(image.byteSize),
         };
       });
-      await tx.insert(registryMedia).values(mediaRows);
+      for(const page of writeChunks(mediaRows))await tx.insert(registryMedia).values(page);
       await tx.delete(scenarioDraftMedia).where(eq(scenarioDraftMedia.batchId, batchId));
     }
     const links: Array<[string, string, string]> = [];
@@ -515,10 +493,9 @@ export class ScenarioDataService {
       await tx.insert(resourceRelationships).values(page.map(([sourceResourceId, targetResourceId, relationshipType]) => ({
         id: generateId(), eventId, sourceResourceId, targetResourceId, relationshipType, createdByUserId: userId
       })));
-      await tx.insert(outboxEvents).values([...new Set(page.map(link => link[0]))].map(id => ({
-        id: generateId(), eventType: 'search.upsert', payload: { type: 'resource', id }, status: OutboxStatus.PENDING, retryCount: 0
-      })));
+      // Each canonical record is indexed once after the entire transaction commits.
     }
+    await this.searchIndexerService.emitSearchBatch('upsert',registered.map(row=>({type:row.resourceType,id:row.id})),tx);
     return { relationshipCount: links.length };
   }
 
@@ -570,9 +547,7 @@ export class ScenarioDataService {
 
       if (ids.length) {
         await tx.delete(resources).where(inArray(resources.id, ids));
-        for (const entity of entityIds) {
-          await this.searchIndexerService.emitSearchDelete(entity.type, entity.id, tx);
-        }
+        await this.searchIndexerService.emitSearchBatch('delete',entityIds,tx);
       }
       await tx.update(scenarioDataBatches).set({ configuration: { ...cleanCounts(batch.configuration as Settings), brief: (batch.configuration as Settings).brief }, status: ScenarioDataBatchStatus.CLEANED, cleanedAt: new Date(), cleanedByUserId: user.id }).where(eq(scenarioDataBatches.id, batchId));
       const [cleaned] = await db.select().from(scenarioDataBatches).where(eq(scenarioDataBatches.id, batchId));

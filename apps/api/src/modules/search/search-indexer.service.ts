@@ -1,3 +1,4 @@
+import { writeChunks } from '../database/write-chunks.js';
 import { Injectable, Logger } from '@nestjs/common';
 import { Client as TypesenseClient } from 'typesense';
 import {
@@ -154,6 +155,14 @@ export class SearchIndexerService {
       status: OutboxStatus.PENDING,
       retryCount: 0,
     });
+  }
+
+  /** Same durable per-record outbox protocol, written in bounded SQL batches. */
+  async emitSearchBatch(action:'upsert'|'delete', entries:ReadonlyArray<{type:string;id:string}>,
+    tx:Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0]):Promise<void> {
+    for(const page of writeChunks(entries))await tx.insert(outboxEvents).values(page.map(payload=>({
+      id:generateId(),eventType:'search.'+action,payload,status:OutboxStatus.PENDING,retryCount:0,
+    })));
   }
 
   /**

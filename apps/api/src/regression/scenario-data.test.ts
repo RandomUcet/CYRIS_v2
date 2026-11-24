@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { eq } from 'drizzle-orm';
-import { closeDatabaseConnection, events, getDbClient, persons, registryMedia, resources, scenarioDraftMedia, users } from '@cyris/db';
+import { closeDatabaseConnection, events, getDbClient, persons, registryMedia, resources, scenarioDraftMedia, users, outboxEvents } from '@cyris/db';
 import { generateId } from '@cyris/shared';
 import { localWorld, fullName, nameKey, samples } from '../modules/scenario-data/world.js';
 import { ScenarioDataService } from '../modules/scenario-data/scenario-data.service.js';
@@ -94,6 +94,13 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
     const names = await db.select({ displayName: persons.displayName }).from(persons).where(eq(persons.generationBatchId, local.id)).orderBy(persons.identifier);
     assert.deepEqual(names.slice(0, 4).map(p => p.displayName), prev.samples.persons);
     assert.equal(local.relationshipCount, prev.estimatedRelationships);
+    const publishedIds = new Set((await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,a))).map(row=>row.id));
+    const queued = (await db.select().from(outboxEvents)).filter(row=>{
+      const payload=row.payload as {id?:string};
+      return payload.id && publishedIds.has(payload.id) && row.eventType==='search.upsert';
+    });
+    assert.equal(queued.length,10,'one canonical search job per generated record');
+    assert.ok(queued.every(row=>(row.payload as {type:string}).type!=='resource'));
     await assert.rejects(() => svc.generate(a, req, user), /already exists/);
     await svc.generate(b, req, user);
     const next = await Promise.all([17, 31].map(seed => svc.generate(a, { ...req, seed }, user)));
