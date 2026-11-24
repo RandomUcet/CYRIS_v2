@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import type { ScenarioDataRequest, ScenarioDataPreview, ScenarioDataCounts, ScenarioDataBatchResponse, ScenarioQualityReport } from '@cyris/contracts';
 import { AppShell } from '@/components/layout/AppShell';
 import { apiClient } from '@/lib/api-client';
+import { draftProgress, assertDraftAdvance, formatElapsed } from '@/lib/scenario-draft-progress';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import styles from './scenario-data.module.css';
 import { ScenarioBatchMediaManager } from './ScenarioBatchMediaManager';
@@ -24,6 +25,10 @@ type Batch = ScenarioDataBatchResponse;
 
 export default function ScenarioDataPage() {
   const { eventId } = useParams<{ eventId: string }>();
+  return <ScenarioDataWorkspace key={eventId} eventId={eventId} />;
+}
+
+function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
   const {locale}=usePreferences();
   const cs=locale==='cs';
   const tr=(cz:string,en:string)=>cs?cz:en;
@@ -53,14 +58,36 @@ export default function ScenarioDataPage() {
   const [qualityBusy, setQualityBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [historyError, setHistoryError] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyFilter, setHistoryFilter] = useState('ALL');
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [pauseRequested, setPauseRequested] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const operation = useRef(false);
+  const historyRequest = useRef(0);
+  const startedAt = useRef(0);
+  const alive = useRef(true);
   const paused = useRef(false);
   const scope = useRef(eventId);
   const load = async () => {
-    const r = await apiClient.getScenarioDataBatches(eventId);
-    if (scope.current !== eventId) return;
-    if (r.ok && r.data) setBatches(r.data); else setMessage(r.error ?? tr('Historie není dostupná','History unavailable'));
+    const request = ++historyRequest.current;
+    setHistoryLoading(true);
+    try {
+      const r = await apiClient.getScenarioDataBatches(eventId);
+      if (!alive.current || request !== historyRequest.current) return;
+      if (!r.ok || !r.data) throw Error(r.error ?? tr('Historie není dostupná','History unavailable'));
+      setBatches(r.data.filter(batch => batch.eventId === eventId));
+      setHistoryError('');
+    } catch (error) {
+      if (alive.current && request === historyRequest.current) setHistoryError(error instanceof Error ? error.message : tr('Historie není dostupná','History unavailable'));
+    } finally {
+      if (alive.current && request === historyRequest.current) setHistoryLoading(false);
+    }
   };
   useEffect(() => {
+    alive.current = true;
     scope.current = eventId;
     setSeed(freshSeed());
     setDetail(null);
@@ -73,50 +100,92 @@ export default function ScenarioDataPage() {
     setMessage('');
     void load();
     return () => {
+      alive.current = false;
+      historyRequest.current++;
       paused.current = true;
       scope.current = '';
     };
   }, [eventId]);
+  useEffect(() => {
+    if (!generating) return;
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt.current) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [generating]);
   function configure() {
+    setQuality(null);
     setPreview(null);
     setDraft(null);
     setMessage('');
   }
   async function action(fn: () => Promise<void>) {
+    if (operation.current || !alive.current) return;
+    operation.current = true;
     setMessage('');
     setBusy(true);
     try { await fn(); } catch (e) { if (scope.current === eventId) setMessage(e instanceof Error ? e.message : tr('Operace selhala','Request failed')); }
     finally {
-      if (scope.current === eventId) {
+      operation.current = false;
+      if (alive.current && scope.current === eventId) {
         setBusy(false);
-        await load();
+        void load();
       }
     }
   }
   const payload: ScenarioDataRequest = { preset, seed: seed ?? 0, ...(preset === 'CUSTOM' && { counts }) };
   async function prepare(current: Batch) {
-    paused.current = false;
-    while (scope.current === eventId && !paused.current && current.status === 'DRAFT' && (current.prepared ?? 0) < total(current.configuration)) {
+    while (alive.current && scope.current === eventId && !paused.current && current.status === 'DRAFT' && (current.prepared ?? 0) < total(current.configuration)) {
       setDraft(current);
-      const r = await apiClient.advanceScenarioDraft(eventId, current.id, current.prepared ?? 0);
+      const expected = current.prepared ?? 0;
+      const r = await apiClient.advanceScenarioDraft(eventId, current.id, expected);
+      if (!alive.current || scope.current !== eventId) return;
       if (!r.ok || !r.data) throw Error(r.error ?? tr('Spark nedokončil tuto část. Pokračujte v konceptu pro další pokus.','Spark could not complete this page. Resume to retry.'));
+      if (!assertDraftAdvance(current, r.data)) throw Error(tr('Spark neposunul koncept nebo se změnil jeho stav. Koncept je uložený; otevřete jej z historie.','Spark did not advance the draft or its status changed. The draft is saved; reopen it from history.'));
       current = r.data;
+      setDraft(current);
     }
-    if (scope.current === eventId) setDraft(current);
+    if (alive.current && scope.current === eventId) {
+      setDraft(current);
+      if (paused.current && (current.prepared ?? 0) < total(current.configuration)) setMessage(tr('Pozastaveno. Uložený koncept lze kdykoli znovu otevřít.','Paused. You can reopen the saved draft at any time.'));
+      else if (current.prepared === total(current.configuration)) setMessage(tr('Generování dokončeno. Zkontrolujte data před publikací.','Generation complete. Review the data before publishing.'));
+    }
+  }
+  async function generateDraft(existing?: Batch) {
+    paused.current = false;
+    setPauseRequested(false);
+    setQuality(null);
+    startedAt.current = Date.now();
+    setElapsed(0);
+    setGenerating(true);
+    try {
+      let current = existing;
+      if (!current) {
+        setDraft(null); setPreview(null);
+        const r = await apiClient.startScenarioDraft(eventId, { ...payload, brief, strategy: sparkStrategy });
+        if (!alive.current || scope.current !== eventId) return;
+        if (!r.ok || !r.data) throw Error(r.error ?? tr('Spark není dostupný','Spark unavailable'));
+        current = r.data;
+        if (current.eventId !== eventId || current.status !== 'DRAFT') throw Error(tr('Koncept není dostupný','Draft unavailable'));
+        setDraft(current);
+      }
+      await prepare(current);
+    } finally {
+      if (alive.current) {
+        setElapsed(Math.floor((Date.now() - startedAt.current) / 1000));
+        setGenerating(false);
+        setPauseRequested(false);
+      }
+    }
   }
   async function runPreview() {
-    if (mode === 'SPARK') {
-      const r = await apiClient.startScenarioDraft(eventId, { ...payload, brief, strategy: sparkStrategy });
-      if (!r.ok || !r.data) throw Error(r.error ?? tr('Spark není dostupný','Spark unavailable'));
-      await prepare(r.data);
-    } else {
+    if (mode === 'SPARK') await generateDraft();
+    else {
       const r = await apiClient.previewScenarioData(eventId, payload);
       if (!r.ok || !r.data) throw Error(r.error ?? tr('Náhled se nepodařilo vytvořit','Preview failed'));
-      if(scope.current===eventId) setPreview(r.data);
+      if(alive.current && scope.current===eventId) setPreview(r.data);
     }
   }
   async function inspectQuality() {
-    if (!draft) return;
+    if (!draft || operation.current || qualityBusy) return;
     setQualityBusy(true); setQuality(null);
     try {
       const result = await apiClient.getScenarioDraftQuality(eventId, draft.id);
@@ -138,6 +207,9 @@ export default function ScenarioDataPage() {
     setSeed(freshSeed());
   }
   const view = draft ?? preview;
+  const progress = draft ? draftProgress(draft.prepared ?? 0, total(draft.configuration)) : null;
+  const history = batches.filter(batch => (historyFilter === 'ALL' || batch.status === historyFilter) &&
+    [batch.identifier, batch.brief, batch.source, batch.seed].join(' ').toLowerCase().includes(historyQuery.trim().toLowerCase()));
   const complete = draft?.status === 'DRAFT' && draft.prepared === total(draft.configuration);
   const countsValid=keys.every(k=>Number.isInteger(counts[k])&&counts[k]>=0&&counts[k]<=limitByKind[k])&&total(counts)<=12000&&total(counts)>0;
   const seedValid=seed!==null&&Number.isInteger(seed)&&seed>=-2147483648&&seed<=2147483647;
@@ -151,7 +223,7 @@ export default function ScenarioDataPage() {
       <p>{tr('Připravte fiktivní osoby, místa a techniku pro cvičení. Před zveřejněním vždy zkontrolujte náhled nebo koncept.','Prepare the people, places and assets for this exercise. Review the draft before adding it to the registry.')}</p>
       <div className={styles.columns}>
         <section><h2>{tr('Datová sada','Dataset')}</h2>
-          <fieldset disabled={busy}>
+          <fieldset disabled={busy || qualityBusy}>
             <div className={styles.generatorModes} role="group" aria-label={tr('Způsob generování dat','Dataset generation mode')}>
               <button type="button" aria-pressed={mode==='LOCAL'} className={mode==='LOCAL'?styles.selectedMode:styles.generatorMode} onClick={()=>{configure();setMode('LOCAL')}}>
                 <strong>{tr('Lokální generátor','Local generator')}</strong>
@@ -193,20 +265,28 @@ export default function ScenarioDataPage() {
           </fieldset>
         </section>
         <section aria-live="polite"><h2>{tr('Náhled','Preview')}</h2>
-          {draft && <><strong>{draft.identifier} · {draft.prepared ?? 0} / {total(draft.configuration)} {tr('záznamů','records')}</strong><progress max={total(draft.configuration)} value={draft.prepared ?? 0} /></>}
+          {(draft || generating) && <div className={styles.progressPanel}>
+            <strong>{draft ? draft.identifier : tr('Zakládám koncept…','Creating draft…')}</strong>
+            <span>{progress ? progress.prepared + ' / ' + progress.expected + ' · ' + progress.percent + '%' : tr('Čekám na založení konceptu','Waiting for draft creation')}</span>
+            <progress aria-label={tr('Průběh generování','Generation progress')} max={progress?.expected || 1} value={progress?.prepared ?? 0}/>
+            <small>{(draft?.strategy ?? sparkStrategy) === 'FAST' ? tr('Rychlý režim: jeden AI návrh, poté lokální sestavení','Fast mode: one AI blueprint, then local assembly') : tr('Detailní režim: záznamy v uložených dávkách','Detailed mode: records in saved pages')}</small>
+            {generating && <small>{tr('Čas tohoto pokusu','Elapsed this attempt')}: {formatElapsed(elapsed)} · {pauseRequested ? tr('Čekám na bezpečné pozastavení','Waiting to pause safely') : tr('Čekám na výsledek aktuální části','Waiting for current page')}</small>}
+            {generating && (draft?.strategy ?? sparkStrategy) === 'FAST' && <small>{tr('Rychlý režim aktualizuje počet až po uložení celé sady; 0 % během AI požadavku není chyba.','Fast mode updates the count after saving the complete dataset; 0% during the AI request is normal.')}</small>}
+          </div>}
           {!view && <p>{tr('Vyberte datovou sadu a zde se zobrazí ukázkové záznamy.','Choose a dataset to see sample registry records here.')}</p>}
           {view?.personDetails?.map(p => <article key={p.name}><strong>{p.name}</strong><small>{tr('Narození','Born')} {p.dateOfBirth}</small><p>{p.description}</p></article>)}
           {view?.samples && keys.filter(k => k !== 'persons' && view.samples?.[k]?.length).map(k => <p key={k}><b>{kindName(k)}</b> · {view.samples?.[k]?.join(' · ')}</p>)}
           {preview && !draft && <small>{total(preview.counts)} {tr('záznamů','records')} · {preview.estimatedRelationships} {tr('vazeb','relationships')}</small>}
-          {busy && draft?.status === 'DRAFT' && !complete && <button onClick={() => {
+          {generating && !complete && <button disabled={pauseRequested} onClick={() => {
             paused.current = true;
+            setPauseRequested(true);
             setMessage(tr('Pozastavení po dokončení aktuální části.','Pausing after this page.'));
-          }}>{tr('Pozastavit po této části','Pause after this page')}</button>}
-          {!busy && draft?.status === 'DRAFT' && !complete && <button onClick={() => void action(() => prepare(draft))}>{tr('Pokračovat v konceptu','Resume draft')}</button>}
-          {(complete || (preview && !draft)) && <button disabled={busy} className={styles.primary} onClick={() => void action(publish)}>{tr('Zveřejnit v registru','Add to registry')}</button>}
+          }}>{pauseRequested ? tr('Pozastavuji…','Pausing…') : tr('Pozastavit po této části','Pause after this page')}</button>}
+          {!busy && draft?.status === 'DRAFT' && !complete && <button disabled={qualityBusy} onClick={() => void action(() => generateDraft(draft))}>{tr('Pokračovat v konceptu','Resume draft')}</button>}
+          {(complete || (preview && !draft)) && <button disabled={busy || qualityBusy} className={styles.primary} onClick={() => void action(publish)}>{tr('Zveřejnit v registru','Add to registry')}</button>}
         </section>
       </div>
-      {draft && draft.status === 'DRAFT' && <ScenarioDraftMediaManager eventId={eventId} batch={draft} />}
+      {draft && draft.status === 'DRAFT' && <ScenarioDraftMediaManager key={draft.id} eventId={eventId} batch={draft} />}
       {draft && draft.status === 'DRAFT' && <section className={styles.qualityPanel}>
         <header><div>
           <h2>{tr('Kontrola kvality před publikací','Scenario preflight')}</h2>
@@ -229,28 +309,41 @@ export default function ScenarioDataPage() {
 
       <p role="status">{message || (busy ? tr('Pracuji…','Working…') : '')}</p>
       <section><h2>{tr('Historie generování','Generation history')}</h2>
-        {batches.length === 0 && <p>{tr('Zatím nebyla vytvořena žádná sada.','No datasets yet.')}</p>}
-        {batches.map(b => <div className={styles.batch} key={b.id}>
-          <span><button type="button" onClick={() => setDetail(detail?.id === b.id ? null : b)}>{b.identifier}</button> · {b.source === 'SPARK' ? 'Spark' : 'Local'} · {statusName(b.status)}<small>{total(b.configuration)} {tr('záznamů','records')} · seed {b.seed}{b.brief && ` · ${b.brief}`}</small></span>
+        <div className={styles.historyFilters}>
+          <label>{tr('Hledat sadu','Find dataset')}<input type="search" value={historyQuery} onChange={e=>setHistoryQuery(e.target.value)} placeholder={tr('Identifikátor, zadání, seed…','Identifier, brief, seed…')}/></label>
+          <label>{tr('Stav','Status')}<select value={historyFilter} onChange={e=>setHistoryFilter(e.target.value)}><option value="ALL">{tr('Všechny','All')}</option>{['DRAFT','GENERATING','COMPLETED','FAILED','CLEANED'].map(status=><option key={status} value={status}>{statusName(status)}</option>)}</select></label>
+          <button type="button" disabled={historyLoading} onClick={()=>void load()}>{tr('Obnovit historii','Refresh history')}</button>
+        </div>
+        {historyError && <p role="alert">{historyError}</p>}
+        {historyLoading && <p role="status">{tr('Načítám historii…','Loading history…')}</p>}
+        {!historyLoading && !historyError && history.length === 0 && <p>{batches.length ? tr('Žádné sady neodpovídají filtru.','No datasets match the filter.') : tr('Zatím nebyla vytvořena žádná sada.','No datasets yet.')}</p>}
+        {history.map(b => <div className={styles.batch} key={b.id}>
+          <span><button type="button" onClick={() => setDetail(detail?.id === b.id ? null : b)}>{b.identifier}</button> · {b.source === 'SPARK' ? 'Spark' : 'Local'} · {statusName(b.status)}{b.status==='DRAFT' && ' · '+(b.prepared ?? 0)+' / '+total(b.configuration)}<small>{total(b.configuration)} {tr('záznamů','records')} · seed {b.seed}{b.brief && ` · ${b.brief}`}</small></span>
           {b.status === 'COMPLETED' && <button type="button" disabled={busy} aria-expanded={mediaBatch?.id===b.id} onClick={() => {
             setMediaBatch(current=>current?.id===b.id?null:b);
           }}>{mediaBatch?.id === b.id ? tr('Zavřít obrázky','Close image manager') : tr('Spravovat obrázky','Manage record images')}</button>}
-          {b.status === 'DRAFT' && <button disabled={busy} onClick={() => void action(async () => {
+          {b.status === 'DRAFT' && <button disabled={busy || qualityBusy} onClick={() => void action(async () => {
             const r = await apiClient.getScenarioDataBatch(eventId, b.id);
             if (!r.ok || !r.data) throw Error(r.error ?? tr('Koncept není dostupný','Draft unavailable'));
+            if (!alive.current || scope.current !== eventId || r.data.eventId !== eventId) return;
+            setQuality(null);
             setPreview(null);
             setMode('SPARK');
+            setSparkStrategy(r.data.strategy ?? 'DETAILED');
             setBrief(r.data.brief ?? '');
             setPreset(r.data.preset);
             setCounts(r.data.configuration);
             setSeed(r.data.seed);
             setDraft(r.data);
           })}>{tr('Otevřít koncept','Open draft')}</button>}
-          {['DRAFT', 'COMPLETED'].includes(b.status) && <button disabled={busy} onClick={() => void action(async () => {
+          {['DRAFT', 'COMPLETED'].includes(b.status) && <button disabled={busy || qualityBusy} onClick={() => void action(async () => {
             if (!confirm(tr(`Opravdu odstranit ${b.identifier} z tohoto cvičení?`,`Remove ${b.identifier} from this event?`))) return;
             const r = await apiClient.cleanupScenarioData(eventId, b.id);
             if (!r.ok) throw Error(r.error ?? tr('Odstranění selhalo','Removal failed'));
-            if (draft?.id === b.id) setDraft(null);
+            if (!alive.current || scope.current !== eventId) return;
+            if (draft?.id === b.id) { setDraft(null); setQuality(null); }
+            if (mediaBatch?.id === b.id) setMediaBatch(null);
+            if (detail?.id === b.id) setDetail(null);
           })}>{b.status === 'DRAFT' ? tr('Zahodit koncept','Discard') : tr('Odstranit sadu','Clean up')}</button>}
         </div>)}
         {mediaBatch && mediaBatch.eventId===eventId && mediaBatch.status==='COMPLETED' && <ScenarioBatchMediaManager eventId={eventId} batch={mediaBatch} />}
