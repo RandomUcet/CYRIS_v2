@@ -396,16 +396,16 @@ export class CyrisApiClient {
   }
 
   /** Canonical, event-scoped relationship picker. No Typesense dependency. */
-  async searchRegistryRecords(eventId:string,query:string){
+  async searchRegistryRecords(eventId:string,query:string,signal?:AbortSignal){
     return this.fetchJson<RegistryPickerResult[]>(
-      `/events/${eventId}/registry/search?q=${encodeURIComponent(query)}&limit=20`);
+      `/events/${eventId}/registry/search?q=${encodeURIComponent(query)}&limit=20`,signal);
   }
 
   async getPersons(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/registry/persons`);
   }
-  async getPerson(eventId: string, personId: string) {
-    return this.fetchJson<any>(`/events/${eventId}/registry/persons/${personId}`);
+  async getPerson(eventId: string, personId: string,signal?:AbortSignal) {
+    return this.fetchJson<any>(`/events/${eventId}/registry/persons/${personId}`,signal);
   }
   async createPerson(eventId: string, data: any) {
     return this.postJson<any>(`/events/${eventId}/registry/persons`, data);
@@ -728,12 +728,13 @@ export class CyrisApiClient {
     return this.postJson<any>(`/events/${eventId}/roles/assign`, data);
   }
 
-  private async fetchJson<T>(path: string): Promise<{ ok: boolean; data?: T; error?: string; status?: number }> {
+  private async fetchJson<T>(path: string,signal?:AbortSignal): Promise<{ ok: boolean; data?: T; error?: string; status?: number }> {
     for (let attempt = 0; attempt < 2; attempt++) {
+      if(signal?.aborted)return {ok:false,error:'Request cancelled'};
       try {
         const res = await this.request(`${this.baseUrl}${path}`, {
           cache: 'no-store',
-          credentials: 'include',
+          credentials: 'include',signal,
         });
         if (!res.ok) {
           const errJson = (await res.json().catch(() => ({}))) as { message?: string };
@@ -742,6 +743,7 @@ export class CyrisApiClient {
         const data = (await res.json()) as T;
         return { ok: true, data };
       } catch (err) {
+        if(signal?.aborted)return {ok:false,error:'Request cancelled'};
         if (attempt === 0 && (err instanceof TypeError || (err as Error).message?.includes('fetch'))) {
           // Transient socket reset during route transitions - retry once immediately
           await new Promise((r) => setTimeout(r, 80));

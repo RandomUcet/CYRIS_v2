@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/contexts/AuthContext';
 import type { SearchResultItem } from '@cyris/contracts';
 
 interface ResourcePickerProps {
@@ -16,7 +17,11 @@ interface ResourcePickerProps {
   disabled?: boolean;
 }
 
-export function ResourcePicker({
+export function ResourcePicker(props:ResourcePickerProps){
+  const {currentUser,viewAs}=useAuth();
+  return <PickerWorkspace key={[currentUser?.user.id??'',viewAs?.id??'',props.eventId??'',props.types??''].join(':')} {...props}/>;
+}
+function PickerWorkspace({
   eventId,
   value,
   onChange,
@@ -30,85 +35,70 @@ export function ResourcePicker({
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [selected, setSelected] = useState<SearchResultItem | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resolving,setResolving]=useState(false);
+  const [resolveError,setResolveError]=useState(false);
+  const [resultQuery,setResultQuery]=useState('');
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!value) {
-      setSelected(null);
-      return;
-    }
-    if (selected?.canonicalId === value) return;
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setLoading(true);
-      if (eventId && types === 'person') {
-        const response = await apiClient.getPerson(eventId, value);
-        if (!cancelled && response.ok && response.data) {
-          const person = response.data;
-          setSelected({
-            id: value, canonicalId: value, type: 'person',
-            title: String(person.displayName || person.name || value),
-            subtitle: person.identifier || undefined, eventId, highlights: [], tags: [],
-          });
+  useEffect(()=>{
+    setResolveError(false);
+    if(!value){setSelected(null);setResolving(false);return;}
+    if(selected?.canonicalId===value){setResolving(false);return;}
+    setSelected(null);setResolving(true);
+    const controller=new AbortController();
+    const timer=window.setTimeout(async()=>{
+      try{
+        if(eventId && types === 'person'){
+          const response=await apiClient.getPerson(eventId, value, controller.signal);
+          if(controller.signal.aborted)return;
+          if(!response.ok||!response.data){setResolveError(true);return;}
+          const person=response.data;
+          setSelected({id:value,canonicalId:value,type:'person',
+            title:String(person.displayName||person.name||value),subtitle:person.identifier||undefined,eventId,highlights:[],tags:[]});
+        }else{
+          const response=await apiClient.search(value,{eventId,types,limit:5,signal:controller.signal});
+          if(controller.signal.aborted)return;
+          const match=response.ok?response.data?.results.find(item=>item.canonicalId===value):undefined;
+          if(match)setSelected(match);else setResolveError(true);
         }
-      } else {
-        const response = await apiClient.search(value, { eventId, types, limit: 5 });
-        if (!cancelled && response.ok) {
-          const match = response.data?.results.find((item) => item.canonicalId === value);
-          if (match) setSelected(match);
-        }
-      }
-      if (!cancelled) setLoading(false);
-    }, 120);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [eventId, types, value, selected?.canonicalId]);
+      }catch{if(!controller.signal.aborted)setResolveError(true);}
+      finally{if(!controller.signal.aborted)setResolving(false);}
+    },120);
+    return()=>{controller.abort();window.clearTimeout(timer);};
+  },[eventId,types,value,selected?.canonicalId]);
 
-  useEffect(() => {
-    if (query.trim().length < 2) {
-      setResults([]);
-      setSearchError(null);
-      return;
-    }
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setLoading(true);
-      setSearchError(null);
-      try {
-        // The canonical registry search is event/ACL scoped and doesn't depend
-        // on the optional full-text index being up to date.
-        if (eventId && types === 'person') {
-          const response = await apiClient.searchRegistryRecords(eventId, query.trim());
-          if (!cancelled) {
-            setResults(response.ok && response.data ? response.data.filter(item => item.entityType === 'persons').map(item => ({
-              id: item.id, canonicalId: item.id, type: 'person', title: item.label,
-              subtitle: item.identifier ?? undefined, eventId: item.eventId,
-              highlights: [], tags: [],
-            })) : []);
-            if (!response.ok) setSearchError(response.error || 'Search is unavailable');
-          }
-        } else {
-          const response = await apiClient.search(query.trim(), { eventId, types, limit: 8 });
-          if (!cancelled) {
-            setResults(response.ok ? response.data?.results ?? [] : []);
-            if (!response.ok) setSearchError(response.error || 'Search is unavailable');
-          }
+  useEffect(()=>{
+    setResults([]);setResultQuery('');setSearchError(null);
+    if(disabled||value||query.trim().length<2){setLoading(false);return;}
+    setLoading(true);
+    const controller=new AbortController();
+    const timer=window.setTimeout(async()=>{
+      try{
+        if(eventId && types === 'person'){
+          const response=await apiClient.searchRegistryRecords(eventId, query.trim(), controller.signal);
+          if(controller.signal.aborted)return;
+          setResults(response.ok&&response.data?response.data.filter(item=>item.entityType === 'persons').map(item=>({
+            id:item.id,canonicalId:item.id,type:'person',title:item.label,subtitle:item.identifier??undefined,eventId:item.eventId,highlights:[],tags:[],
+          })):[]);
+          if(!response.ok)setSearchError(response.error||'Search is unavailable');
+        }else{
+          const response=await apiClient.search(query.trim(),{eventId,types,limit:8,signal:controller.signal});
+          if(controller.signal.aborted)return;
+          setResults(response.ok?response.data?.results??[]:[]);
+          if(!response.ok)setSearchError(response.error||'Search is unavailable');
         }
-      } catch {
-        if (!cancelled) { setResults([]); setSearchError('Search is unavailable'); }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }, 180);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [eventId, query, types]);
+        setResultQuery(query.trim());
+      }catch{if(!controller.signal.aborted)setSearchError('Search is unavailable');}
+      finally{if(!controller.signal.aborted)setLoading(false);}
+    },220);
+    return()=>{controller.abort();window.clearTimeout(timer);};
+  },[eventId,query,types,value,disabled]);
+
+  const visibleResults=resultQuery===query.trim()?results:[];
+  const visibleSelection=selected?.canonicalId===value?selected:null;
 
   const choose = (item: SearchResultItem) => {
+    if(disabled||!visibleResults.some(row=>row.canonicalId===item.canonicalId))return;
     setSelected(item);
     setQuery('');
     setResults([]);
@@ -120,7 +110,7 @@ export function ResourcePicker({
       <label className="field-label">
         {label}{required ? ' *' : ''}
       </label>
-      {selected ? (
+      {value ? (
         <div
           style={{
             display: 'flex',
@@ -135,8 +125,9 @@ export function ResourcePicker({
           }}
         >
           <span style={{ minWidth: 0, fontSize: 12 }}>
-            <strong>{selected.title}</strong>
-            {selected.subtitle ? ` · ${selected.subtitle}` : ''}
+            <strong>{visibleSelection?.title??(resolving?'Loading selected record…':'Selected record')}</strong>
+            {visibleSelection?.subtitle ? ` · ${visibleSelection.subtitle}` : ''}
+            {resolveError&&!visibleSelection&&<span role="alert" style={{display:'block',color:'var(--status-danger)'}}>Unable to resolve record. Clear and select again.</span>}
           </span>
           {!disabled && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setSelected(null); onChange(''); }} aria-label={`Clear ${label}`}>
@@ -161,7 +152,7 @@ export function ResourcePicker({
           </div>
           {searchError && <div role="alert" style={{ fontSize: 12, color: 'var(--status-danger)', marginTop: 6 }}>{searchError}</div>}
           {loading && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Searching…</div>}
-          {results.length > 0 && (
+          {visibleResults.length > 0 && (
             <div
               role="listbox"
               aria-label={label + " search results"}
@@ -180,7 +171,7 @@ export function ResourcePicker({
                 boxShadow: '0 8px 20px rgba(0,0,0,.18)',
               }}
             >
-              {results.map((item) => (
+              {visibleResults.map((item) => (
                 <button
                   key={item.canonicalId}
                   type="button"

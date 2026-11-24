@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import { parseSearchHighlight, safeSearchResultRoute } from '@/lib/search-result-safety';
 import type { SearchResultItem, SearchResponse } from '@cyris/contracts';
 
@@ -11,7 +12,12 @@ interface SearchDialogProps {
   onClose: () => void;
 }
 
-export function SearchDialog({ isOpen, onClose }: SearchDialogProps) {
+export function SearchDialog({isOpen,onClose}:SearchDialogProps){
+  const {currentUser,viewAs}=useAuth();
+  if(!isOpen||!currentUser)return null;
+  return <SearchWorkspace key={[currentUser.user.id,viewAs?.id??''].join(':')} isOpen={isOpen} onClose={onClose}/>;
+}
+function SearchWorkspace({ isOpen, onClose }: SearchDialogProps) {
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResultItem[]>([]);
@@ -22,7 +28,8 @@ export function SearchDialog({ isOpen, onClose }: SearchDialogProps) {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const requestRef=useRef<AbortController|null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Focus input when dialog opens
   useEffect(() => {
@@ -32,48 +39,27 @@ export function SearchDialog({ isOpen, onClose }: SearchDialogProps) {
       setError(null);
       setSelectedIndex(0);
       setSelectedResultFeedback(null);
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 50);
+      const timer=setTimeout(() => inputRef.current?.focus(),50);
+      return()=>{clearTimeout(timer);if(debounceTimerRef.current)clearTimeout(debounceTimerRef.current);requestRef.current?.abort();};
     }
   }, [isOpen]);
 
-  // Execute search with debounce
-  const executeSearch = useCallback(async (searchQuery: string) => {
-    if (!searchQuery.trim()) {
-      setResults([]);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
+  const handleQueryChange=(e:React.ChangeEvent<HTMLInputElement>)=>{
+    const val=e.target.value;setQuery(val);setSelectedResultFeedback(null);
+    if(debounceTimerRef.current)clearTimeout(debounceTimerRef.current);
+    requestRef.current?.abort();setResults([]);setSelectedIndex(0);setError(null);
+    if(!val.trim()){setLoading(false);return;}
     setLoading(true);
-    setError(null);
-
-    const res = await apiClient.search(searchQuery, { limit: 15 });
-    setLoading(false);
-
-    if (res.ok && res.data) {
-      setResults(res.data.results);
-      setSelectedIndex(0);
-    } else {
-      setResults([]);
-      setError(res.error || 'Search query failed');
-    }
-  }, []);
-
-  const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setQuery(val);
-    setSelectedResultFeedback(null);
-
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-
-    debounceTimerRef.current = setTimeout(() => {
-      void executeSearch(val);
-    }, 200);
+    const controller=new AbortController();requestRef.current=controller;
+    debounceTimerRef.current=setTimeout(async()=>{
+      try{
+        const res=await apiClient.search(val.trim(),{limit:15,signal:controller.signal});
+        if(controller.signal.aborted)return;
+        if(res.ok&&res.data)setResults(res.data.results);
+        else setError(res.error||'Search query failed');
+      }catch{if(!controller.signal.aborted)setError('Search query failed');}
+      finally{if(!controller.signal.aborted)setLoading(false);}
+    },220);
   };
 
   const handleSelectResult = (item: SearchResultItem) => {
