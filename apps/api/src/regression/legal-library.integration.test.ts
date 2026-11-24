@@ -1,0 +1,44 @@
+import 'reflect-metadata';
+import assert from 'node:assert/strict';
+import {BadRequestException,ConflictException,ForbiddenException,BadGatewayException} from '@nestjs/common';
+import {eq} from 'drizzle-orm';
+import {getDbClient,closeDatabaseConnection,events,users,eventMemberships,roles,rolePermissions,roleAssignments,legalLibrary} from '@cyris/db';
+import {generateId,Permissions} from '@cyris/shared';
+import type {LegalSourceInput,LegalResearchInput} from '@cyris/contracts';
+import {AuthorizationService} from '../modules/authorization/authorization.service.js';
+import {AuditService} from '../modules/audit/audit.service.js';
+import {LegalLibraryService} from '../modules/court/legal-library.service.js';
+import {requireVerifiedIsolatedDatabase,skipWithoutVerifiedDatabase} from './isolated-postgres-harness.js';
+skipWithoutVerifiedDatabase('legal library uses effective dates and isolated cited research',async()=>{
+ const db=getDbClient({url:requireVerifiedIsolatedDatabase()!}),provider={client:db} as any;
+ const eventId=generateId(),other=generateId(),organizer=generateId(),reader=generateId(),student=generateId(),role=generateId(),readerRole=generateId(),member=generateId(),readerMember=generateId();
+ const actor={id:organizer,status:'ACTIVE'} as any,legalReader={id:reader,status:'ACTIVE'} as any,denied={id:student,status:'ACTIVE'} as any;
+ let calls=0,cited='',wrong=false;
+ const gateway={getStatus:async()=>({configured:true,enabled:true}),execute:async(params:any)=>{calls++;assert.equal(params.operationType,'LEGAL_RESEARCH');const sent=JSON.parse(params.messages[1].content);assert.equal(sent.sources.length,1);assert.equal(sent.sources[0].id,cited);assert.ok(!('privateBlueprint' in sent));return {text:JSON.stringify({points:[{analysis:'Fixture analysis',sourceIds:[wrong?generateId():cited]}],missingFacts:[],limitations:['Fixture only']}),runId:generateId(),model:'fixture',durationMs:100};}};
+ const service=new LegalLibraryService(provider,new AuthorizationService(provider),new AuditService(provider),gateway as any);
+ const input:LegalSourceInput={act:'99999/2026',provision:'§ test',heading:'Fictional integration fixture',text:'Fictional fixture text, never real legislation.',effectiveFrom:'2026-01-01',effectiveTo:'2026-07-01',sourceUrl:'https://e-sbirka.gov.cz/',confirmedSource:true};
+ try{
+  await db.insert(users).values([organizer,reader,student].map(id=>({id,email:id+'@example.test',displayName:'Legal fixture',status:'ACTIVE'})));
+  await db.insert(events).values([{id:eventId,slug:eventId,name:'Legal fixture',status:'ACTIVE'},{id:other,slug:other,name:'Foreign fixture',status:'ACTIVE'}]);
+  await db.insert(eventMemberships).values([{id:member,eventId,userId:organizer,status:'ACTIVE'},{id:readerMember,eventId,userId:reader,status:'ACTIVE'},{eventId,userId:student,status:'ACTIVE'}]);
+  await db.insert(roles).values([{id:role,eventId,name:'Organizer',slug:'legal-organizer'},{id:readerRole,eventId,name:'Reader',slug:'legal-reader'}]);
+  await db.insert(rolePermissions).values([{roleId:role,permissionKey:Permissions.SCENARIO_MANAGE,scope:'EVENT'},{roleId:readerRole,permissionKey:Permissions.COURT_READ,scope:'EVENT'}]);
+  await db.insert(roleAssignments).values([{roleId:role,membershipId:member},{roleId:readerRole,membershipId:readerMember}]);
+  await assert.rejects(service.search(eventId,denied,'','2026-01-01'),ForbiddenException);
+  await assert.rejects(service.add(eventId,legalReader,input),ForbiddenException);
+  const first=await service.add(eventId,actor,input);
+  await assert.rejects(service.add(eventId,actor,{...input,effectiveFrom:'2026-06-01',effectiveTo:null}),ConflictException);
+  const next=await service.add(eventId,actor,{...input,effectiveFrom:'2026-07-01',effectiveTo:null,text:'Second fictional version, never actual legislation.'});
+  assert.equal((await service.search(eventId,legalReader,'99999/2026','2026-06-30')).items[0]?.id,first.id);
+  assert.equal((await service.search(eventId,legalReader,'99999/2026','2026-07-01')).items[0]?.id,next.id);
+  assert.equal((await service.search(eventId,legalReader,'%','2026-07-01')).items.length,0);
+  await assert.rejects(service.search(other,legalReader,'','2026-07-01'),ForbiddenException);
+  const question:LegalResearchInput={question:'Which fictional elements are missing?',asOf:'2026-07-01',locale:'cs',sourceIds:[first.id]};
+  await assert.rejects(service.research(eventId,legalReader,question),BadRequestException);
+  assert.equal(calls,0);
+  cited=next.id;const result=await service.research(eventId,legalReader,{...question,sourceIds:[next.id]});assert.equal(result.sources[0]?.id,next.id);assert.equal(calls,1);
+  wrong=true;await assert.rejects(service.research(eventId,legalReader,{...question,sourceIds:[next.id]}),BadGatewayException);
+  await db.update(legalLibrary).set({text:'Changed fixture text without corresponding digest.'}).where(eq(legalLibrary.id,next.id));
+  await assert.rejects(service.research(eventId,legalReader,{...question,sourceIds:[next.id]}),ConflictException);assert.equal(calls,2);
+ }finally{await closeDatabaseConnection();}
+});

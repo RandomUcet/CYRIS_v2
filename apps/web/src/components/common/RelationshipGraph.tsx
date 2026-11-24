@@ -6,6 +6,7 @@ import { ZoomIn, ZoomOut, Maximize2, Filter, ExternalLink } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {usePreferences} from '@/contexts/PreferencesContext';
 import {relationshipRecordHref} from '@/lib/relationship-routing';
+import {networkPositions} from '@/lib/relationship-layout';
 
 export interface GraphNode {
   id: string;
@@ -36,6 +37,8 @@ export interface RelationshipGraphProps {
   eventId?: string;
   /** Disable redundant in-graph type filter when workspace already provides filtering. */
   showTypeFilter?: boolean;
+  focusResourceId?:string;
+  onExploreNode?:(node:GraphNode)=>void;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -63,6 +66,8 @@ export function RelationshipGraph({
   height = '500px',
   eventId,
   showTypeFilter = true,
+  focusResourceId,
+  onExploreNode,
 }: RelationshipGraphProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
@@ -72,6 +77,9 @@ export function RelationshipGraph({
 
   const [activeEdgeFilter, setActiveEdgeFilter] = useState<string>('');
   const [inspectedNode, setInspectedNode] = useState<GraphNode | null>(null);
+  const [showEdgeLabels,setShowEdgeLabels]=useState(false);
+  const callbacks=useRef({onSelectNode,onNodeSelect});
+  useEffect(()=>{callbacks.current={onSelectNode,onNodeSelect};},[onSelectNode,onNodeSelect]);
 
   const { nodes, edges } = useMemo(() => {
     if (propNodes && propEdges) {
@@ -160,8 +168,12 @@ export function RelationshipGraph({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    setInspectedNode(null);
+    const positions=networkPositions(nodes,filteredEdges,focusResourceId??centerResourceId);
+    const nodeMap=new Map(nodes.map(n=>[n.id,n]));
     const cyElements: cytoscape.ElementDefinition[] = [
       ...nodes.map((n) => ({
+        position:positions.get(n.id),
         data: {
           id: n.id,
           label: n.label,
@@ -200,6 +212,8 @@ export function RelationshipGraph({
             color: '#e2e8f0',
             'text-valign': 'bottom',
             'text-margin-y': 6,
+            'text-wrap':'ellipsis',
+            'text-max-width':'125px',
             width: 32,
             height: 32,
             'text-background-color': '#090c10',
@@ -227,7 +241,7 @@ export function RelationshipGraph({
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
             'arrow-scale': 0.8,
-            label: 'data(label)',
+            label: '',
             'font-family': 'JetBrains Mono, monospace',
             'font-size': '9px',
             color: '#94a3b8',
@@ -240,6 +254,7 @@ export function RelationshipGraph({
         {
           selector: 'edge:selected',
           style: {
+            label:'data(label)',
             width: 2.5,
             'line-color': '#38bdf8',
             'target-arrow-color': '#38bdf8',
@@ -247,27 +262,26 @@ export function RelationshipGraph({
         },
       ],
       layout: {
-        name: 'breadthfirst',
-        directed: true,
-        padding: 40,
-        spacingFactor: 1.25,
+        name: 'preset',
+        fit:true,
+        padding: 65,
         animate: false,
       },
     });
 
     cy.on('tap', 'node', (evt) => {
       const nodeData = evt.target.data();
-      const match = nodes.find((n) => n.id === nodeData.id) || null;
+      const match = nodeMap.get(nodeData.id) || null;
       setInspectedNode(match);
-      if (onSelectNode) onSelectNode(match);
-      if (onNodeSelect) onNodeSelect(match);
+      callbacks.current.onSelectNode?.(match);
+      callbacks.current.onNodeSelect?.(match);
     });
 
     cy.on('tap', (evt) => {
       if (evt.target === cy) {
         setInspectedNode(null);
-        if (onSelectNode) onSelectNode(null);
-        if (onNodeSelect) onNodeSelect(null);
+        callbacks.current.onSelectNode?.(null);
+        callbacks.current.onNodeSelect?.(null);
       }
     });
 
@@ -275,14 +289,18 @@ export function RelationshipGraph({
 
     return () => {
       cy.destroy();
+      if(cyRef.current===cy)cyRef.current=null;
     };
-  }, [nodes, filteredEdges, onSelectNode, onNodeSelect]);
+  }, [nodes, filteredEdges, centerResourceId, focusResourceId]);
+
+  useEffect(()=>{const cy=cyRef.current;if(cy)cy.edges().style('label',showEdgeLabels?'data(label)':'');},[showEdgeLabels,nodes,filteredEdges,centerResourceId,focusResourceId]);
 
   // Synchronize external selection
   useEffect(() => {
     if (!cyRef.current) return;
     if (selectedNodeId) {
-      cyRef.current.$(`node[id = "${selectedNodeId}"]`).select();
+      cyRef.current.$('node:selected').unselect();
+      cyRef.current.getElementById(selectedNodeId).select();
     } else {
       cyRef.current.$('node:selected').unselect();
     }
@@ -343,6 +361,7 @@ export function RelationshipGraph({
           <ZoomOut size={14} />
         </button>
 
+        <button type="button" className="btn-ghost" aria-pressed={showEdgeLabels} onClick={()=>setShowEdgeLabels(v=>!v)}>{cs?'Popisky vazeb':'Edge labels'}</button>
         {showTypeFilter && availableEdgeTypes.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', borderLeft: '1px solid var(--border-default)', paddingLeft: '8px', marginLeft: '4px' }}>
             <Filter size={12} style={{ color: 'var(--text-muted)' }} />
@@ -370,7 +389,8 @@ export function RelationshipGraph({
           display: 'flex',
           gap: '10px',
           alignItems: 'center',
-          background: 'rgba(15, 19, 26, 0.85)',
+          background: 'var(--bg-surface)',
+          maxWidth:'calc(100% - 20px)',
           padding: '4px 10px',
           borderRadius: 'var(--radius-sm)',
           border: '1px solid var(--border-subtle)',
@@ -427,6 +447,7 @@ export function RelationshipGraph({
             UUID: <code>{inspectedNode.id.slice(0, 13)}…</code>
           </div>
 
+          {onExploreNode&&<button type="button" className="btn-secondary" onClick={()=>onExploreNode(inspectedNode)}>{cs?'Zaměřit tento záznam':'Focus this record'}</button>}
           {recordHref ? <button
             type="button"
             className="btn-primary"

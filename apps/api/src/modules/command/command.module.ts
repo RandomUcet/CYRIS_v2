@@ -11,6 +11,11 @@ import { InvestigationModule } from '../investigation/investigation.module.js';
 import { AuditModule } from '../audit/audit.module.js';
 import { ResourcesModule } from '../resources/resources.module.js';
 import { AuthModule } from '../auth/auth.module.js';
+import { AIModule } from '../ai/ai.module.js';
+import { ExerciseIntelligenceService } from './exercise-intelligence.service.js';
+import { ExerciseObserverReader } from './exercise-observer-reader.service.js';
+import { ExerciseAdviceStore } from './exercise-advice-store.service.js';
+import { ExerciseBlueprintService } from './exercise-blueprint.service.js';
 
 @Module({
   imports: [
@@ -22,9 +27,10 @@ import { AuthModule } from '../auth/auth.module.js';
     AuditModule,
     ResourcesModule,
     AuthModule,
+    AIModule,
   ],
   controllers: [CommandController, ExconDashboardController],
-  providers: [CommandService, ExconDashboardService],
+  providers: [CommandService, ExconDashboardService, ExerciseIntelligenceService, ExerciseObserverReader, ExerciseBlueprintService, ExerciseAdviceStore],
   exports: [CommandService],
 })
 export class CommandModule {}

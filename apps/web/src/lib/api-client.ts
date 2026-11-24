@@ -1,3 +1,7 @@
+import type {LegalSourceInput,LegalSource,LegalSearchResult,LegalResearchInput,LegalResearchResult} from '@cyris/contracts';
+import type {StoredExerciseAdvice,ExerciseAdviceDecision,ExerciseAdviceHandoffInput} from '@cyris/contracts';
+import type {ExerciseBlueprintInput,ExerciseBlueprint,ExerciseBlueprintOverview} from '@cyris/contracts';
+import type { ExerciseAdviceInput, ExerciseAdviceResult, ExerciseIntelligenceOverview } from '@cyris/contracts';
 import type {
   HealthResponse,
   PlatformAdminAccount,
@@ -362,12 +366,12 @@ export class CyrisApiClient {
   async previewScenarioData(eventId: string, payload: ScenarioDataRequest) {
     return this.postJson<ScenarioDataPreview>(`/events/${eventId}/scenario-data/preview`, payload);
   }
-  listJsocLogs(eventId:string,query:JsocLogQuery){
+  listJsocLogs(eventId:string,query:JsocLogQuery,signal?:AbortSignal){
     const params=new URLSearchParams({page:String(query.page),limit:String(query.limit)});
     if(query.category)params.set('category',query.category);
     if(query.severity)params.set('severity',query.severity);
     if(query.search)params.set('search',query.search);
-    return this.fetchJson<JsocLogPage>(`/events/${eventId}/jsoc/logs?${params}`);
+    return this.fetchJson<JsocLogPage>(`/events/${eventId}/jsoc/logs?${params}`,signal);
   }
   generateJsocLogs(eventId:string,input:GenerateJsocLogs){
     return this.postJson<{created:number;simulation:true}>(`/events/${eventId}/jsoc/generate`,input);
@@ -614,8 +618,8 @@ export class CyrisApiClient {
   }
 
   // Event Relationships (for global graph)
-  async getEventRelationships(eventId: string) {
-    return this.fetchJson<any[]>(`/events/${eventId}/relationships`);
+  async getEventRelationships(eventId: string,signal?:AbortSignal) {
+    return this.fetchJson<any[]>(`/events/${eventId}/relationships`,signal);
   }
 
   // Incident & Case Details & Updates
@@ -1136,8 +1140,8 @@ export class CyrisApiClient {
     return this.postJson<CourtDecision>(`/events/${eventId}/court/${courtCaseId}/decisions`, payload);
   }
 
-  listLegalRequests(eventId: string) {
-    return this.fetchJson<CourtRequestItem[]>('/events/' + encodeURIComponent(eventId) + '/legal-requests');
+  listLegalRequests(eventId: string,signal?:AbortSignal) {
+    return this.fetchJson<CourtRequestItem[]>('/events/' + encodeURIComponent(eventId) + '/legal-requests',signal);
   }
   listCourtRequests(eventId: string, courtCaseId: string) {
     return this.fetchJson<CourtRequestItem[]>(
@@ -1199,6 +1203,9 @@ export class CyrisApiClient {
     return this.listTechnicalIndicators(eventId);
   }
 
+  searchLegalLibrary(eventId:string,q:string,asOf:string,signal?:AbortSignal){return this.fetchJson<LegalSearchResult>('/events/'+encodeURIComponent(eventId)+'/legal-library?'+new URLSearchParams({q,asOf}),signal);}
+  addLegalSource(eventId:string,input:LegalSourceInput){return this.postJson<LegalSource>('/events/'+encodeURIComponent(eventId)+'/legal-library',input);}
+  researchLegalLibrary(eventId:string,input:LegalResearchInput){return this.postJson<LegalResearchResult>('/events/'+encodeURIComponent(eventId)+'/legal-library/research',input);}
   async getCourtCases(eventId: string) {
     const res = await this.listCourtCases(eventId);
     return { ok: res.ok, data: res.data?.items, error: res.error };
@@ -1611,8 +1618,19 @@ export class CyrisApiClient {
   // Notifications
   // ============================================================================
 
-  getExconDashboard(eventId:string) {
-    return this.fetchJson<ExconDashboardResponse>('/events/'+encodeURIComponent(eventId)+'/command/excon');
+  handoffExerciseAdvice(eventId:string,runId:string,input:ExerciseAdviceHandoffInput){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/handoff',input);}
+  getExerciseAdviceHistory(eventId:string,signal?:AbortSignal){return this.fetchJson<StoredExerciseAdvice[]>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history',signal);}
+  reviewExerciseAdvice(eventId:string,runId:string,input:ExerciseAdviceDecision){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/review',input);}
+  getExerciseBlueprint(eventId:string,signal?:AbortSignal){return this.fetchJson<ExerciseBlueprintOverview>('/events/'+encodeURIComponent(eventId)+'/command/excon/blueprint',signal);}
+  saveExerciseBlueprint(eventId:string,input:ExerciseBlueprintInput){return this.postJson<ExerciseBlueprint>('/events/'+encodeURIComponent(eventId)+'/command/excon/blueprint',input);}
+  getExerciseIntelligence(eventId:string,signal?:AbortSignal){
+    return this.fetchJson<ExerciseIntelligenceOverview>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence',signal);
+  }
+  requestExerciseAdvice(eventId:string,input:ExerciseAdviceInput){
+    return this.postJson<ExerciseAdviceResult>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/advice',input);
+  }
+  getExconDashboard(eventId:string,signal?:AbortSignal) {
+    return this.fetchJson<ExconDashboardResponse>('/events/'+encodeURIComponent(eventId)+'/command/excon',signal);
   }
 
   getExerciseBroadcastPlans(eventId:string) {

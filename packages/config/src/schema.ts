@@ -14,6 +14,8 @@ export const EnvSchema = z.object({
   REDIS_URL: z.string().url().min(1, 'REDIS_URL is required').default('redis://localhost:6379'),
 
   CYRIS_AI_MAX_CONCURRENT: z.coerce.number().int().min(1).max(16).default(2),
+  CYRIS_AI_MAX_WAIT_MS: z.coerce.number().int().min(0).max(15000).default(8000),
+  CYRIS_AI_MAX_PENDING: z.coerce.number().int().min(1).max(64).default(16),
 
   // Typesense
   TYPESENSE_HOST: z.string().min(1, 'TYPESENSE_HOST is required').default('localhost'),

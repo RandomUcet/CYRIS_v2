@@ -30,7 +30,7 @@ export interface ExecuteAIOperationParams {
   userId?: string | null;
   eventId?: string | null;
   capability?: AICapabilityValue;
-  operationType: 'WRITING_ASSIST' | 'CASE_SUMMARY' | 'CATCH_ME_UP' | 'TIMELINE_EXPLAIN' | 'SUPPORT_REPLY' | 'SUPPORT_HANDOVER' | 'SCENARIO_DATA';
+  operationType: 'WRITING_ASSIST' | 'CASE_SUMMARY' | 'CATCH_ME_UP' | 'TIMELINE_EXPLAIN' | 'SUPPORT_REPLY' | 'SUPPORT_HANDOVER' | 'SCENARIO_DATA' | 'EXERCISE_ARCHITECT' | 'EXERCISE_ADVISOR' | 'LEGAL_RESEARCH';
   promptTemplateVersion?: string;
   contextResourceIds?: string[];
   /** Internal server-derived scope; never supplied by the browser. */
@@ -114,6 +114,8 @@ export class AIGatewayService {
     };
   }
 
+  admissionSnapshot(){return this.admission.snapshot();}
+
   async embed(
     input: string | string[],
     options?: AIEmbeddingOptions
@@ -181,7 +183,7 @@ export class AIGatewayService {
   async execute(params: ExecuteAIOperationParams): Promise<ExecuteAIOperationResult> {
     const startedAt = new Date();
     const runId = generateId();
-    const active = await this.getActiveProvider(params.operationType === 'SCENARIO_DATA' ? 'DGX_SPARK' : undefined);
+    const active = await this.getActiveProvider(['SCENARIO_DATA','EXERCISE_ARCHITECT','EXERCISE_ADVISOR','LEGAL_RESEARCH'].includes(params.operationType) ? 'DGX_SPARK' : undefined);
 
     if (!active) {
       throw new Error(
@@ -202,12 +204,19 @@ export class AIGatewayService {
     let status: (typeof AIRunStatus)[keyof typeof AIRunStatus] = AIRunStatus.SUCCESS;
     let errorCategory: string | null = null;
     let result: AIGenerateResult | null = null;
+    const admissionStarted=performance.now();
+    let admissionMs:number|null=null,providerMs:number|null=null;
 
     try {
       const support = params.operationType === 'SUPPORT_REPLY' || params.operationType === 'SUPPORT_HANDOVER';
       const timeoutMs = inferenceTimeoutMs(params.options?.timeoutMs ?? active.timeoutMs);
       result = await this.admission.run(support ? 'support' : 'regular', params.userId, timeoutMs,
-        () => provider.generate(params.messages, { ...params.options, timeoutMs }), params.exclusiveScope);
+        async () => {
+          admissionMs=Math.round(performance.now()-admissionStarted);
+          const started=performance.now();
+          try{return await provider.generate(params.messages, { ...params.options, timeoutMs });}
+          finally{providerMs=Math.round(performance.now()-started);}
+        }, params.exclusiveScope, true);
       return {
         text: result.text,
         model: result.model,
@@ -255,7 +264,7 @@ export class AIGatewayService {
           completedAt,
           durationMs,
           status,
-          usageMetadata: result?.usage ?? null,
+          usageMetadata: { ...result?.usage, admissionMs: admissionMs??Math.round(performance.now()-admissionStarted), providerMs },
           errorCategory,
         });
       } catch (logErr) {

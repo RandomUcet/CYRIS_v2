@@ -29,14 +29,15 @@ function LegalRequestInbox({eventId}:{eventId:string}) {
   useEffect(()=>{const timer=window.setInterval(()=>setNow(Date.now()),60000);return()=>window.clearInterval(timer);},[]);
   useEffect(()=>{
     let active=true;
-    setLoading(true);
-    void apiClient.listLegalRequests(eventId).then(res=>{
+    const controller=new AbortController();
+    setLoading(true);setError('');
+    void apiClient.listLegalRequests(eventId,controller.signal).then(res=>{
       if(!active)return;
       if(!res.ok)throw new Error(res.error||'Unable to load legal requests');
       setRequests((res.data??[]).filter(row=>row.eventId===eventId));setError('');setNow(Date.now());
-    }).catch(e=>{if(active)setError(e instanceof Error?e.message:'Error');})
+    }).catch(e=>{if(active&&!controller.signal.aborted){setRequests([]);setError(e instanceof Error?e.message:'Error');}})
       .finally(()=>{if(active)setLoading(false)});
-    return ()=>{active=false};
+    return ()=>{active=false;controller.abort();};
   },[eventId,refresh]);
   const visible=useMemo(()=>legalRequestQueue(requests,{status,kind,query,deadline},now),[requests,status,kind,query,deadline,now]);
   const counts=legalRequestCounts(requests,now);
@@ -50,6 +51,7 @@ function LegalRequestInbox({eventId}:{eventId:string}) {
           <p>{tr('Důkazy, posudky, zprávy a dokumenty napříč soudními spisy.',
           'Evidence, expert opinions, reports and documents across judicial cases.')}</p>
         </div>
+        <Link className="btn btn-secondary" href={'/events/'+eventId+'/legal-library'}>Legal Intelligence</Link>
         <button type="button" className="btn btn-secondary" disabled={loading}
           onClick={()=>setRefresh(x=>x+1)}><RefreshCw size={15}/> {tr('Obnovit','Refresh')}</button>
       </header>
@@ -76,9 +78,9 @@ function LegalRequestInbox({eventId}:{eventId:string}) {
         <label style={{display:'grid',gap:5,minWidth:140}}>{tr('Termín','Deadline')}<select className="field-input" value={deadline} onChange={e=>setDeadline(e.target.value)}><option value="ALL">{tr('Všechny','All')}</option><option value="OVERDUE">{tr('Po termínu','Overdue')}</option></select></label>
         <button type="button" className="btn btn-secondary" onClick={()=>{setStatus('ALL');setKind('ALL');setDeadline('ALL');setQuery('');}}>{tr('Vymazat filtry','Clear filters')}</button>
       </div>
-      <p role="status">{visible.length} / {counts.total} {tr('žádostí','requests')}</p>
-      {error&&<p role="alert">{error}</p>}
-      {loading?<p>{tr('Načítám…','Loading…')}</p>:visible.length===0
+      {!loading&&!error&&<p role="status">{visible.length} / {counts.total} {tr('žádostí','requests')}</p>}
+      {error&&<div role="alert" className="legal-inbox-empty"><strong>{tr('Žádosti se nepodařilo načíst','Unable to load requests')}</strong><p>{error}</p><button type="button" className="btn btn-secondary" onClick={()=>setRefresh(x=>x+1)}>{tr('Zkusit znovu','Try again')}</button></div>}
+      {loading?<p role="status">{tr('Načítám…','Loading…')}</p>:error?null:visible.length===0
         ?<div className="legal-inbox-empty"><FileText size={28}/><strong>{tr('Žádné odpovídající žádosti','No matching requests')}</strong><p>{counts.total?tr('Změňte nastavení filtrů.','Adjust your filters.'):tr('Žádosti se zde zobrazí po vytvoření v soudním spisu.','Requests appear here after creation in a judicial case.')}</p></div>
         :<div style={{display:'grid',gap:12}}>{visible.map(req=><article key={req.id}
           style={{padding:15,background:'var(--bg-panel)',border:'1px solid var(--border-default)',

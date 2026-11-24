@@ -6,7 +6,7 @@ import {
   getDbClient,closeDatabaseConnection,events,users,eventMemberships,organizationalUnits,
   roles,rolePermissions,roleAssignments,scenarioPhases,scenarioInjects,
   exerciseBroadcastPlans,notifications,scenarioInjectReleases,scenarioBriefingReceipts,
-  commandDefconStates,operationalHolds,
+  commandDefconStates,operationalHolds,scenarioClocks,
 } from '@cyris/db';
 import { generateId,Permissions } from '@cyris/shared';
 import { ExconDashboardResponseSchema } from '@cyris/contracts';
@@ -62,6 +62,11 @@ skipWithoutVerifiedDatabase('EXCON dashboard is event-scoped, permission-checked
       {eventId:eventB,level:1,reason:'OTHER EVENT PRIVATE'},
     ]);
     const phaseA=generateId();
+    const scenarioTime=new Date('2047-05-01T12:00:00Z');
+    await db.insert(scenarioClocks).values([
+      {eventId:eventA,mode:'SCENARIO_TIME',scenarioBaseTime:scenarioTime,realBaseTime:new Date(),pausedAt:new Date(),pausedScenarioTime:scenarioTime},
+      {eventId:eventB,mode:'SCENARIO_TIME',scenarioBaseTime:new Date('2099-01-01T00:00:00Z'),realBaseTime:new Date()},
+    ]);
     await db.insert(scenarioPhases).values([
       {id:phaseA,eventId:eventA,code:'PH-02',title:'Escalation',sequence:2,status:'ACTIVE'},
       {eventId:eventA,code:'PH-01',title:'Opening',sequence:1,status:'COMPLETED'},
@@ -115,6 +120,9 @@ skipWithoutVerifiedDatabase('EXCON dashboard is event-scoped, permission-checked
     assert.equal(dashboard.defcon.level,3);
     assert.equal(dashboard.activePhase?.title,'Escalation');
     assert.deepEqual(dashboard.phases,{total:2,completed:1});
+    assert.deepEqual(dashboard.scenarioClock,{mode:'SCENARIO_TIME',scenarioTime:scenarioTime.toISOString(),paused:true,speedMultiplier:1});
+    assert.deepEqual(dashboard.phaseTimeline.map(p=>p.code),['PH-01','PH-02']);
+    assert.equal(dashboard.phaseTimeline[1]?.status,'ACTIVE');
     assert.deepEqual(dashboard.injects,{total:5,ready:1,blocked:1,scheduled:1,released:1,draft:1});
     assert.equal(dashboard.upcomingInjects.length,3);
     assert.equal(dashboard.upcomingInjects[0]?.status,'READY');
@@ -136,6 +144,11 @@ skipWithoutVerifiedDatabase('EXCON dashboard is event-scoped, permission-checked
     for(const forbidden of ['DO NOT LEAK','FOREIGN NOTICE','FOREIGN CONTENT','OTHER EVENT PRIVATE','SECRET-PHASE']){
       assert.equal(dumped.includes(forbidden),false,forbidden);
     }
+    await db.delete(scenarioClocks).where(eq(scenarioClocks.eventId,eventA));
+    const fallback=await service.overview(eventA,actor(organizer));
+    assert.equal(fallback.scenarioClock.mode,'REAL_TIME');
+    assert.equal(fallback.scenarioClock.scenarioTime,fallback.asOf);
+    assert.equal(fallback.scenarioClock.paused,false);
     // Revoking the organizer role or event membership must immediately revoke dashboard access.
     await db.update(eventMemberships).set({status:'INACTIVE'}).where(eq(eventMemberships.id,membershipRows[0]!.id));
     await assert.rejects(service.overview(eventA,actor(organizer)),ForbiddenException);

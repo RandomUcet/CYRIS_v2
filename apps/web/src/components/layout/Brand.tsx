@@ -1,8 +1,8 @@
 export function CyrisWordmark({ compact = false }: { compact?: boolean }) {
   return (
-    <svg className={compact ? 'cyris-signature compact' : 'cyris-signature'} viewBox={compact ? '0 0 38 32' : '0 0 110 32'} role="img" aria-label="CYRIS">
-      <use href="/brand/cyris.svg#signal" className="cyris-signal" />
-      {!compact && <use href="/brand/cyris.svg#letters" fill="currentColor" />}
+    <svg className={compact ? 'cyris-signature compact' : 'cyris-signature'} viewBox={compact ? '0 0 38 32' : '0 0 121 32'} role="img" aria-label="CYRIS">
+      <use href="/brand/cyris.svg?v=2#signal" className="cyris-signal" />
+      {!compact && <use href="/brand/cyris.svg?v=2#letters" fill="currentColor" />}
     </svg>
   );
 }

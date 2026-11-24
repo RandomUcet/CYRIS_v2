@@ -6,3 +6,8 @@ test('roster rendering is bounded and inactive tabs cancel membership loads',()=
  assert.match(t,/sortedData\.slice\(\(page-1\)\*size,page\*size\)/);
  assert.match(t,/visible\.map\(/);
 });
+
+test('preview does not leave users management in perpetual loading',()=>{
+ const p=readFileSync(new URL('../app/admin/users/page.tsx',import.meta.url),'utf8');
+ assert.match(p,/if\(viewAs\)return <AppShell/);
+});

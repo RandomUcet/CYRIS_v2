@@ -28,3 +28,10 @@ test('legal inbox is top-aligned and EXCON white text is scoped to readable colo
  assert.match(css,/\.legal-inbox-workspace\{[^}]*margin:0 auto/);
  assert.match(css,/\.workspace-content :is\(\.excon-optimized,\.broadcast-optimized\) \.text-white\{color:var\(--text-primary\)/);
 });
+
+test('EXCON attention precedes quick actions and scope changes cancel old requests',()=>{
+ const source=read('../app/events/[eventId]/excon/page.tsx');
+ assert.ok(source.indexOf('Vyžaduje pozornost')<source.indexOf('Rychlé ovládání'));
+ assert.match(source,/controllerRef\.current\?\.abort\(\)/);
+ assert.match(source,/result\.data\?\.event\.id===eventId/);
+});

@@ -203,6 +203,7 @@ export default function AdminUsersPage() {
     ...(isPlatformAdmin ? [{ header: cs ? 'Náhled' : 'Preview', accessor: (member: MembershipResponse) => <button type="button" className="btn btn-secondary" disabled={mutationBusy || member.status !== 'ACTIVE' || member.user?.status !== 'ACTIVE' || member.platformRoles.length > 0 || member.userId === currentUser?.user.id} onClick={() => { setTarget(member); setReason(''); setActionError(null); }} title={cs ? 'Zobrazit cvičení s oprávněními účastníka, pouze pro čtení' : 'Inspect this exercise with the participant’s permissions, read only'}><Eye size={14} />{starting === member.id ? (cs ? 'Otevírám…' : 'Opening…') : (cs ? 'Zobrazit jako' : 'View as')}</button> }] : []),
   ];
 
+  if(viewAs)return <AppShell title={tr('Uživatelé a přístupy','Users & access')}><EmptyState icon={<Shield size={28}/>} title={tr('Náhled účastníka','Participant preview')} description={tr('Správa uživatelů není v režimu náhledu dostupná. Ukončete náhled pro návrat do administrace.','User management is unavailable in participant preview. Exit preview to return to administration.')}/></AppShell>;
   return <AppShell title={cs ? 'Uživatelé a přístupy' : 'Users & access'} breadcrumbs={[{ label: 'Administration' }, { label: 'Users & Access' }]}>
     <div className="roster-page">
       <header className="access-workspace-header">
@@ -249,7 +250,7 @@ export default function AdminUsersPage() {
         <TeamPreviewAccess />
       </>}
       {tab==='participants'&&<>{rosterReady && actionError && <div role="alert" className="roster-action-error">{actionError}</div>}
-      {loadingEvents || (currentEvent && (loading || !rosterReady)) ? <LoadingState /> : !currentEvent ? <EmptyState icon={<Users size={28} />} title={cs ? 'Vyber cvičení' : 'Select an exercise'} description={cs ? 'Zobrazí se jeho účastníci, týmy a přidělené role.' : 'See its participants, teams and assigned roles.'} /> : error ? <ErrorState message={error} onRetry={() => setRevision((value) => value + 1)} /> : <>
+      {loadingEvents || !currentUser || (currentEvent && (loading || !rosterReady)) ? <LoadingState /> : !currentEvent ? <EmptyState icon={<Users size={28} />} title={cs ? 'Vyber cvičení' : 'Select an exercise'} description={cs ? 'Zobrazí se jeho účastníci, týmy a přidělené role.' : 'See its participants, teams and assigned roles.'} /> : error ? <ErrorState message={error} onRetry={() => setRevision((value) => value + 1)} /> : <>
         <div className="roster-toolbar" aria-label={tr('Přehled účastníků','Participant overview')}>
           <span>{tr('Aktivní','Active')}: <strong>{counts.active}</strong></span>
           <span>{tr('Neaktivní členství','Inactive memberships')}: <strong>{counts.inactive}</strong></span>

@@ -1,0 +1,39 @@
+# Intelligence & Operations — design and safety boundary
+
+## Current increment
+Organizer-only overview and two bounded Spark draft operations. Signal counts are observations, not causal explanations. No background LLM calls, automatic hints, or writes from generated content. Audit metadata uses existing ai_runs; raw prompt and completion are not stored by the gateway. Real inference performance is unverified.
+
+## Next increments
+1. Persist organizer-approved exercise blueprint, versioned and scoped per event; separate confidential answer key from participant data. Preview changes with dependencies, idempotency and explicit approval before applying.
+2. Worker-based observer with persisted last activity, configurable grace windows aligned to scenario time, pause/hold awareness, durable deduplication and intervention cooldowns. Use deterministic measurements first; Spark explains selected observations, not continuous polling. Organizer approves suggested hint. No autonomous participant messaging until a separately reviewed policy and leak tests exist.
+3. Participant assistant retrieves only authorized records; never receives organizer blueprint or answers. Treat prompts and documents as untrusted, cite records, no tools that mutate state without separate authorization.
+4. Legal corpus: official Czech e-Sbírka source, exact provision/version/effective date, provenance and retrieval tests; distinguish legal research from binding judgment. No fabricated law and no sending confidential records outside approved local provider. Index only verified texts under applicable reuse terms.
+5. Spark: distributed bounded concurrency exists; instrument queue pressure and duration, define interactive/background priority and tune with real hardware, not speculative concurrency increases.
+6. Resilience: Compose restart policies already exist. Add a host-side health/recovery design with bounded backoff, maintenance lock, dependency checks and tested restore; never auto-restore an old backup or restart during migrations. External Spark host needs its own recovery policy.
+7. Relations: component grouping, focused graph and readable overview; test large fictional dataset and measure browser performance.
+
+Release 2.4.22 remains a draft until a substantial tested scope is ready. No new public release for this increment.
+
+## Official legal source verification (2026-11-24)
+- https://zakony.gov.cz/otevrena-data-a-verejna-api-systemu-esbirka-od-15-ledna-2024 — official open data and APIs.
+- https://e-sbirka.gov.cz/restful-api — REST access registration and incremental changed/repealed text endpoints.
+- https://e-sbirka.gov.cz/pristup-pres-stale-url-a-eli — stable URLs and provision citations.
+- https://zakony.gov.cz/omezeni-esbirky-spojene-s-postupnym-spoustenim-elegislativy-do-ostreho-provozu — transitional schema/identifier caveats; do not assume stable fragment IDs through the transition. Import/version reconciliation must be verified before production. No corpus downloaded or legal assistant enabled yet.
+
+## Observer first implementation
+The worker produces short-lived aggregate observations independently of browser visits. It examines EVENT-visible task rows only, uses 12 real hours as an initial review threshold, suppresses current pauses/holds, and stores no personal information or prompt. The EXCON-only endpoint validates identity and freshness; no signal authorizes a hint or proves a team is inactive. No durable longitudinal history or autonomous intervention yet.
+
+## Persistent blueprint increment
+Organizer-authored versioned scenario context is stored separately from events and public descriptions, in PostgreSQL with atomic revision/audit writes. It is not an answer key API for participants. Saving requires the current revision, and closed/archived exercises are read-only. Old content is retained for revision provenance; no raw scenario text in audit metadata. Migration 0031 needs isolated verification and backup before production.
+
+## Advice review increment
+Validated server-produced drafts are retained in a dedicated organizer-only store with exact observed signal counts and blueprint revision, run ID, model, generation time, and latest per-action review. Review updates use optimistic locking and atomic metadata-only audit. History displays the latest 20 drafts, including after reload. Accept means internal human review only; it does not create tasks, deliver hints or change configuration. Full prompt is not retained. Private generated content is included in database backups and must follow exercise retention policy.
+
+## Action engine — first safe handoff
+An accepted INTERVENTION action may be converted into one unscheduled, team-scoped INFO broadcast draft by an organizer, during an active event. Human-written wording is required, no private proposal is copied, and explicit safe-content attestation is required. The existing broadcast workflow still controls editing, audience review, scheduling and delivery. Handoff and plan creation share a database transaction and audit records. No autonomous delivery, generic tool execution, or reversible deletion. Once handed off, review is locked; manage the actual draft in the broadcast workspace. This is not an automated leak detector.
+
+## Legal library first increment
+Curated, event-scoped statutory excerpts are stored with SHA-256, source URL and stated effective interval. Organizer attestation is not automatic official verification. Search requires an explicit date; AI receives only selected excerpts and the entered fictional question, never the private blueprint. Citation IDs are checked against selected effective sources; substantive accuracy still requires human review. No bulk import or automatic synchronization yet; source maintenance currently requires nonoverlapping intervals known at insertion. Do not import real confidential case details or use the output as a verdict.
+
+## Bounded Spark admission
+Short synchronous wait with Redis FIFO per lane and priority support; defaults: 8 seconds, 16 pending, existing 2 total concurrency (one reserved for support when limit >1). Environment keys CYRIS_AI_MAX_WAIT_MS and CYRIS_AI_MAX_PENDING. No durable jobs or automatic inference retries. Waiting claims expire, same-user and duplicate-scope work is rejected, prompts never enter Redis. One API version/configuration across replicas is required; do not mix old/new admission implementations during live exercise. Measure actual workload before changing concurrent slots. Dashboard separates admission and provider wall time and reports sample counts, capacity errors and timeout counts. P95 refers to recorded attempt duration, not successful inference alone.
