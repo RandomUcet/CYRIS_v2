@@ -71,7 +71,10 @@ function DashboardPage({eventId}:{eventId:string}) {
       const result=await apiClient.getExconDashboard(eventId,controller.signal);
       if(generation.current!==request)return;
       if(result.ok&&result.data?.event.id===eventId){setSnapshot(result.data);setNow(Date.now());setError('');}
-      else setError(result.error||'Unable to load EXCON overview');
+      else {
+        if(result.status===401||result.status===403||result.status===404||result.ok)setSnapshot(null);
+        setError(result.error||tr('Přehled EXCON není dostupný','Unable to load EXCON overview'));
+      }
     }catch(err){
       if(!controller.signal.aborted&&generation.current===request)setError(err instanceof Error?err.message:tr('Připojení není dostupné','Connection unavailable'));
     }finally{
@@ -108,7 +111,7 @@ function DashboardPage({eventId}:{eventId:string}) {
   }
 
   const attention=snapshot?exconAttention(snapshot).map(item=>({
-    ...item,href:base+item.route,label:cs?item.cs:item.en,
+    ...item,href:item.route?base+item.route:null,label:cs?item.cs:item.en,
   })):[];
   const freshness=snapshotFreshness(snapshot?.asOf,now,autoRefresh,Boolean(error));
 
@@ -170,11 +173,11 @@ function DashboardPage({eventId}:{eventId:string}) {
         <section className="rounded-xl border border-slate-700 bg-slate-900 p-4 md:p-5">
           <h2 className="flex items-center gap-2 text-base font-semibold text-white"><AlertTriangle size={17}/>{tr('Vyžaduje pozornost','Needs attention')}</h2>
           {attention.length?<div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            {attention.map(item=><Link key={item.key} href={item.href}
-              className="flex items-center justify-between rounded-lg border border-amber-900 bg-amber-950/20 p-3 hover:bg-amber-950/50">
-              <div><p className="text-2xl font-bold tabular-nums text-amber-200">{item.count}</p><p className="mt-1 text-xs text-slate-300">{item.label}</p></div>
-              <ArrowRight size={16} className="text-amber-300"/>
-            </Link>)}
+            {attention.map(item=>{
+              const content=<><div><p className="text-2xl font-bold tabular-nums text-amber-200">{item.count}</p><p className="mt-1 text-xs text-slate-300">{item.label}</p></div>{item.href&&<ArrowRight size={16} className="text-amber-300"/>}</>;
+              const style="flex items-center justify-between rounded-lg border border-amber-900 bg-amber-950/20 p-3";
+              return item.href?<Link key={item.key} href={item.href} className={style}>{content}</Link>:<div key={item.key} className={style}>{content}</div>;
+            })}
           </div>:<p className="mt-3 text-sm text-slate-400">{tr('V těchto sledovaných oblastech nejsou žádné otevřené položky.','No outstanding items in these monitored categories.')}</p>}
         </section>
 

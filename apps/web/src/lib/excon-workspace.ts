@@ -2,7 +2,7 @@ import type {ExconDashboardResponse} from '@cyris/contracts';
 type Snapshot=Pick<ExconDashboardResponse,'holds'|'broadcasts'|'participation'|'injects'>;
 export function exconAttention(snapshot:Snapshot){
  return [
- {key:'holds',count:snapshot.holds.active,cs:'Provozní blokace cvičení',en:'Exercise operational holds',route:'/command'},
+ {key:'holds',count:snapshot.holds.active,cs:'Provozní blokace cvičení',en:'Exercise operational holds',route:null},
  {key:'failed',count:snapshot.broadcasts.failed,cs:'Neúspěšné plánované zprávy',en:'Failed scheduled broadcasts',route:'/broadcast'},
  {key:'urgent',count:snapshot.participation.urgentUnread,cs:'Nepřečtená urgentní doručení',en:'Unread urgent deliveries',route:'/broadcast'},
  {key:'ready',count:snapshot.injects.ready,cs:'Vstupy připravené k vydání',en:'Injects ready for release',route:'/scenario/control'},
