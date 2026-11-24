@@ -36,7 +36,7 @@ function Workspace({eventId}:{eventId:string}){
  return <AppShell title="Intelligence Center" breadcrumbs={[{label:'EXCON',href:base+'/excon'},{label:'Intelligence Center'}]}>
  <main className="excon-optimized mx-auto max-w-[1440px] p-4 md:p-8"><div className="intel-shell">
  <header><h1>{tr('Intelligence Center','Intelligence Center')}</h1><p className="intel-muted">{tr('Privátní operační prostředí EXCONu · NVIDIA DGX Spark','Private EXCON operational workspace · NVIDIA DGX Spark')}</p></header>
- <div className="intel-actions"><Link href={base+'/excon'}>{tr('Zpět na EXCON','Back to EXCON')}</Link><button type="button" onClick={()=>setRevision(n=>n+1)}>{tr('Obnovit přehled','Refresh overview')}</button></div>
+ <div className="intel-actions"><Link className="btn btn-secondary" href={base+'/excon/intelligence/presentation'}>{tr('Prezentační režim','Presentation mode')}</Link><Link href={base+'/excon'}>{tr('Zpět na EXCON','Back to EXCON')}</Link><button type="button" onClick={()=>setRevision(n=>n+1)}>{tr('Obnovit přehled','Refresh overview')}</button></div>
  {error&&<p role="alert">{error}</p>}
  {!overview&&!error&&<p role="status">{tr('Načítám přehled…','Loading overview…')}</p>}
  {overview&&<>

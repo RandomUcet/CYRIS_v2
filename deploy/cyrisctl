@@ -1324,11 +1324,12 @@ def watchdog_states(raw):
 
 def watchdog_decision(states, previous, now):
     """One restart at most; all critical dependencies must report healthy."""
+    budgets = {s: {"count": 0, "seen": now, "attempts": [t for t in previous.get(s, {}).get("attempts", []) if isinstance(t, (int, float)) and now-WATCHDOG_WINDOW <= t <= now]} for s in APP_SERVICES}
     if not all(states.get(s) == ("running", "healthy") for s in WATCHDOG_DEPENDENCIES):
-        return None, {}, "Critical dependency unavailable; recovery suppressed"
+        return None, budgets, "Critical dependency unavailable; recovery suppressed"
     # Never start a manually stopped/missing service or act during partial rollout.
     if not all(states.get(s, (None, None))[0] == "running" for s in APP_SERVICES):
-        return None, {}, "Application stack not fully running; recovery suppressed"
+        return None, budgets, "Application stack not fully running; recovery suppressed"
     samples = {}
     for service in APP_SERVICES:
         if states[service][1] != "unhealthy":
@@ -1403,9 +1404,7 @@ WantedBy=timers.target
     if action == "status":
         print("Read-only; timer status is available with systemctl status cyris-watchdog.timer")
         return
-    # Preserve previous cooldown history during dependency/maintenance outages.
-    if not samples and not service:
-        return
+    # Reset consecutive observations on dependency outages while preserving budgets.
     if service:
         samples[service]["attempts"].append(now)
         samples[service]["count"] = 0
