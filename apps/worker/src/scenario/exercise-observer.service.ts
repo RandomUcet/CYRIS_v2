@@ -1,7 +1,7 @@
 import {Injectable,Logger} from '@nestjs/common';
 import {loadConfig} from '@cyris/config';
-import {getDbClient,events,operationalTasks,resources,scenarioClocks,operationalHolds} from '@cyris/db';
-import {and,eq,inArray,isNull,or,gt,lte,sql} from 'drizzle-orm';
+import {getDbClient,events,operationalTasks,resources,scenarioClocks,operationalHolds,exerciseBlueprints} from '@cyris/db';
+import {and,eq,inArray,isNull,sql} from 'drizzle-orm';
 import {Redis} from 'ioredis';
 import {exerciseObserverKey,ExerciseObserverSnapshotSchema} from '@cyris/contracts';
 
@@ -23,12 +23,13 @@ export class ExerciseObserverWorkerService{
  private async observe(){
   // Cross-replica rate limit; lease expires even if the worker exits.
   if(await this.redis.set('cyris:exercise-observer:tick:v1','1','PX',50000,'NX')!=='OK')return;
-  const now=new Date(),cutoff=new Date(now.getTime()-12*3600000);
-  const rows=await this.db.select({eventId:events.id,pending:sql<number>`count(${operationalTasks.id})::int`,unchanged12h:sql<number>`count(*) filter (where ${operationalTasks.updatedAt}<=${cutoff})::int`,blocked:sql<number>`count(*) filter (where ${operationalTasks.status}='BLOCKED')::int`})
+  const now=new Date();
+  const reviewHours=sql<number>`coalesce((select ${exerciseBlueprints.reviewAfterHours} from ${exerciseBlueprints} where ${exerciseBlueprints.eventId}=${events.id} order by ${exerciseBlueprints.revision} desc limit 1),12)`;
+  const rows=await this.db.select({eventId:events.id,pending:sql<number>`count(${operationalTasks.id})::int`,reviewAfterHours:reviewHours,unchanged:sql<number>`count(*) filter (where ${operationalTasks.updatedAt}<=${now.toISOString()}::timestamptz - (${reviewHours} * interval '1 hour'))::int`,blocked:sql<number>`count(*) filter (where ${operationalTasks.status}='BLOCKED')::int`})
    .from(events)
    .leftJoin(scenarioClocks,eq(scenarioClocks.eventId,events.id))
    .leftJoin(operationalTasks,and(eq(operationalTasks.eventId,events.id),inArray(operationalTasks.status,['OPEN','ACKNOWLEDGED','IN_PROGRESS','BLOCKED']),sql`exists (select 1 from ${resources} where ${resources.id}=${operationalTasks.id} and ${resources.eventId}=${events.id} and ${resources.visibility}='EVENT')`))
-   .where(and(eq(events.status,'ACTIVE'),isNull(scenarioClocks.pausedAt),isNull(scenarioClocks.pausedScenarioTime),sql`not exists (select 1 from ${operationalHolds} where ${operationalHolds.eventId}=${events.id} and ${operationalHolds.targetType}='EVENT' and ${operationalHolds.module} in ('ALL','tasks') and ${operationalHolds.restoredAt} is null and ${operationalHolds.startsAt}<=${now} and (${operationalHolds.expiresAt} is null or ${operationalHolds.expiresAt}>${now}))`)).groupBy(events.id);
+   .where(and(eq(events.status,'ACTIVE'),isNull(scenarioClocks.pausedAt),isNull(scenarioClocks.pausedScenarioTime),sql`not exists (select 1 from ${operationalHolds} where ${operationalHolds.eventId}=${events.id} and ${operationalHolds.targetType}='EVENT' and ${operationalHolds.module} in ('ALL','tasks') and ${operationalHolds.restoredAt} is null and ${operationalHolds.startsAt}<=${now.toISOString()}::timestamptz and (${operationalHolds.expiresAt} is null or ${operationalHolds.expiresAt}>${now.toISOString()}::timestamptz))`)).groupBy(events.id);
   if(this.stopping)return;
   // No history of identities or task descriptions; Redis is a disposable derived cache.
   for(let i=0;i<rows.length;i+=100){

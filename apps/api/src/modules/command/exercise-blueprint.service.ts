@@ -26,6 +26,7 @@ export class ExerciseBlueprintService{
   await this.authorize(eventId,actor);
   return this.db.client.transaction(async tx=>{
    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('exercise-blueprint:' || ${eventId}))`);
+   await this.authorize(eventId,actor);
    const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).for('update').limit(1);
    if(!event)throw new NotFoundException('Exercise not found');
    const [latest]=await tx.select({revision:exerciseBlueprints.revision}).from(exerciseBlueprints).where(eq(exerciseBlueprints.eventId,eventId)).orderBy(desc(exerciseBlueprints.revision)).limit(1);

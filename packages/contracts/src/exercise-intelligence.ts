@@ -7,9 +7,9 @@ export const ExerciseAdviceInputSchema=z.object({
 export type ExerciseAdviceInput=z.infer<typeof ExerciseAdviceInputSchema>;
 export const ExerciseSignalSchema=z.object({id:z.string(),level:z.enum(['HIGH','MEDIUM']),label:z.string(),labelCs:z.string(),count:z.number().int().nonnegative(),source:z.string(),href:z.string()});
 export type ExerciseSignal=z.infer<typeof ExerciseSignalSchema>;
-export const ExerciseObserverSnapshotSchema=z.object({eventId:z.string().uuid(),observedAt:z.string().datetime(),pending:z.number().int().nonnegative(),unchanged12h:z.number().int().nonnegative(),blocked:z.number().int().nonnegative()}).strict();
+export const ExerciseObserverSnapshotSchema=z.object({eventId:z.string().uuid(),observedAt:z.string().datetime(),pending:z.number().int().nonnegative(),reviewAfterHours:z.number().int().min(1).max(72),unchanged:z.number().int().nonnegative(),blocked:z.number().int().nonnegative()}).strict();
 export type ExerciseObserverSnapshot=z.infer<typeof ExerciseObserverSnapshotSchema>;
-export const exerciseObserverKey=(eventId:string)=>'cyris:exercise-observer:v1:'+eventId;
+export const exerciseObserverKey=(eventId:string)=>'cyris:exercise-observer:v2:'+eventId;
 export const ExerciseIntelligenceOverviewSchema=z.object({
  eventId:z.string().uuid(),asOf:z.string(),
  event:z.object({id:z.string().uuid(),name:z.string(),status:z.string(),timezone:z.string()}),defcon:z.object({level:z.number().int().min(1).max(5).nullable(),updatedAt:z.string().nullable()}),phases:z.object({total:z.number().int(),completed:z.number().int()}),activePhase:z.object({id:z.string().uuid(),code:z.string(),title:z.string()}).nullable(),participation:z.object({activeUsers:z.number().int(),activeTeams:z.number().int()}),provider:z.object({configured:z.boolean(),enabled:z.boolean(),status:z.string(),providerName:z.string().optional(),chatModel:z.string().optional()}),

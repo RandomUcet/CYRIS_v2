@@ -5,7 +5,7 @@ import {exerciseObserverKey,ExerciseObserverSnapshotSchema,type ExconDashboardRe
 export function validObserverSample(raw:string|null,snapshot:Pick<ExconDashboardResponse,'event'|'scenarioClock'|'holds'>,now=Date.now()):ExerciseObserverSnapshot|null{
  if(!raw||snapshot.event.status!=='ACTIVE'||snapshot.scenarioClock.paused||snapshot.holds.modules.some(m=>m==='ALL'||m==='tasks'))return null;
  try{const parsed=ExerciseObserverSnapshotSchema.parse(JSON.parse(raw)),age=now-Date.parse(parsed.observedAt);
-  return parsed.eventId===snapshot.event.id&&age>=-5000&&age<=180000&&parsed.unchanged12h<=parsed.pending&&parsed.blocked<=parsed.pending?parsed:null;
+  return parsed.eventId===snapshot.event.id&&age>=-5000&&age<=180000&&parsed.unchanged<=parsed.pending&&parsed.blocked<=parsed.pending?parsed:null;
  }catch{return null;}
 }
 @Injectable()
