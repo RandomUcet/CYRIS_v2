@@ -188,7 +188,7 @@ function DashboardPage({eventId}:{eventId:string}) {
               <h2 className="text-base font-semibold text-white">{tr('Scénář a injecty','Scenario injects')}</h2>
               <Link className="text-xs font-medium text-sky-400 hover:underline" href={base+'/scenario/control'}>{tr('Otevřít režii','Open run sheet')}</Link>
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center sm:grid-cols-6">
+            <div className="excon-metrics mt-4 grid grid-cols-3 gap-2 text-center sm:grid-cols-6">
               {[
                 [tr('Celkem','Total'),snapshot.injects.total],
                 [tr('Připravené','Ready'),snapshot.injects.ready],
@@ -207,7 +207,7 @@ function DashboardPage({eventId}:{eventId:string}) {
               <h2 className="text-base font-semibold text-white">{tr('Notifikace a zapojení','Messaging & engagement')}</h2>
               <Link className="text-xs font-medium text-sky-400 hover:underline" href={base+'/broadcast'}>{tr('Spravovat zprávy','Manage notices')}</Link>
             </div>
-            <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+            <div className="excon-metrics mt-4 grid grid-cols-4 gap-2 text-center">
               {[
                 [tr('Koncepty','Drafts'),snapshot.broadcasts.draft],
                 [tr('Čekající','Scheduled'),snapshot.broadcasts.scheduled],

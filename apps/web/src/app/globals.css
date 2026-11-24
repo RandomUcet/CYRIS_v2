@@ -2252,3 +2252,6 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
 .legal-inbox-workspace [aria-pressed=true]{background:var(--accent-subtle);border-color:var(--accent-primary);color:var(--text-primary)}
 .legal-inbox-empty{background:var(--bg-panel);border:1px solid var(--border-default);border-radius:8px;display:grid;gap:8px;justify-items:center;padding:32px 16px;text-align:center;margin-top:12px;color:var(--text-secondary)}
 .legal-inbox-empty strong{color:var(--text-primary)}
+
+.workspace-content .excon-optimized .excon-metrics{grid-template-columns:repeat(auto-fit,minmax(min(100%,90px),1fr));gap:8px}
+.workspace-content .excon-optimized .excon-metrics>div{min-height:64px;display:flex;flex-direction:column;justify-content:center;overflow-wrap:anywhere}

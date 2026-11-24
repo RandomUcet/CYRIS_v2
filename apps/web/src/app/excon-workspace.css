@@ -91,3 +91,6 @@
 :is(.excon-optimized,.broadcast-optimized) button:disabled{cursor:not-allowed;opacity:.5}
 @media(max-width:500px){:is(.excon-optimized,.broadcast-optimized) .grid-cols-4,:is(.excon-optimized,.broadcast-optimized) .grid-cols-3{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(prefers-reduced-motion:reduce){:is(.excon-optimized,.broadcast-optimized) .animate-spin{animation:none}:is(.excon-optimized,.broadcast-optimized) .transition-colors{transition:none}}
+
+.broadcast-optimized .broadcast-composer-form{min-width:0}
+.excon-optimized .excon-metrics{min-width:0}

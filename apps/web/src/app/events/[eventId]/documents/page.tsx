@@ -56,8 +56,14 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
 
   const canUpload=!viewAs&&(hasPermission('document.create',eventId)||hasPermission('platform.manage'));
   const canVersion=!viewAs&&(hasPermission('document.version',eventId)||hasPermission('platform.manage'));
+  const listRequest=useRef(0),detailRequest=useRef(0);
+  const alive=useRef(true);
+  const uploadLock=useRef(false);
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;listRequest.current++;detailRequest.current++;};},[]);
+  const closeDetail=()=>{if(uploadLock.current)return;detailRequest.current++;setSelectedDoc(null);setDetailLoading(false);setShowVersionModal(false);};
 
   const fetchDocuments = async () => {
+    const request=++listRequest.current;
     setLoading(true);
     setError(null);
     try {
@@ -65,15 +71,16 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
         documentType: typeFilter || undefined,
         status: statusFilter || undefined,
       });
+      if(!alive.current||request!==listRequest.current)return;
       if (res.ok && res.data) {
         setDocuments(res.data.items);
       } else {
         setError(res.error || 'Failed to load documents');
       }
     } catch (err: any) {
-      setError(err.message || 'Network error');
+      if(alive.current&&request===listRequest.current)setError(err.message || 'Network error');
     } finally {
-      setLoading(false);
+      if(alive.current&&request===listRequest.current)setLoading(false);
     }
   };
 
@@ -84,17 +91,15 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
   }, [eventId, typeFilter, statusFilter]);
 
   const openDocumentDetail = async (docId: string) => {
-    setDetailLoading(true);
+    if(uploadLock.current)return;
+    const request=++detailRequest.current;setSelectedDoc(null);setDetailLoading(true);setError(null);
     try {
-      const res = await apiClient.getDocument(eventId, docId);
-      if (res.ok && res.data) {
-        setSelectedDoc(res.data);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setDetailLoading(false);
-    }
+      const res=await apiClient.getDocument(eventId,docId);
+      if(!alive.current||request!==detailRequest.current)return;
+      if(res.ok&&res.data&&res.data.id===docId)setSelectedDoc(res.data);
+      else setError(res.error||(locale==='cs'?'Detail dokumentu není dostupný.':'Unable to load document'));
+    }catch{if(alive.current&&request===detailRequest.current)setError(locale==='cs'?'Detail dokumentu není dostupný.':'Unable to load document');}
+    finally{if(alive.current&&request===detailRequest.current)setDetailLoading(false);}
   };
 
   const handleFileRead = (file: File): Promise<string> => {
@@ -113,12 +118,12 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(!canUpload||uploading)return;
+    if(!canUpload||uploading||uploadLock.current)return;
     if (!uploadForm.file) {
       setUploadError('Please select a file to upload');
       return;
     }
-    setUploading(true);
+    uploadLock.current=true;setUploading(true);
     setUploadError(null);
 
     try {
@@ -143,15 +148,15 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
     } catch (err: any) {
       setUploadError(err.message || 'Error reading file');
     } finally {
-      setUploading(false);
+      uploadLock.current=false;setUploading(false);
     }
   };
 
   const handleVersionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canVersion||uploading||!selectedDoc || !versionFile) return;
+    if (!canVersion||uploading||uploadLock.current||!selectedDoc || !versionFile) return;
 
-    setUploading(true);
+    uploadLock.current=true;setUploading(true);
     setUploadError(null);
     try {
       const base64Data = await handleFileRead(versionFile);
@@ -174,7 +179,7 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
     } catch (err: any) {
       setUploadError(err.message || 'Error reading file');
     } finally {
-      setUploading(false);
+      uploadLock.current=false;setUploading(false);
     }
   };
 
@@ -395,6 +400,7 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
         />
       )}
 
+      {detailLoading&&<p role="status">{locale==='cs'?'Načítám detail dokumentu…':'Loading document…'}</p>}
       {/* DOCUMENT DETAIL DRAWER */}
       {selectedDoc && (
         <div
@@ -407,7 +413,7 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
             justifyContent: 'flex-end',
             zIndex: 100,
           }}
-          onClick={() => setSelectedDoc(null)}
+          onClick={closeDetail}
         >
           <div
             style={{
@@ -438,8 +444,9 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
                 </div>
               </div>
               <button
-                onClick={() => setSelectedDoc(null)}
+                onClick={closeDetail}
                 style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                aria-label={locale==='cs'?'Zavřít dokument':'Close document'}
               >
                 <X size={18} />
               </button>
@@ -606,7 +613,7 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
             justifyContent: 'center',
             zIndex: 110,
           }}
-          onClick={() => setShowUploadModal(false)}
+          onClick={()=>{if(!uploadLock.current)setShowUploadModal(false);}}
         >
           <div
             style={{
@@ -622,7 +629,7 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>{tr("Upload Document")}</h3>
-              <button onClick={() => setShowUploadModal(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+              <button onClick={()=>{if(!uploadLock.current)setShowUploadModal(false);}} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                 <X size={18} />
               </button>
             </div>
@@ -704,7 +711,7 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
                 <button
                   type="button"
-                  onClick={() => setShowUploadModal(false)}
+                  onClick={()=>{if(!uploadLock.current)setShowUploadModal(false);}}
                   style={{ padding: '8px 14px', background: 'var(--bg-surface)', border: 'none', borderRadius: '6px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer' }}
                 >
                   {tr("Cancel")}
@@ -734,7 +741,7 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
             justifyContent: 'center',
             zIndex: 120,
           }}
-          onClick={() => setShowVersionModal(false)}
+          onClick={()=>{if(!uploadLock.current)setShowVersionModal(false);}}
         >
           <div
             style={{
@@ -752,7 +759,7 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
               <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
                 Upload New Revision
               </h3>
-              <button onClick={() => setShowVersionModal(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+              <button onClick={()=>{if(!uploadLock.current)setShowVersionModal(false);}} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                 <X size={18} />
               </button>
             </div>
@@ -787,7 +794,7 @@ function DocumentsWorkspace({eventId}:{eventId:string}){
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
                 <button
                   type="button"
-                  onClick={() => setShowVersionModal(false)}
+                  onClick={()=>{if(!uploadLock.current)setShowVersionModal(false);}}
                   style={{ padding: '8px 14px', background: 'var(--bg-surface)', border: 'none', borderRadius: '6px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer' }}
                 >
                   {tr("Cancel")}

@@ -13,3 +13,18 @@ test('EXCON and broadcast literal classes have scoped CSS coverage',()=>{
  }
  assert.match(read('../app/globals.css'),/@import '\.\/excon-workspace\.css'/);
 });
+
+test('document detail uses consistent surface tokens and guards outdated responses',()=>{
+ const doc=read('../app/events/[eventId]/documents/page.tsx');
+ assert.doesNotMatch(doc,/background: '#(?:111827|0f172a)'/);
+ assert.doesNotMatch(doc,/color: '#f3f4f6'/);
+ assert.match(doc,/request!==detailRequest\.current/);
+ assert.match(doc,/uploadLock\.current/);
+});
+test('legal inbox is top-aligned and EXCON white text is scoped to readable colors',()=>{
+ const legal=read('../app/events/[eventId]/legal-requests/page.tsx');
+ const css=read('../app/globals.css');
+ assert.match(legal,/className="legal-inbox-workspace"/);
+ assert.match(css,/\.legal-inbox-workspace\{[^}]*margin:0 auto/);
+ assert.match(css,/\.workspace-content :is\(\.excon-optimized,\.broadcast-optimized\) \.text-white\{color:var\(--text-primary\)/);
+});
