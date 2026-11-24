@@ -16,9 +16,9 @@ import styles from './ServiceAvailability.module.css';
 
 export function EventServiceAvailability({ eventId, children }: { eventId: string; children: ReactNode }) {
   const pathname = usePathname();
-  const { currentUser } = useAuth();
+  const { currentUser,viewAs } = useAuth();
   const service = serviceModuleForPath(pathname);
-  return <ServiceStatusProvider key={currentUser?.user.id ?? ''} eventId={currentUser ? eventId : null}>
+  return <ServiceStatusProvider key={(currentUser?.user.id??'')+':'+(viewAs?.id??'')+':'+eventId} eventId={currentUser ? eventId : null}>
     {service ? <ModuleContent eventId={eventId} service={service}>{children}</ModuleContent> : children}
   </ServiceStatusProvider>;
 }

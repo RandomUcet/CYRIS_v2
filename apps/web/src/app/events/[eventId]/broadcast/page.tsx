@@ -239,7 +239,7 @@ function BroadcastWorkspace({eventId}:{eventId:string}) {
     {label:tr('Řízení cvičení','Exercise control'),href:'/events/'+eventId+'/command'},
     {label:tr('Komunikační centrum','Broadcast center')}
   ]}>
-    <main className="mx-auto max-w-5xl space-y-6 p-5 md:p-8">
+    <main className="broadcast-optimized mx-auto max-w-5xl space-y-6 p-5 md:p-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><h1 className="text-2xl font-bold text-slate-100">{tr('Komunikační centrum cvičení','Exercise broadcast center')}</h1>
           <p className="mt-2 text-sm text-slate-400">{tr(

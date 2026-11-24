@@ -91,7 +91,7 @@ function DashboardPage({eventId}:{eventId:string}) {
   const base='/events/'+eventId;
   if(!authLoading&&!allowed) {
     return <AppShell breadcrumbs={[{label:'EXCON'}]}>
-      <main className="mx-auto max-w-5xl p-6">
+      <main className="excon-optimized mx-auto max-w-5xl p-6">
         <h1 className="text-xl font-bold text-slate-100">{tr('EXCON – řízení cvičení','EXCON – exercise control')}</h1>
         <p role="alert" className="mt-4 rounded border border-amber-800 bg-amber-950/30 p-4 text-slate-200">
           {tr('K souhrnu mají přístup pouze organizátoři s oprávněním spravovat scénář. Náhled účastníka zůstává oddělený.',
@@ -112,7 +112,7 @@ function DashboardPage({eventId}:{eventId:string}) {
     {label:tr('Cvičení','Exercise'),href:base+'/overview'},
     {label:'EXCON'}
   ]}>
-    <main className="mx-auto max-w-[1440px] space-y-6 p-4 pb-16 md:p-8">
+    <main className="excon-optimized mx-auto max-w-[1440px] space-y-6 p-4 pb-16 md:p-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.2em] text-sky-400">
