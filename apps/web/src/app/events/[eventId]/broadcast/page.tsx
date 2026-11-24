@@ -21,7 +21,8 @@ const types: Array<{key:Kind;cs:string;en:string;hintCs:string;hintEn:string}> =
 
 export default function ExerciseBroadcastPage() {
   const { eventId } = useParams<{eventId:string}>();
-  return <BroadcastWorkspace key={eventId} eventId={eventId}/>;
+  const {currentUser,viewAs}=useAuth();
+  return <BroadcastWorkspace key={JSON.stringify([eventId,currentUser?.user.id,viewAs?.id])} eventId={eventId}/>;
 }
 
 function BroadcastWorkspace({eventId}:{eventId:string}) {
@@ -96,10 +97,17 @@ function BroadcastWorkspace({eventId}:{eventId:string}) {
         if(!live)return;
         if(!u.ok||!u.data||!h.ok||!h.data||!p.ok||!p.data)throw new Error(u.error||h.error||p.error||'Unable to load exercise broadcasts');
         setTeams(u.data);setHistory(h.data);setPlans(p.data);
+        const linkedPlan=new URLSearchParams(window.location.search).get('plan');
+        if(linkedPlan&&!readOnly){
+          const plan=p.data.find(row=>row.id===linkedPlan&&row.eventId===eventId);
+          if(plan?.status==='DRAFT'){setEditing(plan);setTitle(plan.title);setMessage(plan.message);setKind(plan.kind);setAudience(plan.audience);setUnitId(plan.unitId??'');setScheduleAt('');changed();}
+          else if(plan){setSearch(plan.title);setStatusFilter(plan.status);}
+          else setError(tr('Odkazovaný koncept již není v dostupném přehledu.','Linked draft is no longer in the available overview.'));
+        }
       }).catch(e=>{if(live)setError(e instanceof Error?e.message:'Unable to load');})
       .finally(()=>{if(live)setLoading(false);});
     return ()=>{live=false;};
-  },[eventId]);
+  },[eventId,readOnly]);
   useEffect(()=>{
     let live=true;setAudiencePreview(null);setAudienceError('');
     if(loading || (audience==='UNIT'&&!unitId))return ()=>{live=false;};

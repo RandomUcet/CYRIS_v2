@@ -17,3 +17,10 @@ test('participant cannot access review store before authorization',async()=>{
  await assert.rejects(svc.list('event',{id:actor} as any),ForbiddenException);
  await assert.rejects(svc.review('event','run',{id:actor} as any,{} as any),ForbiddenException);
 });
+
+import {ExerciseAdviceHandoffInputSchema} from '@cyris/contracts';
+test('handoff requires fresh explicit team wording and safety confirmation',()=>{
+ const data={actionIndex:0,expectedRevision:2,unitId:actor,title:'Review leads',message:'Review your list of leads.',confirmedSafe:true};
+ assert.ok(ExerciseAdviceHandoffInputSchema.safeParse(data).success);
+ for(const invalid of [{...data,confirmedSafe:false},{...data,unitId:''},{...data,message:''},{...data,scheduledAt:now},{...data,audience:'ALL'}])assert.ok(!ExerciseAdviceHandoffInputSchema.safeParse(invalid).success);
+});
