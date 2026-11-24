@@ -129,6 +129,12 @@ test('event administration and read-only participant preview against isolated Po
       assert.ok(filter?.includes(unitA));
       assert.ok(!filter?.includes(unitB));
       assert.ok(!filter?.includes('platform.manage'));
+      const searchAuthz=new SearchAuthzService(database);
+      assert.equal(await searchAuthz.buildTypesenseFilter(participant,{typeFilter:'case || visibility:PLATFORM'}),null);
+      assert.equal(await searchAuthz.buildTypesenseFilter(admin,{typeFilter:'case || visibility:PLATFORM'}),null);
+      const allEvents=await searchAuthz.buildTypesenseFilter(participant);
+      assert.ok(allEvents?.includes(unitA));
+      assert.ok(!allEvents?.includes(unitB));
     });
 
     let previewId = '';

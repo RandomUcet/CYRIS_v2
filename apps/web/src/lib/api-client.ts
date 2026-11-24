@@ -330,7 +330,7 @@ export class CyrisApiClient {
 
   async search(
     query: string,
-    options?: { eventId?: string; types?: string; page?: number; limit?: number }
+    options?: { eventId?: string; types?: string; page?: number; limit?: number; signal?: AbortSignal }
   ): Promise<{ ok: boolean; data?: SearchResponse; error?: string }> {
     try {
       const params = new URLSearchParams();
@@ -343,6 +343,7 @@ export class CyrisApiClient {
       const res = await this.request(`${this.baseUrl}/search?${params.toString()}`, {
         cache: 'no-store',
         credentials: 'include',
+        signal: options?.signal,
       });
 
       if (!res.ok) {

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Client as TypesenseClient } from 'typesense';
 import {
   type SearchQueryFilters,
@@ -124,6 +124,7 @@ export class SearchService {
       per_page: limit,
       num_typos: 2,
       prefix: true,
+      include_fields: 'id,canonicalId,resourceType,title,subtitle,eventId,route,status,tags',
     };
 
     if (filterBy && filterBy.length > 0) {
@@ -181,14 +182,7 @@ export class SearchService {
       };
     } catch (err) {
       this.logger.error(`Search query failed: ${(err as Error).message}`);
-      // Fallback cleanly on Typesense error or missing collection
-      return {
-        query: query.q || '',
-        total: 0,
-        page,
-        limit,
-        results: [],
-      };
+      throw new ServiceUnavailableException('Search is temporarily unavailable. Please try again.');
     }
   }
 }
