@@ -6,7 +6,7 @@ import {ExerciseIntelligenceService} from './exercise-intelligence.service.js';
 import type {ExconDashboardResponse} from '@cyris/contracts';
 
 const eventId='12345678-1234-4123-8123-123456789abc';
-const snapshot={asOf:'2026-11-24T18:00:00.000Z',event:{id:eventId,status:'ACTIVE',timezone:'Europe/Prague'},scenarioClock:{paused:false},phases:{total:2,completed:0},injects:{blocked:1,ready:0},broadcasts:{failed:1},participation:{urgentUnread:0,briefingReceipts:0,briefingsAcknowledged:0},holds:{active:0,modules:[]}} as ExconDashboardResponse;
+const snapshot={asOf:'2026-11-24T18:00:00.000Z',event:{id:eventId,name:'Fixture',status:'ACTIVE',timezone:'Europe/Prague'},scenarioClock:{paused:false,mode:'REAL_TIME',scenarioTime:'2026-11-24T18:00:00.000Z',speedMultiplier:1},phases:{total:2,completed:0},injects:{blocked:1,ready:0},broadcasts:{failed:1},participation:{urgentUnread:0,briefingReceipts:0,briefingsAcknowledged:0},holds:{active:0,modules:[]}} as ExconDashboardResponse;
 const actor={id:'organizer'} as any;
 const input={mode:'ARCHITECT' as const,brief:'Exercise planning context',locale:'cs' as const};
 const valid={summary:'Draft',actions:[{module:'EXCON',title:'Review',proposal:'Check delivery',reason:'Observed signal',signalIds:['failed-broadcasts']}],reviewNotes:[]};

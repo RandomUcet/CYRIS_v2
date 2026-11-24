@@ -218,6 +218,13 @@
       "when": 1792632000000,
       "tag": "0030_excon_planned_broadcasts",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792633000000,
+      "tag": "0031_exercise_blueprints",
+      "breakpoints": true
     }
   ]
 }

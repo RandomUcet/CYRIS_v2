@@ -22,3 +22,6 @@ Release 2.4.22 remains a draft until a substantial tested scope is ready. No new
 
 ## Observer first implementation
 The worker produces short-lived aggregate observations independently of browser visits. It examines EVENT-visible task rows only, uses 12 real hours as an initial review threshold, suppresses current pauses/holds, and stores no personal information or prompt. The EXCON-only endpoint validates identity and freshness; no signal authorizes a hint or proves a team is inactive. No durable longitudinal history or autonomous intervention yet.
+
+## Persistent blueprint increment
+Organizer-authored versioned scenario context is stored separately from events and public descriptions, in PostgreSQL with atomic revision/audit writes. It is not an answer key API for participants. Saving requires the current revision, and closed/archived exercises are read-only. Old content is retained for revision provenance; no raw scenario text in audit metadata. Migration 0031 needs isolated verification and backup before production.

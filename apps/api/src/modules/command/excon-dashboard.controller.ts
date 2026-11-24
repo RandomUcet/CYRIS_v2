@@ -4,12 +4,23 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { ExconDashboardService } from './excon-dashboard.service.js';
 import { ExerciseIntelligenceService } from './exercise-intelligence.service.js';
-import { ExerciseAdviceInputSchema } from '@cyris/contracts';
+import { ExerciseAdviceInputSchema, ExerciseBlueprintInputSchema } from '@cyris/contracts';
+import { ExerciseBlueprintService } from './exercise-blueprint.service.js';
 
 @Controller('events/:eventId/command/excon')
 @UseGuards(AuthGuard)
 export class ExconDashboardController {
-  constructor(private readonly dashboard:ExconDashboardService,private readonly intelligence:ExerciseIntelligenceService) {}
+  constructor(private readonly dashboard:ExconDashboardService,private readonly intelligence:ExerciseIntelligenceService,private readonly blueprints:ExerciseBlueprintService) {}
+
+  @Get('blueprint')
+  blueprint(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() actor:AuthenticatedUser){return this.blueprints.overview(eventId,actor);}
+
+  @Post('blueprint')
+  saveBlueprint(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() actor:AuthenticatedUser,@Body() body:unknown){
+    const input=ExerciseBlueprintInputSchema.safeParse(body);
+    if(!input.success)throw new BadRequestException('Invalid exercise blueprint');
+    return this.blueprints.save(eventId,actor,input.data);
+  }
 
   @Get('intelligence')
   intelligenceOverview(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() actor:AuthenticatedUser){

@@ -25,3 +25,21 @@ export const ExerciseAdviceDraftSchema=z.object({
 }).strict();
 export type ExerciseAdviceDraft=z.infer<typeof ExerciseAdviceDraftSchema>;
 export type ExerciseAdviceResult=ExerciseAdviceDraft&{eventId:string;runId:string;model:string;durationMs:number;generatedAt:string;status:'DRAFT';mode:ExerciseAdviceInput['mode']};
+
+/** Private organizer planning data; never part of participant event DTOs. */
+export const ExerciseBlueprintInputSchema=z.object({
+ expectedRevision:z.number().int().min(0).max(2147483646),
+ title:z.string().trim().min(3).max(160),
+ brief:z.string().trim().min(10).max(12000),
+ objectives:z.string().trim().max(6000),
+ constraints:z.string().trim().max(4000),
+ durationHours:z.number().int().min(1).max(168),
+ reviewAfterHours:z.number().int().min(1).max(72),
+}).strict();
+export type ExerciseBlueprintInput=z.infer<typeof ExerciseBlueprintInputSchema>;
+export const ExerciseBlueprintSchema=ExerciseBlueprintInputSchema.omit({expectedRevision:true}).extend({
+ eventId:z.string().uuid(),revision:z.number().int().positive(),
+ updatedAt:z.string().datetime(),updatedBy:z.string().uuid().nullable(),
+});
+export type ExerciseBlueprint=z.infer<typeof ExerciseBlueprintSchema>;
+export type ExerciseBlueprintOverview={current:ExerciseBlueprint|null;history:Array<Pick<ExerciseBlueprint,'revision'|'title'|'updatedAt'|'updatedBy'>>};
