@@ -548,6 +548,18 @@ export class CyrisApiClient {
   async updateDevice(eventId: string, deviceId: string, data: any) {
     return this.patchJson<any>(`/events/${eventId}/registry/devices/${deviceId}`, data);
   }
+  async getLicences(eventId: string) {
+    return this.fetchJson<any[]>(`/events/${eventId}/registry/licences`);
+  }
+  async getLicence(eventId: string,id:string) {
+    return this.fetchJson<any>(`/events/${eventId}/registry/licences/${id}`);
+  }
+  async createLicence(eventId:string,data:any) {
+    return this.postJson<any>(`/events/${eventId}/registry/licences`,data);
+  }
+  async updateLicence(eventId:string,id:string,data:any) {
+    return this.patchJson<any>(`/events/${eventId}/registry/licences/${id}`,data);
+  }
   async getWeapons(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/registry/weapons`);
   }

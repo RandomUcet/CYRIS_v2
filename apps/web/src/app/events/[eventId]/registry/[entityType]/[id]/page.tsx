@@ -84,6 +84,7 @@ export default function RegistryEntityDetailPage() {
       else if (entityType === 'devices') res = await apiClient.getDevice(eventId, id);
       else if (entityType === 'locations') res = await apiClient.getLocation(eventId, id);
       else if (entityType === 'weapons') res = await apiClient.getWeapon(eventId, id);
+      else if (entityType === 'licences') res = await apiClient.getLicence(eventId, id);
 
       if (res?.ok && res.data) {
         setEntityData(res.data);
@@ -193,6 +194,10 @@ export default function RegistryEntityDetailPage() {
       : entityType === 'locations' ? apiClient.updateLocation(eventId, id, payload)
       : entityType === 'vehicles' ? apiClient.updateVehicle(eventId, id, payload)
       : entityType === 'devices' ? apiClient.updateDevice(eventId, id, payload)
+      : entityType === 'licences' ? apiClient.updateLicence(eventId,id,{
+        title:editData.title,category:editData.category,licenceNumber:editData.licenceNumber || null,
+        validFrom:editData.validFrom,validUntil:editData.validUntil || null,status:editData.status,description:editData.description || null,
+      })
       : apiClient.updateWeapon(eventId, id, payload);
     const result = await update;
     if (result.ok) {
@@ -324,6 +329,7 @@ export default function RegistryEntityDetailPage() {
     if (entityType === 'vehicles') return `${entityData.label || [entityData.make, entityData.model].filter(Boolean).join(' ')}${entityData.registrationPlate ? ` (${entityData.registrationPlate})` : ''}`;
     if (entityType === 'devices') return `${entityData.label || entityData.deviceType || 'Device'}${entityData.serialNumber ? ` (${entityData.serialNumber})` : ''}`;
     if (entityType === 'locations') return entityData.name;
+    if (entityType === 'licences') return entityData.title;
     if (entityType === 'weapons') return `${entityData.category}${entityData.model ? ` — ${entityData.model}` : ''}`;
     return id;
   };
@@ -335,6 +341,7 @@ export default function RegistryEntityDetailPage() {
     if (entityType === 'devices') return 'DEV';
     if (entityType === 'locations') return 'LOC';
     if (entityType === 'weapons') return 'WPN';
+    if (entityType === 'licences') return 'LIC';
     return 'RES';
   };
 
@@ -344,6 +351,7 @@ export default function RegistryEntityDetailPage() {
     locations: [['name', 'Name'], ['locationType', 'Type'], ['addressText', 'Address'], ['city', 'City'], ['region', 'Region'], ['postalCode', 'Postal code'], ['country', 'Country'], ['description', 'Notes']],
     vehicles: [['label', 'Label'], ['registrationPlate', 'Registration plate'], ['make', 'Manufacturer'], ['model', 'Model'], ['variant', 'Variant'], ['modelYear', 'Year'], ['colour', 'Colour'], ['description', 'Notes']],
     devices: [['label', 'Label'], ['deviceType', 'Type'], ['manufacturer', 'Manufacturer'], ['model', 'Model'], ['serialNumber', 'Serial number'], ['assetTag', 'Asset tag'], ['hostname', 'Hostname'], ['operatingSystem', 'Operating system'], ['macAddress', 'MAC address'], ['ipAddress', 'IP address'], ['description', 'Notes']],
+    licences: [['title','Title'],['category','Category'],['licenceNumber','Licence number'],['validFrom','Valid from'],['validUntil','Valid until'],['status','Status'],['description','Notes']],
     weapons: [['category', 'Category / type'], ['manufacturer', 'Manufacturer'], ['model', 'Model'], ['serialNumber', 'Serial number'], ['calibre', 'Calibre / descriptor'], ['description', 'Notes']],
   };
 
@@ -780,7 +788,11 @@ export default function RegistryEntityDetailPage() {
                 {(editFields[entityType] || []).map(([key, label]) => (
                   <label key={key} style={{ display: 'grid', gap: 4, fontSize: 12 }}>
                     {label}
-                    <input className="input-field" value={editData[key] || ''} onChange={(event) => setEditData({ ...editData, [key]: event.target.value })} />
+                    {entityType === 'licences' && (key === 'category' || key === 'status') ?
+                      <select className="input-field" value={editData[key] || ''} onChange={event=>setEditData({...editData,[key]:event.target.value})}>
+                        {(key==='category'?['DRIVING','FIREARMS','PROFESSIONAL','BUSINESS','SECURITY','OTHER']:['ISSUED','SUSPENDED','REVOKED','ARCHIVED']).map(value=><option key={value}>{value}</option>)}
+                      </select> :
+                      <input type={entityType==='licences' && ['validFrom','validUntil'].includes(key)?'date':'text'} className="input-field" value={editData[key] || ''} onChange={(event) => setEditData({ ...editData, [key]: event.target.value })} />}
                   </label>
                 ))}
                 {entityType === 'persons' && (['emails', 'phones'] as const).map((kind) => (

@@ -148,7 +148,7 @@ function DashboardPage({eventId}:{eventId:string}) {
           </button>
         </div>
       </header>
-      <nav className="excon-toolbar" aria-label={tr('Pracovní agendy EXCON','EXCON workspaces')}>{actionLinks.filter(item=>!item.permission||hasPermission(item.permission,eventId)).map(item=><Link key={item.suffix} href={base+item.suffix}><item.icon size={15}/>{cs?item.cs:item.en}</Link>)}</nav>
+      {!snapshot && <nav className="excon-toolbar" aria-label={tr('Pracovní agendy EXCON','EXCON workspaces')}>{actionLinks.filter(item=>!item.permission||hasPermission(item.permission,eventId)).map(item=><Link key={item.suffix} href={base+item.suffix}><item.icon size={15}/>{cs?item.cs:item.en}</Link>)}</nav>}
 
       {snapshot&&<div className="excon-freshness" data-state={freshness} role="status"><span>{freshness==='fresh'?tr('Aktuální snímek','Current snapshot'):freshness==='paused'?tr('Automatická aktualizace pozastavena','Automatic refresh paused'):tr('Zobrazený stav nemusí být aktuální','Snapshot may be stale')}</span><span>{tr('Aktivní účty označují členství, nikoli právě připojené uživatele.','Active accounts indicate membership, not currently connected users.')}</span></div>}
       {!autoRefresh&&<p role="status" className="text-sm text-amber-300">{tr('Automatická aktualizace je vypnutá. Zobrazené údaje mohou být zastaralé.','Automatic refresh is paused. Displayed data may be stale.')}</p>}
@@ -183,6 +183,8 @@ function DashboardPage({eventId}:{eventId:string}) {
             })}
           </div>:<p className="mt-3 text-sm text-slate-400">{tr('V těchto sledovaných oblastech nejsou žádné otevřené položky.','No outstanding items in these monitored categories.')}</p>}
         </section>
+
+      <nav className="excon-toolbar" aria-label={tr('Pracovní agendy EXCON','EXCON workspaces')}>{actionLinks.filter(item=>!item.permission||hasPermission(item.permission,eventId)).map(item=><Link key={item.suffix} href={base+item.suffix}><item.icon size={15}/>{cs?item.cs:item.en}</Link>)}</nav>
 
         <ExconScenarioTimeline snapshot={snapshot} locale={locale} freshness={freshness} href={base+'/scenario/control'}/>
 
