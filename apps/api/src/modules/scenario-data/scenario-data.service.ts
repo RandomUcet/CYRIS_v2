@@ -443,7 +443,7 @@ export class ScenarioDataService {
     for(const page of writeChunks(world.persons.map((row,i)=>({
       id:ids.persons[i]!,identifier:key('PER',i),...row,displayName:fullName(row),
       phones:i%3?[{value:String(1000+series.PER!+i),label:'Exercise extension',primary:true}]:[],
-      emails:[{value:`${nameKey(fullName(row)).replace(/[^a-z0-9]+/g,'.').replace(/^\\.|\\.$/g,'').slice(0,40)||'staff'}.${series.PER!+i}@scenario.example.test`,primary:true}],
+      emails:[{value:`${nameKey(fullName(row)).replace(/[^a-z0-9]+/g,'.').replace(/^\.|\.$/g,'').slice(0,40)||'staff'}.${series.PER!+i}@scenario.example.test`,primary:true}],
       ...provenance,
     }))))await tx.insert(persons).values(page);
     for(const page of writeChunks(world.vehicles.map((row,i)=>({

@@ -292,7 +292,7 @@ export class CyrisApiClient {
     if (!response.ok) throw new Error('Unable to end the session. Please try again.');
   }
 
-  async getMe(cookieHeader?: string): Promise<{ ok: boolean; data?: CurrentUserResponse }> {
+  async getMe(cookieHeader?: string): Promise<{ ok: boolean; data?: CurrentUserResponse; status?:number }> {
     try {
       const headers: Record<string, string> = {};
       if (cookieHeader) {
@@ -306,7 +306,7 @@ export class CyrisApiClient {
       });
 
       if (!res.ok) {
-        return { ok: false };
+        return { ok: false,status:res.status };
       }
 
       const data = (await res.json()) as CurrentUserResponse;

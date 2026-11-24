@@ -11,3 +11,13 @@ test('preview does not leave users management in perpetual loading',()=>{
  const p=readFileSync(new URL('../app/admin/users/page.tsx',import.meta.url),'utf8');
  assert.match(p,/if\(viewAs\)return <AppShell/);
 });
+
+test('participant roster exposes generic, scoped role management without platform assignment',()=>{
+ const p=readFileSync(new URL('../app/admin/users/page.tsx',import.meta.url),'utf8');
+ assert.match(p,/canManageRoles/);
+ assert.match(p,/role.eventId===eventId/);
+ assert.match(p,/membershipId:roleTarget.id,unitId:roleUnit||undefined/);
+ assert.match(p,/roleTarget.roles.some(role=>role.assignmentId===assignmentId)/);
+ assert.match(p,/useDialogAccessibility(Boolean(roleTarget/);
+ assert.match(p,/roleTarget.userId===currentUser?.user.id)void refreshSession/);
+});

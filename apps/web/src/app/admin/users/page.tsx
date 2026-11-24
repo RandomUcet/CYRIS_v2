@@ -2,7 +2,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, RefreshCw, Search, Shield, Users } from 'lucide-react';
-import type { MembershipResponse } from '@cyris/contracts';
+import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
+import type { MembershipResponse, RoleResponse } from '@cyris/contracts';
 import { LdapTeamAssignments } from '@/components/admin/LdapTeamAssignments';
 import { PlatformAdministrators } from '@/components/admin/PlatformAdministrators';
 import { LocalTestAccounts } from '@/components/admin/LocalTestAccounts';
@@ -18,7 +19,7 @@ import { useEvent } from '@/contexts/EventContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 
 export default function AdminUsersPage() {
-  const { currentUser, isPlatformAdmin, hasPermission,viewAs } = useAuth();
+  const { currentUser, isPlatformAdmin, hasPermission,viewAs,refreshSession } = useAuth();
   const { currentEvent, events, selectEvent, loadingEvents } = useEvent();
   const { formatDate, locale } = usePreferences();
   const cs = locale === 'cs';
@@ -36,6 +37,12 @@ export default function AdminUsersPage() {
     window.history.replaceState(null,'',url.pathname+url.search);
   }
   const [target, setTarget] = useState<MembershipResponse | null>(null);
+  const [roleTarget,setRoleTarget]=useState<MembershipResponse|null>(null);
+  const [roleSelection,setRoleSelection]=useState('');
+  const [roleUnit,setRoleUnit]=useState('');
+  const [roleCatalog,setRoleCatalog]=useState<RoleResponse[]>([]);
+  const [roleCatalogError,setRoleCatalogError]=useState('');
+  const [roleCatalogLoading,setRoleCatalogLoading]=useState(false);
   const [reason, setReason] = useState('');
   const [memberships, setMemberships] = useState<MembershipResponse[]>([]);
   const [loading, setLoading] = useState(false);
@@ -64,7 +71,7 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setTarget(null); setMemberships([]); setError(null); setActionError(null);
+    setTarget(null); setRoleTarget(null); setMemberships([]); setError(null); setActionError(null);
     setLoadedScope(null);
     if (!currentEvent||tab!=='participants'||!currentUser||viewAs) { setLoading(false); return; }
     const controller=new AbortController();
@@ -84,19 +91,53 @@ export default function AdminUsersPage() {
   const [commandRole, setCommandRole] = useState<{ id: string; eventId: string } | null>(null);
   const [changingRole, setChangingRole] = useState(false);
   const eventId = currentEvent?.id;
-  const canManageCommand = Boolean(eventId && currentEvent?.slug !== 'cyris-team-preview' &&
-    hasPermission('role.manage', eventId) && hasPermission('role.read', eventId));
+  const canManageRoles = Boolean(!viewAs && eventId && hasPermission('role.manage',eventId) && hasPermission('role.read',eventId) && !['CLOSED','ARCHIVED'].includes(currentEvent?.status ?? ''));
+  const canManageCommand = canManageRoles && currentEvent?.slug !== 'cyris-team-preview';
+  useDialogAccessibility(Boolean(roleTarget && rosterReady && canManageRoles),()=>{if(!changingRole)setRoleTarget(null);});
   useEffect(() => {
     let active = true;
-    setCommandRole(null);
+    setCommandRole(null);setRoleCatalog([]);setRoleCatalogError('');setRoleCatalogLoading(false);
     const controller=new AbortController();
-    if (eventId && canManageCommand && tab==='participants'&&!viewAs) void apiClient.getRoles(eventId,controller.signal).then(response => {
-      const role = response.data?.find(role => role.slug === 'exercise-command');
-      if (active && scopeRef.current === scope && role) setCommandRole({ id: role.id, eventId });
-    }).catch(() => { if (active && scopeRef.current === scope) setCommandRole(null); });
+    if (eventId && canManageRoles && tab==='participants'&&!viewAs) {
+      setRoleCatalogLoading(true);
+      void apiClient.getRoles(eventId,controller.signal).then(response => {
+        if(!active||scopeRef.current!==scope)return;
+        if(!response.ok||!response.data){setRoleCatalogError(response.error||tr('Role se nepodařilo načíst.','Unable to load roles.'));return;}
+        const catalog=(response.data as RoleResponse[]).filter(role=>role.eventId===eventId);
+        setRoleCatalog(catalog);
+        const role = catalog.find(role => role.slug === 'exercise-command');
+        if (canManageCommand && role) setCommandRole({ id: role.id, eventId });
+      }).catch(() => { if (active && scopeRef.current === scope) setRoleCatalogError(tr('Role se nepodařilo načíst.','Unable to load roles.')); })
+      .finally(()=>{if(active&&scopeRef.current===scope)setRoleCatalogLoading(false);});
+    }
     return () => { active = false;controller.abort(); };
-  }, [canManageCommand, eventId, scope,tab]);
+  }, [canManageRoles,canManageCommand,eventId,scope,tab,revision]);
   const mutationBusy = Boolean(starting || activating || changingRole);
+
+  function openRoleManager(member:MembershipResponse) {
+    if(!canManageRoles||!rosterReady||mutationBusy||member.eventId!==eventId)return;
+    setRoleSelection('');setRoleUnit('');setActionError(null);setRoleTarget(member);
+  }
+
+  const selectedRole=roleCatalog.find(role=>role.id===roleSelection);
+  const duplicateGrant=Boolean(roleTarget?.roles.some(role=>role.id===roleSelection&&(role.unitId||'')===roleUnit));
+  const canAssignRole=Boolean(roleTarget&&roleTarget.status==='ACTIVE'&&roleTarget.user?.status==='ACTIVE'&&selectedRole&&!duplicateGrant&&(!roleUnit||roleTarget.units.some(unit=>unit.id===roleUnit)));
+  async function changeMemberRole(assignmentId?:string) {
+    if(!roleTarget||!canManageRoles||!rosterReady||mutationBusy||roleTarget.eventId!==eventId||scopeRef.current!==scope)return;
+    if(assignmentId ? !roleTarget.roles.some(role=>role.assignmentId===assignmentId) : !canAssignRole)return;
+    if(assignmentId&&!window.confirm(tr('Odebrat toto konkrétní přiřazení role?','Remove this specific role assignment?')))return;
+    const token=beginOperation();if(!token)return;
+    setChangingRole(true);setActionError(null);
+    try{
+      const result=assignmentId ? await apiClient.revokeRole(roleTarget.eventId,assignmentId) :
+        await apiClient.assignRole(roleTarget.eventId,{roleId:roleSelection,membershipId:roleTarget.id,unitId:roleUnit||undefined});
+      if(scopeRef.current!==scope)return;
+      if(!result.ok)throw new Error(result.error||tr('Změna role se nezdařila.','Role update failed.'));
+      setRoleTarget(null);setRevision(value=>value+1);
+      if(roleTarget.userId===currentUser?.user.id)void refreshSession();
+    }catch(err){if(scopeRef.current===scope)setActionError(err instanceof Error?err.message:tr('Změna role selhala.','Role update failed.'));}
+    finally{finishOperation(token);setChangingRole(false);}
+  }
 
   function commandControl(member: MembershipResponse) {
     if (!rosterReady || !canManageCommand || !commandRole || commandRole.eventId !== member.eventId || ['CLOSED','ARCHIVED'].includes(currentEvent?.status ?? '')) return null;
@@ -118,7 +159,7 @@ export default function AdminUsersPage() {
         const result = grant?.assignmentId ? await apiClient.revokeRole(member.eventId, grant.assignmentId) :
           await apiClient.assignRole(member.eventId, { roleId: commandRole.id, membershipId: member.id });
         if (scopeRef.current !== scope) return;
-        if (result.ok) setRevision(value => value + 1);
+        if (result.ok) {setRevision(value => value + 1);if(member.userId===currentUser?.user.id)void refreshSession();}
         else setActionError(result.error || tr('Změna role se nezdařila.', 'Unable to change the role.'));
       } catch(err) {
         if (scopeRef.current === scope) setActionError(err instanceof Error ? err.message :
@@ -185,7 +226,7 @@ export default function AdminUsersPage() {
   const columns: Column<MembershipResponse>[] = [
     { header: cs ? 'Účastník' : 'Participant', accessor: (member) => <div className="roster-identity"><strong>{member.user?.displayName || member.user?.email || member.userId}</strong><span>{member.user?.email}</span></div> },
     { header: cs ? 'Týmy' : 'Teams', accessor: (member) => member.units.length ? <div className="roster-tags">{member.units.map((unit) => <span key={unit.id}>{unit.name}</span>)}</div> : <span className="roster-muted">{cs ? 'Bez týmu' : 'No team'}</span> },
-    { header: cs ? 'Role ve cvičení' : 'Exercise roles', accessor: (member) => <div>{member.roles.length ? <div className="roster-tags">{member.roles.map((role) => <span key={`${role.id}:${role.unitId ?? ''}`}>{role.name}{role.unitId ? ` · ${member.units.find((unit) => unit.id === role.unitId)?.name ?? (cs ? 'vymezený tým' : 'scoped team')}` : ''}</span>)}</div> : <span className="roster-muted">{cs ? 'Bez přidělené role' : 'No assigned role'}</span>}{commandControl(member)}</div> },
+    { header: cs ? 'Role ve cvičení' : 'Exercise roles', accessor: (member) => <div>{member.roles.length ? <div className="roster-tags">{member.roles.map((role) => <span key={`${role.id}:${role.unitId ?? ''}`}>{role.name}{role.unitId ? ` · ${member.units.find((unit) => unit.id === role.unitId)?.name ?? (cs ? 'neaktivní tým' : 'inactive team')}` : ''}</span>)}</div> : <span className="roster-muted">{cs ? 'Bez přidělené role' : 'No assigned role'}</span>}{canManageRoles&&<button type="button" className="btn btn-secondary" disabled={mutationBusy||!rosterReady} onClick={()=>openRoleManager(member)}>{tr('Spravovat role','Manage roles')}</button>}{commandControl(member)}</div> },
     ...(isPlatformAdmin ? [{ header: cs ? 'Role platformy' : 'Platform roles', accessor: (member: MembershipResponse) => member.platformRoles.map(role => role.name).join(', ') || '—' }] : []),
     { header: cs ? 'Stav' : 'Status', accessor: member => <div>
       <span className={`roster-status ${rosterStatus(member) === 'ACTIVE' ? 'is-active' : ''}`}>{rosterStatus(member) === 'ACCOUNT_UNAVAILABLE' ? tr('Účet nedostupný', 'Account unavailable') : rosterStatus(member) === 'ACTIVE' ? tr('Aktivní', 'Active') : tr('Neaktivní členství', 'Inactive membership')}</span>
@@ -263,6 +304,29 @@ export default function AdminUsersPage() {
         <DataTable columns={columns} data={visible} keyField="id" pageSize={50} pageResetKey={JSON.stringify([scopeKey,query,status,team,revision])} emptyTitle={cs ? 'Žádní účastníci' : 'No participants'} emptyDescription={query || status !== 'ALL' || team !== 'ALL' ? (cs ? 'Zkus změnit hledání nebo filtr.' : 'Try a different search or filter.') : (cs ? 'V tomto cvičení zatím není žádný účastník.' : 'This exercise has no participants yet.')} />
       </>}</>}
     </div>
+    {roleTarget&&rosterReady&&canManageRoles&&roleTarget.eventId===eventId&&tab==='participants'&&<div className="modal-backdrop"><div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="role-manager-title" style={{maxWidth:620}}>
+      <div className="modal-header"><h2 id="role-manager-title">{tr('Role účastníka','Participant roles')}</h2><button type="button" className="btn btn-ghost" disabled={changingRole} onClick={()=>setRoleTarget(null)} aria-label={tr('Zavřít','Close')}>×</button></div>
+      <p><strong>{roleTarget.user?.displayName||roleTarget.user?.email||roleTarget.userId}</strong> · {currentEvent?.name}</p>
+      <div style={{display:'grid',gap:8,marginBottom:16}}>
+        {roleTarget.roles.length===0&&<p>{tr('Bez přidělené role.','No assigned roles.')}</p>}
+        {roleTarget.roles.map(grant=><div key={grant.assignmentId||grant.id+':'+grant.unitId} style={{display:'flex',alignItems:'center',gap:8,justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid var(--color-border-subtle)'}}>
+          <div><strong>{grant.name}</strong><div style={{fontSize:12,color:'var(--color-text-dim)'}}>{grant.unitId?(roleTarget.units.find(unit=>unit.id===grant.unitId)?.name||tr('Neaktivní tým – oprávnění neplatí','Inactive team – grant ineffective')):tr('Bez vazby na tým','Not bound to a team')}</div></div>
+          <button type="button" className="btn btn-secondary" disabled={mutationBusy||!grant.assignmentId} onClick={()=>void changeMemberRole(grant.assignmentId)}>{tr('Odebrat','Remove')}</button>
+        </div>)}
+      </div>
+      <form onSubmit={e=>{e.preventDefault();void changeMemberRole();}} style={{display:'grid',gap:12}}>
+        <h3>{tr('Přidat roli','Add a role')}</h3>
+        {roleCatalogLoading&&<p role="status">{tr('Načítám role…','Loading roles…')}</p>}
+        {roleCatalogError&&<p role="alert">{roleCatalogError}</p>}
+        <label className="form-label">{tr('Role','Role')}<select className="input-field" style={{width:'100%'}} required value={roleSelection} disabled={mutationBusy||roleCatalogLoading} onChange={e=>setRoleSelection(e.target.value)}><option value="">{tr('Vyberte roli','Select role')}</option>{roleCatalog.map(role=><option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
+        <label className="form-label">{tr('Vazba na tým','Team binding')}<select className="input-field" style={{width:'100%'}} value={roleUnit} disabled={mutationBusy} onChange={e=>setRoleUnit(e.target.value)}><option value="">{tr('Bez vazby na tým','No team binding')}</option>{roleTarget.units.map(unit=><option key={unit.id} value={unit.id}>{unit.name}</option>)}</select></label>
+        <p style={{fontSize:12,color:'var(--color-text-dim)'}}>{tr('Vazba na tým zaniká při odebrání členství v týmu. Rozsah jednotlivých oprávnění určuje samotná role: například EVENT platí v celém cvičení.','Team-bound grants become ineffective when the team membership ends. Individual permission scopes are defined by the role; EVENT applies throughout the exercise.')}</p>
+        {selectedRole&&<details><summary>{selectedRole.permissions.length} {tr('oprávnění v roli','permissions in role')}</summary><ul style={{maxHeight:160,overflowY:'auto'}}>{selectedRole.permissions.map(grant=><li key={grant.permissionKey+':'+grant.scope}><code>{grant.permissionKey}</code> · {grant.scope}</li>)}</ul></details>}
+        {duplicateGrant&&<p role="status">{tr('Tato role je již takto přiřazena.','This exact grant already exists.')}</p>}
+        {actionError&&<p role="alert">{actionError}</p>}
+        <div style={{display:'flex',justifyContent:'flex-end',gap:8}}><button type="button" className="btn btn-secondary" disabled={changingRole} onClick={()=>setRoleTarget(null)}>{tr('Zavřít','Close')}</button><button type="submit" className="btn btn-primary" disabled={mutationBusy||!canAssignRole}>{changingRole?'…':tr('Přidělit roli','Assign role')}</button></div>
+      </form>
+    </div></div>}
     {target&&rosterReady&&target.eventId===eventId&&tab==='participants'&&<div className="preview-dialog-backdrop" onClick={()=>{if(!starting)setTarget(null);}}><form className="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title" onSubmit={e => { e.preventDefault(); void startPreview(target); }} onClick={e=>e.stopPropagation()}>
        <Shield size={23}/><h2 id="preview-title">{tr('Náhled účastníka','Participant preview')}</h2>
        <strong>{target.user?.displayName}</strong><p>{tr('Po dobu 15 minut použijete oprávnění tohoto účastníka v jediném cvičení. Změny a exporty jsou zakázané. Začátek a ukončení se zaznamenají do auditu.','For 15 minutes you will use this participant’s permissions in one exercise. Changes and exports are blocked. Start and exit are audited.')}</p>

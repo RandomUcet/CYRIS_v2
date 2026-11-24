@@ -36,11 +36,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (res.ok && res.data) {
         const next = res.data;
         setCurrentUser(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
-      } else {
+      } else if (res.status===401||res.status===403) {
         setCurrentUser(null);
       }
     } catch {
-      if (request === sessionRequest.current) setCurrentUser(null);
+      // A transient network failure is not an explicit session revocation.
     } finally {
       if (request === sessionRequest.current) setLoading(false);
     }
