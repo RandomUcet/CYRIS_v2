@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {ForbiddenException,BadGatewayException,ServiceUnavailableException} from '@nestjs/common';
+import {ForbiddenException,BadGatewayException,ServiceUnavailableException,ConflictException} from '@nestjs/common';
 import {ExerciseIntelligenceService} from './exercise-intelligence.service.js';
 import type {ExconDashboardResponse} from '@cyris/contracts';
 
@@ -15,7 +15,7 @@ function fixture(options:{denied?:boolean;revoke?:boolean;disabled?:boolean;inva
  const dashboard={overview:async()=>{checks++;if(options.denied||(options.revoke&&checks>1))throw new ForbiddenException();return snapshot;}};
  const gateway={getStatus:async()=>({configured:true,enabled:!options.disabled}),execute:async(params:any)=>{calls++;request=params;return {text:JSON.stringify(options.invalid?{...valid,execute:true}:valid),model:'spark-fixture',runId:'run-1',durationMs:100};}};
  const observer={read:async()=>null};
- const service=new ExerciseIntelligenceService({} as any,gateway as any,dashboard as any,observer as any);
+ const service=new ExerciseIntelligenceService({} as any,gateway as any,dashboard as any,observer as any,{overview:async()=>({current:null,history:[]})} as any);
  return {service,calls:()=>calls,request:()=>request};
 }
 test('organizer permission is checked before any AI inference; disabled Spark never falls back',async()=>{
@@ -27,3 +27,5 @@ test('advice is draft-only, rejects unexpected output and rechecks access after 
  const invalid=fixture({invalid:true});await assert.rejects(invalid.service.advise(eventId,actor,input),BadGatewayException);
  const revoked=fixture({revoke:true});await assert.rejects(revoked.service.advise(eventId,actor,input),ForbiddenException);
 });
+
+test('stale blueprint revision is rejected before inference',async()=>{const f=fixture();await assert.rejects(f.service.advise(eventId,actor,{...input,blueprintRevision:1}),ConflictException);assert.equal(f.calls(),0);});

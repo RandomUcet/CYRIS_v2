@@ -2,6 +2,7 @@ import {z} from 'zod';
 export const ExerciseAdviceInputSchema=z.object({
  mode:z.enum(['ARCHITECT','INTERVENTION']),brief:z.string().trim().min(10).max(12000),
  locale:z.enum(['cs','en']).default('cs'),
+ blueprintRevision:z.number().int().positive().optional(),
 }).strict();
 export type ExerciseAdviceInput=z.infer<typeof ExerciseAdviceInputSchema>;
 export const ExerciseSignalSchema=z.object({id:z.string(),level:z.enum(['HIGH','MEDIUM']),label:z.string(),labelCs:z.string(),count:z.number().int().nonnegative(),source:z.string(),href:z.string()});
@@ -24,7 +25,7 @@ export const ExerciseAdviceDraftSchema=z.object({
  reviewNotes:z.array(z.string().max(700)).max(8),
 }).strict();
 export type ExerciseAdviceDraft=z.infer<typeof ExerciseAdviceDraftSchema>;
-export type ExerciseAdviceResult=ExerciseAdviceDraft&{eventId:string;runId:string;model:string;durationMs:number;generatedAt:string;status:'DRAFT';mode:ExerciseAdviceInput['mode']};
+export type ExerciseAdviceResult=ExerciseAdviceDraft&{eventId:string;runId:string;model:string;durationMs:number;generatedAt:string;status:'DRAFT';blueprintRevision:number|null;mode:ExerciseAdviceInput['mode']};
 
 /** Private organizer planning data; never part of participant event DTOs. */
 export const ExerciseBlueprintInputSchema=z.object({

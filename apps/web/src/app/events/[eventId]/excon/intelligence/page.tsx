@@ -6,7 +6,8 @@ import {AppShell} from '@/components/layout/AppShell';
 import {useAuth} from '@/contexts/AuthContext';
 import {usePreferences} from '@/contexts/PreferencesContext';
 import {apiClient} from '@/lib/api-client';
-import type {ExerciseAdviceResult,ExerciseIntelligenceOverview} from '@cyris/contracts';
+import {ExerciseBlueprintPanel} from '@/components/excon/ExerciseBlueprintPanel';
+import type {ExerciseBlueprint,ExerciseAdviceResult,ExerciseIntelligenceOverview} from '@cyris/contracts';
 
 export default function IntelligencePage(){
  const {eventId}=useParams<{eventId:string}>(),{currentUser,viewAs,hasPermission,loading}=useAuth();
@@ -18,6 +19,7 @@ function Workspace({eventId}:{eventId:string}){
  const {locale}=usePreferences(),cs=locale==='cs',tr=(c:string,e:string)=>cs?c:e;
  const [overview,setOverview]=useState<ExerciseIntelligenceOverview|null>(null),[error,setError]=useState(''),[revision,setRevision]=useState(0);
  const [mode,setMode]=useState<'ARCHITECT'|'INTERVENTION'>('ARCHITECT'),[brief,setBrief]=useState(''),[result,setResult]=useState<ExerciseAdviceResult|null>(null),[busy,setBusy]=useState(false),[adviceError,setAdviceError]=useState('');
+ const [blueprint,setBlueprint]=useState<ExerciseBlueprint|null>(null),[useBlueprint,setUseBlueprint]=useState(true);
  const lock=useRef(false),alive=useRef(true);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  useEffect(()=>{const controller=new AbortController();let active=true,flight=false;
@@ -26,7 +28,7 @@ function Workspace({eventId}:{eventId:string}){
  return()=>{active=false;controller.abort();window.clearInterval(timer);};
  },[eventId,revision,cs]);
  async function generate(){if(lock.current||brief.trim().length<10||!overview?.provider.enabled)return;lock.current=true;setBusy(true);setResult(null);setAdviceError('');
- try{const res=await apiClient.requestExerciseAdvice(eventId,{mode,brief,locale:cs?'cs':'en'});if(!alive.current)return;if(res.ok&&res.data?.eventId===eventId)setResult(res.data);else setAdviceError(res.error||tr('Návrh se nepodařilo vytvořit','Draft failed'));}
+ try{const res=await apiClient.requestExerciseAdvice(eventId,{mode,brief,locale:cs?'cs':'en',...(useBlueprint&&blueprint?{blueprintRevision:blueprint.revision}:{})});if(!alive.current)return;if(res.ok&&res.data?.eventId===eventId)setResult(res.data);else setAdviceError(res.error||tr('Návrh se nepodařilo vytvořit','Draft failed'));}
  catch{if(alive.current)setAdviceError(tr('Návrh se nepodařilo vytvořit','Draft failed'));}
  finally{lock.current=false;if(alive.current){setBusy(false);setRevision(n=>n+1);}}}
  const base='/events/'+eventId;
@@ -47,12 +49,14 @@ function Workspace({eventId}:{eventId:string}){
  <section className="intel-card"><h2>{tr('Co vyžaduje pozornost','Operational signals')}</h2><p className="intel-muted">{tr('Pozorování z databáze, nikoli vysvětlení příčin.','Database observations, not causal conclusions.')}</p><ul className="intel-list">{overview.signals.map(s=><li key={s.id} data-level={s.level}><strong>{s.count} · {cs?s.labelCs:s.label}</strong><p className="intel-muted">{s.source}</p><Link href={base+s.href}>{tr('Otevřít agendu','Open workspace')}</Link></li>)}</ul>{!overview.signals.length&&<p>{tr('Žádný sledovaný signál není aktivní.','No monitored signal is active.')}</p>}<p className="intel-muted">{new Date(overview.asOf).toLocaleString()}</p></section>
  <section className="intel-card"><h2>{tr('Využití Sparku podle funkce','Spark usage by operation')}</h2><ul className="intel-list">{overview.usage.byOperation.map(r=><li key={r.operation}>{r.operation} · {r.count}</li>)}</ul>{!overview.usage.byOperation.length&&<p>{tr('Zatím bez evidovaných pokusů za 24 hodin.','No recorded attempts in the last 24 hours.')}</p>}</section>
  </>}
+ <ExerciseBlueprintPanel eventId={eventId} cs={cs} disabled={busy||!overview} onCurrent={setBlueprint}/>
  <section className="intel-card"><h2>{tr('AI operační asistent','AI operations assistant')}</h2><form className="intel-form" onSubmit={e=>{e.preventDefault();void generate();}}>
  <label>{tr('Režim','Mode')}<select disabled={busy} value={mode} onChange={e=>{setMode(e.target.value as typeof mode);setResult(null);}}><option value="ARCHITECT">{tr('Návrh celého cvičení','Exercise architect')}</option><option value="INTERVENTION">{tr('Návrh intervence a nápovědy','Intervention advisor')}</option></select></label>
  <label>{tr('Záměr a kontext organizátora','Organizer intent and context')}<textarea disabled={busy} value={brief} maxLength={12000} minLength={10} required onChange={e=>{setBrief(e.target.value);setResult(null);}} placeholder={tr('Popište letošní scénář, cíle nebo problém týmu. Nezadávejte skutečné osobní údaje.','Describe the exercise, goals or team difficulty. Do not enter real personal data.')}/></label>
+ {blueprint&&<label className="intel-check"><input type="checkbox" checked={useBlueprint} disabled={busy} onChange={e=>{setUseBlueprint(e.target.checked);setResult(null);}}/>{tr('Použít uložený blueprint','Use saved blueprint')} · r{blueprint.revision}</label>}
  <p className="intel-muted">{tr('Pouze návrh pro organizátora. Nic se automaticky nezaloží ani neodešle.','Organizer draft only. Nothing is automatically created or sent.')}</p>
  <button type="submit" disabled={busy||brief.trim().length<10||!overview?.provider.enabled}>{busy?tr('Spark připravuje návrh…','Spark is drafting…'):tr('Připravit návrh přes Spark','Generate with Spark')}</button></form>
  {adviceError&&<p role="alert">{adviceError}</p>}
- {result&&<div><h3>{tr('Návrh ke schválení','Draft for review')}</h3><p>{result.summary}</p><p className="intel-muted">{result.model} · {(result.durationMs/1000).toFixed(1)} s · {result.runId}</p><ul className="intel-list">{result.actions.map((action,i)=><li key={i}><strong>{action.module} · {action.title}</strong><p>{action.proposal}</p><p className="intel-muted">{action.reason}</p>{action.signalIds.length>0&&<small>{action.signalIds.join(' · ')}</small>}</li>)}</ul>{result.reviewNotes.map((note,i)=><p key={i}>{note}</p>)}</div>}
+ {result&&<div><h3>{tr('Návrh ke schválení','Draft for review')}</h3><p>{result.summary}</p><p className="intel-muted">{result.model} · {(result.durationMs/1000).toFixed(1)} s · {result.runId}{result.blueprintRevision!==null?' · Blueprint r'+result.blueprintRevision:''}</p><ul className="intel-list">{result.actions.map((action,i)=><li key={i}><strong>{action.module} · {action.title}</strong><p>{action.proposal}</p><p className="intel-muted">{action.reason}</p>{action.signalIds.length>0&&<small>{action.signalIds.join(' · ')}</small>}</li>)}</ul>{result.reviewNotes.map((note,i)=><p key={i}>{note}</p>)}</div>}
  </section></div></main></AppShell>;
 }
