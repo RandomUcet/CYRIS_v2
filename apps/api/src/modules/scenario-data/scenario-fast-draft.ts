@@ -12,12 +12,12 @@ export function applyScenarioBlueprint(world: World, scene: ScenarioBlueprint, l
   // Keep stable identity/index slots but use the actual scenario vocabulary
   // for workplace names and sites instead of unrelated random industries.
   world.organisations.forEach((org,i)=>{
-    org.name=(choose(scene.organisations,i)+' · '+(i+1)).slice(0,120);
+    org.name=choose(scene.organisations,i).slice(0,110)+' · '+(i+1);
     org.description=label('Fiktivní organizace: ','Fictional organisation: ')+choose(scene.organisations,i)+'. '+choose(scene.activities,i)+'.';
   });
   world.locations.forEach((site,i)=>{
     site.locationType=choose(scene.sites,i).slice(0,64);
-    site.name=(site.city+' – '+choose(scene.sites,i)+' · '+(i+1)).slice(0,120);
+    site.name=(site.city+' – '+choose(scene.sites,i)).slice(0,110)+' · '+(i+1);
     site.description=label('Místo ve cvičení: ','Exercise location: ')+site.name+'. '+choose(scene.activities,i)+'.';
   });
   const note=(kind:Kind,index:number):string=>{
@@ -25,8 +25,8 @@ export function applyScenarioBlueprint(world: World, scene: ScenarioBlueprint, l
     const workplace=index%10<8&&org?label(' Pracoviště: ',' Workplace: ')+org.name+'.':'';
     const focus:Record<Kind,string>={
       persons:label('Role: ','Role: ')+choose(scene.roles,index)+'. '+label('Činnost: ','Activity: ')+choose(scene.activities,index)+'.'+workplace,
-      organisations:world.organisations[index]!.description,
-      locations:world.locations[index]!.description,
+      organisations:world.organisations[index]?.description??'',
+      locations:world.locations[index]?.description??'',
       vehicles:label('Účel vozidla: ','Vehicle use: ')+choose(scene.equipment,index)+'.',
       devices:label('Účel zařízení: ','Device use: ')+choose(scene.equipment,index)+'.',
       weapons:label('Neaktivní evidenční rekvizita.','Inert inventory prop.'),

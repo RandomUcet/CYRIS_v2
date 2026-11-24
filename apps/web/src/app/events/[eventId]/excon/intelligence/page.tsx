@@ -32,8 +32,9 @@ function Workspace({eventId}:{eventId:string}){
  void refresh();const timer=window.setInterval(()=>{if(!document.hidden)void refresh();},30000);
  return()=>{active=false;controller.abort();window.clearInterval(timer);};
  },[eventId,revision,cs]);
- async function generate(){if(lock.current||brief.trim().length<10||!overview?.provider.enabled)return;lock.current=true;setBusy(true);setAdviceError('');setJobNotice('');
- const input:ExerciseAdviceInput={mode,brief,locale:cs?'cs':'en',...(useBlueprint&&blueprint?{blueprintRevision:blueprint.revision}:{})};
+ const effectiveBrief=brief.trim()||(mode==='ARCHITECT'&&useBlueprint?blueprint?.brief.trim()??'':'');
+ async function generate(){if(lock.current||effectiveBrief.length<10||!overview?.provider.enabled)return;lock.current=true;setBusy(true);setAdviceError('');setJobNotice('');
+ const input:ExerciseAdviceInput={mode,brief:effectiveBrief,locale:cs?'cs':'en',...(useBlueprint&&blueprint?{blueprintRevision:blueprint.revision}:{})};
  try{const key=JSON.stringify(input);if(pendingRequest.current?.key!==key)pendingRequest.current={key,id:crypto.randomUUID()};
  const res=await apiClient.submitExerciseJob(eventId,{requestId:pendingRequest.current.id,input});if(!alive.current)return;
  if(res.ok&&res.data?.eventId===eventId){pendingRequest.current=null;setJobNotice(tr('Úloha uložena. Můžete zavřít stránku.','Job saved. You may close this page.'));setJobRefresh(n=>n+1);}
@@ -63,9 +64,10 @@ function Workspace({eventId}:{eventId:string}){
  <section className="intel-card"><h2>{tr('AI operační asistent','AI operations assistant')}</h2><form className="intel-form" onSubmit={e=>{e.preventDefault();void generate();}}>
  <label>{tr('Režim','Mode')}<select disabled={busy} value={mode} onChange={e=>{setMode(e.target.value as typeof mode);}}><option value="ARCHITECT">{tr('Návrh celého cvičení','Exercise architect')}</option><option value="INTERVENTION">{tr('Návrh intervence a nápovědy','Intervention advisor')}</option></select></label>
  <label>{tr('Záměr a kontext organizátora','Organizer intent and context')}<textarea disabled={busy} value={brief} maxLength={12000} minLength={10} required onChange={e=>{setBrief(e.target.value);}} placeholder={tr('Popište letošní scénář, cíle nebo problém týmu. Nezadávejte skutečné osobní údaje.','Describe the exercise, goals or team difficulty. Do not enter real personal data.')}/></label>
+ {mode==='ARCHITECT'&&useBlueprint&&blueprint&&!brief.trim()&&<p className="intel-muted">{tr('Použije se uložené zadání blueprintu. Doplňující instrukce nejsou povinné.','The saved blueprint brief will be used. Additional instructions are optional.')}</p>
  {blueprint&&<label className="intel-check"><input type="checkbox" checked={useBlueprint} disabled={busy} onChange={e=>{setUseBlueprint(e.target.checked);}}/>{tr('Použít uložený blueprint','Use saved blueprint')} · r{blueprint.revision}</label>}
  <p className="intel-muted">{tr('Pouze návrh pro organizátora. Nic se automaticky nezaloží ani neodešle.','Organizer draft only. Nothing is automatically created or sent.')}</p>
- <button type="submit" disabled={busy||brief.trim().length<10||!overview?.provider.enabled}>{busy?tr('Ukládám úlohu…','Saving job…'):tr('Spustit úlohu na pozadí','Start background job')}</button></form>
+ <button type="submit" disabled={busy||effectiveBrief.length<10||!overview?.provider.enabled}>{busy?tr('Ukládám úlohu…','Saving job…'):tr('Spustit úlohu na pozadí','Start background job')}</button></form>
  {adviceError&&<p role="alert">{adviceError}</p>}
  {jobNotice&&overview&&<p role="status">{jobNotice}</p>}
  </section>

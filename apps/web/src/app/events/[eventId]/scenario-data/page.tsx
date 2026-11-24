@@ -46,6 +46,8 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
   const [mode, setMode] = useState<'LOCAL' | 'SPARK'>('LOCAL');
   const [sparkStrategy, setSparkStrategy] = useState<'FAST' | 'DETAILED'>('FAST');
   const [brief, setBrief] = useState('');
+  const [blueprintLoading,setBlueprintLoading]=useState(false);
+  const [blueprintRevision,setBlueprintRevision]=useState<number|null>(null);
   const [preset, setPreset] = useState<ScenarioDataRequest['preset']>('SMALL');
   const [counts, setCounts] = useState<ScenarioDataCounts>(presets.SMALL);
   const [seed, setSeed] = useState<number | null>(null);
@@ -97,7 +99,7 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
     setPreview(null);
     setBatches([]);
     setBusy(false);
-    setMessage('');
+    setMessage('');setBlueprintRevision(null);setBlueprintLoading(false);
     void load();
     return () => {
       alive.current = false;
@@ -116,6 +118,26 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
     setPreview(null);
     setDraft(null);
     setMessage('');
+  }
+  async function importBlueprint(){
+    if(blueprintLoading||operation.current)return;
+    setBlueprintLoading(true);setMessage('');
+    try{
+      const result=await apiClient.getExerciseBlueprint(eventId);
+      if(!alive.current||scope.current!==eventId)return;
+      const blueprint=result.data?.current;
+      if(!result.ok||!blueprint||blueprint.eventId!==eventId)throw Error(result.error||tr('Nejprve uložte zadání v EXCON Architect.','Save an exercise blueprint in EXCON Architect first.'));
+      if(brief.trim()&&!window.confirm(tr('Nahradit současné zadání textem z blueprintu?','Replace the current brief with the blueprint?')))return;
+      configure();
+      // Reserve space for the primary brief; the copied text is editable and
+      // explicitly bounded by the scenario data request contract.
+      const title=blueprint.title.slice(0,160);
+      const objective=blueprint.objectives.trim().slice(0,300);
+      const body=blueprint.brief.trim().slice(0,1200-title.length-objective.length-20);
+      setBrief([title,body,objective].filter(Boolean).join('\n\n').slice(0,1200));
+      setBlueprintRevision(blueprint.revision);
+    }catch(err){if(alive.current&&scope.current===eventId)setMessage(err instanceof Error?err.message:tr('Blueprint není dostupný.','Blueprint unavailable.'));}
+    finally{if(alive.current&&scope.current===eventId)setBlueprintLoading(false);}
   }
   async function action(fn: () => Promise<void>) {
     if (operation.current || !alive.current) return;
@@ -238,6 +260,7 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
             </div>
             {mode==='SPARK' && <label>{tr('Režim Sparku','Spark generation mode')}<select value={sparkStrategy} onChange={e => { configure(); setSparkStrategy(e.target.value as 'FAST' | 'DETAILED'); }}><option value="FAST">{tr('Rychlý – 1 AI návrh + propojená lokální databáze','Fast – 1 AI blueprint + linked local dataset')}</option><option value="DETAILED">{tr('Detailní – AI připravuje každý záznam (výrazně pomalejší)','Detailed – AI writes every record (much slower)')}</option></select></label>}
             {mode==='SPARK' && <p className={styles.sparkHint} role="status">{tr('V rychlém režimu Spark vytvoří jeden krátký scénářový návrh a CYRIS podle něj lokálně sestaví celou sadu; detailní režim generuje záznamy postupně. Koncept před zveřejněním vždy zkontrolujte. Obrázky lze nyní přiřadit přímo k jednotlivým záznamům v rozpracovaném konceptu. Při publikaci se automaticky uloží do registru.','Fast mode asks Spark for one short scenario blueprint and CYRIS builds a linked local dataset; Detailed mode generates records page by page. Always review before publishing. Attach images directly to records inside the draft. On publication they become registry images automatically.')}</p>}
+            {mode==='SPARK'&&<div><button type="button" className={styles.secondary} disabled={blueprintLoading||busy} onClick={()=>void importBlueprint()}>{blueprintLoading?tr('Načítám blueprint…','Loading blueprint…'):tr('Použít zadání z EXCON Architect','Use EXCON Architect blueprint')}</button>{blueprintRevision!==null&&<small>{tr('Převzatý text z revize','Copied text from revision')} {blueprintRevision} · {tr('Lze upravit; maximálně 1 200 znaků.','Editable; at most 1,200 characters.')}</small>}</div>}
             {mode === 'SPARK' && <label>{tr('Scénářové zadání','Scenario brief')}<textarea value={brief} maxLength={1200} rows={4} placeholder={tr('Železniční depo v Pardubicích během střídání směn. Zahrňte zaměstnance, dodavatele a jejich techniku.','A rail depot in Pardubice during a shift change. Include contractors, dispatchers and their equipment.')} onChange={e => {
               configure();
               setBrief(e.target.value);

@@ -47,3 +47,15 @@ test('fast strategy is explicit in UI and the backend uses one bounded AI reques
   assert.match(page, /strategy: sparkStrategy/);
   assert.match(page, /value="DETAILED"/);
 });
+
+test('scenario vocabulary controls visible names and partial datasets remain valid',()=>{
+ const empty={persons:0,organisations:0,locations:0,vehicles:0,devices:0,weapons:0};
+ const only=applyScenarioBlueprint(localWorld(31,{...empty,persons:20},new Set()),blueprint,'en');
+ assert.equal(only.persons.length,20);assert.equal(fastDraftLinks(only).length,0);
+ assert.match(only.persons[0]!.description,/Fictional scenario/);
+ const a=applyScenarioBlueprint(localWorld(31,{...empty,persons:40,organisations:2,locations:3},new Set()),blueprint);
+ assert.ok(a.organisations[0]!.name.includes(blueprint.organisations[0]!));
+ assert.ok(a.locations[0]!.name.includes(blueprint.sites[0]!));
+ assert.ok(a.persons[0]!.description.includes(a.organisations[0]!.name));
+ assert.ok(a.persons[2]!.description.includes(a.organisations[0]!.name));
+});
