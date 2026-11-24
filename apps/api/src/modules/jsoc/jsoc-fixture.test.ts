@@ -17,3 +17,13 @@ test('generation is bounded and rejects invalid payloads',()=>{
   assert.equal(GenerateJsocLogsSchema.safeParse({seed:1,count:100,scenario:'test'}).success,true);
   assert.equal(GenerateJsocLogsSchema.safeParse({seed:1,count:0,scenario:'test'}).success,false);
 });
+
+test('focused datasets generate only the chosen category and preserve mixed legacy mode',()=>{
+ const input=GenerateJsocLogsSchema.parse({seed:15,count:30,scenario:'Training DNS',category:'DNS'});
+ const now=new Date('2026-01-01T12:00:00.000Z');
+ const rows=createSyntheticJsocLogs(input,now);
+ assert.equal(rows.length,30);assert.ok(rows.every(row=>row.category==='DNS'&&row.scenario==='Training DNS'));
+ assert.deepEqual(rows,createSyntheticJsocLogs(input,now));
+ assert.equal(GenerateJsocLogsSchema.safeParse({...input,category:'LIVE'}).success,false);
+ assert.ok(new Set(createSyntheticJsocLogs({...input,category:undefined},now).map(row=>row.category)).size>1);
+});

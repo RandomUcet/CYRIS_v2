@@ -6,6 +6,8 @@ import { Search, FileText, Shield, AlertTriangle, Cpu, Terminal, ArrowRight, Cor
 import { apiClient } from '@/lib/api-client';
 import type { SearchResultItem } from '@cyris/contracts';
 import { useEvent } from '@/contexts/EventContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { safeNotificationHref } from '@/lib/notification-navigation';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -20,13 +22,22 @@ interface CommandAction {
   shortcut?: string;
 }
 
-export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
+export function CommandPalette({isOpen,onClose}:CommandPaletteProps){
+  const {selectedEventId}=useEvent();
+  const {currentUser,viewAs}=useAuth();
+  if(!isOpen||!currentUser)return null;
+  return <PaletteWorkspace key={[currentUser.user.id,viewAs?.id??'',selectedEventId??''].join(':')} isOpen={isOpen} onClose={onClose}/>;
+}
+function PaletteWorkspace({ isOpen, onClose }: CommandPaletteProps) {
   const router = useRouter();
   const { selectedEventId } = useEvent();
+  const {isPlatformAdmin}=useAuth();
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError,setSearchError]=useState(false);
+  const [resultQuery,setResultQuery]=useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -34,10 +45,11 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   // Focus on open
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 50);
+      const timer=setTimeout(() => inputRef.current?.focus(), 50);
       setQuery('');
       setResults([]);
       setSelectedIndex(0);
+      return()=>clearTimeout(timer);
     }
   }, [isOpen]);
 
@@ -117,39 +129,28 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         },
       },
     ];
-    return list;
-  }, [selectedEventId, router, onClose]);
+    return list.filter(command=>command.id==='cmd-audit'?isPlatformAdmin:Boolean(selectedEventId));
+  }, [selectedEventId, router, onClose,isPlatformAdmin]);
 
-  // Execute search via API
-  useEffect(() => {
-    if (!query.trim()) {
-      setResults([]);
-      setSearching(false);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const res = await apiClient.search(query.trim(), {
-          eventId: selectedEventId || undefined,
-          limit: 20,
-        });
-        if (res.ok && res.data?.results) {
-          setResults(res.data.results);
-          setSelectedIndex(0);
-        } else {
-          setResults([]);
-        }
-      } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 150);
-
-    return () => clearTimeout(timer);
-  }, [query, selectedEventId]);
+  // Cancel older requests and hide results immediately when the query changes.
+  useEffect(()=>{
+    const q=query.trim();
+    setResults([]);setResultQuery('');setSearchError(false);setSelectedIndex(0);
+    if(!q){setSearching(false);return;}
+    setSearching(true);
+    const controller=new AbortController();
+    const timer=setTimeout(async()=>{
+      try{
+        const res=await apiClient.search(q,{eventId:selectedEventId||undefined,limit:20,signal:controller.signal});
+        if(controller.signal.aborted)return;
+        if(!res.ok||!res.data){setSearchError(true);return;}
+        setResults(res.data.results);setResultQuery(q);setSelectedIndex(0);
+      }catch{if(!controller.signal.aborted)setSearchError(true);}
+      finally{if(!controller.signal.aborted)setSearching(false);}
+    },220);
+    return()=>{clearTimeout(timer);controller.abort();};
+  },[query,selectedEventId]);
+  const visibleResults=resultQuery===query.trim()?results:[];
 
   // Filter commands by query if no or few results
   const matchingCommands = useMemo(() => {
@@ -161,24 +162,24 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   // Group search results by entity type
   const groupedResults = useMemo(() => {
     const groups: Record<string, SearchResultItem[]> = {};
-    for (const item of results) {
+    for (const item of visibleResults) {
       const type = item.type || 'entity';
       if (!groups[type]) groups[type] = [];
       groups[type]!.push(item);
     }
     return groups;
-  }, [results]);
+  }, [visibleResults]);
 
   const allListItems = useMemo(() => {
     const list: { type: 'item' | 'command'; item?: SearchResultItem; command?: CommandAction }[] = [];
-    for (const item of results) {
+    for (const group of Object.values(groupedResults))for(const item of group){
       list.push({ type: 'item', item });
     }
     for (const command of matchingCommands) {
       list.push({ type: 'command', command });
     }
     return list;
-  }, [results, matchingCommands]);
+  }, [groupedResults, matchingCommands]);
 
   const handleSelect = (idx: number) => {
     const target = allListItems[idx];
@@ -187,8 +188,9 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     if (target.type === 'command' && target.command) {
       target.command.action();
     } else if (target.type === 'item' && target.item) {
-      if (target.item.route) {
-        router.push(target.item.route);
+      const route=safeNotificationHref(target.item.route);
+      if (route) {
+        router.push(route);
       } else if (selectedEventId) {
         const t = target.item.type;
         if (t === 'case') router.push(`/events/${selectedEventId}/cases/${target.item.canonicalId}`);
@@ -207,7 +209,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       setSelectedIndex((prev) => (prev < allListItems.length - 1 ? prev + 1 : 0));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : allListItems.length - 1));
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : Math.max(0,allListItems.length - 1)));
     } else if (e.key === 'Enter') {
       e.preventDefault();
       handleSelect(selectedIndex);
@@ -245,6 +247,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
           flexDirection: 'column',
           overflow: 'hidden',
         }}
+        role="dialog" aria-modal="true" aria-label="Search CYRIS"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
@@ -262,7 +265,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
           <Search size={18} style={{ color: 'var(--accent-active)' }} />
           <input
             ref={inputRef}
-            type="text"
+            type="text" aria-label="Search CYRIS"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search cases, evidence (E-0001), persons, commands..."
@@ -286,7 +289,8 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
             </div>
           )}
 
-          {allListItems.length === 0 && !searching && query.trim() && (
+          {searchError&&!searching&&<div role="alert" style={{padding:'12px 16px',color:'var(--status-danger)'}}>Search is temporarily unavailable. Try again.</div>}
+          {allListItems.length === 0 && !searching && !searchError && query.trim() && (
             <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
               No operational matches found for "{query}".
             </div>

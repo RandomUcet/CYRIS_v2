@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 import type { CommandReadinessSnapshot } from '@cyris/contracts';
+import { stableReadinessSnapshot } from '@/lib/readiness-snapshot';
 
 export function useDefconReadiness(eventId: string) {
   const [snapshot, setSnapshot] = useState<CommandReadinessSnapshot | null>(null);
@@ -19,13 +20,13 @@ export function useDefconReadiness(eventId: string) {
         if (!active) return;
         if (result.ok && result.data?.eventId === eventId) {
           const next = result.data;
-          setSnapshot(previous => previous?.eventId === eventId && previous.revision > next.revision ? previous : next);
+          setSnapshot(previous => stableReadinessSnapshot(previous,next));
           setStale(false);
         } else {
           if ([401, 403, 404].includes(result.status ?? 0)) setSnapshot(null);
           setStale(true);
         }
-      } finally { pending = false; }
+      } catch { if(active)setStale(true); } finally { pending = false; }
     }
     void refresh();
     const timer = window.setInterval(refresh, 5000);

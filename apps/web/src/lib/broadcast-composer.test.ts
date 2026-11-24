@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ExerciseBroadcastPlanResponse } from '@cyris/contracts';
-import { broadcastComposerControls, copyBroadcastPlan, type BroadcastComposerState } from './broadcast-composer.js';
+import { broadcastComposerControls, copyBroadcastPlan, broadcastAudienceKey, filterBroadcastRows, type BroadcastComposerState } from './broadcast-composer.js';
 
 const ready: BroadcastComposerState = {
   readOnly:false,loading:false,sending:false,planBusy:false,editingDraft:false,
@@ -43,4 +43,17 @@ test('copying any broadcast plan never carries plan identifiers or revisions',()
   assert.equal('revision' in copy,false);
   assert.equal('nonce' in copy,false);
   assert.deepEqual(copyBroadcastPlan({...plan,audience:'ALL'}).unitId,'');
+});
+
+test('audience preview is specific to event, message kind and selected unit',()=>{
+  assert.notEqual(broadcastAudienceKey('event-a','INFO','ALL',''),broadcastAudienceKey('event-b','INFO','ALL',''));
+  assert.notEqual(broadcastAudienceKey('e','INFO','UNIT','a'),broadcastAudienceKey('e','URGENT','UNIT','a'));
+  assert.notEqual(broadcastAudienceKey('e','INFO','UNIT','a'),broadcastAudienceKey('e','INFO','UNIT','b'));
+  assert.equal(broadcastAudienceKey('e','INFO','ALL','a'),broadcastAudienceKey('e','INFO','ALL',''));
+});
+test('broadcast filters handle Czech accents and separate type and plan status',()=>{
+  const rows=[{title:'Změna směny',message:'Krizový štáb',kind:'UPDATE',status:'DRAFT'},{title:'Změna situace',kind:'URGENT',status:'FAILED'}];
+  assert.deepEqual(filterBroadcastRows(rows,'zmena krizovy','ALL'),[rows[0]]);
+  assert.deepEqual(filterBroadcastRows(rows,'zmena','URGENT','FAILED'),[rows[1]]);
+  assert.deepEqual(filterBroadcastRows(rows,'zmena','INFO'),[]);
 });

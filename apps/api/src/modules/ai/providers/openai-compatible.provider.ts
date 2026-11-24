@@ -36,7 +36,6 @@ export class OpenAICompatibleProvider implements AIProvider {
   private readonly apiKey?: string | null;
   private readonly timeoutMs: number;
   private readonly tlsVerify: boolean;
-  private readonly dispatcher?: Agent;
 
   constructor(config: OpenAICompatibleProviderConfig) {
     this.id = config.id;
@@ -54,12 +53,13 @@ export class OpenAICompatibleProvider implements AIProvider {
       this.logger.warn(
         `[SECURITY WARNING] Insecure TLS verification override enabled for AI Provider "${this.name}" (${this.endpoint}).`
       );
-      this.dispatcher = new Agent({
-        connect: {
-          rejectUnauthorized: false,
-        },
-      });
     }
+  }
+
+  /** The default global dispatcher remains reusable with normal TLS. An explicit
+   * insecure override owns a short-lived agent per operation, never a leaked pool. */
+  private operationDispatcher(): Agent | undefined {
+    return this.tlsVerify ? undefined : new Agent({connect:{rejectUnauthorized:false}});
   }
 
   getCapabilities(): AICapabilityValue[] {
@@ -118,6 +118,7 @@ export class OpenAICompatibleProvider implements AIProvider {
         : {}),
     };
 
+    const dispatcher=this.operationDispatcher();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
 
@@ -127,7 +128,7 @@ export class OpenAICompatibleProvider implements AIProvider {
         headers: this.buildHeaders(),
         body: JSON.stringify(body),
         signal: controller.signal,
-        dispatcher: this.dispatcher,
+        dispatcher,
       } as any);
 
       if (!response.ok) {
@@ -170,6 +171,7 @@ export class OpenAICompatibleProvider implements AIProvider {
       throw err;
     } finally {
       clearTimeout(timer);
+      if(dispatcher)await dispatcher.destroy().catch(()=>undefined);
     }
   }
 
@@ -183,6 +185,7 @@ export class OpenAICompatibleProvider implements AIProvider {
 
     const startTime = Date.now();
     const timeout = options?.timeoutMs ?? this.timeoutMs;
+    const dispatcher=this.operationDispatcher();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
 
@@ -192,7 +195,7 @@ export class OpenAICompatibleProvider implements AIProvider {
         headers: this.buildHeaders(),
         body: JSON.stringify({ model: this.embeddingModel, input }),
         signal: controller.signal,
-        dispatcher: this.dispatcher,
+        dispatcher,
       } as any);
 
       if (!response.ok) {
@@ -236,11 +239,13 @@ export class OpenAICompatibleProvider implements AIProvider {
       throw err;
     } finally {
       clearTimeout(timer);
+      if(dispatcher)await dispatcher.destroy().catch(()=>undefined);
     }
   }
 
   async testConnection(): Promise<TestConnectionResult> {
     const startTime = Date.now();
+    const dispatcher=this.operationDispatcher();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.min(this.timeoutMs, 15000));
 
@@ -251,7 +256,7 @@ export class OpenAICompatibleProvider implements AIProvider {
         method: 'GET',
         headers: this.buildHeaders(),
         signal: controller.signal,
-        dispatcher: this.dispatcher,
+        dispatcher,
       } as any);
 
       if (modelsRes.ok) {
@@ -287,6 +292,9 @@ export class OpenAICompatibleProvider implements AIProvider {
         return chatResult;
       }
 
+      // The probe does not use failed HTTP response bodies. Release the stream
+      // before issuing another request or returning an error.
+      await modelsRes.body?.cancel().catch(()=>undefined);
       // 2. If /models is 404 or 405, fallback to a 1-token test completion
       if (modelsRes.status === 404 || modelsRes.status === 405) {
         const completionsUrl = this.resolveUrl('/chat/completions');
@@ -299,9 +307,10 @@ export class OpenAICompatibleProvider implements AIProvider {
             max_tokens: 1,
           }),
           signal: controller.signal,
-          dispatcher: this.dispatcher,
+          dispatcher,
         } as any);
 
+        await probeRes.body?.cancel().catch(()=>undefined);
         if (probeRes.ok) {
           const latencyMs = Date.now() - startTime;
           const chatResult: TestConnectionResult = {
@@ -342,6 +351,7 @@ export class OpenAICompatibleProvider implements AIProvider {
       };
     } finally {
       clearTimeout(timer);
+      if(dispatcher)await dispatcher.destroy().catch(()=>undefined);
     }
   }
 
@@ -350,6 +360,7 @@ export class OpenAICompatibleProvider implements AIProvider {
       return { success: false, status: 'NOT_CONFIGURED', error: 'Embedding model is not configured' };
     }
 
+    const dispatcher=this.operationDispatcher();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.min(this.timeoutMs, 15000));
     try {
@@ -357,9 +368,10 @@ export class OpenAICompatibleProvider implements AIProvider {
         method: 'GET',
         headers: this.buildHeaders(),
         signal: controller.signal,
-        dispatcher: this.dispatcher,
+        dispatcher,
       } as any);
       if (!response.ok) {
+        await response.body?.cancel().catch(()=>undefined);
         return {
           success: false,
           status: 'ERROR',
@@ -392,6 +404,7 @@ export class OpenAICompatibleProvider implements AIProvider {
       };
     } finally {
       clearTimeout(timer);
+      if(dispatcher)await dispatcher.destroy().catch(()=>undefined);
     }
   }
 

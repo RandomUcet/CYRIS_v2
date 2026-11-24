@@ -18,9 +18,12 @@ import type { CourtCaseListItemDto, CourtCaseStatus } from '@cyris/contracts';
 
 export default function CourtDocketPage() {
   const params = useParams();
-  const router = useRouter();
   const eventId = params.eventId as string;
-  const { hasPermission } = useAuth();
+  return <CourtDocketWorkspace key={eventId} eventId={eventId}/>;
+}
+function CourtDocketWorkspace({eventId}:{eventId:string}) {
+  const router=useRouter();
+  const { hasPermission,viewAs } = useAuth();
   const { formatDate } = usePreferences();
 
   const [courtCases, setCourtCases] = useState<CourtCaseListItemDto[]>([]);
@@ -42,7 +45,7 @@ export default function CourtDocketPage() {
     originatingCaseId: '',
   });
 
-  const canCreate = hasPermission('court.create');
+  const canCreate = !viewAs && hasPermission('court.create',eventId);
 
   const fetchCourtCases = async () => {
     setLoading(true);
@@ -82,6 +85,7 @@ export default function CourtDocketPage() {
 
   const handleCreateCourtCase = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(!canCreate||submitting)return;
     if (!formData.title.trim()) {
       setFormError('Matter title is required');
       return;
@@ -183,6 +187,7 @@ export default function CourtDocketPage() {
             <button className="btn btn-secondary" onClick={fetchCourtCases} title="Refresh docket">
               <RefreshCw size={14} />
             </button>
+            {hasPermission('court.request.read',eventId)&&<Link className="btn btn-secondary" href={'/events/'+eventId+'/legal-requests'}><FileText size={14}/> Žádosti o podklady</Link>}
             {canCreate && (
               <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
                 <Plus size={14} style={{ marginRight: '6px' }} />

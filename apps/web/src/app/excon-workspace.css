@@ -1,0 +1,96 @@
+/* Scoped legacy utility repair for EXCON and broadcasts. */
+:is(.excon-optimized,.broadcast-optimized){min-width:0;box-sizing:border-box}
+:is(.excon-optimized,.broadcast-optimized).tabular-nums,:is(.excon-optimized,.broadcast-optimized) .tabular-nums{font-variant-numeric:tabular-nums}
+:is(.excon-optimized,.broadcast-optimized).h-1\.5,:is(.excon-optimized,.broadcast-optimized) .h-1\.5{height:6px}
+:is(.excon-optimized,.broadcast-optimized).rounded-full,:is(.excon-optimized,.broadcast-optimized) .rounded-full{border-radius:999px}
+:is(.excon-optimized,.broadcast-optimized).h-full,:is(.excon-optimized,.broadcast-optimized) .h-full{height:100%}
+:is(.excon-optimized,.broadcast-optimized).bg-sky-500,:is(.excon-optimized,.broadcast-optimized) .bg-sky-500{background:var(--accent-primary)}
+:is(.excon-optimized,.broadcast-optimized).mx-auto,:is(.excon-optimized,.broadcast-optimized) .mx-auto{margin-inline:auto}
+:is(.excon-optimized,.broadcast-optimized).max-w-5xl,:is(.excon-optimized,.broadcast-optimized) .max-w-5xl{max-width:64rem;width:100%}
+:is(.excon-optimized,.broadcast-optimized).p-6,:is(.excon-optimized,.broadcast-optimized) .p-6{padding:24px}
+:is(.excon-optimized,.broadcast-optimized).text-xl,:is(.excon-optimized,.broadcast-optimized) .text-xl{font-size:1.25rem}
+:is(.excon-optimized,.broadcast-optimized).bg-amber-950\/30,:is(.excon-optimized,.broadcast-optimized) .bg-amber-950\/30{background:var(--status-warning-bg)}
+:is(.excon-optimized,.broadcast-optimized).max-w-\[1440px\],:is(.excon-optimized,.broadcast-optimized) .max-w-\[1440px\]{max-width:1440px;width:100%}
+:is(.excon-optimized,.broadcast-optimized).pb-16,:is(.excon-optimized,.broadcast-optimized) .pb-16{padding-bottom:64px}
+:is(.excon-optimized,.broadcast-optimized).tracking-\[\.2em\],:is(.excon-optimized,.broadcast-optimized) .tracking-\[\.2em\]{letter-spacing:.2em}
+:is(.excon-optimized,.broadcast-optimized).text-sky-400,:is(.excon-optimized,.broadcast-optimized) .text-sky-400{color:var(--accent-primary)}
+:is(.excon-optimized,.broadcast-optimized).text-2xl,:is(.excon-optimized,.broadcast-optimized) .text-2xl{font-size:1.5rem}
+:is(.excon-optimized,.broadcast-optimized).tracking-tight,:is(.excon-optimized,.broadcast-optimized) .tracking-tight{letter-spacing:-.02em}
+:is(.excon-optimized,.broadcast-optimized).border-slate-600,:is(.excon-optimized,.broadcast-optimized) .border-slate-600{border-color:var(--border-strong)}
+:is(.excon-optimized,.broadcast-optimized).hover\:bg-slate-800:hover:not(:disabled),:is(.excon-optimized,.broadcast-optimized) .hover\:bg-slate-800:hover:not(:disabled){background:var(--bg-surface-hover)}
+:is(.excon-optimized,.broadcast-optimized).disabled\:opacity-40:disabled,:is(.excon-optimized,.broadcast-optimized) .disabled\:opacity-40:disabled{opacity:.4}
+:is(.excon-optimized,.broadcast-optimized).text-amber-300,:is(.excon-optimized,.broadcast-optimized) .text-amber-300{color:var(--status-warning)}
+:is(.excon-optimized,.broadcast-optimized).text-amber-200,:is(.excon-optimized,.broadcast-optimized) .text-amber-200{color:var(--text-primary)}
+:is(.excon-optimized,.broadcast-optimized).rounded-xl,:is(.excon-optimized,.broadcast-optimized) .rounded-xl{border-radius:var(--radius-md)}
+:is(.excon-optimized,.broadcast-optimized).p-8,:is(.excon-optimized,.broadcast-optimized) .p-8{padding:32px}
+:is(.excon-optimized,.broadcast-optimized).min-w-0,:is(.excon-optimized,.broadcast-optimized) .min-w-0{min-width:0}
+:is(.excon-optimized,.broadcast-optimized).mt-3,:is(.excon-optimized,.broadcast-optimized) .mt-3{margin-top:12px}
+:is(.excon-optimized,.broadcast-optimized).break-words,:is(.excon-optimized,.broadcast-optimized) .break-words{overflow-wrap:anywhere}
+:is(.excon-optimized,.broadcast-optimized).line-clamp-2,:is(.excon-optimized,.broadcast-optimized) .line-clamp-2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+:is(.excon-optimized,.broadcast-optimized).text-base,:is(.excon-optimized,.broadcast-optimized) .text-base{font-size:1rem}
+:is(.excon-optimized,.broadcast-optimized).transition-colors,:is(.excon-optimized,.broadcast-optimized) .transition-colors{transition:background-color .15s,border-color .15s,color .15s}
+:is(.excon-optimized,.broadcast-optimized).hover\:border-sky-700:hover:not(:disabled),:is(.excon-optimized,.broadcast-optimized) .hover\:border-sky-700:hover:not(:disabled){border-color:var(--accent-primary)}
+:is(.excon-optimized,.broadcast-optimized).border-amber-700,:is(.excon-optimized,.broadcast-optimized) .border-amber-700{border-color:var(--status-warning)}
+:is(.excon-optimized,.broadcast-optimized).text-amber-100\/90,:is(.excon-optimized,.broadcast-optimized) .text-amber-100\/90{color:var(--text-primary)}
+:is(.excon-optimized,.broadcast-optimized).hover\:underline:hover:not(:disabled),:is(.excon-optimized,.broadcast-optimized) .hover\:underline:hover:not(:disabled){text-decoration:underline}
+:is(.excon-optimized,.broadcast-optimized).grid-cols-3,:is(.excon-optimized,.broadcast-optimized) .grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+:is(.excon-optimized,.broadcast-optimized).mt-5,:is(.excon-optimized,.broadcast-optimized) .mt-5{margin-top:20px}
+:is(.excon-optimized,.broadcast-optimized).grid-cols-4,:is(.excon-optimized,.broadcast-optimized) .grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+:is(.excon-optimized,.broadcast-optimized).border-amber-900,:is(.excon-optimized,.broadcast-optimized) .border-amber-900{border-color:var(--border-strong)}
+:is(.excon-optimized,.broadcast-optimized).bg-amber-950\/20,:is(.excon-optimized,.broadcast-optimized) .bg-amber-950\/20{background:var(--status-warning-bg)}
+:is(.excon-optimized,.broadcast-optimized).hover\:bg-amber-950\/50:hover:not(:disabled),:is(.excon-optimized,.broadcast-optimized) .hover\:bg-amber-950\/50:hover:not(:disabled){background:var(--bg-surface-hover)}
+:is(.excon-optimized,.broadcast-optimized).truncate,:is(.excon-optimized,.broadcast-optimized) .truncate{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+:is(.excon-optimized,.broadcast-optimized).text-sky-300,:is(.excon-optimized,.broadcast-optimized) .text-sky-300{color:var(--accent-primary)}
+:is(.excon-optimized,.broadcast-optimized).border-red-700,:is(.excon-optimized,.broadcast-optimized) .border-red-700{border-color:var(--status-danger)}
+:is(.excon-optimized,.broadcast-optimized).text-red-200,:is(.excon-optimized,.broadcast-optimized) .text-red-200{color:var(--text-primary)}
+:is(.excon-optimized,.broadcast-optimized).border-green-700,:is(.excon-optimized,.broadcast-optimized) .border-green-700{border-color:var(--status-success)}
+:is(.excon-optimized,.broadcast-optimized).bg-green-950\/40,:is(.excon-optimized,.broadcast-optimized) .bg-green-950\/40{background:var(--status-success-bg)}
+:is(.excon-optimized,.broadcast-optimized).text-green-200,:is(.excon-optimized,.broadcast-optimized) .text-green-200{color:var(--text-primary)}
+:is(.excon-optimized,.broadcast-optimized).mb-4,:is(.excon-optimized,.broadcast-optimized) .mb-4{margin-bottom:16px}
+:is(.excon-optimized,.broadcast-optimized).text-lg,:is(.excon-optimized,.broadcast-optimized) .text-lg{font-size:1.125rem}
+:is(.excon-optimized,.broadcast-optimized).hover\:bg-slate-700:hover:not(:disabled),:is(.excon-optimized,.broadcast-optimized) .hover\:bg-slate-700:hover:not(:disabled){background:var(--bg-surface-hover)}
+:is(.excon-optimized,.broadcast-optimized).bg-blue-950\/50,:is(.excon-optimized,.broadcast-optimized) .bg-blue-950\/50{background:var(--accent-subtle)}
+:is(.excon-optimized,.broadcast-optimized).text-blue-100,:is(.excon-optimized,.broadcast-optimized) .text-blue-100{color:var(--text-primary)}
+:is(.excon-optimized,.broadcast-optimized).border-blue-600,:is(.excon-optimized,.broadcast-optimized) .border-blue-600{border-color:var(--accent-primary)}
+:is(.excon-optimized,.broadcast-optimized).text-blue-200,:is(.excon-optimized,.broadcast-optimized) .text-blue-200{color:var(--accent-primary)}
+:is(.excon-optimized,.broadcast-optimized).hover\:bg-slate-600:hover:not(:disabled),:is(.excon-optimized,.broadcast-optimized) .hover\:bg-slate-600:hover:not(:disabled){background:var(--bg-surface-hover)}
+:is(.excon-optimized,.broadcast-optimized).items-end,:is(.excon-optimized,.broadcast-optimized) .items-end{align-items:flex-end}
+:is(.excon-optimized,.broadcast-optimized).pt-4,:is(.excon-optimized,.broadcast-optimized) .pt-4{padding-top:16px}
+:is(.excon-optimized,.broadcast-optimized).border-slate-500,:is(.excon-optimized,.broadcast-optimized) .border-slate-500{border-color:var(--border-strong)}
+:is(.excon-optimized,.broadcast-optimized).border-sky-600,:is(.excon-optimized,.broadcast-optimized) .border-sky-600{border-color:var(--accent-primary)}
+:is(.excon-optimized,.broadcast-optimized).bg-sky-950,:is(.excon-optimized,.broadcast-optimized) .bg-sky-950{background:var(--accent-subtle)}
+:is(.excon-optimized,.broadcast-optimized).text-sky-100,:is(.excon-optimized,.broadcast-optimized) .text-sky-100{color:var(--text-primary)}
+:is(.excon-optimized,.broadcast-optimized).hover\:bg-sky-900:hover:not(:disabled),:is(.excon-optimized,.broadcast-optimized) .hover\:bg-sky-900:hover:not(:disabled){background:var(--bg-surface-hover)}
+:is(.excon-optimized,.broadcast-optimized).px-5,:is(.excon-optimized,.broadcast-optimized) .px-5{padding-inline:20px}
+:is(.excon-optimized,.broadcast-optimized).hover\:bg-blue-500:hover:not(:disabled),:is(.excon-optimized,.broadcast-optimized) .hover\:bg-blue-500:hover:not(:disabled){background:var(--accent-hover)}
+:is(.excon-optimized,.broadcast-optimized).disabled\:cursor-not-allowed:disabled,:is(.excon-optimized,.broadcast-optimized) .disabled\:cursor-not-allowed:disabled{cursor:not-allowed}
+:is(.excon-optimized,.broadcast-optimized).text-amber-700,:is(.excon-optimized,.broadcast-optimized) .text-amber-700{color:var(--text-secondary)}
+:is(.excon-optimized,.broadcast-optimized).mb-3,:is(.excon-optimized,.broadcast-optimized) .mb-3{margin-bottom:12px}
+:is(.excon-optimized,.broadcast-optimized).text-sky-200,:is(.excon-optimized,.broadcast-optimized) .text-sky-200{color:var(--accent-primary)}
+:is(.excon-optimized,.broadcast-optimized).mb-2,:is(.excon-optimized,.broadcast-optimized) .mb-2{margin-bottom:8px}
+:is(.excon-optimized,.broadcast-optimized).my-2,:is(.excon-optimized,.broadcast-optimized) .my-2{margin-block:8px}
+:is(.excon-optimized,.broadcast-optimized).hover\:bg-red-950:hover:not(:disabled),:is(.excon-optimized,.broadcast-optimized) .hover\:bg-red-950:hover:not(:disabled){background:var(--status-danger-bg)}
+:is(.excon-optimized,.broadcast-optimized).text-white,:is(.excon-optimized,.broadcast-optimized) .text-white{color:var(--text-primary)}
+:is(.excon-optimized,.broadcast-optimized).text-slate-100,:is(.excon-optimized,.broadcast-optimized) .text-slate-100{color:var(--text-primary)}
+:is(.excon-optimized,.broadcast-optimized).text-slate-200,:is(.excon-optimized,.broadcast-optimized) .text-slate-200{color:var(--text-primary)}
+:is(.excon-optimized,.broadcast-optimized).bg-slate-950,:is(.excon-optimized,.broadcast-optimized) .bg-slate-950{background:var(--bg-inset)}
+:is(.excon-optimized,.broadcast-optimized).bg-slate-900,:is(.excon-optimized,.broadcast-optimized) .bg-slate-900{background:var(--bg-panel)}
+@media(min-width:640px){:is(.excon-optimized,.broadcast-optimized).sm\:grid-cols-2,:is(.excon-optimized,.broadcast-optimized) .sm\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(min-width:640px){:is(.excon-optimized,.broadcast-optimized).sm\:grid-cols-3,:is(.excon-optimized,.broadcast-optimized) .sm\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(min-width:640px){:is(.excon-optimized,.broadcast-optimized).sm\:grid-cols-6,:is(.excon-optimized,.broadcast-optimized) .sm\:grid-cols-6{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media(min-width:768px){:is(.excon-optimized,.broadcast-optimized).md\:grid-cols-2,:is(.excon-optimized,.broadcast-optimized) .md\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(min-width:768px){:is(.excon-optimized,.broadcast-optimized).md\:grid-cols-4,:is(.excon-optimized,.broadcast-optimized) .md\:grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(min-width:1280px){:is(.excon-optimized,.broadcast-optimized).xl\:grid-cols-2,:is(.excon-optimized,.broadcast-optimized) .xl\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(min-width:1280px){:is(.excon-optimized,.broadcast-optimized).xl\:grid-cols-3,:is(.excon-optimized,.broadcast-optimized) .xl\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(min-width:1280px){:is(.excon-optimized,.broadcast-optimized).xl\:grid-cols-4,:is(.excon-optimized,.broadcast-optimized) .xl\:grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(min-width:768px){:is(.excon-optimized,.broadcast-optimized).md\:p-8,:is(.excon-optimized,.broadcast-optimized) .md\:p-8{padding:32px}:is(.excon-optimized,.broadcast-optimized).md\:p-5,:is(.excon-optimized,.broadcast-optimized) .md\:p-5{padding:20px}:is(.excon-optimized,.broadcast-optimized).md\:text-3xl,:is(.excon-optimized,.broadcast-optimized) .md\:text-3xl{font-size:1.875rem}}
+:is(.excon-optimized,.broadcast-optimized) .bg-blue-600.text-white{color:#fff}
+:is(.excon-optimized,.broadcast-optimized) :is(input:not([type=checkbox]),select,textarea){box-sizing:border-box;min-width:0;max-width:100%;color:var(--text-primary);background:var(--bg-inset);border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:8px;min-height:36px;font:inherit}
+:is(.excon-optimized,.broadcast-optimized) fieldset{border:0;padding:0;min-width:0;margin:0}
+:is(.excon-optimized,.broadcast-optimized) :is(button,a,input,select,textarea):focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+:is(.excon-optimized,.broadcast-optimized) button:disabled{cursor:not-allowed;opacity:.5}
+@media(max-width:500px){:is(.excon-optimized,.broadcast-optimized) .grid-cols-4,:is(.excon-optimized,.broadcast-optimized) .grid-cols-3{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(prefers-reduced-motion:reduce){:is(.excon-optimized,.broadcast-optimized) .animate-spin{animation:none}:is(.excon-optimized,.broadcast-optimized) .transition-colors{transition:none}}
+
+.broadcast-optimized .broadcast-composer-form{min-width:0}
+.excon-optimized .excon-metrics{min-width:0}

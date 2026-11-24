@@ -17,7 +17,7 @@ test('Court forms select people, cases, exhibits and filings by friendly search,
 test('person selector uses the event-isolated canonical registry query rather than only Typesense', () => {
   const source = readFileSync(new URL('../components/common/ResourcePicker.tsx', import.meta.url), 'utf8');
   assert.ok(source.includes("types === 'person'"));
-  assert.ok(source.includes('searchRegistryRecords(eventId, query.trim())'));
+  assert.ok(source.includes('searchRegistryRecords(eventId, query.trim(), controller.signal)'));
   assert.ok(source.includes("item.entityType === 'persons'"));
-  assert.ok(source.includes('getPerson(eventId, value)'));
+  assert.ok(source.includes('getPerson(eventId, value, controller.signal)'));
 });

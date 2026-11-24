@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ServiceModule, ServiceStatusResponse } from '@cyris/contracts';
 import { apiClient } from '@/lib/api-client';
 
@@ -10,11 +10,11 @@ const ServiceStatusContext = createContext<ServiceStatus>({ data: null, error: f
 export function ServiceStatusProvider({ eventId, children }: { eventId: string | null; children: ReactNode }) {
   const [data, setData] = useState<ServiceStatusResponse | null>(null);
   const [error, setError] = useState(false);
-  const [version, setVersion] = useState(0);
-  const refresh = useCallback(() => setVersion(value => value + 1), []);
+  const loadRef=useRef<()=>void>(()=>{});
+  const refresh = useCallback(() => loadRef.current(), []);
 
   useEffect(() => {
-    if (!eventId) return;
+    if (!eventId) {setData(null);setError(false);return;}
     const id = eventId;
     let active = true, pending = false;
     async function load() {
@@ -31,11 +31,14 @@ export function ServiceStatusProvider({ eventId, children }: { eventId: string |
         if (active) setError(true);
       } finally { pending = false; }
     }
+    loadRef.current=()=>{void load();};
     void load();
-    const interval = window.setInterval(load, 15000);
+    const interval = window.setInterval(()=>{if(!document.hidden)void load();}, 15000);
+    const visible=()=>{if(!document.hidden)void load();};
+    document.addEventListener('visibilitychange',visible);
     window.addEventListener('focus', load);
-    return () => { active = false; window.clearInterval(interval); window.removeEventListener('focus', load); };
-  }, [eventId, version]);
+    return () => { active = false; loadRef.current=()=>{}; window.clearInterval(interval); window.removeEventListener('focus', load);document.removeEventListener('visibilitychange',visible); };
+  }, [eventId]);
 
   const value = useMemo(() => ({ data: data?.eventId === eventId ? data : null, error, refresh }), [eventId, data, error, refresh]);
   return <ServiceStatusContext.Provider value={value}>{children}</ServiceStatusContext.Provider>;

@@ -17,7 +17,7 @@ import { useEvent } from '@/contexts/EventContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 
 export default function AdminUsersPage() {
-  const { currentUser, isPlatformAdmin, hasPermission } = useAuth();
+  const { currentUser, isPlatformAdmin, hasPermission,viewAs } = useAuth();
   const { currentEvent, events, selectEvent, loadingEvents } = useEvent();
   const { formatDate, locale } = usePreferences();
   const cs = locale === 'cs';
@@ -46,7 +46,7 @@ export default function AdminUsersPage() {
   const [revision, setRevision] = useState(0);
   const [starting, setStarting] = useState<string | null>(null);
   const [activating, setActivating] = useState<string | null>(null);
-  const scopeKey = JSON.stringify([currentUser?.user.id, currentEvent?.id, isPlatformAdmin]);
+  const scopeKey = JSON.stringify([currentUser?.user.id, currentEvent?.id, isPlatformAdmin,viewAs?.id]);
   const scopeRef = useRef({ key: scopeKey, generation: 0 });
   if (scopeRef.current.key !== scopeKey) scopeRef.current = { key: scopeKey, generation: scopeRef.current.generation + 1 };
   const scope = scopeRef.current;
@@ -65,9 +65,10 @@ export default function AdminUsersPage() {
     let cancelled = false;
     setTarget(null); setMemberships([]); setError(null); setActionError(null);
     setLoadedScope(null);
-    if (!currentEvent) { setLoading(false); return; }
+    if (!currentEvent||tab!=='participants'||!currentUser||viewAs) { setLoading(false); return; }
+    const controller=new AbortController();
     setLoading(true);
-    void apiClient.getMemberships(currentEvent.id).then((res) => {
+    void apiClient.getMemberships(currentEvent.id,controller.signal).then((res) => {
       if (cancelled || scopeRef.current !== scope) return;
       if (res.ok && res.data) setMemberships(res.data.filter(member => member.eventId === currentEvent.id));
       else setError(res.error || (cs ? 'Účastníky se nepodařilo načíst.' : 'Unable to load participants.'));
@@ -75,8 +76,8 @@ export default function AdminUsersPage() {
       if (!cancelled && scopeRef.current === scope) setError(err instanceof Error ? err.message :
         (cs ? 'Seznam účastníků je nedostupný.' : 'Participant list unavailable.'));
     }).finally(() => { if (!cancelled && scopeRef.current === scope) { setLoadedScope(scope); setLoadedRevision(revision); setLoading(false); } });
-    return () => { cancelled = true; };
-  }, [currentEvent?.id, revision, scope]);
+    return () => { cancelled = true;controller.abort(); };
+  }, [currentEvent?.id, revision, scope,tab]);
   useEffect(() => { setTeam('ALL'); setQuery(''); setStatus('ALL'); }, [scope]);
 
   const [commandRole, setCommandRole] = useState<{ id: string; eventId: string } | null>(null);
@@ -87,12 +88,13 @@ export default function AdminUsersPage() {
   useEffect(() => {
     let active = true;
     setCommandRole(null);
-    if (eventId && canManageCommand) void apiClient.getRoles(eventId).then(response => {
+    const controller=new AbortController();
+    if (eventId && canManageCommand && tab==='participants'&&!viewAs) void apiClient.getRoles(eventId,controller.signal).then(response => {
       const role = response.data?.find(role => role.slug === 'exercise-command');
       if (active && scopeRef.current === scope && role) setCommandRole({ id: role.id, eventId });
     }).catch(() => { if (active && scopeRef.current === scope) setCommandRole(null); });
-    return () => { active = false; };
-  }, [canManageCommand, eventId, scope]);
+    return () => { active = false;controller.abort(); };
+  }, [canManageCommand, eventId, scope,tab]);
   const mutationBusy = Boolean(starting || activating || changingRole);
 
   function commandControl(member: MembershipResponse) {
@@ -255,10 +257,10 @@ export default function AdminUsersPage() {
           <span>{tr('Bez týmu','No team')}: <strong>{counts.withoutTeam}</strong></span>
         </div>
         <p className="roster-caption">{visible.length} / {scopedMembers.length} {cs ? 'účastníků' : 'participants'} · {currentEvent.name}</p>
-        <DataTable columns={columns} data={visible} keyField="id" emptyTitle={cs ? 'Žádní účastníci' : 'No participants'} emptyDescription={query || status !== 'ALL' || team !== 'ALL' ? (cs ? 'Zkus změnit hledání nebo filtr.' : 'Try a different search or filter.') : (cs ? 'V tomto cvičení zatím není žádný účastník.' : 'This exercise has no participants yet.')} />
+        <DataTable columns={columns} data={visible} keyField="id" pageSize={50} pageResetKey={JSON.stringify([scopeKey,query,status,team,revision])} emptyTitle={cs ? 'Žádní účastníci' : 'No participants'} emptyDescription={query || status !== 'ALL' || team !== 'ALL' ? (cs ? 'Zkus změnit hledání nebo filtr.' : 'Try a different search or filter.') : (cs ? 'V tomto cvičení zatím není žádný účastník.' : 'This exercise has no participants yet.')} />
       </>}</>}
     </div>
-    {target&&rosterReady&&target.eventId===eventId&&<div className="preview-dialog-backdrop" onClick={()=>{if(!starting)setTarget(null);}}><form className="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title" onSubmit={e => { e.preventDefault(); void startPreview(target); }} onClick={e=>e.stopPropagation()}>
+    {target&&rosterReady&&target.eventId===eventId&&tab==='participants'&&<div className="preview-dialog-backdrop" onClick={()=>{if(!starting)setTarget(null);}}><form className="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title" onSubmit={e => { e.preventDefault(); void startPreview(target); }} onClick={e=>e.stopPropagation()}>
        <Shield size={23}/><h2 id="preview-title">{tr('Náhled účastníka','Participant preview')}</h2>
        <strong>{target.user?.displayName}</strong><p>{tr('Po dobu 15 minut použijete oprávnění tohoto účastníka v jediném cvičení. Změny a exporty jsou zakázané. Začátek a ukončení se zaznamenají do auditu.','For 15 minutes you will use this participant’s permissions in one exercise. Changes and exports are blocked. Start and exit are audited.')}</p>
        <label>{tr('Důvod náhledu','Reason for preview')}<textarea required minLength={3} maxLength={500} rows={3} value={reason} onChange={e=>setReason(e.target.value)}/></label>

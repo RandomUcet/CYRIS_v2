@@ -47,3 +47,14 @@ export function copyBroadcastPlan(plan: Pick<ExerciseBroadcastPlanResponse,
     unitId: plan.audience === 'UNIT' ? plan.unitId ?? '' : '',
   };
 }
+
+export function broadcastAudienceKey(eventId:string,kind:string,audience:'ALL'|'UNIT',unitId:string):string {
+  return JSON.stringify([eventId,kind,audience,audience==='UNIT'?unitId:'']);
+}
+
+export function filterBroadcastRows<T extends {title:string;kind:string;status?:string;message?:string}>(rows:readonly T[],query:string,kind:string,status='ALL'):T[] {
+  const normalize=(s:string)=>s.normalize('NFD').replace(/\p{M}/gu,'').toLowerCase().trim();
+  const terms=normalize(query).split(/\s+/).filter(Boolean);
+  return rows.filter(row=>(kind==='ALL'||row.kind===kind)&&(status==='ALL'||row.status===status)&&
+    terms.every(term=>normalize(row.title+' '+(row.message??'')).includes(term)));
+}

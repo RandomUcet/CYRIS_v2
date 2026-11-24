@@ -54,7 +54,7 @@ export class JsocService {
       eq(jsocSyntheticLogs.eventId,eventId),
       query.category?eq(jsocSyntheticLogs.category,query.category):undefined,
       query.severity?eq(jsocSyntheticLogs.severity,query.severity):undefined,
-      query.search?sql`(${jsocSyntheticLogs.source} ilike ${'%'+query.search+'%'} or ${jsocSyntheticLogs.message} ilike ${'%'+query.search+'%'})`:undefined
+      query.search?sql`(${jsocSyntheticLogs.source} ilike ${'%'+query.search+'%'} or ${jsocSyntheticLogs.message} ilike ${'%'+query.search+'%'} or ${jsocSyntheticLogs.scenario} ilike ${'%'+query.search+'%'})`:undefined
     );
     const [rows,total]=await Promise.all([
       this.db.select().from(jsocSyntheticLogs).where(where)
@@ -88,7 +88,7 @@ export class JsocService {
       await this.audit.record({
         action:'jsoc.synthetic_logs.generated',category:'scenario',eventId,
         actorUserId:user.id,resourceType:'jsoc_simulated_dataset',
-        metadata:{count:rows.length,seed:input.seed,scenario:input.scenario},txClient:tx,
+        metadata:{count:rows.length,seed:input.seed,scenario:input.scenario,category:input.category??'MIXED'},txClient:tx,
       });
       return {created:rows.length,simulation:true as const};
     });

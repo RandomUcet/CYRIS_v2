@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
@@ -14,6 +14,11 @@ import { Permissions, PermissionScopes } from '@cyris/shared';
 
 import { privateControlTypes, resourceTypesForModule } from '../disruptions/module-resources.js';
 import { requestModuleImpacts } from '../disruptions/request-impacts.js';
+
+/** A caller-supplied literal may never become Typesense filter syntax. */
+export function validSearchFilterLiteral(value:string|undefined):boolean {
+  return value===undefined||/^[a-zA-Z0-9_-]{1,128}$/.test(value);
+}
 
 export interface SearchFilterContext {
   typeFilter?: string;
@@ -36,7 +41,7 @@ export class SearchAuthzService {
     user: AuthenticatedUser,
     context?: SearchFilterContext
   ): Promise<string | null> {
-    if (!user || user.status !== 'ACTIVE') {
+    if (!user || user.status !== 'ACTIVE'||!validSearchFilterLiteral(context?.typeFilter)||!validSearchFilterLiteral(context?.eventFilter)) {
       return null;
     }
 
@@ -100,26 +105,33 @@ export class SearchAuthzService {
         )
       );
 
+    const memberships=activeMemberships.filter(m=>!context?.eventFilter||m.eventId===context.eventFilter);
+    const membershipIds=memberships.map(m=>m.id);
+    const allRoles=membershipIds.length?await db.select({membershipId:roleAssignments.membershipId,eventId:roles.eventId,
+      permissionKey:rolePermissions.permissionKey,scope:rolePermissions.scope,unitId:roleAssignments.unitId})
+      .from(roleAssignments).innerJoin(roles,eq(roleAssignments.roleId,roles.id))
+      .innerJoin(rolePermissions,eq(roles.id,rolePermissions.roleId))
+      .where(and(inArray(roleAssignments.membershipId,membershipIds),isNull(roleAssignments.userId))):[];
+    const rolesByMembership=new Map<string,typeof allRoles>();
+    const eventByMembership=new Map(memberships.map(m=>[m.id,m.eventId]));
+    for(const row of allRoles){
+      if(!row.membershipId||eventByMembership.get(row.membershipId)!==row.eventId)continue;
+      const rows=rolesByMembership.get(row.membershipId)??[];rows.push(row);rolesByMembership.set(row.membershipId,rows);
+    }
+    const unitMembershipIds=[...rolesByMembership].filter(([,rows])=>rows.some(r=>r.scope===PermissionScopes.UNIT&&!r.unitId)).map(([id])=>id);
+    const allUnits=unitMembershipIds.length?await db.select({membershipId:membershipUnitAssignments.membershipId,unitId:membershipUnitAssignments.unitId})
+      .from(membershipUnitAssignments).where(inArray(membershipUnitAssignments.membershipId,unitMembershipIds)):[];
+    const unitsByMembership=new Map<string,string[]>();
+    for(const row of allUnits){const ids=unitsByMembership.get(row.membershipId)??[];ids.push(row.unitId);unitsByMembership.set(row.membershipId,ids);}
     const eventExclusions: string[] = [];
-    for (const membership of activeMemberships) {
-      if (context?.eventFilter && membership.eventId !== context.eventFilter) continue;
+    for (const membership of memberships) {
       const impacts = await requestModuleImpacts(db, membership.eventId, user);
       const hiddenTypes = [...impacts].filter(([, mode]) => mode === 'UNAVAILABLE')
         .flatMap(([module]) => resourceTypesForModule(module));
       if (hiddenTypes.length) {
         eventExclusions.push(`(eventId:!=${membership.eventId} || resourceType:!=[${hiddenTypes.join(',')}])`);
       }
-      // Fetch role assignments for this membership
-      const roleRows = await db
-        .select({
-          permissionKey: rolePermissions.permissionKey,
-          scope: rolePermissions.scope,
-          unitId: roleAssignments.unitId,
-        })
-        .from(roleAssignments)
-        .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
-        .innerJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
-        .where(and(eq(roleAssignments.membershipId, membership.id), eq(roles.eventId, membership.eventId), isNull(roleAssignments.userId)));
+      const roleRows=rolesByMembership.get(membership.id)??[];
 
       if (roleRows.length === 0) {
         continue;
@@ -151,13 +163,7 @@ export class SearchAuthzService {
 
       // Check assigned units for unit-scoped permissions
       if (unitScopedPerms.length > 0) {
-        // Fetch explicit unit assignments
-        const unitAssignments = await db
-          .select({ unitId: membershipUnitAssignments.unitId })
-          .from(membershipUnitAssignments)
-          .where(eq(membershipUnitAssignments.membershipId, membership.id));
-
-        const explicitUnitIds = unitAssignments.map((u) => u.unitId);
+        const explicitUnitIds=unitsByMembership.get(membership.id)??[];
         // Keep each permission bound to its own unit. Combining all grants and
         // all memberships would leak one team's rights into another team.
         for (const grant of unitScopedPerms) {

@@ -138,7 +138,9 @@ export function ModuleAvailabilityPanel({ eventId }: { eventId: string }) {
   const activeRules = currentRules.filter(row => row.active && isServiceModule(row.module) && row.mode !== 'DEGRADED');
   return <>
     <form className={styles.panel} onSubmit={event => void start(event)}>
-      <h2>{tr('Nové omezení', 'New restriction')}</h2>
+      <div className={styles.sectionLabel} data-kind="simulation">{tr('SIMULACE CVIČENÍ','EXERCISE SIMULATION')}</div>
+      <h2>{tr('Simulovaný výpadek nebo omezení modulu', 'Simulated module outage or restriction')}</h2>
+      <p className={styles.explanation}>{tr('Mění dostupnost vybraného modulu pro určené účastníky. Nepozastavuje celé cvičení ani skutečnou síť. Pro plánovaný odpočinek použijte provozní pauzu výše.','Changes access to a selected module for its audience; does not pause the whole exercise or real network. Use the operational pause above for a real break.')}</p>
       <fieldset disabled={busy} className={styles.formGrid}>
         <label>{tr('Modul', 'Module')}<select value={module} onChange={e => setModule(e.target.value as ServiceModule)}>
           {Object.entries(serviceModuleLabels).map(([key, label]) => <option key={key} value={key}>{label[cs ? 'cs' : 'en']}</option>)}

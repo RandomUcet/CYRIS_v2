@@ -1,11 +1,12 @@
 'use client';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { FileSearch, Plus, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { ResourcePicker } from '@/components/common/ResourcePicker';
 import type { CourtRequestItem, CreateCourtRequest, UnitResponse } from '@cyris/contracts';
+import { requestOverdue, legalRequestQueue, legalRequestCounts } from '@/lib/legal-request-queue';
 import styles from './CourtRequestsPanel.module.css';
 
 const kinds: CreateCourtRequest['kind'][] = ['EVIDENCE','DOCUMENT','FORENSIC_REPORT',
@@ -16,8 +17,8 @@ export function CourtRequestsPanel({ eventId, courtCaseId }: { eventId: string; 
   const { locale, formatTime } = usePreferences();
   const cs = locale === 'cs';
   const tr = (cz: string, en: string) => cs ? cz : en;
-  const mayCreate = !viewAs && hasPermission('court.request.create');
-  const mayRespond = !viewAs && hasPermission('court.request.respond');
+  const mayCreate = !viewAs && hasPermission('court.request.create',eventId);
+  const mayRespond = !viewAs && hasPermission('court.request.respond',eventId);
   const [requests, setRequests] = useState<CourtRequestItem[]>([]);
   const [units, setUnits] = useState<UnitResponse[]>([]);
   const [kind, setKind] = useState<CreateCourtRequest['kind']>('EVIDENCE');
@@ -26,6 +27,11 @@ export function CourtRequestsPanel({ eventId, courtCaseId }: { eventId: string; 
   const [unitId, setUnitId] = useState('');
   const [dueAt, setDueAt] = useState('');
   const [activeReply, setActiveReply] = useState<string | null>(null);
+  const [replyRevision,setReplyRevision]=useState<number|null>(null);
+  const [statusFilter,setStatusFilter]=useState('ALL');
+  const [now,setNow]=useState(()=>Date.now());
+  const mutation=useRef(false);
+  useEffect(()=>{const timer=window.setInterval(()=>setNow(Date.now()),60000);return()=>window.clearInterval(timer);},[]);
   const [replyStatus, setReplyStatus] = useState<'IN_PROGRESS'|'FULFILLED'|'DECLINED'>('FULFILLED');
   const [replyText, setReplyText] = useState('');
   const [linkedId, setLinkedId] = useState('');
@@ -43,7 +49,8 @@ export function CourtRequestsPanel({ eventId, courtCaseId }: { eventId: string; 
       .then(([items, teams]) => {
         if (!active) return;
         if (!items.ok) throw new Error(items.error || 'Could not load legal requests');
-        setRequests(items.data ?? []);
+        setRequests((items.data ?? []).filter(row=>row.eventId===eventId&&row.courtCaseId===courtCaseId));
+        setNow(Date.now());
         if (teams.ok && teams.data) setUnits(teams.data);
         setError('');
       }).catch(e => { if (active) setError(e instanceof Error ? e.message : 'Error'); })
@@ -53,8 +60,8 @@ export function CourtRequestsPanel({ eventId, courtCaseId }: { eventId: string; 
 
   async function create(e: FormEvent) {
     e.preventDefault();
-    if (busy || !mayCreate) return;
-    setBusy(true); setError(''); setNotice('');
+    if (mutation.current || busy || !mayCreate || loading) return;
+    mutation.current=true; setBusy(true); setError(''); setNotice('');
     try {
       const result = await apiClient.createCourtRequest(eventId, courtCaseId, {
         kind, subject: subject.trim(), details: details.trim(),
@@ -66,14 +73,15 @@ export function CourtRequestsPanel({ eventId, courtCaseId }: { eventId: string; 
       setNotice(tr('Žádost byla odeslána.','Request filed.'));
       setRefresh(x=>x+1);
     } catch (e) { setError(e instanceof Error ? e.message : 'Error'); }
-    finally { setBusy(false); }
+    finally { mutation.current=false; setBusy(false); }
   }
   async function respond(request: CourtRequestItem) {
-    if (busy || !mayRespond) return;
-    setBusy(true); setError(''); setNotice('');
+    if (mutation.current || busy || loading || !mayRespond || replyRevision===null) return;
+    if(request.revision!==replyRevision){setError(tr('Žádost byla změněna. Znovu otevřete odpověď po kontrole aktualizací.','Request changed. Review updates and reopen the reply.'));return;}
+    mutation.current=true; setBusy(true); setError(''); setNotice('');
     try {
       const result = await apiClient.replyCourtRequest(eventId, courtCaseId, request.id, {
-        expectedRevision: request.revision, status: replyStatus, response: replyText.trim(),
+        expectedRevision: replyRevision, status: replyStatus, response: replyText.trim(),
         linkedResourceId: linkedId || undefined,
       });
       if (!result.ok) throw new Error(result.error || 'Reply failed');
@@ -81,8 +89,10 @@ export function CourtRequestsPanel({ eventId, courtCaseId }: { eventId: string; 
       setNotice(tr('Odpověď byla zaznamenána do spisu.','Response recorded in the legal matter.'));
       setRefresh(x=>x+1);
     } catch (e) { setError(e instanceof Error ? e.message : 'Error'); }
-    finally { setBusy(false); }
+    finally { mutation.current=false; setBusy(false); }
   }
+  const counts=legalRequestCounts(requests,now);
+  const visible=legalRequestQueue(requests,{status:statusFilter,kind:'ALL',query:'',deadline:'ALL'},now);
   return <section className={styles.workspace} aria-label={tr('Žádosti o podklady pro soud', 'Court disclosure requests')}>
     <header className={styles.header}>
       <div><h2><FileSearch size={19} aria-hidden/> {tr('Žádosti o důkazy, zprávy a posudky','Evidence, reports and expert requests')}</h2>
@@ -110,19 +120,20 @@ export function CourtRequestsPanel({ eventId, courtCaseId }: { eventId: string; 
         <label>{tr('Termín (volitelně)','Deadline (optional)')}<input type="datetime-local" value={dueAt}
           onChange={e=>setDueAt(e.target.value)}/></label>
       </div>
-      <button className="btn btn-primary" disabled={busy || subject.trim().length<4 || details.trim().length<10}>
+      <button className="btn btn-primary" disabled={busy || loading || subject.trim().length<4 || details.trim().length<10}>
         {busy?tr('Odesílám…','Sending…'):tr('Odeslat žádost','File request')}</button>
     </form>}
     {error && <p className={styles.error} role="alert">{error}</p>}
     {notice && <p className={styles.note} role="status">{notice}</p>}
-    {loading ? <p>{tr('Načítám žádosti…','Loading requests…')}</p> : requests.length===0
-      ? <p className={styles.note}>{tr('Zatím zde nejsou žádné žádosti.','No requests in this matter yet.')}</p>
-      : <div className={styles.requests}>{requests.map(req=><article className={styles.request} key={req.id}>
+    <div className={styles.queueTools}><span>{tr('Nevyřízené','Pending')}: {counts.pending} · {tr('Po termínu','Overdue')}: {counts.overdue}</span><label>{tr('Stav','Status')} <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>{['ALL','PENDING','OPEN','IN_PROGRESS','FULFILLED','DECLINED','CANCELLED'].map(value=><option key={value} value={value}>{value==='ALL'?tr('Všechny','All'):value.replaceAll('_',' ')}</option>)}</select></label></div>
+    {loading ? <p>{tr('Načítám žádosti…','Loading requests…')}</p> : visible.length===0
+      ? <p className={styles.note}>{requests.length?tr('Žádosti neodpovídají filtru.','No requests match the filter.'):tr('Zatím zde nejsou žádné žádosti.','No requests in this matter yet.')}</p>
+      : <div className={styles.requests}>{visible.map(req=><article className={styles.request} key={req.id}>
         <div className={styles.row}><div><strong>{req.subject}</strong>
           <p className={styles.sub}>{req.kind.replaceAll('_',' ')} · {formatTime(req.createdAt)}</p></div>
           <span className={styles.status}>{req.status}</span></div>
         <p className={styles.description}>{req.details}</p>
-        {req.dueAt&&<p className={styles.sub}>{tr('Termín','Due')}: {formatTime(req.dueAt)}</p>}
+        {req.dueAt&&<p className={styles.sub}>{tr('Termín','Due')}: {new Date(req.dueAt).toLocaleString(cs?'cs-CZ':'en-GB')}{requestOverdue(req,now)?' · '+tr('Po termínu','Overdue'):''}</p>}
         {req.response&&<div className={styles.response}><strong>{tr('Odpověď','Response')}</strong>
           <p>{req.response}</p>
           {req.linkedResourceId&&<small>{tr('Připojený záznam','Linked record')}: {req.linkedResourceId}</small>}
@@ -143,6 +154,7 @@ export function CourtRequestsPanel({ eventId, courtCaseId }: { eventId: string; 
         </details>}
         {mayRespond&&['OPEN','IN_PROGRESS'].includes(req.status) && (activeReply===req.id
           ? <form className={styles.form} onSubmit={e=>{e.preventDefault();void respond(req)}}>
+            {replyRevision!==req.revision&&<p role="alert" className={styles.error}>{tr('Žádost se mezitím změnila. Zrušte rozepsanou odpověď a zkontrolujte novou revizi.','Request changed. Cancel the reply and review the new revision.')}</p>}
             <label>{tr('Vyřízení','Disposition')}<select value={replyStatus} onChange={e=>setReplyStatus(e.target.value as typeof replyStatus)}>
               <option value="IN_PROGRESS">{tr('Pracuji na tom','In progress')}</option>
               <option value="FULFILLED">{tr('Podklady dodány','Fulfilled')}</option>
@@ -160,11 +172,11 @@ export function CourtRequestsPanel({ eventId, courtCaseId }: { eventId: string; 
               label={tr('Připojit již existující záznam','Attach an existing record')} types={linkedType}/>
             <div className={styles.actions}>
               <button type="button" className="btn btn-secondary" onClick={()=>setActiveReply(null)}>{tr('Zrušit','Cancel')}</button>
-              <button className="btn btn-primary" disabled={busy || replyText.trim().length<5}>{tr('Zapsat odpověď','Submit response')}</button>
+              <button className="btn btn-primary" disabled={busy || loading || replyRevision!==req.revision || replyText.trim().length<5}>{tr('Zapsat odpověď','Submit response')}</button>
             </div>
           </form>
           : <button type="button" className="btn btn-secondary" onClick={()=>{
-              setActiveReply(req.id);setReplyText('');setLinkedId('');setReplyStatus('FULFILLED');
+              setActiveReply(req.id);setReplyRevision(req.revision);setReplyText('');setLinkedId('');setReplyStatus('FULFILLED');
             }}>{tr('Vyřídit žádost','Respond')}</button>)}
       </article>)}</div>}
   </section>;

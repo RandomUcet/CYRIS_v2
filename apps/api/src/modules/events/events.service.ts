@@ -417,6 +417,14 @@ export class EventsService {
         .from(roleAssignments).innerJoin(roles, eq(roles.id, roleAssignments.roleId))
         .where(and(inArray(roleAssignments.membershipId, membershipIds), eq(roles.eventId, eventId), isNull(roleAssignments.userId))),
     ]);
+    const group=<T,>(items:readonly T[],key:(item:T)=>string|null)=>{
+      const byId=new Map<string,T[]>();
+      for(const item of items){const id=key(item);if(!id)continue;const list=byId.get(id)??[];list.push(item);byId.set(id,list);}
+      return byId;
+    };
+    const platformByUser=group(platformRoles,row=>row.userId);
+    const unitsByMember=group(unitRows,row=>row.membershipId);
+    const rolesByMember=group(roleRows,row=>row.membershipId);
     return rows.map((r) => ({
       id: r.id,
       eventId: r.eventId,
@@ -429,9 +437,9 @@ export class EventsService {
         displayName: r.userDisplayName,
         status: r.userStatus,
       },
-      platformRoles: platformRoles.filter(role => role.userId === r.userId).map(({ id, name }) => ({ id, name })),
-      units: unitRows.filter((row) => row.membershipId === r.id).map(({ id, name, slug }) => ({ id, name, slug })),
-      roles: roleRows.filter((row) => row.membershipId === r.id).map(({ id, name, unitId, assignmentId }) => ({ id, name, unitId, assignmentId })),
+      platformRoles: (platformByUser.get(r.userId)??[]).map(({ id, name }) => ({ id, name })),
+      units: (unitsByMember.get(r.id)??[]).map(({ id, name, slug }) => ({ id, name, slug })),
+      roles: (rolesByMember.get(r.id)??[]).map(({ id, name, unitId, assignmentId }) => ({ id, name, unitId, assignmentId })),
     }));
   }
 
