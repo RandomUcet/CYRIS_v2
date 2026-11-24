@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
 import Link from 'next/link';
+import {ExerciseHintHandoff} from './ExerciseHintHandoff';
 import {apiClient} from '@/lib/api-client';
 import type {StoredExerciseAdvice,ExerciseAdviceDecision} from '@cyris/contracts';
 
@@ -39,7 +40,7 @@ export function ExerciseAdviceHistory({eventId,cs,refreshKey,blueprintRevision}:
  }
  const stale=draft?.blueprintRevision!=null&&blueprintRevision!=null&&draft.blueprintRevision!==blueprintRevision;
  return <section className="intel-card"><h2>{tr('Historie a kontrola AI návrhů','AI advice history & review')}</h2>
- <p className="intel-muted">{tr('Posledních 20 návrhů. Přijetí znamená pouze interní rozhodnutí organizátora; nic se automaticky neprovádí ani neposílá.','Latest 20 drafts. Acceptance records an internal organizer decision only; nothing is executed or sent.')}</p>
+ <p className="intel-muted">{tr('Posledních 20 návrhů. Přijetí je interní rozhodnutí. U intervence lze následně vytvořit koncept zprávy pro vybraný tým; nic se automaticky neposílá.','Latest 20 drafts. Acceptance is an internal decision. An intervention may then be handed off as a draft for a selected team; nothing is automatically sent.')}</p>
  <div className="intel-history-select"><button className="btn btn-secondary" type="button" disabled={busy||loading} onClick={()=>setReload(v=>v+1)}>{tr('Obnovit historii','Refresh history')}</button>
  {!!rows.length&&<select aria-label={tr('Vybrat návrh','Select draft')} disabled={busy||loading} value={selected} onChange={e=>setSelected(e.target.value)}>{rows.map(r=><option key={r.runId} value={r.runId}>{new Date(r.generatedAt).toLocaleString(cs?'cs-CZ':'en-GB')} · {r.mode} · {r.actions.length} {tr('návrhů','actions')}</option>)}</select>}</div>
  {error&&<p role="alert">{error}</p>}{loading&&<p role="status">{tr('Načítám historii…','Loading history…')}</p>}
@@ -51,12 +52,14 @@ export function ExerciseAdviceHistory({eventId,cs,refreshKey,blueprintRevision}:
  <details><summary>{tr('Původní pozorování','Original observations')} · {new Date(draft.observedAt).toLocaleString()}</summary><ul className="intel-list">{draft.signals.map(s=><li key={s.id}>{s.count} · {cs?s.labelCs:s.label}<p className="intel-muted">{s.source}</p><Link href={'/events/'+eventId+s.href}>{tr('Otevřít agendu','Open workspace')}</Link></li>)}</ul></details>
  <div className="intel-review-grid">{draft.actions.map((action,i)=>{
   const review=draft.reviews.find(r=>r.actionIndex===i),key=draft.runId+':'+i;
+  const handoff=draft.handoffs.find(h=>h.actionIndex===i);
   const labels={ACCEPTED:tr('Přijato k dalšímu zpracování','Accepted for further work'),REJECTED:tr('Zamítnuto','Rejected'),PENDING:tr('Čeká na posouzení','Pending review')};
   return <article key={key} className="intel-review-item" data-decision={review?.decision??'PENDING'}><h4>{action.module} · {action.title}</h4><p>{action.proposal}</p><p className="intel-muted">{action.reason}</p>
   {!!action.signalIds.length&&<ul>{action.signalIds.map((id,j)=>{const s=draft.signals.find(v=>v.id===id);return <li key={id+j}>{s?s.count+' · '+(cs?s.labelCs:s.label):id}</li>;})}</ul>}
   <p><strong>{labels[review?.decision??'PENDING']}</strong>{review&&' · '+new Date(review.reviewedAt).toLocaleString()}</p>
-  <label>{tr('Poznámka organizátora','Organizer note')}<textarea maxLength={1000} disabled={busy} value={notes[key]??review?.note??''} onChange={e=>setNotes(old=>({...old,[key]:e.target.value}))}/></label>
-  <div className="intel-actions"><button type="button" className="btn btn-primary" disabled={busy||stale} onClick={()=>void decide(i,'ACCEPTED')}>{tr('Přijmout','Accept')}</button><button type="button" className="btn btn-secondary" disabled={busy} onClick={()=>void decide(i,'REJECTED')}>{tr('Zamítnout','Reject')}</button><button type="button" className="btn btn-secondary" disabled={busy} onClick={()=>void decide(i,'PENDING')}>{tr('Vrátit k posouzení','Return to review')}</button></div>
+  <label>{tr('Poznámka organizátora','Organizer note')}<textarea maxLength={1000} disabled={busy||!!handoff} value={notes[key]??review?.note??''} onChange={e=>setNotes(old=>({...old,[key]:e.target.value}))}/></label>
+  <div className="intel-actions"><button type="button" className="btn btn-primary" disabled={busy||stale||!!handoff} onClick={()=>void decide(i,'ACCEPTED')}>{tr('Přijmout','Accept')}</button><button type="button" className="btn btn-secondary" disabled={busy||!!handoff} onClick={()=>void decide(i,'REJECTED')}>{tr('Zamítnout','Reject')}</button><button type="button" className="btn btn-secondary" disabled={busy||!!handoff} onClick={()=>void decide(i,'PENDING')}>{tr('Vrátit k posouzení','Return to review')}</button></div>
+  {handoff?<p role="status">{tr('Koncept zprávy vytvořen','Broadcast draft created')} · <Link href={'/events/'+eventId+'/broadcast?plan='+encodeURIComponent(handoff.planId)}>{tr('Otevřít komunikační centrum','Open communication center')}</Link></p>:draft.mode==='INTERVENTION'&&review?.decision==='ACCEPTED'&&!stale&&<ExerciseHintHandoff key={key} eventId={eventId} runId={draft.runId} revision={draft.revision} actionIndex={i} cs={cs} disabled={busy||loading} onSaved={row=>{setRows(old=>old.map(v=>v.runId===row.runId?row:v));setReload(v=>v+1);}}/>}
   </article>;
  })}</div>
  {draft.reviewNotes.map((note,i)=><p className="intel-muted" key={i}>{note}</p>)}

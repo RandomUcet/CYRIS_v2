@@ -28,3 +28,6 @@ Organizer-authored versioned scenario context is stored separately from events a
 
 ## Advice review increment
 Validated server-produced drafts are retained in a dedicated organizer-only store with exact observed signal counts and blueprint revision, run ID, model, generation time, and latest per-action review. Review updates use optimistic locking and atomic metadata-only audit. History displays the latest 20 drafts, including after reload. Accept means internal human review only; it does not create tasks, deliver hints or change configuration. Full prompt is not retained. Private generated content is included in database backups and must follow exercise retention policy.
+
+## Action engine — first safe handoff
+An accepted INTERVENTION action may be converted into one unscheduled, team-scoped INFO broadcast draft by an organizer, during an active event. Human-written wording is required, no private proposal is copied, and explicit safe-content attestation is required. The existing broadcast workflow still controls editing, audience review, scheduling and delivery. Handoff and plan creation share a database transaction and audit records. No autonomous delivery, generic tool execution, or reversible deletion. Once handed off, review is locked; manage the actual draft in the broadcast workspace. This is not an automated leak detector.
