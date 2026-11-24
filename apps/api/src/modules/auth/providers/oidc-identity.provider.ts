@@ -244,6 +244,7 @@ export class OidcIdentityProvider implements IIdentityProvider {
       }
 
       const finalEmail = (email || `${subject}@oidc.local`).trim().toLowerCase();
+      if(finalEmail.endsWith('@test.cyris.invalid'))return null;
       const finalDisplayName = (displayName || subject).trim();
 
       // Email domain filter check

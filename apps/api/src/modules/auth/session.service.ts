@@ -5,6 +5,8 @@ import { QueueService } from '../queue/queue.service.js';
 import { DatabaseService } from '../database/database.service.js';
 import { users, UserStatus, previewTeamAccounts } from '@cyris/db';
 
+export function testAccountUsable(expiry:Date|null|undefined,now=Date.now()){return expiry==null||expiry.getTime()>now;}
+
 export interface SessionData {
   id: string;
   userId: string;
@@ -53,6 +55,9 @@ export class SessionService {
     const [preview] = await this.databaseService.client.select().from(previewTeamAccounts)
       .where(eq(previewTeamAccounts.userId, userId)).limit(1);
     if (preview && !preview.enabled) throw new UnauthorizedException('Invalid credentials or account disabled');
+    const [account]=await this.databaseService.client.select({status:users.status,testExpiresAt:users.testExpiresAt}).from(users).where(eq(users.id,userId)).limit(1);
+    if(!account||account.status!==UserStatus.ACTIVE||!testAccountUsable(account.testExpiresAt))throw new UnauthorizedException('Invalid credentials or account disabled');
+    if(account.testExpiresAt)ttlSeconds=Math.max(1,Math.min(ttlSeconds,Math.ceil((account.testExpiresAt.getTime()-Date.now())/1000)));
     const token = this.generateOpaqueToken();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
@@ -106,13 +111,14 @@ export class SessionService {
         email: users.email,
         displayName: users.displayName,
         status: users.status,
+        testExpiresAt:users.testExpiresAt,
       })
       .from(users)
       .leftJoin(previewTeamAccounts, eq(users.id, previewTeamAccounts.userId))
       .where(eq(users.id, session.userId))
       .limit(1);
 
-    if (!account || account.status !== UserStatus.ACTIVE || account.previewEnabled === false ||
+    if (!account || account.status !== UserStatus.ACTIVE || account.previewEnabled === false || !testAccountUsable(account.testExpiresAt) ||
       (account.previewGeneration !== null && account.previewGeneration !== session.previewGeneration)) {
       this.logger.warn(`Revoking active session for deleted or disabled user: ${session.userId}`);
       await this.revokeSession(token);

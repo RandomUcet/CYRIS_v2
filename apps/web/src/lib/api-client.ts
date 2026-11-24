@@ -1,3 +1,4 @@
+import type {CreateLocalTestAccount,LocalTestAccount,LocalTestAccountCreated} from '@cyris/contracts';
 import type {ExerciseTeamSetupInput} from '@cyris/contracts';
 import type {ExercisePhaseSetupInput} from '@cyris/contracts';
 import type {ExerciseObserverHistory} from '@cyris/contracts';
@@ -197,6 +198,9 @@ export class CyrisApiClient {
     return { ok: response.ok, code: body.code as string | undefined, error: body.message as string | undefined };
   }
 
+  listLocalTestAccounts(eventId:string,signal?:AbortSignal){return this.fetchJson<LocalTestAccount[]>('/events/'+encodeURIComponent(eventId)+'/local-test-accounts',signal);}
+  createLocalTestAccount(eventId:string,input:CreateLocalTestAccount){return this.postJson<LocalTestAccountCreated>('/events/'+encodeURIComponent(eventId)+'/local-test-accounts',input);}
+  disableLocalTestAccount(eventId:string,userId:string){return this.postJson<LocalTestAccount>('/events/'+encodeURIComponent(eventId)+'/local-test-accounts/'+encodeURIComponent(userId)+'/disable',{});}
   getPreviewAccess() { return this.fetchJson<{ enabled: boolean }>('/auth/team-preview'); }
   setPreviewAccess(enabled: boolean) { return this.patchJson<{ enabled: boolean }>('/auth/team-preview', { enabled }); }
   getTeamDisplays(eventId: string) { return this.fetchJson<Array<{ id: string; name: string; slug: string }>>(

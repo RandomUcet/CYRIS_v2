@@ -59,3 +59,8 @@ export const CurrentUserResponseSchema = z.object({
 });
 
 export type CurrentUserResponse = z.infer<typeof CurrentUserResponseSchema>;
+
+export const CreateLocalTestAccountSchema=z.object({displayName:z.string().trim().min(3).max(100),roleId:z.string().uuid(),unitId:z.string().uuid(),validHours:z.number().int().min(1).max(168)}).strict();
+export type CreateLocalTestAccount=z.infer<typeof CreateLocalTestAccountSchema>;
+export type LocalTestAccount={id:string;email:string;displayName:string;expiresAt:string;status:'ACTIVE'|'DISABLED'|'EXPIRED'};
+export type LocalTestAccountCreated=LocalTestAccount&{password:string};
