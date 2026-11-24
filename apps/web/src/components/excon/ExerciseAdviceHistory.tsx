@@ -1,6 +1,8 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
 import Link from 'next/link';
+import {ExerciseTeamSetup} from './ExerciseTeamSetup';
+import {useAuth} from '@/contexts/AuthContext';
 import {ExercisePhaseSetup} from './ExercisePhaseSetup';
 import {ExerciseHintHandoff} from './ExerciseHintHandoff';
 import {apiClient} from '@/lib/api-client';
@@ -8,6 +10,7 @@ import type {StoredExerciseAdvice,ExerciseAdviceDecision} from '@cyris/contracts
 
 export function ExerciseAdviceHistory({eventId,cs,refreshKey,blueprintRevision}:{eventId:string;cs:boolean;refreshKey:number;blueprintRevision:number|null}){
  const tr=(c:string,e:string)=>cs?c:e;
+ const {hasPermission}=useAuth();
  const [rows,setRows]=useState<StoredExerciseAdvice[]>([]),[selected,setSelected]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);
  const [notes,setNotes]=useState<Record<string,string>>({});
  const lock=useRef(false),alive=useRef(true),sequence=useRef(0);
@@ -54,7 +57,7 @@ export function ExerciseAdviceHistory({eventId,cs,refreshKey,blueprintRevision}:
  {!!draft.observations.length&&<details><summary>{tr('Historický kontext předaný Sparku','Historical context supplied to Spark')} · {draft.observations.length}</summary><ul className="intel-list">{draft.observations.map(s=><li key={s.observedAt}>{new Date(s.observedAt).toLocaleString(cs?'cs-CZ':'en-GB')} · {tr('Otevřené','Pending')}: {s.pending} · {tr('Beze změny','Unchanged')}: {s.unchanged} ({s.reviewAfterHours} h) · {tr('Blokované','Blocked')}: {s.blocked}</li>)}</ul></details>}
  <div className="intel-review-grid">{draft.actions.map((action,i)=>{
   const review=draft.reviews.find(r=>r.actionIndex===i),key=draft.runId+':'+i;
-  const handoff=draft.handoffs.find(h=>h.actionIndex===i),setup=draft.setupReceipts.find(h=>h.actionIndex===i),applied=!!handoff||!!setup;
+  const handoff=draft.handoffs.find(h=>h.actionIndex===i),setup=draft.setupReceipts.find(h=>h.actionIndex===i),teams=draft.teamReceipts.find(h=>h.actionIndex===i),applied=!!handoff||!!setup||!!teams;
   const labels={ACCEPTED:tr('Přijato k dalšímu zpracování','Accepted for further work'),REJECTED:tr('Zamítnuto','Rejected'),PENDING:tr('Čeká na posouzení','Pending review')};
   return <article key={key} className="intel-review-item" data-decision={review?.decision??'PENDING'}><h4>{action.module} · {action.title}</h4><p>{action.proposal}</p><p className="intel-muted">{action.reason}</p>
   {!!action.signalIds.length&&<ul>{action.signalIds.map((id,j)=>{const s=draft.signals.find(v=>v.id===id);return <li key={id+j}>{s?s.count+' · '+(cs?s.labelCs:s.label):id}</li>;})}</ul>}
@@ -62,6 +65,7 @@ export function ExerciseAdviceHistory({eventId,cs,refreshKey,blueprintRevision}:
   <label>{tr('Poznámka organizátora','Organizer note')}<textarea maxLength={1000} disabled={busy||applied} value={notes[key]??review?.note??''} onChange={e=>setNotes(old=>({...old,[key]:e.target.value}))}/></label>
   <div className="intel-actions"><button type="button" className="btn btn-primary" disabled={busy||stale||applied} onClick={()=>void decide(i,'ACCEPTED')}>{tr('Přijmout','Accept')}</button><button type="button" className="btn btn-secondary" disabled={busy||applied} onClick={()=>void decide(i,'REJECTED')}>{tr('Zamítnout','Reject')}</button><button type="button" className="btn btn-secondary" disabled={busy||applied} onClick={()=>void decide(i,'PENDING')}>{tr('Vrátit k posouzení','Return to review')}</button></div>
   {setup?<p role="status">{setup.phaseIds.length} {tr('fází založeno jako koncepty','draft phases created')} · <Link href={'/events/'+eventId+'/scenario/control'}>{tr('Otevřít scénář','Open scenario')}</Link></p>:draft.mode==='ARCHITECT'&&draft.blueprintRevision!==null&&action.phasePlan&&<ExercisePhaseSetup eventId={eventId} runId={draft.runId} revision={draft.revision} actionIndex={i} plan={action.phasePlan} cs={cs} disabled={busy||loading||stale||review?.decision!=='ACCEPTED'} onSaved={row=>{setRows(old=>old.map(v=>v.runId===row.runId?row:v));setReload(v=>v+1);}}/>}
+  {teams?<p role="status">{teams.unitIds.length} {tr('týmů založeno','teams created')}</p>:draft.mode==='ARCHITECT'&&draft.blueprintRevision!==null&&action.teamPlan&&<ExerciseTeamSetup eventId={eventId} runId={draft.runId} revision={draft.revision} actionIndex={i} plan={action.teamPlan} cs={cs} disabled={busy||loading||stale||review?.decision!=='ACCEPTED'||!hasPermission('unit.manage',eventId)} onSaved={row=>{setRows(old=>old.map(v=>v.runId===row.runId?row:v));setReload(v=>v+1);}}/>}
   {handoff?<p role="status">{tr('Koncept zprávy vytvořen','Broadcast draft created')} · <Link href={'/events/'+eventId+'/broadcast?plan='+encodeURIComponent(handoff.planId)}>{tr('Otevřít komunikační centrum','Open communication center')}</Link></p>:draft.mode==='INTERVENTION'&&review?.decision==='ACCEPTED'&&!stale&&<ExerciseHintHandoff key={key} eventId={eventId} runId={draft.runId} revision={draft.revision} actionIndex={i} cs={cs} disabled={busy||loading} onSaved={row=>{setRows(old=>old.map(v=>v.runId===row.runId?row:v));setReload(v=>v+1);}}/>}
   </article>;
  })}</div>
