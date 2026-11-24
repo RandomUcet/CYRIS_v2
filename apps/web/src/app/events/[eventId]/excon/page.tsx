@@ -10,6 +10,7 @@ import {
 import type { ExconDashboardResponse } from '@cyris/contracts';
 import { AppShell } from '@/components/layout/AppShell';
 import { exconAttention, snapshotFreshness } from '@/lib/excon-workspace';
+import { ExconScenarioTimeline } from '@/components/excon/ExconScenarioTimeline';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { apiClient } from '@/lib/api-client';
@@ -180,6 +181,8 @@ function DashboardPage({eventId}:{eventId:string}) {
             })}
           </div>:<p className="mt-3 text-sm text-slate-400">{tr('V těchto sledovaných oblastech nejsou žádné otevřené položky.','No outstanding items in these monitored categories.')}</p>}
         </section>
+
+        <ExconScenarioTimeline snapshot={snapshot} locale={locale} freshness={freshness} href={base+'/scenario/control'}/>
 
         <section className="rounded-xl border border-slate-700 bg-slate-900 p-4 md:p-5">
           <h2 className="flex items-center gap-2 text-base font-semibold text-slate-100"><ArrowRight size={17}/>{tr('Rychlé ovládání','Quick actions')}</h2>

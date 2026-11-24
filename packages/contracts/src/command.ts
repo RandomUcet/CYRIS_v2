@@ -41,6 +41,8 @@ export const ExconDashboardResponseSchema = z.object({
   defcon: z.object({level:z.number().int().min(1).max(5).nullable(),updatedAt:z.string().nullable()}),
   activePhase: z.object({id:z.string().uuid(),code:z.string(),title:z.string()}).nullable(),
   phases: z.object({total:z.number().int(),completed:z.number().int()}),
+  scenarioClock: z.object({mode:z.string(),scenarioTime:z.string(),paused:z.boolean(),speedMultiplier:z.number()}),
+  phaseTimeline: z.array(z.object({id:z.string().uuid(),code:z.string(),title:z.string(),sequence:z.number().int(),status:z.string(),plannedStartAt:z.string().nullable(),plannedEndAt:z.string().nullable()})),
   injects: z.object({total:z.number().int(),ready:z.number().int(),blocked:z.number().int(),scheduled:z.number().int(),released:z.number().int(),draft:z.number().int()}),
   upcomingInjects: z.array(z.object({
     id:z.string().uuid(),number:z.string(),title:z.string(),status:z.string(),priority:z.string(),

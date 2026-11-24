@@ -5,7 +5,7 @@ import { AuthorizationService } from '../authorization/authorization.service.js'
 import {
   events, commandDefconStates, scenarioPhases, scenarioInjects,
   exerciseBroadcastPlans, organizationalUnits, eventMemberships, users,
-  scenarioBriefingReceipts, scenarioInjectReleases, notifications, operationalHolds,
+  scenarioBriefingReceipts, scenarioInjectReleases, notifications, operationalHolds, scenarioClocks, calculateScenarioTime,
 } from '@cyris/db';
 import { Permissions } from '@cyris/shared';
 import type { AuthenticatedUser } from '../auth/session.service.js';
@@ -41,12 +41,12 @@ export class ExconDashboardService {
     const [
       defconRows, phaseRows, injectRows, planRows, nextInjectRows,
       nextPlanRows, memberRows, teamRows, briefingRows, messageRows,
-      recentMessageRows, holdRows,
+      recentMessageRows, holdRows, clockRows,
     ]=await Promise.all([
       db.select({level:commandDefconStates.level,updatedAt:commandDefconStates.updatedAt})
         .from(commandDefconStates).where(eq(commandDefconStates.eventId,eventId)).limit(1),
-      db.select({id:scenarioPhases.id,code:scenarioPhases.code,title:scenarioPhases.title,status:scenarioPhases.status})
-        .from(scenarioPhases).where(eq(scenarioPhases.eventId,eventId)),
+      db.select({id:scenarioPhases.id,code:scenarioPhases.code,title:scenarioPhases.title,status:scenarioPhases.status,sequence:scenarioPhases.sequence,plannedStartAt:scenarioPhases.plannedStartAt,plannedEndAt:scenarioPhases.plannedEndAt})
+        .from(scenarioPhases).where(eq(scenarioPhases.eventId,eventId)).orderBy(asc(scenarioPhases.sequence),asc(scenarioPhases.id)),
       db.select({status:scenarioInjects.status,n:count()})
         .from(scenarioInjects).where(eq(scenarioInjects.eventId,eventId)).groupBy(scenarioInjects.status),
       db.select({status:exerciseBroadcastPlans.status,n:count()})
@@ -94,8 +94,10 @@ export class ExconDashboardService {
         .orderBy(desc(sql`max(${notifications.createdAt})`)).limit(6),
       db.select({id:operationalHolds.id,module:operationalHolds.module})
         .from(operationalHolds).where(liveHold),
+      db.select().from(scenarioClocks).where(eq(scenarioClocks.eventId,eventId)).limit(1),
     ]);
 
+    const clock=clockRows[0];
     const activePhase=phaseRows.find(row=>row.status==='ACTIVE')??null;
     const injectN=(status:string)=>statusCounter(injectRows,status);
     const planN=(status:string)=>statusCounter(planRows,status);
@@ -104,6 +106,8 @@ export class ExconDashboardService {
       defcon:{level:defconRows[0]?.level??null,updatedAt:defconRows[0]?.updatedAt?.toISOString()??null},
       activePhase:activePhase&&{id:activePhase.id,code:activePhase.code,title:activePhase.title},
       phases:{total:phaseRows.length,completed:phaseRows.filter(row=>row.status==='COMPLETED').length},
+      scenarioClock:{mode:clock?.mode??'REAL_TIME',scenarioTime:calculateScenarioTime(clock,now).toISOString(),paused:Boolean(clock?.pausedAt||clock?.pausedScenarioTime),speedMultiplier:clock?.speedMultiplier??1},
+      phaseTimeline:phaseRows.map(row=>({...row,plannedStartAt:row.plannedStartAt?.toISOString()??null,plannedEndAt:row.plannedEndAt?.toISOString()??null})),
       injects:{
         total:injectRows.reduce((n,row)=>n+row.n,0),ready:injectN('READY'),
         blocked:injectN('BLOCKED'),scheduled:injectN('SCHEDULED'),

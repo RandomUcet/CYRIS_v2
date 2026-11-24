@@ -3,7 +3,9 @@
 Goal: dependable operational information layer for a multidisciplinary exercise. Preserve modular backend, role/event boundaries, Redis, search, object storage and local AI; simplify workflows rather than removing domain capabilities.
 
 ## Release strategy
-- Bundle related changes into stable updates; keep published releases immutable.
+- Bundle substantial end-to-end capability improvements into stable updates; keep published releases immutable. A passing CI run is not a publication decision. Do not cut a release for every small fix or count lines of code as a goal.
+- Keep a cumulative development branch / draft PR across work sessions. Run CI continuously; merge and trigger publication only after the agreed release scope and acceptance are satisfied. Critical security or production-blocking hotfixes may be isolated.
+- Current 2.4.22 scope expands beyond workspace polish: EXCON operational overview (clock, phase timeline, actionable workload), inter-team workflow improvements, measured performance work where evidence is available, and targeted UX/role acceptance. Remaining items must be tracked explicitly rather than implied complete.
 - Exact-head CI, database tests, encrypted backup restoration, multiarchitecture image and digest checks remain required.
 - Use a dedicated nonproduction exercise for interactive acceptance. Do not confuse simulated data with CYLAB infrastructure telemetry.
 
@@ -25,7 +27,7 @@ Goal: dependable operational information layer for a multidisciplinary exercise.
 Brand spacing, table reliability, preview-state handling, JSOC reference copying, EXCON attention and freshness, legal inbox failure handling. Actual browser acceptance and production benchmark still outstanding.
 
 ## Next implementation order
-1. Validate 2.4.22 on a dedicated exercise and collect browser feedback.
-2. Improve EXCON time/phase and handover visibility; map cross-team workflow bottlenecks.
+1. Accumulate the larger 2.4.22 scope on PR #51; do not publish solely because CI passes.
+2. Improve EXCON time/phase and handover visibility; map cross-team workflow bottlenecks. Validate on a dedicated exercise and collect browser feedback.
 3. Run measured Spark and concurrent-user tests before changing defaults.
 4. Implement remaining operations/security and evaluation tasks as verified requirements, not speculative features.
