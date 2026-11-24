@@ -7,13 +7,14 @@ import type {AuthenticatedUser} from '../auth/session.service.js';
 import {DatabaseService} from '../database/database.service.js';
 import {AIGatewayService} from '../ai/ai-gateway.service.js';
 import {ExconDashboardService} from './excon-dashboard.service.js';
+import {ExerciseAdviceStore} from './exercise-advice-store.service.js';
 import {ExerciseBlueprintService} from './exercise-blueprint.service.js';
 import {ExerciseObserverReader} from './exercise-observer-reader.service.js';
 import {exerciseSignals,validateExerciseDraft} from './exercise-intelligence-policy.js';
 
 @Injectable()
 export class ExerciseIntelligenceService{
- constructor(private readonly db:DatabaseService,private readonly gateway:AIGatewayService,private readonly dashboard:ExconDashboardService,private readonly observer:ExerciseObserverReader,private readonly blueprints:ExerciseBlueprintService){}
+ constructor(private readonly db:DatabaseService,private readonly gateway:AIGatewayService,private readonly dashboard:ExconDashboardService,private readonly observer:ExerciseObserverReader,private readonly blueprints:ExerciseBlueprintService,private readonly adviceStore:ExerciseAdviceStore){}
  async overview(eventId:string,actor:AuthenticatedUser):Promise<ExerciseIntelligenceOverview>{
   const snapshot=await this.dashboard.overview(eventId,actor);
   const since=new Date(Date.now()-86400000);
@@ -44,6 +45,8 @@ export class ExerciseIntelligenceService{
   // A long inference must not return organizer-only results after access was revoked.
   await this.dashboard.overview(eventId,actor);
   if(blueprint&&(await this.blueprints.overview(eventId,actor)).current?.revision!==blueprint.revision)throw new ConflictException('Blueprint changed during inference; regenerate against the latest revision');
-  return {...draft,eventId,blueprintRevision:blueprint?.revision??null,runId:result.runId,model:result.model,durationMs:result.durationMs,generatedAt:new Date().toISOString(),status:'DRAFT',mode:input.mode};
+  const response:ExerciseAdviceResult={...draft,eventId,blueprintRevision:blueprint?.revision??null,runId:result.runId,model:result.model,durationMs:result.durationMs,generatedAt:new Date().toISOString(),status:'DRAFT',mode:input.mode};
+  await this.adviceStore.persist(actor,response,snapshot.asOf,signals);
+  return response;
  }
 }

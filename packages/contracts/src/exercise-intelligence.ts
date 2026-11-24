@@ -44,3 +44,9 @@ export const ExerciseBlueprintSchema=ExerciseBlueprintInputSchema.omit({expected
 });
 export type ExerciseBlueprint=z.infer<typeof ExerciseBlueprintSchema>;
 export type ExerciseBlueprintOverview={current:ExerciseBlueprint|null;history:Array<Pick<ExerciseBlueprint,'revision'|'title'|'updatedAt'|'updatedBy'>>};
+
+export const ExerciseAdviceDecisionSchema=z.object({actionIndex:z.number().int().min(0).max(11),expectedRevision:z.number().int().positive(),decision:z.enum(['ACCEPTED','REJECTED','PENDING']),note:z.string().trim().max(1000)}).strict();
+export type ExerciseAdviceDecision=z.infer<typeof ExerciseAdviceDecisionSchema>;
+export const ExerciseAdviceReviewSchema=z.object({actionIndex:z.number().int().min(0).max(11),decision:z.enum(['ACCEPTED','REJECTED','PENDING']),note:z.string().max(1000),reviewedAt:z.string().datetime(),reviewedBy:z.string().uuid()}).strict();
+export type ExerciseAdviceReview=z.infer<typeof ExerciseAdviceReviewSchema>;
+export type StoredExerciseAdvice=ExerciseAdviceResult&{revision:number;observedAt:string;signals:ExerciseSignal[];reviews:ExerciseAdviceReview[];createdBy:string|null};
