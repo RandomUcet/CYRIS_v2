@@ -3,7 +3,7 @@ import type { ServiceModule } from '@cyris/contracts';
 const resourceModules: Record<string, ServiceModule> = {
   operational_task: 'tasks', task: 'tasks', case: 'cases', incident: 'incidents',
   person: 'registry', organisation: 'registry', location: 'registry', vehicle: 'registry',
-  device: 'registry', weapon: 'registry', relationship: 'relationships', evidence: 'evidence',
+  device: 'registry', weapon: 'registry', licence: 'registry', relationship: 'relationships', evidence: 'evidence',
   document: 'documents', lab_analysis: 'lab', forensic_analysis: 'forensics',
   forensic_acquisition: 'forensics', forensic_finding: 'forensics', technical_indicator: 'forensics',
   court_case: 'court', court_case_party: 'court', court_decision: 'court', court_exhibit: 'court',

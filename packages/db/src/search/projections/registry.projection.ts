@@ -8,6 +8,7 @@ import {
   vehicles,
   devices,
   weapons,
+  licences,
   resources,
 } from '../../schema/index.js';
 import type { CyrisDb, SearchProjectionProvider } from '../projection.interface.js';
@@ -400,6 +401,42 @@ export class DeviceSearchProjectionProvider implements SearchProjectionProvider 
     for (const r of rows) {
       if (r.resource.visibility === 'RESTRICTED' || r.resource.visibility === 'SCENARIO') continue;
       const doc = await this.buildDocument(db, 'device', r.device.id);
+      if (doc) docs.push(doc);
+    }
+    return docs;
+  }
+}
+
+export class LicenceSearchProjectionProvider implements SearchProjectionProvider {
+  getSupportedTypes(): string[] { return ['licence']; }
+
+  async buildDocument(db: CyrisDb, _type: string, id: string): Promise<SearchDocument | null> {
+    const [row] = await db.select({ licence: licences, resource: resources })
+      .from(licences).innerJoin(resources, eq(licences.id, resources.id))
+      .where(eq(licences.id, id)).limit(1);
+    if (!row || !['EVENT','UNIT'].includes(row.resource.visibility)) return null;
+    const item = row.licence;
+    return {
+      id: 'licence:' + id, canonicalId: id, resourceType: 'licence', eventId: row.resource.eventId,
+      title: item.title, subtitle: 'Licence · ' + item.category, content: item.description || '',
+      normalizedContent: normalizeSearchText([item.title,item.category,item.identifier,item.licenceNumber,item.description].filter(Boolean).join(' ')),
+      identifiers: [id,item.identifier,item.licenceNumber].filter((value): value is string => Boolean(value)),
+      tags: ['registry','licence',item.category.toLowerCase()], status: item.status,
+      requiredPermission: Permissions.REGISTRY_READ,
+      visibility: row.resource.visibility === 'UNIT' ? 'UNIT' : 'EVENT',
+      unitIds: row.resource.owningUnitId ? [row.resource.owningUnitId] : [],
+      ownerUserId: row.resource.ownerUserId || '', assignedUserIds: [],
+      route: '/events/' + row.resource.eventId + '/registry/licences/' + id,
+      createdAt: item.createdAt.getTime(), updatedAt: item.updatedAt.getTime(),
+    };
+  }
+
+  async listAllDocuments(db: CyrisDb, _type: string, eventId?: string): Promise<SearchDocument[]> {
+    const query = db.select({ id: licences.id }).from(licences).innerJoin(resources, eq(licences.id, resources.id));
+    const rows = eventId ? await query.where(eq(resources.eventId,eventId)) : await query;
+    const docs: SearchDocument[] = [];
+    for (const row of rows) {
+      const doc = await this.buildDocument(db,'licence',row.id);
       if (doc) docs.push(doc);
     }
     return docs;

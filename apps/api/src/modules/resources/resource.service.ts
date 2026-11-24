@@ -16,6 +16,7 @@ import {
   vehicles,
   devices,
   weapons,
+  licences,
   incidents,
   cases,
   evidence,
@@ -542,6 +543,14 @@ export class ResourceService {
             }
           })
       );
+    }
+
+    if (typeGroups.has('licence')) {
+      typeQueries.push(db.select({ id: licences.id, identifier: licences.identifier, title: licences.title })
+        .from(licences).where(inArray(licences.id, typeGroups.get('licence')!))
+        .then(rows => {
+          for (const row of rows) map.set(row.id, { ...row, type: 'licence' });
+        }));
     }
 
     if (typeGroups.has('incident')) {
