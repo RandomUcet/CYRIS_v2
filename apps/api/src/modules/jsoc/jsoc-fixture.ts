@@ -48,7 +48,7 @@ export function createSyntheticJsocLogs(input:GenerateJsocLogs,now:Date):Synthet
   const pick=random(input.seed);
   const data:SyntheticEntry[]=[];
   for(let i=0;i<input.count;i++){
-    const category=categories[pick(categories.length)]!;
+    const category=input.category??categories[pick(categories.length)]!;
     const options=templates[category];
     const [message,low,high]=options[pick(options.length)]!;
     const severity=pick(4)===0?high:low;

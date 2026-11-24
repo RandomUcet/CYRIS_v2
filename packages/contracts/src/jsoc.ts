@@ -14,6 +14,7 @@ export const GenerateJsocLogsSchema=z.object({
   seed:z.number().int().min(-2147483648).max(2147483647),
   count:z.number().int().min(10).max(100),
   scenario:z.string().trim().min(3).max(160),
+  category:JsocCategorySchema.optional(),
 });
 export type JsocCategory=z.infer<typeof JsocCategorySchema>;
 export type JsocSeverity=z.infer<typeof JsocSeveritySchema>;

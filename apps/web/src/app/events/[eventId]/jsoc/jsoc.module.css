@@ -30,3 +30,5 @@
 .error{background:var(--status-danger-bg);color:var(--status-danger);padding:11px 14px;border-radius:6px}
 .notice{background:var(--status-success-bg);color:var(--text-primary);padding:11px 14px;border-radius:6px}
 @media(max-width:800px){.page{padding:14px}.generatorFields{grid-template-columns:1fr}.detail dl{grid-template-columns:1fr}.heading>button{width:100%}}
+
+.guide{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:1px;border:1px solid var(--border-default);background:var(--border-subtle);border-radius:8px;overflow:hidden}.guide>div{background:var(--bg-panel);padding:14px;min-width:0}.guide strong{font-size:13px;color:var(--text-primary)}.guide p{color:var(--text-secondary);font-size:13px;line-height:1.5;margin-top:5px}.generatorFields{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr))}.generator select{min-height:37px;width:100%;background:var(--bg-inset);border:1px solid var(--border-default);color:var(--text-primary);border-radius:5px;padding:7px 10px}

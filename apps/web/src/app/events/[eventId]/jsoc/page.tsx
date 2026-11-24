@@ -1,5 +1,5 @@
 'use client';
-import {useEffect,useState} from 'react';
+import {useEffect,useState,useRef} from 'react';
 import {useParams} from 'next/navigation';
 import {Activity,AlertTriangle,Database,RefreshCw,Search,ShieldCheck} from 'lucide-react';
 import {AppShell} from '@/components/layout/AppShell';
@@ -24,6 +24,10 @@ const sevNames:Record<JsocSeverity,[string,string]>={
 
 export default function JsocTelemetryPage(){
   const {eventId}=useParams<{eventId:string}>();
+  const {currentUser,viewAs}=useAuth();
+  return <JsocWorkspace key={[eventId,currentUser?.user.id??'',viewAs?.id??''].join(':')} eventId={eventId}/>;
+}
+function JsocWorkspace({eventId}:{eventId:string}){
   const {locale,formatTime,formatDate}=usePreferences();
   const {viewAs}=useAuth();
   const cs=locale==='cs',tr=(cz:string,en:string)=>cs?cz:en;
@@ -44,6 +48,8 @@ export default function JsocTelemetryPage(){
   const [count,setCount]=useState(30);
   const [seed,setSeed]=useState(2047);
   const [scenario,setScenario]=useState('');
+  const [focusCategory,setFocusCategory]=useState<JsocCategory|''>('');
+  const generatingRef=useRef(false);
   const [showGenerator,setShowGenerator]=useState(false);
   useEffect(()=>{setCategory('');setSeverity('');setSearch('');setSubmitted('');setSelected(null);setPage(1);},[eventId]);
   useEffect(()=>{
@@ -52,7 +58,7 @@ export default function JsocTelemetryPage(){
     const query:JsocLogQuery={page,limit:25,...(category&&{category}),...(severity&&{severity}),...(submitted&&{search:submitted})};
     void apiClient.listJsocLogs(eventId,query).then(result=>{
       if(!active)return;
-      if(result.ok&&result.data?.simulation===true){setData(result.data);setLoadedEvent(eventId);}
+      if(result.ok&&result.data?.simulation===true&&result.data.eventId===eventId){setData(result.data);setLoadedEvent(eventId);}
       else setError(result.error||'Unable to load synthetic logs');
     }).catch(e=>{if(active)setError(e instanceof Error?e.message:String(e))})
       .finally(()=>{if(active)setLoading(false)});
@@ -65,16 +71,16 @@ export default function JsocTelemetryPage(){
   const labelSeverity=(key:JsocSeverity)=>sevNames[key][cs?0:1];
   async function generate(e:React.FormEvent<HTMLFormElement>){
     e.preventDefault();
-    if(!allowed||generating||!Number.isInteger(seed)||count<10||count>100||scenario.trim().length<3)return;
+    if(!allowed||generatingRef.current||generating||!Number.isInteger(seed)||!Number.isInteger(count)||count<10||count>100||scenario.trim().length<3)return;
     if(!window.confirm(tr('Vytvořit nové FIKTIVNÍ technické události ve vybraném cvičení?','Create new SYNTHETIC technical events in this exercise?')))return;
-    setGenerating(true);setGenerateError('');setNotice('');
+    generatingRef.current=true;setGenerating(true);setGenerateError('');setNotice('');
     try{
-      const result=await apiClient.generateJsocLogs(eventId,{seed,count,scenario:scenario.trim()});
+      const result=await apiClient.generateJsocLogs(eventId,{seed,count,scenario:scenario.trim(),...(focusCategory&&{category:focusCategory})});
       if(!result.ok||!result.data?.simulation)throw new Error(result.error||'Generation failed');
       setNotice(tr(`Přidáno ${result.data.created} simulovaných událostí.`,`Created ${result.data.created} simulated events.`));
-      setShowGenerator(false);setPage(1);setVersion(v=>v+1);
+      setShowGenerator(false);clear();setVersion(v=>v+1);
     }catch(e){setGenerateError(e instanceof Error?e.message:String(e))}
-    finally{setGenerating(false)}
+    finally{generatingRef.current=false;setGenerating(false)}
   }
   function clear(){
     setSearch('');setSubmitted('');setCategory('');setSeverity('');setPage(1);
@@ -89,6 +95,11 @@ export default function JsocTelemetryPage(){
         <span className={styles.simulation}><ShieldCheck size={18}/>{tr('SIMULACE · CVIČENÍ','SIMULATION · EXERCISE')}</span>
         <p>{tr('Tato obrazovka obsahuje výhradně uměle vytvořené bezpečnostní události. Není propojena se skutečnými zařízeními, sítěmi ani zdravím serveru CYRIS. Krizový štáb používá oddělený stav služeb.','This page contains fictional technical events only. It does not ingest data from real devices, networks or CYRIS infrastructure. Command uses a separate exercise service-status view.')}</p>
       </div>
+      <section className={styles.guide} aria-label={tr('Jak pracovat se simulací','How to use the simulation')}>
+        <div><strong>{tr('Co to je?','What is this?')}</strong><p>{tr('Tréninkové logy pro technické týmy. Nejde o živý SIEM ani o skutečný stav polygonu CYLAB.','Training logs for technical teams, not a live SIEM or CYLAB status feed.')}</p></div>
+        <div><strong>{tr('Úkol účastníka','Participant workflow')}</strong><p>{tr('Vyberte kategorii, hledejte podezřelé události, otevřete detail a zaznamenejte čas, zdroj a souvislosti. Zjištění předejte jako podklad vyšetřování.','Filter events, inspect details, note the time, source and context, then report findings to investigators.')}</p></div>
+        <div><strong>{tr('Úkol EXCON','EXCON workflow')}</strong><p>{tr('Vytvořte smíšenou nebo tematickou sadu a zadejte týmu úkol. Samotné vytvoření logů neodesílá notifikaci ani nezakládá incident.','Create a mixed or focused dataset and assign a task. Generation does not send a notice or create an incident.')}</p></div>
+      </section>
       <header className={styles.heading}>
         <div><h2><Activity size={18}/>{tr('Technické události cvičení','Exercise security events')}</h2>
           <p>{tr('Vyhledávejte anomálie, filtrujte závažnosti a analyzujte souvislosti ve fiktivním prostředí.','Investigate anomalies and filter severities within an entirely simulated environment.')}</p>
@@ -99,14 +110,15 @@ export default function JsocTelemetryPage(){
       </header>
       {allowed&&showGenerator&&<form className={styles.generator} onSubmit={e=>void generate(e)}>
         <h3>{tr('Nová sada tréninkových logů · EXCON','New training log batch · EXCON')}</h3>
-        <p>{tr('Vygeneruje pouze smyšlené logy s dokumentačními IP adresami. Nepřipojuje se k žádné síti.','Generates fictional log entries with documentation-only IP addresses. No network integration is used.')}</p>
+        <p>{tr('Zvolte skutečné tematické zaměření. Název sady je štítek, nikoliv AI prompt. Všechny logy jsou smyšlené a IP adresy dokumentační.','Select the desired category. The dataset label is not an AI prompt. All entries are fictional and use documentation IP addresses.')}</p>
         <div className={styles.generatorFields}>
-          <label>{tr('Popis scénáře','Scenario description')}
+          <label>{tr('Název tréninkové sady','Training dataset label')}
             <input required minLength={3} maxLength={160} value={scenario} onChange={e=>setScenario(e.target.value)}
               placeholder={tr('Například: Výpadky přihlášení v simulovaném dispečinku','E.g. authentication anomalies in a simulated operations center')}/></label>
+          <label>{tr('Zaměření sady','Dataset focus')}<select value={focusCategory} onChange={e=>setFocusCategory(e.target.value as JsocCategory|'')}><option value="">{tr('Smíšené události','Mixed events')}</option>{categories.map(key=><option key={key} value={key}>{labelCategory(key)}</option>)}</select></label>
           <label>{tr('Počet záznamů','Record count')}<input type="number" min={10} max={100} value={count}
             onChange={e=>setCount(Number(e.target.value))} required/></label>
-          <label>{tr('Seed (opakovatelná data)','Seed (reproducible data)')}<input type="number" min={-2147483648} max={2147483647} step={1}
+          <label>{tr('Seed · reprodukovatelnost','Seed · reproducibility')}<input type="number" min={-2147483648} max={2147483647} step={1}
             value={seed} onChange={e=>setSeed(Number(e.target.value))} required/></label>
         </div>
         {generateError&&<p className={styles.error} role="alert">{generateError}</p>}
@@ -125,7 +137,7 @@ export default function JsocTelemetryPage(){
           <option value="">{tr('Všechny stupně','All severities')}</option>
           {severities.map(key=><option key={key} value={key}>{labelSeverity(key)}</option>)}
         </select></label>
-        <label className={styles.search}><span>{tr('Hledat zdroj nebo text','Search source or text')}</span><div>
+        <label className={styles.search}><span>{tr('Hledat zdroj, text nebo název sady','Search source, message or dataset label')}</span><div>
           <Search size={15}/><input maxLength={100} value={search} onChange={e=>setSearch(e.target.value)}/>
         </div></label>
         <button className="btn btn-secondary" type="submit">{tr('Použít','Apply')}</button>
@@ -135,7 +147,7 @@ export default function JsocTelemetryPage(){
         error?<ErrorState message={error} onRetry={()=>setVersion(v=>v+1)}/>:
         current&&<div className={styles.content}>
           <p className={styles.count}>{tr('Nalezené události','Matching events')}: <strong>{current.total}</strong> · {tr('strana','page')} {current.page}</p>
-          {entries.length===0?<EmptyState title={tr('Žádné simulované události','No simulated events')} description={tr('EXCON může vytvořit tréninkovou sadu, případně upravte filtry.','EXCON can create a training dataset, or adjust the filters.')}/>:
+          {entries.length===0?<EmptyState title={tr('Žádné simulované události','No simulated events')} description={category||severity||submitted?tr('Žádný záznam neodpovídá filtrům.','No records match the current filters.'):allowed?tr('Pomocí tlačítka Generovat simulované logy vytvořte první tréninkovou sadu.','Generate the first training dataset using the button above.'):tr('Vyčkejte, až EXCON připraví tréninkovou sadu.','EXCON has not yet prepared a training dataset.')}/>:
             <div className={styles.tableWrap}><table className={styles.table}>
               <thead><tr><th>{tr('Čas','Time')}</th><th>{tr('Závažnost','Severity')}</th><th>{tr('Kategorie','Category')}</th><th>{tr('Zdroj','Source')}</th><th>{tr('Událost','Event')}</th></tr></thead>
               <tbody>{entries.map(entry=><tr key={entry.id} data-selected={selected?.id===entry.id}>
@@ -158,6 +170,8 @@ export default function JsocTelemetryPage(){
               <div><dt>{tr('Zdrojová IP (testovací)','Source IP (documentation)')}</dt><dd>{selected.sourceAddress??'—'}</dd></div>
               <div><dt>{tr('Cílová IP (testovací)','Destination IP (documentation)')}</dt><dd>{selected.destinationAddress??'—'}</dd></div>
               <div><dt>{tr('Událost','Event')}</dt><dd>{selected.message}</dd></div>
+              <div><dt>{tr('Čas události','Event time')}</dt><dd>{formatDate(selected.observedAt)} · {formatTime(selected.observedAt)}</dd></div>
+              <div><dt>{tr('Závažnost','Severity')}</dt><dd>{labelSeverity(selected.severity)}</dd></div>
             </dl>
           </section>}
         </div>}

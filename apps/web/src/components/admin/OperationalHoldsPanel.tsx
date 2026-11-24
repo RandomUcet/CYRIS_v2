@@ -84,7 +84,8 @@ export function OperationalHoldsPanel({ eventId }: { eventId: string }) {
     : hold.targetType === 'UNIT' ? units.find(u => u.id === hold.targetId)?.name ?? 'Team'
       : members.find(m => m.userId === hold.targetId)?.user?.displayName ?? 'Participant';
 
-  return <section className={styles.panel} aria-labelledby="holds-title">
+  return <section className={styles.panel+' '+styles.realHold} aria-labelledby="holds-title">
+    <div className={styles.sectionLabel} data-kind="real">{tr('SKUTEČNÉ PROVOZNÍ OMEZENÍ','REAL OPERATIONAL RESTRICTION')}</div>
     <header className={styles.heading}><h2 id="holds-title"><ShieldAlert size={19} aria-hidden /> {tr('Provozní pauza – skutečné blokování zápisů', 'Operational pause – real write lock')}</h2>
       <button type="button" className="btn btn-secondary" onClick={refresh} disabled={busy}><RefreshCw size={14}/>{tr('Obnovit', 'Refresh')}</button></header>
     <p>{tr('Pro přestávku, oběd nebo bezpečnostní zásah. Není to simulovaný výpadek. Dotčení účastníci mohou číst, ale nemohou ukládat změny nebo nahrávat soubory. Administrace a support zůstávají dostupné.', 'For breaks, lunch or safety intervention. Not a simulated outage. Affected participants may read, but cannot save or upload. Administration and support remain available.')}</p>
