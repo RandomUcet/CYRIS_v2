@@ -121,7 +121,7 @@ function DashboardPage({eventId}:{eventId:string}) {
     {label:tr('Cvičení','Exercise'),href:base+'/overview'},
     {label:'EXCON'}
   ]}>
-    <main className="excon-optimized mx-auto max-w-[1440px] space-y-6 p-4 pb-16 md:p-8">
+    <main className="excon-optimized excon-console mx-auto max-w-[1440px] p-4 pb-16 md:p-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.2em] text-sky-400">
@@ -148,6 +148,7 @@ function DashboardPage({eventId}:{eventId:string}) {
           </button>
         </div>
       </header>
+      <nav className="excon-toolbar" aria-label={tr('Pracovní agendy EXCON','EXCON workspaces')}>{actionLinks.filter(item=>!item.permission||hasPermission(item.permission,eventId)).map(item=><Link key={item.suffix} href={base+item.suffix}><item.icon size={15}/>{cs?item.cs:item.en}</Link>)}</nav>
 
       {snapshot&&<div className="excon-freshness" data-state={freshness} role="status"><span>{freshness==='fresh'?tr('Aktuální snímek','Current snapshot'):freshness==='paused'?tr('Automatická aktualizace pozastavena','Automatic refresh paused'):tr('Zobrazený stav nemusí být aktuální','Snapshot may be stale')}</span><span>{tr('Aktivní účty označují členství, nikoli právě připojené uživatele.','Active accounts indicate membership, not currently connected users.')}</span></div>}
       {!autoRefresh&&<p role="status" className="text-sm text-amber-300">{tr('Automatická aktualizace je vypnutá. Zobrazené údaje mohou být zastaralé.','Automatic refresh is paused. Displayed data may be stale.')}</p>}
@@ -159,13 +160,13 @@ function DashboardPage({eventId}:{eventId:string}) {
         {tr('Načítám stav scénáře, zpráv a zapojení týmů…','Loading scenario, messaging and team engagement…')}
       </div>:snapshot?<>
 
-        <section className="grid grid-cols-2 gap-3 md:grid-cols-4" aria-label={tr('Stav cvičení','Exercise status')}>
+        <section className="excon-status-strip" aria-label={tr('Stav cvičení','Exercise status')}>
           {[
             {label:tr('DEFCON','DEFCON'),value:snapshot.defcon.level?'DEFCON '+snapshot.defcon.level:tr('Nenastaven','Not set'),hint:snapshot.defcon.updatedAt?format(snapshot.defcon.updatedAt):tr('Zatím bez změny','No change yet'),icon:ShieldAlert},
             {label:tr('Aktivní účty','Active members'),value:snapshot.participation.activeUsers,hint:tr('V tomto cvičení','In this exercise'),icon:Users},
             {label:tr('Aktivní týmy','Active teams'),value:snapshot.participation.activeTeams,hint:tr('Bez archivovaných','Non-archived'),icon:Radio},
             {label:tr('Fáze scénáře','Scenario phases'),value:snapshot.phases.completed+' / '+snapshot.phases.total,hint:snapshot.activePhase?snapshot.activePhase.code+' · '+snapshot.activePhase.title:tr('Žádná aktivní fáze','No active phase'),icon:Clock3},
-          ].map(item=><article key={item.label} className="min-w-0 rounded-xl border border-slate-700 bg-slate-900 p-4">
+          ].map(item=><article key={item.label} className="excon-status-cell">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-400"><item.icon size={15}/>{item.label}</div>
             <p className="mt-3 break-words text-2xl font-bold tabular-nums text-white">{item.value}</p>
             <p className="mt-1 line-clamp-2 text-xs text-slate-400">{item.hint}</p>
@@ -174,10 +175,10 @@ function DashboardPage({eventId}:{eventId:string}) {
 
         <section className="rounded-xl border border-slate-700 bg-slate-900 p-4 md:p-5">
           <h2 className="flex items-center gap-2 text-base font-semibold text-white"><AlertTriangle size={17}/>{tr('Vyžaduje pozornost','Needs attention')}</h2>
-          {attention.length?<div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {attention.length?<div className="excon-attention-list">
             {attention.map(item=>{
-              const content=<><div><p className="text-2xl font-bold tabular-nums text-amber-200">{item.count}</p><p className="mt-1 text-xs text-slate-300">{item.label}</p></div>{item.href&&<ArrowRight size={16} className="text-amber-300"/>}</>;
-              const style="flex items-center justify-between rounded-lg border border-amber-900 bg-amber-950/20 p-3";
+              const content=<><div><span className="excon-attention-count">{item.count}</span><span>{item.label}</span></div>{item.href&&<ArrowRight size={16} className="text-amber-300"/>}</>;
+              const style='excon-attention-row';
               return item.href?<Link key={item.key} href={item.href} className={style}>{content}</Link>:<div key={item.key} className={style}>{content}</div>;
             })}
           </div>:<p className="mt-3 text-sm text-slate-400">{tr('V těchto sledovaných oblastech nejsou žádné otevřené položky.','No outstanding items in these monitored categories.')}</p>}
@@ -185,16 +186,7 @@ function DashboardPage({eventId}:{eventId:string}) {
 
         <ExconScenarioTimeline snapshot={snapshot} locale={locale} freshness={freshness} href={base+'/scenario/control'}/>
 
-        <section className="rounded-xl border border-slate-700 bg-slate-900 p-4 md:p-5">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-100"><ArrowRight size={17}/>{tr('Rychlé ovládání','Quick actions')}</h2>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {actionLinks.filter(item=>!item.permission||hasPermission(item.permission,eventId)).map(item=><Link
-              key={item.suffix} href={base+item.suffix}
-              className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-medium text-slate-200 transition-colors hover:border-sky-700 hover:bg-slate-800">
-              <span className="flex items-center gap-2"><item.icon size={17} className="text-sky-400"/>{cs?item.cs:item.en}</span><ArrowRight size={15} className="text-slate-500"/>
-            </Link>)}
-          </div>
-        </section>
+
 
         {snapshot.holds.active>0&&<section role="status" className="rounded-xl border border-amber-700 bg-amber-950/30 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-amber-200"><ShieldAlert size={17}/>
