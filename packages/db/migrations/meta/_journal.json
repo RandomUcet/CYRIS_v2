@@ -267,6 +267,13 @@
       "when": 1792639000000,
       "tag": "0037_exercise_phase_setup",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792640000000,
+      "tag": "0038_exercise_team_setup",
+      "breakpoints": true
     }
   ]
 }

@@ -4,7 +4,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { ExconDashboardService } from './excon-dashboard.service.js';
 import { ExerciseIntelligenceService } from './exercise-intelligence.service.js';
-import { ExerciseAdviceInputSchema, ExerciseBlueprintInputSchema, ExerciseAdviceDecisionSchema, ExerciseAdviceHandoffInputSchema, ExerciseJobSubmitSchema, ExercisePhaseSetupInputSchema } from '@cyris/contracts';
+import { ExerciseAdviceInputSchema, ExerciseBlueprintInputSchema, ExerciseAdviceDecisionSchema, ExerciseAdviceHandoffInputSchema, ExerciseJobSubmitSchema, ExercisePhaseSetupInputSchema, ExerciseTeamSetupInputSchema } from '@cyris/contracts';
 import { ExerciseJobService } from './exercise-job.service.js';
 import { ExerciseAdviceStore } from './exercise-advice-store.service.js';
 import { ExerciseBlueprintService } from './exercise-blueprint.service.js';
@@ -55,6 +55,9 @@ export class ExconDashboardController {
 
   @Post('intelligence/history/:runId/setup-phases')
   setupPhases(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('runId',ParseUUIDPipe) runId:string,@CurrentUser() actor:AuthenticatedUser,@Body() body:unknown){const p=ExercisePhaseSetupInputSchema.safeParse(body);if(!p.success)throw new BadRequestException('Invalid phase setup');return this.adviceStore.setupPhases(eventId,runId,actor,p.data);}
+
+  @Post('intelligence/history/:runId/setup-teams')
+  setupTeams(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('runId',ParseUUIDPipe) runId:string,@CurrentUser() actor:AuthenticatedUser,@Body() body:unknown){const p=ExerciseTeamSetupInputSchema.safeParse(body);if(!p.success)throw new BadRequestException('Invalid team setup');return this.adviceStore.setupTeams(eventId,runId,actor,p.data);}
 
   @Get('intelligence')
   intelligenceOverview(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() actor:AuthenticatedUser){
