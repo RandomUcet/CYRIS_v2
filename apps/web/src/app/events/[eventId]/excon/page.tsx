@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
@@ -25,7 +25,7 @@ const actionLinks = [
 ] as const;
 
 function percentage(n:number,total:number) {
-  return total>0?Math.round(100*n/total):0;
+  return total>0?Math.max(0,Math.min(100,Math.round(100*n/total))):0;
 }
 
 function Progress({value,total,label}:{value:number;total:number;label:string}) {
@@ -50,48 +50,43 @@ function DashboardPage({eventId}:{eventId:string}) {
   const [loading,setLoading]=useState(true);
   const [refreshing,setRefreshing]=useState(false);
   const [error,setError]=useState('');
+  const [autoRefresh,setAutoRefresh]=useState(true);
+  const generation=useRef(0);
+  const inFlight=useRef<number|null>(null);
   const format=(value:string|null|undefined)=>value
     ? new Date(value).toLocaleString(cs?'cs-CZ':'en-GB',{dateStyle:'short',timeStyle:'short'})
     : '—';
 
-  const refresh=useCallback(async (isRefresh=false)=>{
-    if(isRefresh)setRefreshing(true);
-    const result=await apiClient.getExconDashboard(eventId);
-    if(result.ok&&result.data){
-      setSnapshot(result.data);
-      setError('');
-    } else {
-      setError(result.error||'Unable to load EXCON overview');
+  const refresh=useCallback(async ()=>{
+    if(authLoading||!allowed||inFlight.current!==null)return;
+    const request=++generation.current;
+    inFlight.current=request;
+    setRefreshing(true);
+    try {
+      const result=await apiClient.getExconDashboard(eventId);
+      if(generation.current!==request)return;
+      if(result.ok&&result.data){setSnapshot(result.data);setError('');}
+      else setError(result.error||'Unable to load EXCON overview');
+    }catch(err){
+      if(generation.current===request)setError(err instanceof Error?err.message:'Connection unavailable');
+    }finally{
+      if(inFlight.current===request)inFlight.current=null;
+      if(generation.current===request){setLoading(false);setRefreshing(false);}
     }
-    setLoading(false);
-    setRefreshing(false);
-  },[eventId]);
+  },[eventId,authLoading,allowed]);
 
   useEffect(()=>{
-    if(authLoading||!allowed)return;
-    let mounted=true;
-    setSnapshot(null);setLoading(true);setError('');
-    let busy=false;
-    const poll=async()=>{
-      if(busy||document.hidden)return;
-      busy=true;
-      try{
-        const res=await apiClient.getExconDashboard(eventId);
-        if(!mounted)return;
-        if(res.ok&&res.data){setSnapshot(res.data);setError('');}
-        else setError(res.error||'Unable to load EXCON overview');
-      }catch(err){
-        if(mounted)setError(err instanceof Error?err.message:'Connection unavailable');
-      }finally{
-        busy=false;
-        if(mounted){setLoading(false);setRefreshing(false);}
-      }
-    };
-    void poll();
-    const timer=window.setInterval(()=>{void poll();},20000);
+    setSnapshot(null);setError('');setLoading(true);setRefreshing(false);
+    if(!authLoading&&allowed)void refresh();
+    return ()=>{generation.current++;inFlight.current=null;};
+  },[refresh,authLoading,allowed]);
+  useEffect(()=>{
+    if(authLoading||!allowed||!autoRefresh)return;
+    const poll=()=>{if(!document.hidden)void refresh();};
+    const timer=window.setInterval(poll,20000);
     document.addEventListener('visibilitychange',poll);
-    return ()=>{mounted=false;window.clearInterval(timer);document.removeEventListener('visibilitychange',poll);};
-  },[authLoading,allowed,eventId]);
+    return ()=>{window.clearInterval(timer);document.removeEventListener('visibilitychange',poll);};
+  },[refresh,authLoading,allowed,autoRefresh]);
 
   const base='/events/'+eventId;
   if(!authLoading&&!allowed) {
@@ -131,12 +126,13 @@ function DashboardPage({eventId}:{eventId:string}) {
             {snapshot?' · '+snapshot.event.status:''}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={autoRefresh} onChange={e=>setAutoRefresh(e.target.checked)}/>{tr('Živá aktualizace','Live refresh')}</label>
           <div className="text-right text-xs text-slate-400">
             <span className="block">{tr('Poslední aktualizace','Updated')}</span>
             <span className="tabular-nums text-slate-200">{snapshot?format(snapshot.asOf):'—'}</span>
           </div>
-          <button type="button" disabled={refreshing||loading} onClick={()=>{setRefreshing(true);void refresh(true).catch(e=>{setError(String(e));setRefreshing(false);});}}
+          <button type="button" disabled={refreshing||authLoading} onClick={()=>void refresh()}
             aria-label={tr('Obnovit informace','Refresh information')}
             className="flex items-center gap-2 rounded border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 disabled:opacity-40">
             <RefreshCw size={15} className={refreshing?'animate-spin':''}/>{tr('Obnovit','Refresh')}
@@ -144,11 +140,12 @@ function DashboardPage({eventId}:{eventId:string}) {
         </div>
       </header>
 
+      {!autoRefresh&&<p role="status" className="text-sm text-amber-300">{tr('Automatická aktualizace je vypnutá. Zobrazené údaje mohou být zastaralé.','Automatic refresh is paused. Displayed data may be stale.')}</p>}
       {error&&<p role="alert" className="rounded border border-amber-800 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
         {error} {snapshot?tr('Zobrazuji poslední dostupný stav.','Showing the last available snapshot.'):''}
       </p>}
 
-      {loading&&!snapshot?<div role="status" className="rounded-xl border border-slate-700 bg-slate-900 p-8 text-slate-300">
+      {authLoading||loading&&!snapshot?<div role="status" className="rounded-xl border border-slate-700 bg-slate-900 p-8 text-slate-300">
         {tr('Načítám stav scénáře, zpráv a zapojení týmů…','Loading scenario, messaging and team engagement…')}
       </div>:snapshot?<>
 
