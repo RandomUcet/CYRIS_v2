@@ -212,3 +212,36 @@ class Operations(unittest.TestCase):
         calls = [call.args for call in self.docker.call_args_list]
         self.assertEqual(calls[-1], ("up", "-d", "--no-deps", "--no-recreate",
                                      "--wait", "--wait-timeout", "240", *services))
+
+class WatchdogPolicy(unittest.TestCase):
+    def setUp(self):
+        self.states = {s: ("running", "healthy") for s in (*ctl.WATCHDOG_DEPENDENCIES, *ctl.APP_SERVICES)}
+        self.states["worker"] = ("running", "unhealthy")
+
+    def test_requires_two_samples_and_healthy_dependencies(self):
+        name, previous, _ = ctl.watchdog_decision(self.states, {}, 10000)
+        self.assertIsNone(name)
+        self.assertEqual(ctl.watchdog_decision(self.states, previous, 10060)[0], "worker")
+        self.states["postgres"] = ("running", "unhealthy")
+        self.assertIsNone(ctl.watchdog_decision(self.states, previous, 10060)[0])
+
+    def test_never_restarts_stopped_stack_or_during_cooldown(self):
+        previous = {"worker": {"count": 2, "seen": 10000, "attempts": [9900]}}
+        self.assertIsNone(ctl.watchdog_decision(self.states, previous, 10060)[0])
+        self.states["api"] = ("exited", "")
+        self.assertIsNone(ctl.watchdog_decision(self.states, {}, 10060)[0])
+
+    def test_budget_survives_healthy_sample(self):
+        self.states["worker"] = ("running", "healthy")
+        previous = {"worker": {"count": 0, "seen": 10000, "attempts": [7000, 5000, 3000]}}
+        _, sample, _ = ctl.watchdog_decision(self.states, previous, 10060)
+        self.assertEqual(len(sample["worker"]["attempts"]), 3)
+        self.states["worker"] = ("running", "unhealthy")
+        _, sample, _ = ctl.watchdog_decision(self.states, sample, 10120)
+        self.assertIsNone(ctl.watchdog_decision(self.states, sample, 10180)[0])
+
+    def test_compose_parser_rejects_duplicate_services(self):
+        row = {"Service":"api","State":"running","Health":"healthy"}
+        self.assertEqual(ctl.watchdog_states(json.dumps([row]))["api"], ("running","healthy"))
+        with self.assertRaises(ValueError):
+            ctl.watchdog_states(json.dumps(row)+"\\n"+json.dumps(row))

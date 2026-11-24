@@ -1,3 +1,4 @@
+import { WorkerHeartbeat } from './worker-heartbeat.js';
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { loadConfig, type EnvConfig } from '@cyris/config';
 import { getDbClient, checkDatabaseConnection, closeDatabaseConnection } from '@cyris/db';
@@ -18,6 +19,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private scenarioTimer: NodeJS.Timeout | null = null;
   private observerTimer: NodeJS.Timeout | null = null;
   private isProcessingOutbox = false;
+  private readonly heartbeat=new WorkerHeartbeat();
+  private heartbeatTimer:NodeJS.Timeout|null=null;
+  private scenarioInFlight=false;
+  private stopping=false;
 
   constructor(
     private readonly outboxProcessor: OutboxProcessorService,
@@ -40,6 +45,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
+    this.heartbeat.clear();
     this.logger.log('Initializing CYRIS Worker runtime...');
 
     // 1. Verify PostgreSQL connectivity
@@ -75,12 +81,23 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
 
     // 5. Start periodic scenario scheduler tick (every 4 seconds)
     this.scenarioTimer = setInterval(() => {
-      void this.scenarioScheduler.tick();
+      void this.runScenarioTick();
     }, 4000);
 
+    this.heartbeat.start();
+    this.heartbeatTimer=setInterval(()=>{try{this.heartbeat.publish();}catch{this.logger.warn('Worker heartbeat could not be written');}},5000);
+    void this.runScenarioTick();
     void this.exerciseObserver.tick();
     this.observerTimer=setInterval(()=>void this.exerciseObserver.tick(),60000);
     this.logger.log('CYRIS Worker runtime initialized: Outbox archival, scenario scheduling and exercise observation active.');
+  }
+
+  private async runScenarioTick(){
+    if(this.stopping||this.scenarioInFlight)return;
+    this.scenarioInFlight=true;
+    try{await this.scenarioScheduler.tick();}
+    catch{this.logger.error('Scenario tick did not complete normally');}
+    finally{this.scenarioInFlight=false;this.heartbeat.scenarioSettled();}
   }
 
   /**
@@ -118,6 +135,9 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.stopping=true;
+    if(this.heartbeatTimer){clearInterval(this.heartbeatTimer);this.heartbeatTimer=null;}
+    this.heartbeat.clear();
     this.logger.log('Gracefully stopping worker job listeners...');
     if (this.outboxTimer) {
       clearInterval(this.outboxTimer);

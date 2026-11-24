@@ -1298,6 +1298,124 @@ def cmd_diagnostics(args):
     print(f"\n{COLOR_GREEN}✓ Diagnostics bundle generated:{COLOR_RESET} {archive_path}")
 
 
+
+# ------------------------------------------------------------------------------
+# Opt-in recovery of unhealthy running application containers.
+# ------------------------------------------------------------------------------
+WATCHDOG_DEPENDENCIES = ("postgres", "redis", "typesense", "minio")
+WATCHDOG_COOLDOWN = 1800
+WATCHDOG_WINDOW = 86400
+WATCHDOG_MAX_RESTARTS = 3
+
+
+def watchdog_states(raw):
+    """Accept Compose JSON array or newline-delimited objects; fail closed."""
+    if not raw.strip():
+        return {}
+    rows = json.loads(raw) if raw.lstrip().startswith("[") else [json.loads(line) for line in raw.splitlines() if line.strip()]
+    states = {}
+    for row in rows:
+        service = row.get("Service")
+        if service in states:
+            raise ValueError("Ambiguous Compose service state")
+        states[service] = (row.get("State"), row.get("Health"))
+    return states
+
+
+def watchdog_decision(states, previous, now):
+    """One restart at most; all critical dependencies must report healthy."""
+    if not all(states.get(s) == ("running", "healthy") for s in WATCHDOG_DEPENDENCIES):
+        return None, {}, "Critical dependency unavailable; recovery suppressed"
+    # Never start a manually stopped/missing service or act during partial rollout.
+    if not all(states.get(s, (None, None))[0] == "running" for s in APP_SERVICES):
+        return None, {}, "Application stack not fully running; recovery suppressed"
+    samples = {}
+    for service in APP_SERVICES:
+        if states[service][1] != "unhealthy":
+            continue
+        old = previous.get(service, {})
+        times = [t for t in old.get("attempts", []) if isinstance(t, (int, float)) and now-WATCHDOG_WINDOW <= t <= now]
+        last = old.get("seen", 0)
+        consecutive = isinstance(last, (int, float)) and 20 <= now-last <= 150
+        count = min(3, int(old.get("count", 0))+1) if consecutive else 1
+        samples[service] = {"count":count,"seen":now,"attempts":times}
+    # Preserve restart budgets even when a service becomes healthy.
+    for service in APP_SERVICES:
+        if service not in samples:
+            times = [t for t in previous.get(service, {}).get("attempts", []) if isinstance(t, (int, float)) and now-WATCHDOG_WINDOW <= t <= now]
+            if times:
+                samples[service] = {"count":0,"seen":now,"attempts":times}
+    for service in APP_SERVICES:
+        sample = samples.get(service, {})
+        times = sample.get("attempts", [])
+        if sample.get("count", 0) >= 2 and len(times) < WATCHDOG_MAX_RESTARTS and (not times or now-max(times)>=WATCHDOG_COOLDOWN):
+            # Don't restart dependents while their API is unhealthy/starting.
+            if service != "api" and states.get("api") != ("running", "healthy"):
+                continue
+            return service, samples, "Repeated unhealthy state"
+    return None, samples, "No eligible recovery action"
+
+
+def cmd_watchdog(args):
+    action = args.watchdog_action
+    timer = "cyris-watchdog.timer"
+    if action == "enable":
+        if not Path(CYRIS_COMPOSE_FILE).is_file():
+            raise ValueError("CYRIS Compose configuration missing")
+        units = Path("/etc/systemd/system")
+        atomic_file(units / "cyris-watchdog.service", b"""[Unit]
+Description=CYRIS bounded application recovery
+After=docker.service
+[Service]
+Type=oneshot
+UMask=0077
+TimeoutStartSec=90
+ExecStart=/usr/local/bin/cyrisctl watchdog recover
+""", 0o644)
+        atomic_file(units / timer, b"""[Unit]
+Description=Check CYRIS application health every minute
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=60s
+[Install]
+WantedBy=timers.target
+""", 0o644)
+        run_command(["systemctl", "daemon-reload"])
+        run_command(["systemctl", "enable", "--now", timer], capture=False)
+        print("Watchdog enabled. Maintenance lock and recovery budgets apply.")
+        return
+    if action == "disable":
+        run_command(["systemctl", "disable", "--now", timer], capture=False)
+        return
+    res = docker_compose_cmd("ps", "-a", "--format", "json", check=False)
+    if res.returncode:
+        raise ValueError("Docker state unavailable; no recovery performed")
+    states = watchdog_states(res.stdout)
+    path = Path(CYRIS_ETC, "watchdog-state.json")
+    previous = json.loads(path.read_text()) if path.exists() else {}
+    if not isinstance(previous, dict):
+        raise ValueError("Invalid watchdog state; no recovery performed")
+    now = time.time()
+    service, samples, reason = watchdog_decision(states, previous, now)
+    print(reason)
+    for name in APP_SERVICES:
+        print(f"{name}: {states.get(name, ('missing', 'unknown'))}")
+    if action == "status":
+        print("Read-only; timer status is available with systemctl status cyris-watchdog.timer")
+        return
+    # Preserve previous cooldown history during dependency/maintenance outages.
+    if not samples and not service:
+        return
+    if service:
+        samples[service]["attempts"].append(now)
+        samples[service]["count"] = 0
+    atomic_file(path, json.dumps(samples).encode(), 0o600)
+    if service:
+        # No pull, recreation, database changes, or starting stopped services.
+        print(f"Restarting unhealthy application service: {service}")
+        docker_compose_cmd("restart", "-t", "20", service, capture=False)
+
+
 # ------------------------------------------------------------------------------
 # Main Entry Point & Command Routing
 # ------------------------------------------------------------------------------
@@ -1393,6 +1511,11 @@ def main():
     p_admin_create = p_admin_sub.add_parser("create", help="Bootstrap Platform Administrator")
     p_admin_create.set_defaults(func=cmd_admin_create)
 
+    p_watchdog = subparsers.add_parser("watchdog", help="Opt-in bounded application health recovery")
+    watchdog_sub = p_watchdog.add_subparsers(dest="watchdog_action", required=True)
+    for action in ("status", "enable", "disable", "recover"):
+        watchdog_sub.add_parser(action).set_defaults(func=cmd_watchdog)
+
     # diagnostics
     p_diag = subparsers.add_parser("diagnostics", help="Generate non-secret diagnostics archive")
     p_diag.set_defaults(func=cmd_diagnostics)
@@ -1409,7 +1532,7 @@ def main():
         raise SystemExit(128 + signum)
     for sig in (signal.SIGHUP, signal.SIGTERM):
         signal.signal(sig, interrupted)
-    mutates = args.subcommand in {"deploy", "start", "stop", "restart", "restore", "update", "self-update", "github", "backup", "admin"} or getattr(args, "db_action", "") == "migrate"
+    mutates = args.subcommand in {"deploy", "start", "stop", "restart", "restore", "update", "self-update", "github", "backup", "admin"} or getattr(args, "db_action", "") == "migrate" or (args.subcommand == "watchdog" and args.watchdog_action != "status")
     with ExitStack() as stack:
         if mutates:
             lock = stack.enter_context(open("/run/cyris-first-install.lock", "a"))

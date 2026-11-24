@@ -12,7 +12,7 @@ function discover(directory) {
     return /\.test\.(ts|mjs)$/.test(entry.name) ? [path] : [];
   });
 }
-const tests = ['apps/api/src', 'apps/web/src', 'packages', 'scripts'].flatMap(discover)
+const tests = ['apps/api/src', 'apps/web/src', 'apps/worker/src', 'packages', 'scripts'].flatMap(discover)
   .filter((path) => !/(?:^|\/)(?:node_modules|dist)(?:\/|$)/.test(path)).sort();
 if (!tests.length) throw new Error('No test files found.');
 // Database suites use independent fixture IDs, but preservation assertions also

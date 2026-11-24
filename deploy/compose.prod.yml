@@ -224,11 +224,11 @@ services:
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:3000}
       CYRIS_VERSION: ${CYRIS_VERSION:-}
     healthcheck:
-      test: ["CMD", "node", "-e", "process.exit(0)"]
+      test: ["CMD", "node", "-e", "const s=JSON.parse(require('fs').readFileSync('/tmp/cyris-worker-health.json','utf8'));const n=Date.now();process.kill(s.pid,0);process.exit(Number.isInteger(s.pid)&&s.pid>0&&n-s.heartbeatAt>=-5000&&n-s.heartbeatAt<=30000&&n-s.scenarioSettledAt>=-5000&&n-s.scenarioSettledAt<=180000?0:1)"]
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 90s
     networks:
       - cyris-internal
 

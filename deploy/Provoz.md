@@ -129,3 +129,6 @@ původní hlavní klíč v konfiguraci. Před přepsáním dat se vytvoří nov�
 ukáže stav migrací a `sudo cyrisctl diagnostics` uloží systémový přehled do
 adresáře záloh. Počátečního správce vytvoří `sudo cyrisctl admin create`.
 Další LDAP správce může existující správce pověřit v administraci uživatelů.
+
+## Volitelný watchdog aplikačních služeb
+Po aktualizaci lze použít `sudo cyrisctl watchdog status` (jen čtení). Automatické zotavení se aktivuje výhradně příkazem `sudo cyrisctl watchdog enable`, vypíná `sudo cyrisctl watchdog disable`. Systemd kontroluje stav přibližně každou minutu. Vyžaduje dvě po sobě jdoucí pozorování unhealthy, běžící aplikační stack a zdravé postgres/redis/typesense/minio. Restartuje nejvýše jednu běžící aplikační službu na kontrolu, s cooldownem 30 minut a nejvýše třemi pokusy za 24 hodin na službu. Používá stejný zámek jako aktualizace, zálohy a restore. Před ručními zásahy mimo cyrisctl watchdog vypněte. Nikdy nezapíná zastavené služby, neobnovuje zálohu, nemigruje data ani nerestartuje úložiště. Worker healthcheck sleduje heartbeat a dokončení cyklu plánovače; nezaručuje úspěch jednotlivých úloh. Sledujte journalctl -u cyris-watchdog.service. Před ostrým cvičením vyzkoušejte v neprodukčním prostředí.
