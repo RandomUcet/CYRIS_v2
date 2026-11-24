@@ -1,5 +1,5 @@
 import {Injectable,ConflictException,NotFoundException,BadRequestException} from '@nestjs/common';
-import {and,eq,desc,sql} from 'drizzle-orm';
+import {and,eq,desc} from 'drizzle-orm';
 import {events,exerciseAdvice,exerciseBlueprints} from '@cyris/db';
 import {Permissions} from '@cyris/shared';
 import {ExerciseAdviceDraftSchema,ExerciseSignalSchema,ExerciseAdviceReviewSchema,type ExerciseAdviceResult,type ExerciseAdviceDecision,type ExerciseAdviceReview,type StoredExerciseAdvice,type ExerciseSignal} from '@cyris/contracts';
@@ -46,6 +46,10 @@ export class ExerciseAdviceStore{
    if(['CLOSED','ARCHIVED'].includes(event.status))throw new ConflictException('Exercise is read-only');
    const [row]=await tx.select().from(exerciseAdvice).where(and(eq(exerciseAdvice.eventId,eventId),eq(exerciseAdvice.runId,runId))).for('update').limit(1);
    if(!row)throw new NotFoundException('Advice not found');
+   if(input.decision==='ACCEPTED'&&row.blueprintRevision!==null){
+    const [latest]=await tx.select({revision:exerciseBlueprints.revision}).from(exerciseBlueprints).where(eq(exerciseBlueprints.eventId,eventId)).orderBy(desc(exerciseBlueprints.revision)).limit(1);
+    if(latest?.revision!==row.blueprintRevision)throw new ConflictException('Advice uses an outdated blueprint; generate a new draft');
+   }
    const reviews=applyAdviceReview(row.reviews,row.draft.actions.length,input,row.revision,actor.id,new Date().toISOString());
    const [updated]=await tx.update(exerciseAdvice).set({reviews,revision:row.revision+1}).where(and(eq(exerciseAdvice.eventId,eventId),eq(exerciseAdvice.runId,runId),eq(exerciseAdvice.revision,row.revision))).returning();
    if(!updated)throw new ConflictException('Advice changed');
