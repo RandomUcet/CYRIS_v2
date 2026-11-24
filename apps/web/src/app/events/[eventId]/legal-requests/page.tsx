@@ -5,17 +5,21 @@ import { useParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { apiClient } from '@/lib/api-client';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { FileText, RefreshCw } from 'lucide-react';
 import { legalRequestQueue,legalRequestCounts,requestOverdue } from '@/lib/legal-request-queue';
 import type { CourtRequestItem } from '@cyris/contracts';
 
 export default function LegalRequestInboxPage() {
   const params=useParams(),eventId=params.eventId as string;
-  return <LegalRequestInbox key={eventId} eventId={eventId}/>;
+  const {currentUser,viewAs}=useAuth();
+  return <LegalRequestInbox key={[eventId,currentUser?.user.id??'',viewAs?.id??''].join(':')} eventId={eventId}/>;
 }
 function LegalRequestInbox({eventId}:{eventId:string}) {
-  const {locale,formatTime}=usePreferences();
+  const {locale,formatTime,formatDate}=usePreferences();
   const cs=locale==='cs', tr=(c:string,e:string)=>cs?c:e;
+  const labels:Record<string,[string,string]>={"ALL":["Všechny","All"],"PENDING":["Nevyřízené","Pending"],"OPEN":["Otevřeno","Open"],"IN_PROGRESS":["V řešení","In progress"],"FULFILLED":["Vyřízeno","Fulfilled"],"DECLINED":["Odmítnuto","Declined"],"CANCELLED":["Zrušeno","Cancelled"],"EVIDENCE":["Důkaz","Evidence"],"DOCUMENT":["Dokument","Document"],"FORENSIC_REPORT":["Forenzní zpráva","Forensic report"],"LAB_REPORT":["Laboratorní zpráva","Lab report"],"MEDICAL_REPORT":["Lékařská zpráva","Medical report"],"EXPERT_OPINION":["Znalecký posudek","Expert opinion"],"OTHER":["Ostatní","Other"]};
+  const display=(value:string)=>labels[value]?.[cs?0:1]??value;
   const [requests,setRequests]=useState<CourtRequestItem[]>([]);
   const [loading,setLoading]=useState(true),[error,setError]=useState('');
   const [status,setStatus]=useState('ALL'),[query,setQuery]=useState('');
@@ -36,9 +40,9 @@ function LegalRequestInbox({eventId}:{eventId:string}) {
   },[eventId,refresh]);
   const visible=useMemo(()=>legalRequestQueue(requests,{status,kind,query,deadline},now),[requests,status,kind,query,deadline,now]);
   const counts=legalRequestCounts(requests,now);
-  return <AppShell breadcrumbs={[{label:tr('Cvičení','Exercise'),href:'/events/'+eventId+'/overview'},
+  return <AppShell title={tr('Právní spolupráce','Legal collaboration')} breadcrumbs={[{label:tr('Cvičení','Exercise'),href:'/events/'+eventId+'/overview'},
     {label:tr('Právní spolupráce','Legal collaboration')}]}>
-    <div className="workspace-container" style={{maxWidth:1120,margin:'auto'}}>
+    <div className="legal-inbox-workspace">
       <header style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',justifyContent:'space-between'}}>
         <div>
           <h1 style={{display:'flex',gap:9,alignItems:'center'}}><FileText size={22}/>
@@ -65,26 +69,26 @@ function LegalRequestInbox({eventId}:{eventId:string}) {
           <select style={{padding:9,background:'var(--bg-panel)',color:'var(--text-primary)',
             border:'1px solid var(--border-default)',borderRadius:6}} value={status} onChange={e=>setStatus(e.target.value)}>
             {['ALL','PENDING','OPEN','IN_PROGRESS','FULFILLED','DECLINED','CANCELLED'].map(value=>
-              <option key={value} value={value}>{value==='ALL'?tr('Všechny','All'):value.replaceAll('_',' ')}</option>)}
+              <option key={value} value={value}>{display(value)}</option>)}
           </select>
         </label>
-        <label style={{display:'grid',gap:5,minWidth:160}}>{tr('Typ podkladu','Material type')}<select className="field-input" value={kind} onChange={e=>setKind(e.target.value)}>{['ALL','EVIDENCE','DOCUMENT','FORENSIC_REPORT','LAB_REPORT','MEDICAL_REPORT','EXPERT_OPINION','OTHER'].map(value=><option key={value} value={value}>{value==='ALL'?tr('Všechny','All'):value.replaceAll('_',' ')}</option>)}</select></label>
+        <label style={{display:'grid',gap:5,minWidth:160}}>{tr('Typ podkladu','Material type')}<select className="field-input" value={kind} onChange={e=>setKind(e.target.value)}>{['ALL','EVIDENCE','DOCUMENT','FORENSIC_REPORT','LAB_REPORT','MEDICAL_REPORT','EXPERT_OPINION','OTHER'].map(value=><option key={value} value={value}>{display(value)}</option>)}</select></label>
         <label style={{display:'grid',gap:5,minWidth:140}}>{tr('Termín','Deadline')}<select className="field-input" value={deadline} onChange={e=>setDeadline(e.target.value)}><option value="ALL">{tr('Všechny','All')}</option><option value="OVERDUE">{tr('Po termínu','Overdue')}</option></select></label>
         <button type="button" className="btn btn-secondary" onClick={()=>{setStatus('ALL');setKind('ALL');setDeadline('ALL');setQuery('');}}>{tr('Vymazat filtry','Clear filters')}</button>
       </div>
       <p role="status">{visible.length} / {counts.total} {tr('žádostí','requests')}</p>
       {error&&<p role="alert">{error}</p>}
       {loading?<p>{tr('Načítám…','Loading…')}</p>:visible.length===0
-        ?<p>{tr('Žádné odpovídající žádosti.','No matching requests.')}</p>
+        ?<div className="legal-inbox-empty"><FileText size={28}/><strong>{tr('Žádné odpovídající žádosti','No matching requests')}</strong><p>{counts.total?tr('Změňte nastavení filtrů.','Adjust your filters.'):tr('Žádosti se zde zobrazí po vytvoření v soudním spisu.','Requests appear here after creation in a judicial case.')}</p></div>
         :<div style={{display:'grid',gap:12}}>{visible.map(req=><article key={req.id}
           style={{padding:15,background:'var(--bg-panel)',border:'1px solid var(--border-default)',
             borderRadius:8,display:'grid',gap:9}}>
           <div style={{display:'flex',gap:12,justifyContent:'space-between',flexWrap:'wrap'}}>
             <strong>{req.subject}</strong>
-            <span>{req.status.replaceAll('_',' ')}</span>
+            <span>{display(req.status)}</span>
           </div>
-          <small>{req.kind.replaceAll('_',' ')} · {formatTime(req.createdAt)} · {tr('Revize','Revision')} {req.revision} · {tr('Vyjádření','Replies')}: {req.history.length}</small>
-          {req.dueAt&&<p style={{color:requestOverdue(req,now)?'var(--status-danger)':'var(--text-secondary)'}}>{tr('Termín','Due')}: {new Date(req.dueAt).toLocaleString(cs?'cs-CZ':'en-GB')}{requestOverdue(req,now)?' · '+tr('Po termínu','Overdue'):''}</p>}
+          <small>{display(req.kind)} · {formatTime(req.createdAt)} · {tr('Revize','Revision')} {req.revision} · {tr('Vyjádření','Replies')}: {req.history.length}</small>
+          {req.dueAt&&<p style={{color:requestOverdue(req,now)?'var(--status-danger)':'var(--text-secondary)'}}>{tr('Termín','Due')}: {formatDate(req.dueAt)} · {formatTime(req.dueAt)}{requestOverdue(req,now)?' · '+tr('Po termínu','Overdue'):''}</p>}
           <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{req.details}</p>
           {req.response&&<p style={{padding:8,borderLeft:'3px solid var(--border-focus)'}}>
             <strong>{tr('Odpověď','Response')}:</strong> {req.response}</p>}

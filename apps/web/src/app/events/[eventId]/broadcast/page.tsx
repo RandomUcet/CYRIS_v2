@@ -253,7 +253,7 @@ function BroadcastWorkspace({eventId}:{eventId:string}) {
       {success&&<p role="status" className="rounded border border-green-700 bg-green-950/40 p-3 text-sm text-green-200">{success}</p>}
       <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
         <h2 className="mb-4 text-lg font-semibold text-slate-100">{tr('Nová zpráva','New message')}</h2>
-        <form onSubmit={e=>void send(e)} className="space-y-4">
+        <form onSubmit={e=>void send(e)} className="space-y-4 broadcast-composer-form">
           <fieldset disabled={loading||sending||planBusy||readOnly} className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-slate-400">{tr('Připravené šablony:','Quick templates:')}</span>
