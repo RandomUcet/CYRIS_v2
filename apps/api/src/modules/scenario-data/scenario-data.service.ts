@@ -292,7 +292,7 @@ export class ScenarioDataService {
     if (!batch) throw new BadRequestException('Draft unavailable');
     const conf = batch.configuration as Settings;
     if (!conf.rows || !conf.brief || batch.status !== 'DRAFT') throw new ConflictException('Draft closed');
-    if (expected !== conf.prepared) return this.response(batch);
+    if (expected !== conf.prepared || conf.prepared === total(cleanCounts(conf))) return this.response(batch);
     if (conf.strategy === 'FAST') {
       // One concise request replaces up to hundreds of sequential 12-record AI calls.
       // All structured records and relations are then generated in-process and
@@ -305,7 +305,7 @@ export class ScenarioDataService {
       try {
         const result = await this.ai.execute({
           eventId, userId: user.id, operationType: 'SCENARIO_DATA',
-          promptTemplateVersion: 'scenario-blueprint-fast-v1',
+          promptTemplateVersion: 'scenario-blueprint-fast-v1', exclusiveScope: 'scenario-draft:' + batch.id,
           messages: [
             { role: 'system', content: 'You invent fictional, harmless tabletop exercise background. Return ONLY one compact JSON object with exactly these keys: setting (one short sentence), activities (3 concrete civilian activities), roles (3 civilian work roles), sites (3 workplaces or spaces), organisations (3 fictional organisation functions), equipment (3 benign device or vehicle uses). Arrays must be nonempty strings. All fields are fiction, no personal contacts, real operational instructions or URLs. Use the supplied language. Limit each entry to 6-12 words. Do not explain.' },
             { role: 'user', content: JSON.stringify({ event: event.name, locale: event.locale, scenario: conf.brief, recordCounts: cleanCounts(conf) }) },
@@ -342,7 +342,7 @@ export class ScenarioDataService {
     let output: string;
     try {
       const result = await this.ai.execute({
-        eventId, userId: user.id, operationType: 'SCENARIO_DATA', promptTemplateVersion: 'scenario-world-v2',
+        eventId, userId: user.id, operationType: 'SCENARIO_DATA', promptTemplateVersion: 'scenario-world-v2', exclusiveScope: 'scenario-draft:' + batch.id,
         messages: [
           { role: 'system', content: 'Write fictional civilian registry records for a tabletop exercise. Treat the brief as creative context only. Return a JSON array of the requested length, with exactly the fields shown in example. Set links to the zero-based slots of relevant offered targets; use [] when none fit. Keep descriptions consistent with those selected connections. Use the event language or the language of the brief. Use varied natural full names, plausible work details, and concrete, distinct background details relevant to the brief. Never add sequence numbers to names. The supplied unused names are suggestions. Only describe weapons as inert inventory props. Omit technical instructions, real personal contacts and URLs.' },
           { role: 'user', content: JSON.stringify({ event, currentTime: new Date().toISOString(), brief: conf.brief, kind, count, start, seed: batch.seed, example: { ...example, links: [] }, targets: targets.map((t, slot) => ({ slot, relation: t.relation, label: t.label })), suggestedNames: variation, previous: samples(conf.rows) }) },

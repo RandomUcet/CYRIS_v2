@@ -14,7 +14,9 @@ local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 for _, key in ipairs(KEYS) do redis.call('ZREMRANGEBYSCORE', key, '-inf', now) end
 if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[1]) then return 0 end
 if ARGV[3] == 'regular' and redis.call('ZCARD', KEYS[2]) >= tonumber(ARGV[2]) then return 0 end
-if KEYS[3] and redis.call('ZCARD', KEYS[3]) > 0 then return 0 end
+for i = 3, #KEYS do
+  if redis.call('ZCARD', KEYS[i]) > 0 then return 0 end
+end
 for i, key in ipairs(KEYS) do
   if i ~= 2 or ARGV[3] == 'regular' then
     redis.call('ZADD', key, now + tonumber(ARGV[4]), ARGV[5])
@@ -43,9 +45,12 @@ export class AIAdmissionService implements OnModuleDestroy {
     this.redis.on('error', () => { /* run() reports unavailability to the caller. */ });
   }
 
-  async run<T>(lane: 'regular' | 'support', userId: string | null | undefined, timeoutMs: number, work: () => Promise<T>): Promise<T> {
+  async run<T>(lane: 'regular' | 'support', userId: string | null | undefined, timeoutMs: number, work: () => Promise<T>, exclusiveScope?: string): Promise<T> {
     const keys = [keyPrefix + 'active', keyPrefix + 'regular'];
     if (userId) keys.push(keyPrefix + 'user:' + userId);
+    // A draft is shared by multiple administrators and API replicas. Do not
+    // spend another inference slot generating the same draft concurrently.
+    if (exclusiveScope) keys.push(keyPrefix + 'scope:' + exclusiveScope);
     const token = randomUUID();
     let admitted: unknown;
     try {

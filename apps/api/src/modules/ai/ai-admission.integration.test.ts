@@ -48,3 +48,36 @@ test('AI admission across two replicas reserves EXCON capacity, rejects a burst 
     replicas.forEach(service => service.onModuleDestroy());
   }
 });
+
+test('exclusive inference scope rejects duplicate draft work across different users and replicas', { skip: !isolated, timeout: 12_000 }, async () => {
+  const config = { values: { REDIS_URL: url, CYRIS_AI_MAX_CONCURRENT: 3 } } as ConfigService;
+  const replicas = [new AIAdmissionService(config), new AIAdmissionService(config)];
+  const expectStatus = (status: number) => (e: unknown) => e instanceof HttpException && e.getStatus() === status;
+  let release!: () => void;
+  let entered!: () => void;
+  const readyWork = new Promise<void>(resolve => { entered = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let first: Promise<void> | undefined;
+  try {
+    for (const service of replicas) {
+      let ready = false;
+      for (let i = 0; i < 50; i++) {
+        try { await service.run('regular', null, 1000, async () => {}); ready = true; break; }
+        catch (err) { if (!expectStatus(503)(err)) throw err; await delay(20); }
+      }
+      assert.ok(ready);
+    }
+    first = replicas[0]!.run('regular', 'draft-operator-one', 5000, async () => { entered(); await held; }, 'scenario-draft:test-a');
+    await Promise.race([readyWork, first]);
+    await assert.rejects(replicas[1]!.run('regular', 'draft-operator-two', 5000, async () => assert.fail('duplicate draft reached provider'), 'scenario-draft:test-a'), expectStatus(429));
+    assert.equal(await replicas[1]!.run('regular', 'draft-operator-two', 1000, async () => 'other draft', 'scenario-draft:test-b'), 'other draft');
+    release();
+    await first;
+    await assert.rejects(replicas[1]!.run('regular', 'draft-operator-two', 1000, async () => { throw Error('provider failure'); }, 'scenario-draft:test-a'), /provider failure/);
+    assert.equal(await replicas[0]!.run('regular', 'draft-operator-one', 1000, async () => 'resumed', 'scenario-draft:test-a'), 'resumed');
+  } finally {
+    release();
+    await first?.catch(() => undefined);
+    replicas.forEach(service => service.onModuleDestroy());
+  }
+});
