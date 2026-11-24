@@ -209,7 +209,7 @@ export class AIGatewayService {
       const support = params.operationType === 'SUPPORT_REPLY' || params.operationType === 'SUPPORT_HANDOVER';
       const timeoutMs = inferenceTimeoutMs(params.options?.timeoutMs ?? active.timeoutMs);
       result = await this.admission.run(support ? 'support' : 'regular', params.userId, timeoutMs,
-        () => provider.generate(params.messages, { ...params.options, timeoutMs }), params.exclusiveScope);
+        () => provider.generate(params.messages, { ...params.options, timeoutMs }), params.exclusiveScope, true);
       return {
         text: result.text,
         model: result.model,

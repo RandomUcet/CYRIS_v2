@@ -37,10 +37,10 @@ test('AI admission across two replicas reserves EXCON capacity, rejects a burst 
     while (holds.length < 2) await delay(5);
     await assert.rejects(replicas[0]!.run('support', 'other-operator', 5000, hold), expectStatus(429));
     assert.equal(peak, 2);
-    assert.deepEqual(await replicas[0]!.snapshot(),{limit:2,active:2,regular:1});
+    assert.deepEqual(await replicas[0]!.snapshot(),{limit:2,active:2,regular:1,waiting:0,waitingSupport:0,maxPending:16,maxWaitMs:8000});
     holds.splice(0).forEach(release => release());
     await Promise.all([ordinary, priority]);
-    assert.deepEqual(await replicas[1]!.snapshot(),{limit:2,active:0,regular:0});
+    assert.deepEqual(await replicas[1]!.snapshot(),{limit:2,active:0,regular:0,waiting:0,waitingSupport:0,maxPending:16,maxWaitMs:8000});
     await assert.rejects(replicas[0]!.run('support', 'operator', 1000, async () => { throw Error('provider timeout'); }), /provider timeout/);
     assert.equal(await replicas[1]!.run('regular', 'operator', 1000, async () => 'ok'), 'ok');
     replicas[0]!.onModuleDestroy();
@@ -82,4 +82,47 @@ test('exclusive inference scope rejects duplicate draft work across different us
     await first?.catch(() => undefined);
     replicas.forEach(service => service.onModuleDestroy());
   }
+});
+
+test('bounded waiting is shared across replicas, FIFO within lane, and rejects duplicate claims', {skip:!isolated,timeout:12000},async()=>{
+ const config={values:{REDIS_URL:url,CYRIS_AI_MAX_CONCURRENT:1,CYRIS_AI_MAX_WAIT_MS:2500,CYRIS_AI_MAX_PENDING:2}} as ConfigService;
+ const a=new AIAdmissionService(config),b=new AIAdmissionService(config);
+ const status=(n:number)=>(e:unknown)=>e instanceof HttpException&&e.getStatus()===n;
+ const order:string[]=[];let release!:()=>void,entered!:()=>void;
+ const held=new Promise<void>(r=>release=r),ready=new Promise<void>(r=>entered=r);
+ const tasks:Promise<unknown>[]=[];
+ const until=async(pred:()=>Promise<boolean>)=>{for(let i=0;i<100;i++){if(await pred())return;await delay(15);}assert.fail('condition not observed');};
+ try{
+  await until(async()=>Boolean(await a.snapshot())&&Boolean(await b.snapshot()));
+  const running=a.run('regular','queue-running',5000,async()=>{entered();await held;});tasks.push(running);await Promise.race([ready,running]);
+  const first=b.run('regular','queue-one',1000,async()=>{order.push('first');},'queue-scope',true);tasks.push(first);void first.catch(()=>{});
+  await until(async()=>(await a.snapshot())?.waiting===1);
+  await assert.rejects(a.run('regular','queue-duplicate',1000,async()=>assert.fail('duplicate'), 'queue-scope',true),status(429));
+  const second=a.run('regular','queue-two',1000,async()=>{order.push('second');},undefined,true);tasks.push(second);void second.catch(()=>{});
+  await until(async()=>(await b.snapshot())?.waiting===2);
+  await assert.rejects(b.run('support','queue-overflow',1000,async()=>assert.fail('overflow'),undefined,true),status(429));
+  release();await Promise.all(tasks);assert.deepEqual(order,['first','second']);
+  assert.equal((await a.snapshot())?.waiting,0);
+ }finally{release();await Promise.allSettled(tasks);a.onModuleDestroy();b.onModuleDestroy();}
+});
+
+test('support overtakes a queued regular request; expired waiters release uniqueness claims', {skip:!isolated,timeout:12000},async()=>{
+ const config={values:{REDIS_URL:url,CYRIS_AI_MAX_CONCURRENT:1,CYRIS_AI_MAX_WAIT_MS:1000,CYRIS_AI_MAX_PENDING:4}} as ConfigService;
+ const a=new AIAdmissionService(config),b=new AIAdmissionService(config);
+ const status=(n:number)=>(e:unknown)=>e instanceof HttpException&&e.getStatus()===n;
+ let release!:()=>void,entered!:()=>void;
+ const held=new Promise<void>(r=>release=r),ready=new Promise<void>(r=>entered=r);
+ const tasks:Promise<unknown>[]=[];const order:string[]=[];
+ const until=async(pred:()=>Promise<boolean>)=>{for(let i=0;i<100;i++){if(await pred())return;await delay(10);}assert.fail('condition not observed');};
+ try{
+  await until(async()=>Boolean(await a.snapshot())&&Boolean(await b.snapshot()));
+  const running=a.run('regular','priority-running',5000,async()=>{entered();await held;});tasks.push(running);await Promise.race([ready,running]);
+  const expired=b.run('regular','expires',1000,async()=>assert.fail('expired ran'),undefined,true);tasks.push(expired);void expired.catch(()=>{});
+  await assert.rejects(expired,status(429));assert.equal((await a.snapshot())?.waiting,0);
+  const regular=b.run('regular','expires',1000,async()=>{order.push('regular');},undefined,true);tasks.push(regular);void regular.catch(()=>{});
+  await until(async()=>(await a.snapshot())?.waiting===1);
+  const support=a.run('support','priority',1000,async()=>{order.push('support');},undefined,true);tasks.push(support);void support.catch(()=>{});
+  await until(async()=>(await b.snapshot())?.waitingSupport===1);
+  release();await Promise.all([running,regular,support]);assert.deepEqual(order,['support','regular']);
+ }finally{release();await Promise.allSettled(tasks);a.onModuleDestroy();b.onModuleDestroy();}
 });

@@ -16,7 +16,7 @@ export const ExerciseIntelligenceOverviewSchema=z.object({
  usage:z.object({total:z.number(),successful:z.number(),failed:z.number(),averageMs:z.number().nullable(),byOperation:z.array(z.object({operation:z.string(),count:z.number()}))}),
  signals:z.array(ExerciseSignalSchema),
  observer:ExerciseObserverSnapshotSchema.nullable(),
- admission:z.object({limit:z.number().int().positive(),active:z.number().int().nonnegative(),regular:z.number().int().nonnegative()}).nullable(),
+ admission:z.object({limit:z.number().int().positive(),active:z.number().int().nonnegative(),regular:z.number().int().nonnegative(),waiting:z.number().int().nonnegative(),waitingSupport:z.number().int().nonnegative(),maxPending:z.number().int().positive(),maxWaitMs:z.number().int().nonnegative()}).nullable(),
 });
 export type ExerciseIntelligenceOverview=z.infer<typeof ExerciseIntelligenceOverviewSchema>;
 export const ExerciseAdviceDraftSchema=z.object({
