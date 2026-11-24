@@ -59,7 +59,7 @@ export class ExerciseIntelligenceService{
   await this.dashboard.overview(eventId,actor);
   if(blueprint&&(await this.blueprints.overview(eventId,actor)).current?.revision!==blueprint.revision)throw new ConflictException('Blueprint changed during inference; regenerate against the latest revision');
   const response:ExerciseAdviceResult={...draft,eventId,blueprintRevision:blueprint?.revision??null,runId:result.runId,model:result.model,durationMs:result.durationMs,generatedAt:new Date().toISOString(),status:'DRAFT',mode:input.mode};
-  await this.adviceStore.persist(actor,response,snapshot.asOf,signals,fence);
+  await this.adviceStore.persist(actor,response,snapshot.asOf,signals,fence,history?.samples??[]);
   return response;
  }
 }

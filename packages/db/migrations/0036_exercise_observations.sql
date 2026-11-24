@@ -9,3 +9,5 @@ CREATE TABLE "exercise_observations" (
  PRIMARY KEY ("event_id","bucket_at"),
  CHECK ("observed_at">="bucket_at" AND "observed_at"<"bucket_at"+interval '15 minutes')
 );
+--> statement-breakpoint
+ALTER TABLE "exercise_advice" ADD COLUMN "observations" jsonb NOT NULL DEFAULT '[]'::jsonb;
