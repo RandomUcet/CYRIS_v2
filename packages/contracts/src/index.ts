@@ -40,3 +40,5 @@ export * from './preview-teams.js';
 export * from './jsoc.js';
 
 export * from './exercise-intelligence.js';
+
+export * from './legal-library.js';

@@ -39,3 +39,5 @@ export * from './jsoc.js';
 export * from './exercise-blueprints.js';
 
 export * from './exercise-advice.js';
+
+export * from './legal-library.js';

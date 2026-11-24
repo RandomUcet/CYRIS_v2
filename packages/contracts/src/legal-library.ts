@@ -1,0 +1,12 @@
+import {z} from 'zod';
+export const LegalDateSchema=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(s=>{const d=new Date(s+'T00:00:00Z');return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===s&&s>='1900-01-01';},'Invalid date');
+export const OfficialLegalUrlSchema=z.string().max(1000).url().refine(s=>{try{const u=new URL(s);return u.protocol==='https:'&&u.hostname==='e-sbirka.gov.cz'&&!u.username&&!u.password&&!u.port;}catch{return false;}},'Official e-Sbírka URL required');
+export const LegalSourceInputSchema=z.object({act:z.string().trim().regex(/^\d{1,5}\/\d{4}$/),provision:z.string().trim().min(1).max(100),heading:z.string().trim().min(1).max(250),text:z.string().trim().min(20).max(12000),effectiveFrom:LegalDateSchema,effectiveTo:LegalDateSchema.nullable(),sourceUrl:OfficialLegalUrlSchema,confirmedSource:z.literal(true)}).strict().refine(x=>!x.effectiveTo||x.effectiveTo>x.effectiveFrom,'End must follow start (exclusive)');
+export type LegalSourceInput=z.infer<typeof LegalSourceInputSchema>;
+export type LegalSource=Omit<LegalSourceInput,'confirmedSource'>&{id:string;eventId:string;sha256:string;createdAt:string};
+export const LegalSearchSchema=z.object({q:z.string().trim().max(160).default(''),asOf:LegalDateSchema}).strict();
+export type LegalSearchResult={items:LegalSource[];asOf:string;hasMore:boolean};
+export const LegalResearchInputSchema=z.object({question:z.string().trim().min(10).max(3000),asOf:LegalDateSchema,sourceIds:z.array(z.string().uuid()).min(1).max(5).refine(a=>new Set(a).size===a.length),locale:z.enum(['cs','en']).default('cs')}).strict();
+export type LegalResearchInput=z.infer<typeof LegalResearchInputSchema>;
+export const LegalResearchDraftSchema=z.object({points:z.array(z.object({analysis:z.string().min(1).max(1600),sourceIds:z.array(z.string().uuid()).min(1).max(5)}).strict()).min(1).max(8),missingFacts:z.array(z.string().max(600)).max(8),limitations:z.array(z.string().max(600)).min(1).max(8)}).strict();
+export type LegalResearchResult=z.infer<typeof LegalResearchDraftSchema>&{sources:LegalSource[];asOf:string;runId:string;model:string;durationMs:number};

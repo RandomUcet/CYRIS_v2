@@ -1,3 +1,4 @@
+import type {LegalSourceInput,LegalSource,LegalSearchResult,LegalResearchInput,LegalResearchResult} from '@cyris/contracts';
 import type {StoredExerciseAdvice,ExerciseAdviceDecision,ExerciseAdviceHandoffInput} from '@cyris/contracts';
 import type {ExerciseBlueprintInput,ExerciseBlueprint,ExerciseBlueprintOverview} from '@cyris/contracts';
 import type { ExerciseAdviceInput, ExerciseAdviceResult, ExerciseIntelligenceOverview } from '@cyris/contracts';
@@ -1202,6 +1203,9 @@ export class CyrisApiClient {
     return this.listTechnicalIndicators(eventId);
   }
 
+  searchLegalLibrary(eventId:string,q:string,asOf:string,signal?:AbortSignal){return this.fetchJson<LegalSearchResult>('/events/'+encodeURIComponent(eventId)+'/legal-library?'+new URLSearchParams({q,asOf}),signal);}
+  addLegalSource(eventId:string,input:LegalSourceInput){return this.postJson<LegalSource>('/events/'+encodeURIComponent(eventId)+'/legal-library',input);}
+  researchLegalLibrary(eventId:string,input:LegalResearchInput){return this.postJson<LegalResearchResult>('/events/'+encodeURIComponent(eventId)+'/legal-library/research',input);}
   async getCourtCases(eventId: string) {
     const res = await this.listCourtCases(eventId);
     return { ok: res.ok, data: res.data?.items, error: res.error };
