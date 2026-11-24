@@ -615,8 +615,8 @@ export class CyrisApiClient {
   }
 
   // Event Relationships (for global graph)
-  async getEventRelationships(eventId: string) {
-    return this.fetchJson<any[]>(`/events/${eventId}/relationships`);
+  async getEventRelationships(eventId: string,signal?:AbortSignal) {
+    return this.fetchJson<any[]>(`/events/${eventId}/relationships`,signal);
   }
 
   // Incident & Case Details & Updates

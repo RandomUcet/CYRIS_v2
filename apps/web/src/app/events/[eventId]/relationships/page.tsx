@@ -11,12 +11,14 @@ import {LoadingState,EmptyState,ErrorState} from '@/components/common/StateViews
 import {apiClient} from '@/lib/api-client';
 import {filterRelationships,relatedNodeCount,relationshipEndpoint,relationshipNeighborhood,relationshipGraphAllowed} from '@/lib/relationship-filter';
 import {usePreferences} from '@/contexts/PreferencesContext';
+import {useAuth} from '@/contexts/AuthContext';
 
 type RelationshipRecord={id?:string;relationshipType?:string;sourceId?:string;targetId?:string;sourceResourceId?:string;targetResourceId?:string;source?:unknown;target?:unknown};
 
 export default function DedicatedRelationshipsPage(){
   const {eventId}=useParams<{eventId:string}>();
-  return <RelationshipsWorkspace key={eventId} eventId={eventId}/>;
+  const {currentUser,viewAs}=useAuth();
+  return <RelationshipsWorkspace key={JSON.stringify([eventId,currentUser?.user.id,viewAs?.id])} eventId={eventId}/>;
 }
 function RelationshipsWorkspace({eventId}:{eventId:string}){
   const {locale}=usePreferences();
@@ -34,11 +36,11 @@ function RelationshipsWorkspace({eventId}:{eventId:string}){
   const [hops,setHops]=useState<1|2>(1);
   const [page,setPage]=useState(1);
   useEffect(()=>{
-    let active=true;
-    setError('');setLoading(true);
+    let active=true;const controller=new AbortController();
+    setError('');setLoading(true);setRelationships([]);
     void (async()=>{
       try{
-        const response=await apiClient.getEventRelationships(eventId);
+        const response=await apiClient.getEventRelationships(eventId,controller.signal);
         if(!active)return;
         if(response.ok&&Array.isArray(response.data)){
           setRelationships(response.data);setLoadedEvent(eventId);
@@ -48,7 +50,7 @@ function RelationshipsWorkspace({eventId}:{eventId:string}){
       }catch(err){if(active)setError(err instanceof Error?err.message:String(err));}
       finally{if(active)setLoading(false);}
     })();
-    return ()=>{active=false};
+    return ()=>{active=false;controller.abort();};
   },[eventId,revision]);
   const records=loadedEvent===eventId?relationships:[];
   const types=useMemo(()=>Array.from(new Set(records.map(r=>r.relationshipType).filter((type):type is string=>typeof type==='string'&&type.length>0))).sort(),[records]);
@@ -111,7 +113,7 @@ function RelationshipsWorkspace({eventId}:{eventId:string}){
           error?<ErrorState message={error} onRetry={()=>setRevision(n=>n+1)}/>:
           visible.length===0?<EmptyState title={tr('Žádné odpovídající vazby','No matching relationships')}
             description={filter!=='ALL'||search.trim()?tr('Zkuste upravit hledání nebo vymazat filtry.','Try another search or clear the filters.'):tr('Zatím zde nejsou propojené žádné záznamy.','No linked records have been created yet.')}/>:
-          mode==='GRAPH'&&graphAllowed?<><RelationshipGraph eventId={eventId} relationships={visible} showTypeFilter={false} height="100%"/></>:
+          mode==='GRAPH'&&graphAllowed?<><RelationshipGraph eventId={eventId} relationships={visible} focusResourceId={focus?.id} onExploreNode={node=>focusRecord({id:node.id,title:node.label})} showTypeFilter={false} height="100%"/></>:
           <><div className="relationships-list-scroll"><table className="relationships-table"><thead><tr><th>{tr('Zdroj','Source')}</th><th>{tr('Typ vazby','Relationship')}</th><th>{tr('Cíl','Target')}</th></tr></thead><tbody>{pageRows.map((row,i)=><tr key={row.id||String((currentPage-1)*pageSize+i)}><td>{renderEndpoint(row,'source')}</td><td>{row.relationshipType||'RELATED_TO'} <span aria-hidden="true">→</span></td><td>{renderEndpoint(row,'target')}</td></tr>)}</tbody></table></div><nav className="relationships-pagination" aria-label={tr('Stránkování vazeb','Relationship pagination')}><button type="button" className="btn btn-secondary" disabled={currentPage<=1} onClick={()=>setPage(currentPage-1)}>{tr('Předchozí','Previous')}</button><span>{currentPage} / {pages}</span><button type="button" className="btn btn-secondary" disabled={currentPage>=pages} onClick={()=>setPage(currentPage+1)}>{tr('Další','Next')}</button></nav></>
         }
       </div>

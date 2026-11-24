@@ -13,3 +13,9 @@ Organizer-only overview and two bounded Spark draft operations. Signal counts ar
 7. Relations: component grouping, focused graph and readable overview; test large fictional dataset and measure browser performance.
 
 Release 2.4.22 remains a draft until a substantial tested scope is ready. No new public release for this increment.
+
+## Official legal source verification (2026-11-24)
+- https://zakony.gov.cz/otevrena-data-a-verejna-api-systemu-esbirka-od-15-ledna-2024 — official open data and APIs.
+- https://e-sbirka.gov.cz/restful-api — REST access registration and incremental changed/repealed text endpoints.
+- https://e-sbirka.gov.cz/pristup-pres-stale-url-a-eli — stable URLs and provision citations.
+- https://zakony.gov.cz/omezeni-esbirky-spojene-s-postupnym-spoustenim-elegislativy-do-ostreho-provozu — transitional schema/identifier caveats; do not assume stable fragment IDs through the transition. Import/version reconciliation must be verified before production. No corpus downloaded or legal assistant enabled yet.
