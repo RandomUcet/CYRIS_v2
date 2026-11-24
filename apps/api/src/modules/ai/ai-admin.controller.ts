@@ -18,6 +18,7 @@ import {
   AICapability, type AIProviderResponse, type TestConnectionResponse,
 } from '@cyris/contracts';
 import { OpenAICompatibleProvider } from './providers/openai-compatible.provider.js';
+import { InferenceError, parseModelJson } from './structured-output.js';
 import { AIAdmissionService } from './ai-admission.service.js';
 
 type Transaction = Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0];
@@ -185,6 +186,33 @@ export class AIAdminController {
       });
       return { success: true };
     });
+  }
+
+  /** Real bounded inference against the saved managed Spark configuration.
+   * This does not change provider health, enablement or exercise records. */
+  @Post('test-spark-inference')
+  async testSparkInference(@CurrentUser() user:AuthenticatedUser) {
+    const [saved]=await this.databaseService.client.select().from(integrations)
+      .where(and(eq(integrations.category,IntegrationCategory.AI_PROVIDER),eq(integrations.systemProfile,'DGX_SPARK'))).limit(1);
+    if(!saved)throw new NotFoundException('Managed Spark profile not found');
+    const config=(saved.config??{}) as Record<string,unknown>;
+    const provider=new OpenAICompatibleProvider({id:saved.id,name:saved.name,endpoint:String(config.endpoint||''),chatModel:String(config.chatModel||''),apiKey:(await this.integrationSecretService.getSecret(saved.id,'API_KEY'))??undefined,timeoutSeconds:90,tlsVerify:config.tlsVerify!==false});
+    const started=performance.now();
+    try{
+      const result=await this.admission.run('regular',user.id,90_000,()=>provider.generate([
+        {role:'system',content:'Return only a JSON object with the key ok and boolean value true. Do not explain.'},
+        {role:'user',content:'Return {"ok":true}.'}
+      ],{temperature:0,maxTokens:64,timeoutMs:90_000,reasoning:'disabled',responseFormat:'json_object'}),'spark-diagnostic');
+      const value=parseModelJson(result.text,1000);
+      const success=typeof value==='object'&&value!==null&&Object.keys(value).length===1&&'ok' in value&&value.ok===true;
+      return {success,category:success?'OK':'INVALID_OUTPUT',durationMs:result.durationMs,model:result.model};
+    }catch(error){
+      if(error instanceof InferenceError)return {success:false,category:error.category,durationMs:Math.round(performance.now()-started),model:String(config.chatModel||'')};
+      if(error instanceof SyntaxError)return {success:false,category:'INVALID_OUTPUT',durationMs:Math.round(performance.now()-started),model:String(config.chatModel||'')};
+      // Preserve admission HTTP status and avoid leaking arbitrary upstream text.
+      if(error instanceof Error&&'getStatus' in error)throw error;
+      return {success:false,category:'PROVIDER_ERROR',durationMs:Math.round(performance.now()-started),model:String(config.chatModel||'')};
+    }
   }
 
   @Post('test-connection')

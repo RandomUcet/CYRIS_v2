@@ -844,6 +844,8 @@ export class CyrisApiClient {
     return this.deleteJson<{ success: boolean }>(`/admin/integrations/ai/${id}`);
   }
 
+  testSparkInference(){return this.postJson<{success:boolean;category:string;durationMs:number;model:string}>('/admin/integrations/ai/test-spark-inference',{});}
+
   async testAIConnection(payload: TestConnectionRequest): Promise<{ ok: boolean; data?: TestConnectionResponse; error?: string }> {
     return this.postJson<TestConnectionResponse>('/admin/integrations/ai/test-connection', payload);
   }

@@ -9,7 +9,9 @@ import styles from './providers.module.css';
 interface Props {
   provider: AIProviderResponse;
   busy: boolean;
-  pending: 'toggle' | 'test' | 'delete' | null;
+  pending: 'toggle' | 'test' | 'delete' | 'inference' | null;
+  inference?:{success:boolean;category:string;durationMs:number;model:string}|null;
+  onInference?:()=>void;
   error: string;
   test: TestConnectionResponse | null;
   otherActive?: string;
@@ -28,7 +30,7 @@ function checkLabel(status: string, cs: boolean) {
   }
 }
 
-export function ProviderCard({ provider, busy, pending, error, test, otherActive, onToggle, onTest, onEdit, onDelete }: Props) {
+export function ProviderCard({ provider, busy, pending, error, test, otherActive, onToggle, onTest, onEdit, onDelete, inference,onInference }: Props) {
   const { locale, formatTime } = usePreferences();
   const cs = locale === 'cs';
   const heading = useId();
@@ -125,6 +127,11 @@ export function ProviderCard({ provider, busy, pending, error, test, otherActive
           {test.embedding ? checkLabel(test.embedding.status, cs) : (cs ? 'Neověřeno' : 'Not checked')}
         </dd></div>}
       </dl>}
+      {spark&&<div className={styles.checkRow}>
+        <div><h3>{cs?'Test skutečné inference':'Actual inference test'}</h3><p className={styles.help}>{cs?'Ověří generování a JSON režim, nikoli pouze dostupnost modelu.':'Checks generation and JSON mode, not just model discovery.'}</p></div>
+        <button type="button" className="btn btn-secondary" disabled={busy} onClick={onInference}>{pending==='inference'?(cs?'Generuji…':'Generating…'):(cs?'Otestovat generování':'Test generation')}</button>
+      </div>}
+      {spark&&inference&&<p role="status" className={inference.success?styles.help:styles.error}>{inference.success?(cs?'Inference dokončena':'Inference completed'):(cs?'Inference selhala':'Inference failed')} · {inference.category} · {(inference.durationMs/1000).toFixed(1)} s · {inference.model}</p>}
       {lastError && <p className={styles.error}>{lastError}</p>}
     </div>
     {error && <p className={styles.error} role="alert">{error}</p>}
