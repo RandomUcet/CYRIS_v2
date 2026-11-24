@@ -1,3 +1,4 @@
+import {InferenceError} from '../ai/structured-output.js';
 import {Injectable,Logger,ConflictException,ForbiddenException,NotFoundException,HttpException,type OnModuleInit,type OnModuleDestroy} from '@nestjs/common';
 import {and,asc,desc,eq,inArray,lte,sql,count} from 'drizzle-orm';
 import {exerciseJobs,events,users,previewTeamAccounts,exerciseBlueprints} from '@cyris/db';
@@ -14,9 +15,10 @@ const queueLifetime=3600000;
 const maxPending=32;
 const maxAttempts=3;
 export function jobFailure(error:unknown,attempts:number){
+ if(error instanceof InferenceError)return {retry:false,code:error.category};
  const status=error instanceof HttpException?error.getStatus():0;
  if(status===429&&attempts<maxAttempts)return {retry:true,code:'CAPACITY'};
- return {retry:false,code:status===429?'CAPACITY':status===403||status===401?'ACCESS_REVOKED':status===409?'CONTEXT_CHANGED':status===503?'SPARK_UNAVAILABLE':'GENERATION_FAILED'};
+ return {retry:false,code:status===429?'CAPACITY':status===403||status===401?'ACCESS_REVOKED':status===409?'CONTEXT_CHANGED':status===503?'SPARK_UNAVAILABLE':status===502?'INVALID_OUTPUT':'GENERATION_FAILED'};
 }
 @Injectable()
 export class ExerciseJobService implements OnModuleInit,OnModuleDestroy{

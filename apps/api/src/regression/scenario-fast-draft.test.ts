@@ -41,7 +41,7 @@ test('fast strategy is explicit in UI and the backend uses one bounded AI reques
   const page = readFileSync(new URL('../../../web/src/app/events/[eventId]/scenario-data/page.tsx', import.meta.url), 'utf8');
   assert.match(service, /conf\.strategy === 'FAST'/);
   assert.match(service, /promptTemplateVersion: 'scenario-blueprint-fast-v1'/);
-  assert.match(service, /maxTokens: 450, timeoutMs: 45_000/);
+  assert.ok(service.includes("maxTokens: 700, timeoutMs: 110_000, reasoning: 'disabled', responseFormat:'json_object'"));
   assert.match(service, /prepared: total\(cleanCounts\(conf\)\)/);
   assert.match(page, /setSparkStrategy/);
   assert.match(page, /strategy: sparkStrategy/);

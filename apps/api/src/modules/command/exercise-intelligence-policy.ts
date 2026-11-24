@@ -1,3 +1,4 @@
+import {parseModelJson} from '../ai/structured-output.js';
 import {ExerciseAdviceDraftSchema,type ExerciseSignal,type ExconDashboardResponse} from '@cyris/contracts';
 export function exerciseSignals(snapshot:ExconDashboardResponse):ExerciseSignal[]{
  return [
@@ -9,9 +10,7 @@ export function exerciseSignals(snapshot:ExconDashboardResponse):ExerciseSignal[
  ] satisfies ExerciseSignal[];
 }
 export function validateExerciseDraft(text:string,signals:readonly ExerciseSignal[],allowPhasePlan=false){
- const raw=text.trim().replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,'');
- if(raw.length>30000)throw Error('Oversized draft');
- const draft=ExerciseAdviceDraftSchema.parse(JSON.parse(raw));
+ const draft=ExerciseAdviceDraftSchema.parse(parseModelJson(text));
  const ids=new Set(signals.map(s=>s.id));
  if(draft.actions.some(a=>a.signalIds.some(id=>!ids.has(id))))throw Error('Unknown signal reference');
  if(draft.actions.some(a=>a.phasePlan&&(!allowPhasePlan||a.module!=='SCENARIO')))throw Error('Phase plans require architect scenario actions and a saved blueprint');

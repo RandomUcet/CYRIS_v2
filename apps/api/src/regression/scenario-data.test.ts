@@ -54,8 +54,9 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
       assert.match(exclusiveScope, /^scenario-draft:[0-9a-f-]{36}$/);
       const ctx = JSON.parse(messages[1].content);
       if (promptTemplateVersion === 'scenario-blueprint-fast-v1') {
-        assert.equal(options.timeoutMs, 45_000);
-        assert.equal(options.maxTokens, 450);
+        assert.equal(options.timeoutMs, 110_000);
+        assert.equal(options.maxTokens, 700);
+        assert.equal(options.responseFormat,'json_object');
         assert.equal(ctx.scenario, 'Regional railway depot');
         return { text: JSON.stringify({ setting: 'Simulované železniční depo', activities: ['předání směny', 'příjem zboží'], roles: ['dispečer', 'technik'], sites: ['depo', 'sklad'], organisations: ['dopravce', 'dodavatel'], equipment: ['přeprava dokumentů', 'evidence materiálu'] }) };
       }
@@ -107,7 +108,7 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
     const generated = await db.select({ name: persons.displayName }).from(persons).innerJoin(resources, eq(resources.id, persons.id)).where(eq(resources.eventId, a));
     assert.equal(new Set(generated.map(p => p.name)).size, 18);
     assert.notEqual(next[0]!.identifier, next[1]!.identifier);
-    const draft = await svc.startDraft(a, { ...req, counts: { ...empty, persons: 13, devices: 1 }, brief: 'Regional railway depot' }, user);
+    const draft = await svc.startDraft(a, { ...req, counts: { ...empty, persons: 13, devices: 1 }, brief: 'Regional railway depot', strategy:'DETAILED' }, user);
     await assert.rejects(() => svc.advance(b, draft.id, 0, user), /unavailable/);
     await assert.rejects(() => svc.advance(a, draft.id, 0, { id: generateId() } as any), /denied/);
     await assert.rejects(() => svc.advance(a, draft.id, 0, user), /incomplete JSON/);

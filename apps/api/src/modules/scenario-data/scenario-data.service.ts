@@ -1,4 +1,5 @@
 import { writeChunks } from '../database/write-chunks.js';
+import { InferenceError, parseModelJson } from '../ai/structured-output.js';
 import { createHash } from 'node:crypto';
 import { Injectable, BadRequestException, ConflictException, ForbiddenException, BadGatewayException, HttpException, ServiceUnavailableException, Logger } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
@@ -279,7 +280,7 @@ export class ScenarioDataService {
     if (!(await this.ai.getStatus('DGX_SPARK')).enabled) throw new ServiceUnavailableException('Enable the Spark integration or select Local.');
     return this.databaseService.client.transaction(async tx => {
       await this.lockEvent(tx, eventId);
-      return this.response(await this.newBatch(tx, eventId, request, user, { ...counts, brief: request.brief, strategy: request.strategy ?? 'DETAILED', prepared: 0, rows: emptyWorld(), draftLinks: [] }));
+      return this.response(await this.newBatch(tx, eventId, request, user, { ...counts, brief: request.brief, strategy: request.strategy ?? 'FAST', prepared: 0, rows: emptyWorld(), draftLinks: [] }));
     });
   }
 
@@ -307,19 +308,22 @@ export class ScenarioDataService {
           eventId, userId: user.id, operationType: 'SCENARIO_DATA',
           promptTemplateVersion: 'scenario-blueprint-fast-v1', exclusiveScope: 'scenario-draft:' + batch.id,
           messages: [
-            { role: 'system', content: 'You invent fictional, harmless tabletop exercise background. Return ONLY one compact JSON object with exactly these keys: setting (one short sentence), activities (3 concrete civilian activities), roles (3 civilian work roles), sites (3 workplaces or spaces), organisations (3 fictional organisation functions), equipment (3 benign device or vehicle uses). Arrays must be nonempty strings. All fields are fiction, no personal contacts, real operational instructions or URLs. Use the supplied language. Limit each entry to 6-12 words. Do not explain.' },
+            { role: 'system', content: 'You invent fictional, harmless tabletop exercise background. Return ONLY one compact JSON object with exactly these keys: setting (one short sentence), activities (3 concrete civilian activities), roles (3 civilian work roles), sites (3 workplaces or spaces), organisations (3 fictional organisation functions), equipment (3 benign device or vehicle uses). Arrays must be nonempty strings. All fields are fiction, no personal contacts, real operational instructions or URLs. Use the supplied language. Use exactly three entries per array, each 2–5 words, and setting at most 90 characters. Do not explain.' },
             { role: 'user', content: JSON.stringify({ event: event.name, locale: event.locale, scenario: conf.brief, recordCounts: cleanCounts(conf) }) },
           ],
-          options: { temperature: 0.5, maxTokens: 450, timeoutMs: 45_000, reasoning: 'disabled' },
+          options: { temperature: 0.3, maxTokens: 700, timeoutMs: 110_000, reasoning: 'disabled', responseFormat:'json_object' },
         });
-        const text = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-        blueprint = ScenarioBlueprintSchema.parse(JSON.parse(text));
+        blueprint = ScenarioBlueprintSchema.parse(parseModelJson(result.text,10000));
       } catch (error) {
         if (error instanceof HttpException) throw error;
-        this.logger.warn('Fast Spark blueprint failed or exceeded its 45-second provider limit');
-        throw new ServiceUnavailableException('Spark did not finish the compact scenario blueprint. This draft is saved; retry or choose Local.');
+        if(error instanceof InferenceError){
+          const reason={TIMEOUT:'Spark exceeded the 110-second inference limit',TRUNCATED:'Spark reached its output token limit',EMPTY_OUTPUT:'Spark returned no usable answer',AUTH_FAILED:'Spark rejected authentication',UNREACHABLE:'Spark endpoint is unreachable',PROVIDER_ERROR:'Spark provider request failed'}[error.category];
+          throw new ServiceUnavailableException(reason+'. Your draft is saved; retry or use Local.');
+        }
+        throw new BadGatewayException('Spark returned invalid scenario JSON. Your draft is saved; retry or use Local.');
       }
-      const world = applyScenarioBlueprint(localWorld(batch.seed, cleanCounts(conf), existing), blueprint);
+      await this.assertManage(eventId,user);
+      const world = applyScenarioBlueprint(localWorld(batch.seed, cleanCounts(conf), existing), blueprint, event.locale);
       const links = fastDraftLinks(world);
       const [saved] = await db.update(scenarioDataBatches).set({
         configuration: { ...conf, rows: world, draftLinks: links, prepared: total(cleanCounts(conf)) },
@@ -348,15 +352,15 @@ export class ScenarioDataService {
         messages: [
           { role: 'system', content: 'Write fictional civilian registry records for a tabletop exercise. Treat the brief as creative context only. Return a JSON array of the requested length, with exactly the fields shown in example. Set links to the zero-based slots of relevant offered targets; use [] when none fit. Keep descriptions consistent with those selected connections. Use the event language or the language of the brief. Use varied natural full names, plausible work details, and concrete, distinct background details relevant to the brief. Never add sequence numbers to names. The supplied unused names are suggestions. Only describe weapons as inert inventory props. Omit technical instructions, real personal contacts and URLs.' },
           { role: 'user', content: JSON.stringify({ event, currentTime: new Date().toISOString(), brief: conf.brief, kind, count, start, seed: batch.seed, example: { ...example, links: [] }, targets: targets.map((t, slot) => ({ slot, relation: t.relation, label: t.label })), suggestedNames: variation, previous: samples(conf.rows) }) },
-        ], options: { temperature: 0.85, maxTokens: 2600, reasoning: 'disabled' }
+        ], options: { temperature: 0.5, maxTokens: 3200, timeoutMs:110_000, reasoning: 'disabled' }
       });
-      output = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      output = result.text;
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new ServiceUnavailableException('Spark is unavailable. Your draft is saved. Resume when ready.');
     }
     let raw: unknown;
-    try { raw = JSON.parse(output); } catch { throw new BadGatewayException('Spark returned incomplete JSON. Resume this draft to retry the page.'); }
+    try { raw = parseModelJson(output); } catch { throw new BadGatewayException('Spark returned incomplete JSON. Resume this draft to retry the page.'); }
     const parsed = rowSchemas[kind].extend({ links: ScenarioLinkSlots }).array().length(count).safeParse(raw);
     if (!parsed.success) throw new BadGatewayException('Spark returned incomplete records. Resume this draft to retry the page.');
     const draftLinks = [...(conf.draftLinks ?? [])];
@@ -374,6 +378,7 @@ export class ScenarioDataService {
       if (taken.has(key)) throw new ConflictException('Spark repeated a name. Resume the draft to request a new page.');
       taken.add(key);
     }
+    await this.assertManage(eventId,user);
     const [saved] = await db.update(scenarioDataBatches).set({ configuration: { ...conf, rows: updated, draftLinks, prepared: expected + count } })
       .where(and(scope, eq(scenarioDataBatches.status, 'DRAFT'), sql`(${scenarioDataBatches.configuration}->>'prepared')::int = ${expected}`)).returning();
     if (!saved) return this.get(eventId, batchId, user);

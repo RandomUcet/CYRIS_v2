@@ -24,6 +24,7 @@ import {
 } from './providers/ai-provider.interface.js';
 import { OpenAICompatibleProvider } from './providers/openai-compatible.provider.js';
 
+import { InferenceError } from './structured-output.js';
 import { AIAdmissionService, inferenceTimeoutMs } from './ai-admission.service.js';
 
 export interface ExecuteAIOperationParams {
@@ -231,17 +232,22 @@ export class AIGatewayService {
         throw err;
       }
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('timeout') || msg.includes('aborted')) {
+      if(err instanceof InferenceError){
+        errorCategory=err.category;
+        if(err.category==='TIMEOUT')status=AIRunStatus.TIMED_OUT;
+        throw err;
+      }
+      if (msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('aborted')) {
         status = AIRunStatus.TIMED_OUT;
         errorCategory = 'TIMEOUT';
       } else if (msg.includes('401') || msg.includes('403') || msg.includes('Authentication')) {
         errorCategory = 'AUTH_FAILED';
-      } else if (msg.includes('ECONNREFUSED') || msg.includes('Connection refused')) {
+      } else if (msg.includes('ECONNREFUSED') || msg.includes('Connection refused') || msg.includes('fetch failed') || msg.includes('ENOTFOUND')) {
         errorCategory = 'UNREACHABLE';
       } else {
         errorCategory = 'PROVIDER_ERROR';
       }
-      throw new Error(`AI generation failed (${errorCategory})`);
+      throw new InferenceError(errorCategory as ConstructorParameters<typeof InferenceError>[0]);
     } finally {
       const completedAt = new Date();
       const durationMs = completedAt.getTime() - startedAt.getTime();
