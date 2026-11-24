@@ -7,7 +7,7 @@ import type {AuthenticatedUser} from '../auth/session.service.js';
 import {DatabaseService} from '../database/database.service.js';
 import {AIGatewayService} from '../ai/ai-gateway.service.js';
 import {ExconDashboardService} from './excon-dashboard.service.js';
-import {ExerciseAdviceStore} from './exercise-advice-store.service.js';
+import {ExerciseAdviceStore,type ExerciseJobFence} from './exercise-advice-store.service.js';
 import {ExerciseBlueprintService} from './exercise-blueprint.service.js';
 import {ExerciseObserverReader} from './exercise-observer-reader.service.js';
 import {exerciseSignals,validateExerciseDraft} from './exercise-intelligence-policy.js';
@@ -31,7 +31,7 @@ export class ExerciseIntelligenceService{
   const row=totals[0];
   return {eventId,asOf:snapshot.asOf,event:snapshot.event,defcon:snapshot.defcon,phases:snapshot.phases,activePhase:snapshot.activePhase,participation:{activeUsers:snapshot.participation.activeUsers,activeTeams:snapshot.participation.activeTeams},provider,usage:{total:row?.total??0,successful:row?.successful??0,failed:(row?.total??0)-(row?.successful??0),averageMs:row?.averageMs??null,admissionAverageMs:row?.admissionAverageMs??null,providerAverageMs:row?.providerAverageMs??null,timedSamples:row?.timedSamples??0,capacityRejected:row?.capacityRejected??0,timeouts:row?.timeouts??0,byOperation:operations.sort((a,b)=>b.count-a.count||a.operation.localeCompare(b.operation))},signals:exerciseSignals(snapshot).filter(s=>s.count>0),observer,admission};
  }
- async advise(eventId:string,actor:AuthenticatedUser,input:ExerciseAdviceInput):Promise<ExerciseAdviceResult>{
+ async advise(eventId:string,actor:AuthenticatedUser,input:ExerciseAdviceInput,fence?:ExerciseJobFence):Promise<ExerciseAdviceResult>{
   const snapshot=await this.dashboard.overview(eventId,actor);
   const blueprint=input.blueprintRevision===undefined?null:(await this.blueprints.overview(eventId,actor)).current;
   if(input.blueprintRevision!==undefined&&blueprint?.revision!==input.blueprintRevision)throw new ConflictException('Blueprint changed; reload it before generating');
@@ -49,7 +49,7 @@ export class ExerciseIntelligenceService{
   await this.dashboard.overview(eventId,actor);
   if(blueprint&&(await this.blueprints.overview(eventId,actor)).current?.revision!==blueprint.revision)throw new ConflictException('Blueprint changed during inference; regenerate against the latest revision');
   const response:ExerciseAdviceResult={...draft,eventId,blueprintRevision:blueprint?.revision??null,runId:result.runId,model:result.model,durationMs:result.durationMs,generatedAt:new Date().toISOString(),status:'DRAFT',mode:input.mode};
-  await this.adviceStore.persist(actor,response,snapshot.asOf,signals);
+  await this.adviceStore.persist(actor,response,snapshot.asOf,signals,fence);
   return response;
  }
 }

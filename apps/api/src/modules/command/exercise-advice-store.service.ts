@@ -1,6 +1,6 @@
 import {Injectable,ConflictException,NotFoundException,BadRequestException} from '@nestjs/common';
-import {and,eq,desc,isNull} from 'drizzle-orm';
-import {events,exerciseAdvice,exerciseBlueprints,exerciseBroadcastPlans,organizationalUnits} from '@cyris/db';
+import {and,eq,desc,isNull,gt} from 'drizzle-orm';
+import {events,exerciseAdvice,exerciseBlueprints,exerciseBroadcastPlans,organizationalUnits,exerciseJobs,users} from '@cyris/db';
 import {Permissions,generateId} from '@cyris/shared';
 import {ExerciseAdviceDraftSchema,ExerciseSignalSchema,ExerciseAdviceReviewSchema,ExerciseAdviceHandoffSchema,ExerciseAdviceHandoffInputSchema,type ExerciseAdviceHandoffInput,type ExerciseAdviceResult,type ExerciseAdviceDecision,type ExerciseAdviceReview,type StoredExerciseAdvice,type ExerciseSignal} from '@cyris/contracts';
 import type {AuthenticatedUser} from '../auth/session.service.js';
@@ -13,6 +13,7 @@ export function applyAdviceReview(current:readonly ExerciseAdviceReview[],action
  if(input.actionIndex<0||input.actionIndex>=actionCount)throw new BadRequestException('Unknown action');
  return [...current.filter(r=>r.actionIndex!==input.actionIndex),ExerciseAdviceReviewSchema.parse({actionIndex:input.actionIndex,decision:input.decision,note:input.note,reviewedAt:now,reviewedBy:actorId})].sort((a,b)=>a.actionIndex-b.actionIndex);
 }
+export type ExerciseJobFence={id:string;claimToken:string};
 @Injectable()
 export class ExerciseAdviceStore{
  constructor(private readonly db:DatabaseService,private readonly auth:AuthorizationService,private readonly audit:AuditService){}
@@ -25,7 +26,7 @@ export class ExerciseAdviceStore{
   return (await this.db.client.select().from(exerciseAdvice).where(eq(exerciseAdvice.eventId,eventId)).orderBy(desc(exerciseAdvice.generatedAt),desc(exerciseAdvice.runId)).limit(20)).map(row=>this.map(row));
  }
  /** Called only after server-side validated inference; no client-supplied draft endpoint. */
- async persist(actor:AuthenticatedUser,result:ExerciseAdviceResult,observedAt:string,signals:ExerciseSignal[]):Promise<void>{
+ async persist(actor:AuthenticatedUser,result:ExerciseAdviceResult,observedAt:string,signals:ExerciseSignal[],fence?:ExerciseJobFence):Promise<void>{
   const {eventId,runId,model,durationMs,generatedAt,blueprintRevision,mode,summary,actions,reviewNotes}=result;
   await this.authorize(eventId,actor);
   const draft=ExerciseAdviceDraftSchema.parse({summary,actions,reviewNotes});
@@ -34,6 +35,13 @@ export class ExerciseAdviceStore{
    if(!event)throw new NotFoundException('Exercise not found');
    if(['CLOSED','ARCHIVED'].includes(event.status))throw new ConflictException('Exercise is read-only');
    if(blueprintRevision!==null){const [latest]=await tx.select({revision:exerciseBlueprints.revision}).from(exerciseBlueprints).where(eq(exerciseBlueprints.eventId,eventId)).orderBy(desc(exerciseBlueprints.revision)).limit(1);if(latest?.revision!==blueprintRevision)throw new ConflictException('Blueprint changed during inference');}
+   if(fence){
+    const [account]=await tx.select({status:users.status}).from(users).where(eq(users.id,actor.id)).limit(1);
+    if(account?.status!=='ACTIVE')throw new ConflictException('Job owner unavailable');
+    await this.authorize(eventId,actor);
+    const [job]=await tx.update(exerciseJobs).set({status:'SUCCEEDED',resultRunId:runId,input:null,claimToken:null,leaseUntil:null,updatedAt:new Date(),errorCode:null}).where(and(eq(exerciseJobs.id,fence.id),eq(exerciseJobs.eventId,eventId),eq(exerciseJobs.createdBy,actor.id),eq(exerciseJobs.status,'RUNNING'),eq(exerciseJobs.claimToken,fence.claimToken),gt(exerciseJobs.leaseUntil,new Date()))).returning({id:exerciseJobs.id});
+    if(!job)throw new ConflictException('Job claim expired');
+   }
    await tx.insert(exerciseAdvice).values({eventId,runId,model,durationMs,generatedAt:new Date(generatedAt),observedAt:new Date(observedAt),blueprintRevision,mode,draft,signals:ExerciseSignalSchema.array().parse(signals),createdBy:actor.id});
    await this.audit.record({txClient:tx,eventId,actorUserId:actor.id,action:'exercise.advice.created',category:'scenario',resourceType:'exercise_advice',resourceId:runId,metadata:{mode,blueprintRevision,actionCount:actions.length}});
   });

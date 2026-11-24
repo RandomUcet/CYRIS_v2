@@ -56,3 +56,9 @@ export const ExerciseAdviceHandoffInputSchema=z.object({actionIndex:z.number().i
 export type ExerciseAdviceHandoffInput=z.infer<typeof ExerciseAdviceHandoffInputSchema>;
 export const ExerciseAdviceHandoffSchema=z.object({actionIndex:z.number().int().min(0).max(11),planId:z.string().uuid(),unitId:z.string().uuid(),createdAt:z.string().datetime(),createdBy:z.string().uuid()}).strict();
 export type ExerciseAdviceHandoff=z.infer<typeof ExerciseAdviceHandoffSchema>;
+
+export const ExerciseJobStatusSchema=z.enum(['QUEUED','RUNNING','SUCCEEDED','FAILED','CANCELLED','INTERRUPTED']);
+export type ExerciseJobStatus=z.infer<typeof ExerciseJobStatusSchema>;
+export type ExerciseJob={id:string;eventId:string;mode:ExerciseAdviceInput['mode'];status:ExerciseJobStatus;blueprintRevision:number|null;createdAt:string;updatedAt:string;resultRunId:string|null;errorCode:string|null;attempts:number;createdBy:string|null};
+export const ExerciseJobSubmitSchema=z.object({requestId:z.string().uuid(),input:ExerciseAdviceInputSchema}).strict();
+export type ExerciseJobSubmit=z.infer<typeof ExerciseJobSubmitSchema>;

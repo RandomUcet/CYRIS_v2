@@ -1,3 +1,4 @@
+import type {ExerciseJob,ExerciseJobSubmit} from '@cyris/contracts';
 import type {LegalSourceInput,LegalSource,LegalSearchResult,LegalResearchInput,LegalResearchResult} from '@cyris/contracts';
 import type {StoredExerciseAdvice,ExerciseAdviceDecision,ExerciseAdviceHandoffInput} from '@cyris/contracts';
 import type {ExerciseBlueprintInput,ExerciseBlueprint,ExerciseBlueprintOverview} from '@cyris/contracts';
@@ -1619,6 +1620,9 @@ export class CyrisApiClient {
   // ============================================================================
 
   handoffExerciseAdvice(eventId:string,runId:string,input:ExerciseAdviceHandoffInput){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/handoff',input);}
+  listExerciseJobs(eventId:string,signal?:AbortSignal){return this.fetchJson<ExerciseJob[]>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/jobs',signal);}
+  submitExerciseJob(eventId:string,input:ExerciseJobSubmit){return this.postJson<ExerciseJob>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/jobs',input);}
+  cancelExerciseJob(eventId:string,jobId:string){return this.postJson<ExerciseJob>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/jobs/'+encodeURIComponent(jobId)+'/cancel',{});}
   getExerciseAdviceHistory(eventId:string,signal?:AbortSignal){return this.fetchJson<StoredExerciseAdvice[]>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history',signal);}
   reviewExerciseAdvice(eventId:string,runId:string,input:ExerciseAdviceDecision){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/review',input);}
   getExerciseBlueprint(eventId:string,signal?:AbortSignal){return this.fetchJson<ExerciseBlueprintOverview>('/events/'+encodeURIComponent(eventId)+'/command/excon/blueprint',signal);}
