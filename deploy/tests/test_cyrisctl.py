@@ -245,3 +245,22 @@ class WatchdogPolicy(unittest.TestCase):
         self.assertEqual(ctl.watchdog_states(json.dumps([row]))["api"], ("running","healthy"))
         with self.assertRaises(ValueError):
             ctl.watchdog_states(json.dumps(row)+"\\n"+json.dumps(row))
+
+class ComposeRefreshPolicy(unittest.TestCase):
+    def test_only_application_changes_allowed(self):
+        import copy
+        old = {"name":"cyris-prod","networks":{"internal":{}},"services":{s:{"image":"old"} for s in (*ctl.APP_SERVICES,*ctl.WATCHDOG_DEPENDENCIES)}}
+        new = copy.deepcopy(old)
+        new["services"]["worker"]["healthcheck"] = {"test":["CMD","node"]}
+        ctl.validate_compose_refresh(old,new)
+        new["services"]["postgres"]["image"] = "other"
+        with self.assertRaisesRegex(ValueError,"postgres"):
+            ctl.validate_compose_refresh(old,new)
+        new = copy.deepcopy(old)
+        new["networks"]["internal"]["driver"] = "other"
+        with self.assertRaisesRegex(ValueError,"networks"):
+            ctl.validate_compose_refresh(old,new)
+        new = copy.deepcopy(old)
+        del new["services"]["worker"]
+        with self.assertRaisesRegex(ValueError,"topology"):
+            ctl.validate_compose_refresh(old,new)

@@ -1171,15 +1171,32 @@ def cmd_versions(args):
     print("Latest published release:", github_release()["tag_name"])
 
 
+def validate_compose_refresh(previous, candidate):
+    """App-only update cannot silently replace stateful services or networking."""
+    for key in ("name", "networks", "volumes", "secrets", "configs"):
+        if previous.get(key) != candidate.get(key):
+            raise ValueError(f"Compose {key} changed; manual infrastructure review required")
+    old, new = previous.get("services", {}), candidate.get("services", {})
+    if set(old) != set(new) or not set(APP_SERVICES).issubset(old):
+        raise ValueError("Compose service topology changed; manual review required")
+    for name in old:
+        if name not in APP_SERVICES and old[name] != new[name]:
+            raise ValueError(f"Compose infrastructure service {name} changed; manual review required")
+
+
 def cmd_update(args):
     release = github_release(args.version)
     version = release["tag_name"][1:]
     manifest = release_asset(release, "release-manifest.json")
     settings = release_settings(json.loads(manifest), version)
+    refresh = getattr(args, 'refresh_compose', False)
+    compose_path = Path(CYRIS_COMPOSE_FILE)
+    old_compose = compose_path.read_bytes() if refresh else None
+    new_compose = release_asset(release, 'compose.prod.yml') if refresh else None
     current = get_installed_version()
     if re.fullmatch(VERSION_PATTERN, current) and tuple(map(int, current.split("."))) > tuple(map(int, version.split("."))):
         raise ValueError("Use a matching backup to recover an older release")
-    if current == version and not args.force and all(load_env().get(k) == v for k, v in settings.items()):
+    if current == version and not args.force and (not refresh or old_compose == new_compose) and all(load_env().get(k) == v for k, v in settings.items()):
         print(f"Installed release {version} is current.")
         return
     env_path = Path(CYRIS_ENV_FILE)
@@ -1189,7 +1206,14 @@ def cmd_update(args):
     with tempfile.TemporaryDirectory(dir=env_path.parent) as directory:
         staged = Path(directory, "release.env")
         atomic_file(staged, candidate, 0o600)
-        compose = ["docker", "compose", "--env-file", str(staged), "-f", CYRIS_COMPOSE_FILE]
+        compose = ["docker", "compose", "--project-directory", str(compose_path.parent), "--env-file", str(staged), "-f", CYRIS_COMPOSE_FILE]
+        if refresh:
+            staged_compose = Path(directory, "docker-compose.yml")
+            atomic_file(staged_compose, new_compose, 0o600)
+            old_config = json.loads(run_command(compose + ["config", "--format", "json"]).stdout)
+            compose[-1] = str(staged_compose)
+            new_config = json.loads(run_command(compose + ["config", "--format", "json"]).stdout)
+            validate_compose_refresh(old_config, new_config)
         run_command(compose + ["config", "--quiet"])
         print(f"Downloading {release['tag_name']} before stopping services.", flush=True)
         run_command(compose + ["pull", *APP_SERVICES], capture=False)
@@ -1214,6 +1238,8 @@ def cmd_update(args):
             if pending:
                 migrated = True
                 run_command(compose + ["run", "--rm", "--no-deps", "-T", "api", "node", "dist/scripts/db-migrate.js"], capture=False)
+            if refresh:
+                atomic_file(compose_path, new_compose, 0o644)
             atomic_file(env_path, candidate, 0o600)
             docker_compose_cmd("up", "-d", "--no-deps", "--wait", "--wait-timeout", "240", *APP_SERVICES, capture=False)
             docker_compose_cmd("exec", "-T", "api", "curl", "-fsS", "http://127.0.0.1:4000/health/ready")
@@ -1223,6 +1249,8 @@ def cmd_update(args):
                 print(f"Migration attempted. Recover with: sudo cyrisctl restore {recovery} && sudo cyrisctl start", file=sys.stderr)
                 docker_compose_cmd("stop", *APP_SERVICES, capture=False)
             else:
+                if refresh:
+                    atomic_file(compose_path, old_compose, 0o644)
                 atomic_file(env_path, original, 0o600)
                 docker_compose_cmd("up", "-d", "--no-deps", "--wait", *APP_SERVICES, capture=False)
             raise
@@ -1475,6 +1503,7 @@ def main():
     p_update = subparsers.add_parser("update", help="Update CYRIS to target or latest release")
     p_update.add_argument("--version", help="Specific version tag to install")
     p_update.add_argument("--force", action="store_true", help="Force update even if version matches")
+    p_update.add_argument("--refresh-compose", action="store_true", help="Install verified release Compose app configuration; reject infrastructure changes")
     p_update.set_defaults(func=cmd_update)
 
     p_versions = subparsers.add_parser("versions", help="Display installed and available CYRIS releases")
