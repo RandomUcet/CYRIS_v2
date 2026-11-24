@@ -1,8 +1,8 @@
 import {Injectable,ConflictException,NotFoundException,BadRequestException} from '@nestjs/common';
 import {and,eq,desc,isNull,gt} from 'drizzle-orm';
-import {events,exerciseAdvice,exerciseBlueprints,exerciseBroadcastPlans,organizationalUnits,exerciseJobs,users} from '@cyris/db';
+import {events,exerciseAdvice,exerciseBlueprints,exerciseBroadcastPlans,organizationalUnits,exerciseJobs,users,scenarioPhases} from '@cyris/db';
 import {Permissions,generateId} from '@cyris/shared';
-import {ExerciseAdviceDraftSchema,ExerciseSignalSchema,ExerciseAdviceReviewSchema,ExerciseAdviceHandoffSchema,ExerciseAdviceHandoffInputSchema,ExerciseObserverSnapshotSchema,type ExerciseObserverSnapshot,type ExerciseAdviceHandoffInput,type ExerciseAdviceResult,type ExerciseAdviceDecision,type ExerciseAdviceReview,type StoredExerciseAdvice,type ExerciseSignal} from '@cyris/contracts';
+import {ExerciseAdviceDraftSchema,ExerciseSignalSchema,ExerciseAdviceReviewSchema,ExerciseAdviceHandoffSchema,ExerciseAdviceHandoffInputSchema,ExerciseObserverSnapshotSchema,ExercisePhaseSetupInputSchema,ExercisePhaseSetupReceiptSchema,type ExercisePhaseSetupInput,type ExerciseObserverSnapshot,type ExerciseAdviceHandoffInput,type ExerciseAdviceResult,type ExerciseAdviceDecision,type ExerciseAdviceReview,type StoredExerciseAdvice,type ExerciseSignal} from '@cyris/contracts';
 import type {AuthenticatedUser} from '../auth/session.service.js';
 import {DatabaseService} from '../database/database.service.js';
 import {AuthorizationService} from '../authorization/authorization.service.js';
@@ -19,7 +19,7 @@ export class ExerciseAdviceStore{
  constructor(private readonly db:DatabaseService,private readonly auth:AuthorizationService,private readonly audit:AuditService){}
  private authorize(eventId:string,actor:AuthenticatedUser){return this.auth.assertAuthorized({user:actor,permission:Permissions.SCENARIO_MANAGE,context:{eventId}});}
  private map(row:typeof exerciseAdvice.$inferSelect):StoredExerciseAdvice{
-  return {...ExerciseAdviceDraftSchema.parse(row.draft),eventId:row.eventId,runId:row.runId,model:row.model,durationMs:row.durationMs,generatedAt:row.generatedAt.toISOString(),observedAt:row.observedAt.toISOString(),blueprintRevision:row.blueprintRevision,mode:row.mode,status:'DRAFT',revision:row.revision,signals:ExerciseSignalSchema.array().parse(row.signals),observations:ExerciseObserverSnapshotSchema.array().max(24).parse(row.observations),reviews:ExerciseAdviceReviewSchema.array().parse(row.reviews),handoffs:ExerciseAdviceHandoffSchema.array().parse(row.handoffs),createdBy:row.createdBy};
+  return {...ExerciseAdviceDraftSchema.parse(row.draft),eventId:row.eventId,runId:row.runId,model:row.model,durationMs:row.durationMs,generatedAt:row.generatedAt.toISOString(),observedAt:row.observedAt.toISOString(),blueprintRevision:row.blueprintRevision,mode:row.mode,status:'DRAFT',revision:row.revision,signals:ExerciseSignalSchema.array().parse(row.signals),observations:ExerciseObserverSnapshotSchema.array().max(24).parse(row.observations),reviews:ExerciseAdviceReviewSchema.array().parse(row.reviews),handoffs:ExerciseAdviceHandoffSchema.array().parse(row.handoffs),setupReceipts:ExercisePhaseSetupReceiptSchema.array().parse(row.setupReceipts),createdBy:row.createdBy};
  }
  async list(eventId:string,actor:AuthenticatedUser):Promise<StoredExerciseAdvice[]>{
   await this.authorize(eventId,actor);
@@ -60,7 +60,7 @@ export class ExerciseAdviceStore{
     const [latest]=await tx.select({revision:exerciseBlueprints.revision}).from(exerciseBlueprints).where(eq(exerciseBlueprints.eventId,eventId)).orderBy(desc(exerciseBlueprints.revision)).limit(1);
     if(latest?.revision!==row.blueprintRevision)throw new ConflictException('Advice uses an outdated blueprint; generate a new draft');
    }
-   if(row.handoffs.some(h=>h.actionIndex===input.actionIndex))throw new ConflictException('This action has been handed off; manage the broadcast plan separately');
+   if(row.handoffs.some(h=>h.actionIndex===input.actionIndex)||row.setupReceipts.some(h=>h.actionIndex===input.actionIndex))throw new ConflictException('This action has been handed off; manage the broadcast plan separately');
    const reviews=applyAdviceReview(row.reviews,row.draft.actions.length,input,row.revision,actor.id,new Date().toISOString());
    const [updated]=await tx.update(exerciseAdvice).set({reviews,revision:row.revision+1}).where(and(eq(exerciseAdvice.eventId,eventId),eq(exerciseAdvice.runId,runId),eq(exerciseAdvice.revision,row.revision))).returning();
    if(!updated)throw new ConflictException('Advice changed');
@@ -98,6 +98,44 @@ export class ExerciseAdviceStore{
    if(!updated)throw new ConflictException('Advice changed');
    await this.audit.record({txClient:tx,eventId,actorUserId:actor.id,action:'exercise.broadcast.plan.created',category:'scenario',resourceType:'exercise_broadcast_plan',resourceId:planId,metadata:{kind:'INFO',audience:'UNIT',unitId:unit.id,scheduledAt:null}});
    await this.audit.record({txClient:tx,eventId,actorUserId:actor.id,action:'exercise.advice.handoff',category:'scenario',resourceType:'exercise_advice',resourceId:runId,metadata:{actionIndex:request.actionIndex,planId,unitId:unit.id,revision:updated.revision}});
+   return this.map(updated);
+  });
+ }
+
+ /** Apply only neutral phase titles, after explicit review, to a preparation-stage exercise. */
+ async setupPhases(eventId:string,runId:string,actor:AuthenticatedUser,input:ExercisePhaseSetupInput):Promise<StoredExerciseAdvice>{
+  await this.authorize(eventId,actor);
+  const parsed=ExercisePhaseSetupInputSchema.safeParse(input);
+  if(!parsed.success)throw new BadRequestException('Invalid phase setup');
+  const request=parsed.data;
+  return this.db.client.transaction(async tx=>{
+   const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).for('update').limit(1);
+   if(!event)throw new NotFoundException('Exercise not found');
+   if(!['DRAFT','PREPARATION'].includes(event.status))throw new ConflictException('Phase setup requires preparation stage');
+   await this.authorize(eventId,actor);
+   const [row]=await tx.select().from(exerciseAdvice).where(and(eq(exerciseAdvice.eventId,eventId),eq(exerciseAdvice.runId,runId))).for('update').limit(1);
+   if(!row)throw new NotFoundException('Advice not found');
+   if(row.mode!=='ARCHITECT'||row.blueprintRevision===null)throw new ConflictException('Saved architect blueprint required');
+   if(row.revision!==request.expectedRevision)throw new ConflictException('Advice changed; reload');
+   const action=row.draft.actions[request.actionIndex];
+   if(action?.module!=='SCENARIO'||!action.phasePlan||row.reviews.find(r=>r.actionIndex===request.actionIndex)?.decision!=='ACCEPTED')throw new ConflictException('Accept a structured phase plan first');
+   if(request.titles.length!==action.phasePlan.length)throw new BadRequestException('Review every proposed phase title');
+   if(row.setupReceipts.some(r=>r.actionIndex===request.actionIndex))throw new ConflictException('Phase setup already applied');
+   const [latest]=await tx.select({revision:exerciseBlueprints.revision}).from(exerciseBlueprints).where(eq(exerciseBlueprints.eventId,eventId)).orderBy(desc(exerciseBlueprints.revision)).limit(1);
+   if(latest?.revision!==row.blueprintRevision)throw new ConflictException('Blueprint changed');
+   const existing=await tx.select({title:scenarioPhases.title,sequence:scenarioPhases.sequence,code:scenarioPhases.code}).from(scenarioPhases).where(eq(scenarioPhases.eventId,eventId));
+   const names=new Set(existing.map(p=>p.title.trim().toLowerCase()));
+   if(request.titles.some(t=>names.has(t.toLowerCase())))throw new ConflictException('A phase with this title already exists');
+   const sequence=Math.max(0,...existing.map(p=>p.sequence));
+   if(sequence+request.titles.length>2147483647)throw new ConflictException('Phase sequence exhausted');
+   const phases=request.titles.map((title,i)=>({id:generateId(),eventId,title,code:'AI-'+runId+'-'+request.actionIndex+'-'+(i+1),sequence:sequence+i+1,status:'DRAFT',createdByUserId:actor.id}));
+   if(phases.some(p=>existing.some(e=>e.code===p.code)))throw new ConflictException('Phase code already exists');
+   await tx.insert(scenarioPhases).values(phases);
+   for(const phase of phases)await this.audit.record({txClient:tx,eventId,actorUserId:actor.id,action:'scenario.phase.created',category:'scenario',resourceType:'scenario_phase',resourceId:phase.id,metadata:{code:phase.code,status:'DRAFT',source:'AI_SETUP',runId}});
+   const receipt=ExercisePhaseSetupReceiptSchema.parse({actionIndex:request.actionIndex,phaseIds:phases.map(p=>p.id),createdAt:new Date().toISOString(),createdBy:actor.id});
+   const [updated]=await tx.update(exerciseAdvice).set({setupReceipts:[...row.setupReceipts,receipt],revision:row.revision+1}).where(and(eq(exerciseAdvice.eventId,eventId),eq(exerciseAdvice.runId,runId),eq(exerciseAdvice.revision,row.revision))).returning();
+   if(!updated)throw new ConflictException('Advice changed');
+   await this.audit.record({txClient:tx,eventId,actorUserId:actor.id,action:'exercise.advice.phase_setup',category:'scenario',resourceType:'exercise_advice',resourceId:runId,metadata:{actionIndex:request.actionIndex,phaseIds:receipt.phaseIds,revision:updated.revision}});
    return this.map(updated);
   });
  }

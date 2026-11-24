@@ -13,3 +13,5 @@ test('invalid, unknown-source and unexpected command outputs are rejected',()=>{
  assert.throws(()=>validateExerciseDraft(JSON.stringify({...valid,execute:true}),[]));
  assert.throws(()=>validateExerciseDraft('not JSON',[]));
 });
+
+test('structured phase plans are restricted to one architect scenario action',()=>{const action={module:'SCENARIO',title:'Stages',proposal:'Draft timeline',reason:'Planning',signalIds:[],phasePlan:[{title:'Initial assessment',purpose:'Review inputs'}]};const draft={summary:'Plan',actions:[action],reviewNotes:[]};assert.deepEqual(validateExerciseDraft(JSON.stringify(draft),[],true),draft);assert.throws(()=>validateExerciseDraft(JSON.stringify(draft),[]));assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[{...action,module:'LEGAL'}]}),[],true));assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[action,action]}),[],true));});

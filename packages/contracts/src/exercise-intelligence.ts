@@ -19,9 +19,10 @@ export const ExerciseIntelligenceOverviewSchema=z.object({
  admission:z.object({limit:z.number().int().positive(),active:z.number().int().nonnegative(),regular:z.number().int().nonnegative(),waiting:z.number().int().nonnegative(),waitingSupport:z.number().int().nonnegative(),maxPending:z.number().int().positive(),maxWaitMs:z.number().int().nonnegative()}).nullable(),
 });
 export type ExerciseIntelligenceOverview=z.infer<typeof ExerciseIntelligenceOverviewSchema>;
+export const ExercisePhasePlanSchema=z.array(z.object({title:z.string().trim().min(3).max(120),purpose:z.string().trim().min(3).max(400)}).strict()).min(1).max(8);
 export const ExerciseAdviceDraftSchema=z.object({
  summary:z.string().min(1).max(2500),
- actions:z.array(z.object({module:z.enum(['EXCON','SCENARIO','REGISTRY','INVESTIGATION','JSOC','LAB','FORENSICS','MEDICAL','LEGAL','COMMAND','EVALUATION','SUPPORT']),title:z.string().min(1).max(160),proposal:z.string().min(1).max(1400),reason:z.string().min(1).max(700),signalIds:z.array(z.string()).max(8)}).strict()).min(1).max(12),
+ actions:z.array(z.object({module:z.enum(['EXCON','SCENARIO','REGISTRY','INVESTIGATION','JSOC','LAB','FORENSICS','MEDICAL','LEGAL','COMMAND','EVALUATION','SUPPORT']),title:z.string().min(1).max(160),proposal:z.string().min(1).max(1400),reason:z.string().min(1).max(700),signalIds:z.array(z.string()).max(8),phasePlan:ExercisePhasePlanSchema.optional()}).strict()).min(1).max(12),
  reviewNotes:z.array(z.string().max(700)).max(8),
 }).strict();
 export type ExerciseAdviceDraft=z.infer<typeof ExerciseAdviceDraftSchema>;
@@ -49,7 +50,7 @@ export const ExerciseAdviceDecisionSchema=z.object({actionIndex:z.number().int()
 export type ExerciseAdviceDecision=z.infer<typeof ExerciseAdviceDecisionSchema>;
 export const ExerciseAdviceReviewSchema=z.object({actionIndex:z.number().int().min(0).max(11),decision:z.enum(['ACCEPTED','REJECTED','PENDING']),note:z.string().max(1000),reviewedAt:z.string().datetime(),reviewedBy:z.string().uuid()}).strict();
 export type ExerciseAdviceReview=z.infer<typeof ExerciseAdviceReviewSchema>;
-export type StoredExerciseAdvice=ExerciseAdviceResult&{revision:number;observedAt:string;signals:ExerciseSignal[];observations:ExerciseObserverSnapshot[];reviews:ExerciseAdviceReview[];handoffs:ExerciseAdviceHandoff[];createdBy:string|null};
+export type StoredExerciseAdvice=ExerciseAdviceResult&{revision:number;observedAt:string;signals:ExerciseSignal[];observations:ExerciseObserverSnapshot[];reviews:ExerciseAdviceReview[];handoffs:ExerciseAdviceHandoff[];setupReceipts:ExercisePhaseSetupReceipt[];createdBy:string|null};
 
 /** Explicit human-written, team-scoped handoff. No model text is copied automatically. */
 export const ExerciseAdviceHandoffInputSchema=z.object({actionIndex:z.number().int().min(0).max(11),expectedRevision:z.number().int().positive(),unitId:z.string().uuid(),title:z.string().trim().min(3).max(120),message:z.string().trim().min(3).max(900),confirmedSafe:z.literal(true)}).strict();
@@ -73,3 +74,8 @@ export function observerChange(previous:ExerciseObserverSnapshot,current:Exercis
  if(previous.eventId!==current.eventId||previous.reviewAfterHours!==current.reviewAfterHours||!Number.isFinite(elapsed)||elapsed<=0||elapsed>20*60*1000)return null;
  return {pending:current.pending-previous.pending,unchanged:current.unchanged-previous.unchanged,blocked:current.blocked-previous.blocked};
 }
+
+export const ExercisePhaseSetupInputSchema=z.object({actionIndex:z.number().int().min(0).max(11),expectedRevision:z.number().int().positive(),titles:z.array(z.string().trim().min(3).max(120)).min(1).max(8),confirmedSafe:z.literal(true)}).strict().refine(p=>new Set(p.titles.map(t=>t.toLowerCase())).size===p.titles.length,'Duplicate phase titles');
+export type ExercisePhaseSetupInput=z.infer<typeof ExercisePhaseSetupInputSchema>;
+export const ExercisePhaseSetupReceiptSchema=z.object({actionIndex:z.number().int().min(0).max(11),phaseIds:z.array(z.string().uuid()).min(1).max(8),createdAt:z.string().datetime(),createdBy:z.string().uuid()}).strict();
+export type ExercisePhaseSetupReceipt=z.infer<typeof ExercisePhaseSetupReceiptSchema>;
