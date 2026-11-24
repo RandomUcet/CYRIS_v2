@@ -19,14 +19,17 @@ export class ExerciseIntelligenceService{
   const snapshot=await this.dashboard.overview(eventId,actor);
   const since=new Date(Date.now()-86400000);
   const where=and(eq(aiRuns.eventId,eventId),gte(aiRuns.startedAt,since),eq(integrations.systemProfile,'DGX_SPARK'));
+  // Historical attempts without these fields remain unknown, never zero.
+  const admissionTime=sql<number|null>`case when jsonb_typeof(${aiRuns.usageMetadata}->'admissionMs')='number' then (${aiRuns.usageMetadata}->>'admissionMs')::float8 end`;
+  const providerTime=sql<number|null>`case when jsonb_typeof(${aiRuns.usageMetadata}->'providerMs')='number' then (${aiRuns.usageMetadata}->>'providerMs')::float8 end`;
   const [provider,totals,operations,admission,observer]=await Promise.all([
    this.gateway.getStatus('DGX_SPARK'),
-   this.db.client.select({total:count(),successful:sql<number>`count(*) filter (where ${aiRuns.status}='SUCCESS')::int`,averageMs:sql<number|null>`avg(${aiRuns.durationMs})::float8`}).from(aiRuns).innerJoin(integrations,eq(aiRuns.providerId,integrations.id)).where(where),
-   this.db.client.select({operation:aiRuns.operationType,count:count()}).from(aiRuns).innerJoin(integrations,eq(aiRuns.providerId,integrations.id)).where(where).groupBy(aiRuns.operationType),
+   this.db.client.select({total:count(),successful:sql<number>`count(*) filter (where ${aiRuns.status}='SUCCESS')::int`,averageMs:sql<number|null>`avg(${aiRuns.durationMs})::float8`,admissionAverageMs:sql<number|null>`avg(${admissionTime})::float8`,providerAverageMs:sql<number|null>`avg(${providerTime})::float8`,timedSamples:sql<number>`count(${admissionTime})::int`,capacityRejected:sql<number>`count(*) filter (where ${aiRuns.errorCategory}='CAPACITY')::int`,timeouts:sql<number>`count(*) filter (where ${aiRuns.errorCategory}='TIMEOUT')::int`}).from(aiRuns).innerJoin(integrations,eq(aiRuns.providerId,integrations.id)).where(where),
+   this.db.client.select({operation:aiRuns.operationType,count:count(),averageMs:sql<number|null>`avg(${aiRuns.durationMs})::float8`,p95Ms:sql<number|null>`percentile_cont(0.95) within group (order by ${aiRuns.durationMs})::float8`,capacityRejected:sql<number>`count(*) filter (where ${aiRuns.errorCategory}='CAPACITY')::int`}).from(aiRuns).innerJoin(integrations,eq(aiRuns.providerId,integrations.id)).where(where).groupBy(aiRuns.operationType),
    this.gateway.admissionSnapshot(),this.observer.read(snapshot),
   ]);
   const row=totals[0];
-  return {eventId,asOf:snapshot.asOf,event:snapshot.event,defcon:snapshot.defcon,phases:snapshot.phases,activePhase:snapshot.activePhase,participation:{activeUsers:snapshot.participation.activeUsers,activeTeams:snapshot.participation.activeTeams},provider,usage:{total:row?.total??0,successful:row?.successful??0,failed:(row?.total??0)-(row?.successful??0),averageMs:row?.averageMs??null,byOperation:operations.sort((a,b)=>b.count-a.count||a.operation.localeCompare(b.operation))},signals:exerciseSignals(snapshot).filter(s=>s.count>0),observer,admission};
+  return {eventId,asOf:snapshot.asOf,event:snapshot.event,defcon:snapshot.defcon,phases:snapshot.phases,activePhase:snapshot.activePhase,participation:{activeUsers:snapshot.participation.activeUsers,activeTeams:snapshot.participation.activeTeams},provider,usage:{total:row?.total??0,successful:row?.successful??0,failed:(row?.total??0)-(row?.successful??0),averageMs:row?.averageMs??null,admissionAverageMs:row?.admissionAverageMs??null,providerAverageMs:row?.providerAverageMs??null,timedSamples:row?.timedSamples??0,capacityRejected:row?.capacityRejected??0,timeouts:row?.timeouts??0,byOperation:operations.sort((a,b)=>b.count-a.count||a.operation.localeCompare(b.operation))},signals:exerciseSignals(snapshot).filter(s=>s.count>0),observer,admission};
  }
  async advise(eventId:string,actor:AuthenticatedUser,input:ExerciseAdviceInput):Promise<ExerciseAdviceResult>{
   const snapshot=await this.dashboard.overview(eventId,actor);
