@@ -51,6 +51,7 @@ function LegalRequestInbox({eventId}:{eventId:string}) {
           <p>{tr('Důkazy, posudky, zprávy a dokumenty napříč soudními spisy.',
           'Evidence, expert opinions, reports and documents across judicial cases.')}</p>
         </div>
+        <Link className="btn btn-secondary" href={'/events/'+eventId+'/legal-library'}>Legal Intelligence</Link>
         <button type="button" className="btn btn-secondary" disabled={loading}
           onClick={()=>setRefresh(x=>x+1)}><RefreshCw size={15}/> {tr('Obnovit','Refresh')}</button>
       </header>

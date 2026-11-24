@@ -187,6 +187,7 @@ function CourtDocketWorkspace({eventId}:{eventId:string}) {
             <button className="btn btn-secondary" onClick={fetchCourtCases} title="Refresh docket">
               <RefreshCw size={14} />
             </button>
+            {!viewAs&&(hasPermission('court.read',eventId)||hasPermission('court.request.read',eventId)||hasPermission('scenario.manage',eventId))&&<Link className="btn btn-secondary" href={'/events/'+eventId+'/legal-library'}><BookOpen size={14}/> Legal Intelligence</Link>}
             {hasPermission('court.request.read',eventId)&&<Link className="btn btn-secondary" href={'/events/'+eventId+'/legal-requests'}><FileText size={14}/> Žádosti o podklady</Link>}
             {canCreate && (
               <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
