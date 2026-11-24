@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import type { ExconDashboardResponse } from '@cyris/contracts';
 import { AppShell } from '@/components/layout/AppShell';
+import { exconAttention, snapshotFreshness } from '@/lib/excon-workspace';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { apiClient } from '@/lib/api-client';
@@ -51,6 +52,9 @@ function DashboardPage({eventId}:{eventId:string}) {
   const [refreshing,setRefreshing]=useState(false);
   const [error,setError]=useState('');
   const [autoRefresh,setAutoRefresh]=useState(true);
+  const [now,setNow]=useState(()=>Date.now());
+  const controllerRef=useRef<AbortController|null>(null);
+  useEffect(()=>{const timer=window.setInterval(()=>setNow(Date.now()),10000);return()=>window.clearInterval(timer);},[]);
   const generation=useRef(0);
   const inFlight=useRef<number|null>(null);
   const format=(value:string|null|undefined)=>value
@@ -61,24 +65,26 @@ function DashboardPage({eventId}:{eventId:string}) {
     if(authLoading||!allowed||inFlight.current!==null)return;
     const request=++generation.current;
     inFlight.current=request;
+    const controller=new AbortController();controllerRef.current=controller;
     setRefreshing(true);
     try {
-      const result=await apiClient.getExconDashboard(eventId);
+      const result=await apiClient.getExconDashboard(eventId,controller.signal);
       if(generation.current!==request)return;
-      if(result.ok&&result.data){setSnapshot(result.data);setError('');}
+      if(result.ok&&result.data?.event.id===eventId){setSnapshot(result.data);setNow(Date.now());setError('');}
       else setError(result.error||'Unable to load EXCON overview');
     }catch(err){
-      if(generation.current===request)setError(err instanceof Error?err.message:'Connection unavailable');
+      if(!controller.signal.aborted&&generation.current===request)setError(err instanceof Error?err.message:tr('Připojení není dostupné','Connection unavailable'));
     }finally{
+      if(controllerRef.current===controller)controllerRef.current=null;
       if(inFlight.current===request)inFlight.current=null;
       if(generation.current===request){setLoading(false);setRefreshing(false);}
     }
-  },[eventId,authLoading,allowed]);
+  },[eventId,authLoading,allowed,cs]);
 
   useEffect(()=>{
     setSnapshot(null);setError('');setLoading(true);setRefreshing(false);
     if(!authLoading&&allowed)void refresh();
-    return ()=>{generation.current++;inFlight.current=null;};
+    return ()=>{generation.current++;inFlight.current=null;controllerRef.current?.abort();controllerRef.current=null;};
   },[refresh,authLoading,allowed]);
   useEffect(()=>{
     if(authLoading||!allowed||!autoRefresh)return;
@@ -101,12 +107,10 @@ function DashboardPage({eventId}:{eventId:string}) {
     </AppShell>;
   }
 
-  const attention=snapshot ? [
-    {count:snapshot.injects.ready,label:tr('Vstupy připravené k vydání','Injects ready for release'),href:base+'/scenario/control'},
-    {count:snapshot.injects.blocked,label:tr('Vstupy čekající na podmínky','Injects awaiting conditions'),href:base+'/scenario/control'},
-    {count:snapshot.broadcasts.failed,label:tr('Neúspěšné plánované zprávy','Failed scheduled broadcasts'),href:base+'/broadcast'},
-    {count:snapshot.participation.urgentUnread,label:tr('Nepřečtená urgentní doručení','Unread urgent deliveries'),href:base+'/broadcast'},
-  ].filter(item=>item.count>0) : [];
+  const attention=snapshot?exconAttention(snapshot).map(item=>({
+    ...item,href:base+item.route,label:cs?item.cs:item.en,
+  })):[];
+  const freshness=snapshotFreshness(snapshot?.asOf,now,autoRefresh,Boolean(error));
 
   return <AppShell breadcrumbs={[
     {label:tr('Cvičení','Exercise'),href:base+'/overview'},
@@ -140,6 +144,7 @@ function DashboardPage({eventId}:{eventId:string}) {
         </div>
       </header>
 
+      {snapshot&&<div className="excon-freshness" data-state={freshness} role="status"><span>{freshness==='fresh'?tr('Aktuální snímek','Current snapshot'):freshness==='paused'?tr('Automatická aktualizace pozastavena','Automatic refresh paused'):tr('Zobrazený stav nemusí být aktuální','Snapshot may be stale')}</span><span>{tr('Aktivní účty označují členství, nikoli právě připojené uživatele.','Active accounts indicate membership, not currently connected users.')}</span></div>}
       {!autoRefresh&&<p role="status" className="text-sm text-amber-300">{tr('Automatická aktualizace je vypnutá. Zobrazené údaje mohou být zastaralé.','Automatic refresh is paused. Displayed data may be stale.')}</p>}
       {error&&<p role="alert" className="rounded border border-amber-800 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
         {error} {snapshot?tr('Zobrazuji poslední dostupný stav.','Showing the last available snapshot.'):''}
@@ -160,6 +165,17 @@ function DashboardPage({eventId}:{eventId:string}) {
             <p className="mt-3 break-words text-2xl font-bold tabular-nums text-white">{item.value}</p>
             <p className="mt-1 line-clamp-2 text-xs text-slate-400">{item.hint}</p>
           </article>)}
+        </section>
+
+        <section className="rounded-xl border border-slate-700 bg-slate-900 p-4 md:p-5">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-white"><AlertTriangle size={17}/>{tr('Vyžaduje pozornost','Needs attention')}</h2>
+          {attention.length?<div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {attention.map(item=><Link key={item.key} href={item.href}
+              className="flex items-center justify-between rounded-lg border border-amber-900 bg-amber-950/20 p-3 hover:bg-amber-950/50">
+              <div><p className="text-2xl font-bold tabular-nums text-amber-200">{item.count}</p><p className="mt-1 text-xs text-slate-300">{item.label}</p></div>
+              <ArrowRight size={16} className="text-amber-300"/>
+            </Link>)}
+          </div>:<p className="mt-3 text-sm text-slate-400">{tr('V těchto sledovaných oblastech nejsou žádné otevřené položky.','No outstanding items in these monitored categories.')}</p>}
         </section>
 
         <section className="rounded-xl border border-slate-700 bg-slate-900 p-4 md:p-5">
@@ -226,16 +242,7 @@ function DashboardPage({eventId}:{eventId:string}) {
           </article>
         </section>
 
-        <section className="rounded-xl border border-slate-700 bg-slate-900 p-4 md:p-5">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-white"><AlertTriangle size={17}/>{tr('Vyžaduje pozornost','Needs attention')}</h2>
-          {attention.length?<div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            {attention.map(item=><Link key={item.label} href={item.href}
-              className="flex items-center justify-between rounded-lg border border-amber-900 bg-amber-950/20 p-3 hover:bg-amber-950/50">
-              <div><p className="text-2xl font-bold tabular-nums text-amber-200">{item.count}</p><p className="mt-1 text-xs text-slate-300">{item.label}</p></div>
-              <ArrowRight size={16} className="text-amber-300"/>
-            </Link>)}
-          </div>:<p className="mt-3 text-sm text-slate-400">{tr('V těchto sledovaných oblastech nejsou žádné otevřené položky.','No outstanding items in these monitored categories.')}</p>}
-        </section>
+
 
         <section className="grid gap-4 xl:grid-cols-2">
           <article className="rounded-xl border border-slate-700 bg-slate-900 p-4 md:p-5">
@@ -293,5 +300,6 @@ function DashboardPage({eventId}:{eventId:string}) {
 
 export default function ExconPage() {
   const params=useParams<{eventId:string}>();
-  return <DashboardPage key={params.eventId} eventId={params.eventId}/>;
+  const {currentUser,viewAs}=useAuth();
+  return <DashboardPage key={JSON.stringify([params.eventId,currentUser?.user.id,viewAs?.id])} eventId={params.eventId}/>;
 }

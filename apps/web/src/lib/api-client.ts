@@ -1136,8 +1136,8 @@ export class CyrisApiClient {
     return this.postJson<CourtDecision>(`/events/${eventId}/court/${courtCaseId}/decisions`, payload);
   }
 
-  listLegalRequests(eventId: string) {
-    return this.fetchJson<CourtRequestItem[]>('/events/' + encodeURIComponent(eventId) + '/legal-requests');
+  listLegalRequests(eventId: string,signal?:AbortSignal) {
+    return this.fetchJson<CourtRequestItem[]>('/events/' + encodeURIComponent(eventId) + '/legal-requests',signal);
   }
   listCourtRequests(eventId: string, courtCaseId: string) {
     return this.fetchJson<CourtRequestItem[]>(
@@ -1611,8 +1611,8 @@ export class CyrisApiClient {
   // Notifications
   // ============================================================================
 
-  getExconDashboard(eventId:string) {
-    return this.fetchJson<ExconDashboardResponse>('/events/'+encodeURIComponent(eventId)+'/command/excon');
+  getExconDashboard(eventId:string,signal?:AbortSignal) {
+    return this.fetchJson<ExconDashboardResponse>('/events/'+encodeURIComponent(eventId)+'/command/excon',signal);
   }
 
   getExerciseBroadcastPlans(eventId:string) {

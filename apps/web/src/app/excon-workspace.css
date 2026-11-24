@@ -94,3 +94,7 @@
 
 .broadcast-optimized .broadcast-composer-form{min-width:0}
 .excon-optimized .excon-metrics{min-width:0}
+
+.excon-optimized .excon-freshness{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border:1px solid var(--border-default);border-inline-start:4px solid var(--accent-primary);border-radius:6px;background:var(--bg-panel);padding:10px 12px;font-size:12px;color:var(--text-secondary)}
+.excon-optimized .excon-freshness[data-state=stale],.excon-optimized .excon-freshness[data-state=paused]{border-inline-start-color:var(--status-warning)}
+.excon-optimized .excon-freshness>span:first-child{font-weight:650;color:var(--text-primary)}
