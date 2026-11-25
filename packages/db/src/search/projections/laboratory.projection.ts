@@ -1,7 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { eq,and,ne } from 'drizzle-orm';
 import type { SearchDocument } from '@cyris/contracts';
 import { normalizeSearchText, Permissions } from '@cyris/shared';
-import { labAnalyses, resources } from '../../schema/index.js';
+import { labAnalyses, labAnalysisEvidence, resources } from '../../schema/index.js';
 import type { CyrisDb, SearchProjectionProvider } from '../projection.interface.js';
 
 export class LabAnalysisSearchProjectionProvider implements SearchProjectionProvider {
@@ -18,13 +18,13 @@ export class LabAnalysisSearchProjectionProvider implements SearchProjectionProv
       .limit(1);
 
     if (!row) return null;
-    if (row.resource.visibility === 'RESTRICTED' || row.resource.visibility === 'SCENARIO') {
-      return null;
-    }
+    if(row.resource.visibility!=='EVENT')return null;
+    const [privateInput]=await db.select({id:resources.id}).from(labAnalysisEvidence).innerJoin(resources,eq(resources.id,labAnalysisEvidence.evidenceId)).where(and(eq(labAnalysisEvidence.analysisId,id),ne(resources.visibility,'EVENT'))).limit(1);
+    if(privateInput)return null;
 
     const assignedUserIds = row.lab.assignedToUserId ? [row.lab.assignedToUserId] : [];
     // Search is discovery, not a report distribution channel. Draft and final findings stay in authorized detail.
-    const content = row.lab.purpose??'';
+    const content = '';
     const searchable = `${row.lab.analysisNumber} ${row.lab.analysisType} ${row.lab.status} ${content}`;
 
     return {
@@ -37,10 +37,10 @@ export class LabAnalysisSearchProjectionProvider implements SearchProjectionProv
       content,
       normalizedContent: normalizeSearchText(searchable),
       identifiers: [row.lab.id, row.lab.analysisNumber],
-      tags: ['lab', 'analysis', row.lab.status.toLowerCase()],
+      tags: ['lab', 'analysis', row.lab.status.toLowerCase(),'lab-safe-v1'],
       status: row.lab.status,
       requiredPermission: Permissions.LAB_READ,
-      visibility: row.resource.visibility === 'UNIT' ? 'UNIT' : 'EVENT',
+      visibility: 'EVENT',
       unitIds: row.lab.assignedUnitId ? [row.lab.assignedUnitId] : (row.lab.requestedFromUnitId ? [row.lab.requestedFromUnitId] : []),
       ownerUserId: row.resource.ownerUserId || '',
       assignedUserIds,
@@ -62,7 +62,7 @@ export class LabAnalysisSearchProjectionProvider implements SearchProjectionProv
 
     const docs: SearchDocument[] = [];
     for (const r of rows) {
-      if (r.resource.visibility === 'RESTRICTED' || r.resource.visibility === 'SCENARIO') continue;
+      if(r.resource.visibility!=='EVENT')continue;
       const doc = await this.buildDocument(db, 'lab_analysis', r.lab.id);
       if (doc) docs.push(doc);
     }

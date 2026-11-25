@@ -4,7 +4,7 @@ Maintained across releases; supersedes the stale milestone/order below. Basis: o
 
 | ID | Priority | Track / remaining acceptance |
 |---|---|---|
-| REL-01 | P0 | Exact-head CI, publish verified release assets, upgrade/rollback rehearsal from deployed 2.4.22, migration and encrypted restore, version consistency. 2.5.0 merged; release workflow still running when checked. 2.5.1 is separate PR #53. |
+| REL-01 | P0 | Exact-head CI, publish verified release assets, upgrade/rollback rehearsal from deployed 2.4.22, migration and encrypted restore, version consistency. 2.5.0 published; 2.5.1 is in stabilization. 2.5.1 is separate PR #53. |
 | SEC-01 | P0 | Test each role's list/detail/action/search/direct URL and revoke mid-session; preview, multiple roles/units, disabled/expired accounts, local test users, LDAP/OIDC, hidden record references, CSRF/CSP/ingress/limits. Existing fixes need browser and integration acceptance. |
 | UX-01 | P1 | Entire sidebar, singleton groups, locale consistency, spacing, accessibility, desktop/mobile/light/dark, CYRIS/CYLAB/version branding. Search/filter added; acceptance pending. |
 | UX-02 | P1 | UUID-free operational references: audit names and record labels, pickers for all medical/legal/court/evidence/forensic/task/simulation/admin forms, clear technical details only. Review old embedded panels too. |
@@ -17,7 +17,7 @@ Maintained across releases; supersedes the stale milestone/order below. Basis: o
 | OPS-02 | P1 | Deterministic dependency monitor independent of Spark: opt-in API polling, confirmed failures, admin-only in-app dedup; host/storage/complete API outages need external collector. |
 | OPS-03 | P2 | Host maintenance action catalog, dry runs, backup/restore and image retention, least privilege, local opt-in and maintenance lock. No generic root web shell or Docker socket in API. SSH remains general shell. |
 | DOM-01 | P1 | Registry permits/licences: holder/issuer invariant, effective scenario date, reassignment history, assets/document links, print, search, generated datasets, cleanup. Never treat possession as legal authority. |
-| DOM-02 | P1 | Cases/evidence/lab/forensics/JSOC: correct assignment to eligible worker, lead reassigns, custody and recipient selection, graph links, actual end-to-end cross-team tests, technical telemetry separate from real CYLAB. |
+| DOM-02 | P1 | Cases/evidence/lab/forensics/JSOC: cross-team request → eligible worker → status → approved output → requester notification and source record; lab lifecycle integration passed CI #647, final hardening pending. Extend pattern to forensic/medical/legal workflows; restricted evidence disclosure and role-specific browser acceptance remain. Preserve custody and technical telemetry separate from real CYLAB. |
 | DOM-03 | P1 | Medical record form and handoff, reports and printing, confidential visibility, evidence and expert requests. |
 | DOM-04 | P1 | Prosecutor, defence, judge, legal collaboration: role workspaces, requests for evidence/reports/expert opinions, hearings, filings/decisions, document printing, verified Czech legal corpus and import/versioning. |
 | EX-01 | P1 | DEFCON sound only on change (verify silence across polling/reload), wall/public display, notifications/history, scenario-clock and phase controls, real-time sync and physical siren/panel integration only through authenticated bounded contract. |

@@ -14,7 +14,7 @@ import {
   roleAssignments,
   roles,
   rolePermissions,
-  operationalTasks,labAnalyses,
+  operationalTasks,labAnalyses,labAnalysisEvidence,
   MembershipStatus,
   ResourceVisibility,
 } from '@cyris/db';
@@ -215,6 +215,13 @@ export class ResourceAccessService {
           return false;
         }
       }
+    }
+
+    // Legacy EVENT-visible reports linked to nonpublic inputs must not bypass unit boundaries.
+    if(resource.resourceType==='lab_analysis'){
+      const inputs=await db.select({visibility:resources.visibility,eventId:resources.eventId}).from(labAnalysisEvidence).innerJoin(resources,eq(resources.id,labAnalysisEvidence.evidenceId)).where(eq(labAnalysisEvidence.analysisId,resource.id));
+      if(inputs.some((input:{visibility:string;eventId:string})=>input.eventId!==resource.eventId||input.visibility==='SCENARIO'))return false;
+      if(inputs.some((input:{visibility:string})=>input.visibility!=='EVENT')&&resource.ownerUserId!==user.id&&!isAssigned&&!canCorrectLaboratory&&!(resource.owningUnitId&&userUnitIds.includes(resource.owningUnitId)))return false;
     }
 
     // A requester may follow their own laboratory request, not browse the lab queue.

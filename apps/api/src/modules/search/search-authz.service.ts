@@ -22,6 +22,9 @@ export function validSearchFilterLiteral(value:string|undefined):boolean {
   return value===undefined||/^[a-zA-Z0-9_-]{1,128}$/.test(value);
 }
 
+// Hide legacy laboratory documents containing working findings until safely reindexed.
+export const SAFE_LAB_SEARCH_FILTER='(resourceType:!=lab_analysis || (visibility:=EVENT && tags:=lab-safe-v1))';
+
 export interface SearchFilterContext {
   typeFilter?: string;
   eventFilter?: string;
@@ -69,7 +72,7 @@ export class SearchAuthzService {
 
     // If platform admin: can discover everything across CYRIS
     if (isPlatformAdmin) {
-      const adminClauses: string[] = [];
+      const adminClauses: string[] = [SAFE_LAB_SEARCH_FILTER];
       if (context?.typeFilter) {
         adminClauses.push(`resourceType:=${context.typeFilter}`);
       }
@@ -186,7 +189,7 @@ export class SearchAuthzService {
       return null;
     }
 
-    let filter = [`(${accessClauses.join(' || ')})`, `resourceType:!=[${privateControlTypes.join(',')}]`, ...eventExclusions].join(' && ');
+    let filter = [SAFE_LAB_SEARCH_FILTER,`(${accessClauses.join(' || ')})`, `resourceType:!=[${privateControlTypes.join(',')}]`, ...eventExclusions].join(' && ');
 
     if (context?.typeFilter) {
       filter = `${filter} && resourceType:=${context.typeFilter}`;
