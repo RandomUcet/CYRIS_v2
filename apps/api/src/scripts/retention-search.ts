@@ -22,16 +22,18 @@ async function snapshot(client:TypesenseClient,eventId:string){
   const ids:string[]=[];
   let expected:number|undefined;
   for(let page=1;page<=Math.ceil(MAX/250)+1;page++){
-    const res=await client.collections(GLOBAL_SEARCH_COLLECTION).documents<{id:string;eventId:string}>().search({
+    const res=await client.collections(GLOBAL_SEARCH_COLLECTION).documents().search({
       q:'*',query_by:'title',filter_by:'eventId:='+eventId,include_fields:'id,eventId',per_page:250,page
     });
-    if(expected===undefined)expected=res.found;
-    if(expected!==res.found||expected>MAX)throw Error('Incomplete search inventory');
+    const found=res.found;
+    if(!Number.isSafeInteger(found)||found<0||found>MAX)throw Error('Incomplete search inventory');
+    if(expected===undefined)expected=found;
+    if(expected!==found)throw Error('Incomplete search inventory');
     for(const hit of res.hits??[]){
       if(hit.document.eventId!==eventId||typeof hit.document.id!=='string')throw Error('Unexpected search scope');
       ids.push(hit.document.id);
     }
-    if(ids.length>=expected)break;
+    if(ids.length>=found)break;
     if(!(res.hits??[]).length)throw Error('Incomplete search inventory');
   }
   if(ids.length!==expected||new Set(ids).size!==ids.length)throw Error('Incomplete search inventory');
@@ -45,6 +47,14 @@ async function snapshot(client:TypesenseClient,eventId:string){
 export async function reconcileRetentionSearch(client:TypesenseClient,eventId:string,profile:Profile,docs:readonly SearchDocument[]){
   const expected=validateRetentionSearchProjection(eventId,profile,docs);
   const before=await snapshot(client,eventId);
+  // An unexpected ID collision must not overwrite another exercise or global
+  // projection. Check exact retained IDs before the first mutation.
+  for(const id of expected){
+    let existing;
+    try{existing=await client.collections(GLOBAL_SEARCH_COLLECTION).documents(id).retrieve();}
+    catch(e){if((e as {httpStatus?:number})?.httpStatus===404)continue;throw e;}
+    if(existing.eventId!==eventId)throw Error('Foreign search projection collision');
+  }
   // Event filter is exact and UUID-validated. Never drop the whole collection.
   const result=await client.collections(GLOBAL_SEARCH_COLLECTION).documents().delete({filter_by:'eventId:='+eventId});
   if(result.num_deleted!==before.length)throw Error('Search removal count changed');
