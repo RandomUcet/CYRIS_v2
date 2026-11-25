@@ -39,6 +39,13 @@ export const EventPurgePreviewSchema = z.object({
     unselectedResources: z.number().int().nonnegative(),
     inventoryCoverage: z.literal('DATABASE_RESOURCES_ONLY'),
   }),
+  retention: z.object({
+    eventSlug:z.string(),
+    notificationHistory:z.number().int().nonnegative(),
+    terminalManualTasks:z.number().int().nonnegative(),
+    inventory:z.record(z.number().int().nonnegative()),
+    execution:z.literal('HOST_ONLY'),
+  }),
   executable: z.literal(false),
   blockers: z.array(z.string()),
 });

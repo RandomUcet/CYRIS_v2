@@ -95,9 +95,37 @@ export class EventAfterActionService {
     } catch {
       throw new BadRequestException('Requested resource category does not exist in this event');
     }
+    // Event-wide relational inventory, distinct from selected resource counts.
+    // Candidate counts are preliminary; the host plan checks all FK dependencies again.
+    const [inventory]=await this.db.select({
+      relationships:sql<number>`(select count(*)::integer from resource_relationships where event_id=${eventId}::uuid)`,
+      assignments:sql<number>`(select count(*)::integer from resource_assignments where event_id=${eventId}::uuid)`,
+      grants:sql<number>`(select count(*)::integer from resource_access_control a join resources r on r.id=a.resource_id where r.event_id=${eventId}::uuid)`,
+      notifications:sql<number>`(select count(*)::integer from notifications where event_id=${eventId}::uuid)`,
+      units:sql<number>`(select count(*)::integer from organizational_units where event_id=${eventId}::uuid)`,
+      roles:sql<number>`(select count(*)::integer from roles where event_id=${eventId}::uuid)`,
+      notificationHistory:sql<number>`(select count(*)::integer from notifications where event_id=${eventId}::uuid and (read_at is not null or dismissed_at is not null))`,
+      terminalManualTasks:sql<number>`(select count(*)::integer from resources r join operational_tasks t on t.id=r.id
+        where r.event_id=${eventId}::uuid and t.event_id=r.event_id and r.resource_type='operational_task'
+        and t.status in ('COMPLETED','CANCELLED') and t.source_type='MANUAL' and t.source_resource_id is null
+        and not exists(select 1 from resource_relationships x where x.source_resource_id=r.id or x.target_resource_id=r.id)
+        and not exists(select 1 from operational_tasks x where x.source_resource_id=r.id))`,
+    }).from(events).where(eq(events.id,eventId));
     return {
       eventId, eventName: report.eventName, status: report.status,
       generatedAt: new Date().toISOString(), executable: false,
+      retention:{
+        eventSlug:current.slug,execution:'HOST_ONLY',
+        notificationHistory:Number(inventory?.notificationHistory??0),
+        terminalManualTasks:Number(inventory?.terminalManualTasks??0),
+        inventory:{
+          resources:Object.values(report.resources).reduce((sum,n)=>sum+n,0),
+          relationships:Number(inventory?.relationships??0),assignments:Number(inventory?.assignments??0),
+          accessGrants:Number(inventory?.grants??0),notifications:Number(inventory?.notifications??0),
+          activity:report.operationalEvents,audit:report.auditEvents,memberships:report.membershipCount,
+          units:Number(inventory?.units??0),roles:Number(inventory?.roles??0),
+        },
+      },
       profiles: {
         exerciseDataOnly: {
           description: 'Simulation records only: never implicitly delete users, event membership, role assignments or audit trail.',
@@ -119,7 +147,7 @@ export class EventAfterActionService {
         'An authenticated, verified off-host encrypted backup is required before irreversible cleanup.',
         'Object storage and external integration artifacts must be inventoried and removed safely.',
         'Retention and export of immutable audit evidence require an explicit policy.',
-        'Execution remains disabled until transaction, backup-restore and concurrency acceptance tests pass.',
+        'Complete event deletion and arbitrary resource deletion remain disabled; bounded host cleanup has a separate dependency and recovery preflight.',
       ],
     };
   }

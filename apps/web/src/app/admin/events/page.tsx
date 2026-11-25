@@ -29,6 +29,7 @@ import {
   BarChart3,
   Radio,
   Shield,
+  Database,
 } from 'lucide-react';
 import { CAPABILITY_CATALOG } from '@cyris/contracts';
 import { COMMON_TIMEZONES, SUPPORTED_LOCALES } from '@/lib/i18n';
@@ -406,9 +407,7 @@ export default function AdminEventsPage() {
       accessor: (item) => (
         <div>
           <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{item.slug}</span>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)' }}>
-            {item.id}
-          </div>
+
         </div>
       ),
       sortKey: 'slug',
@@ -432,7 +431,7 @@ export default function AdminEventsPage() {
                   border: '1px solid var(--accent-primary)',
                 }}
               >
-                CURRENT ACTIVE CONTEXT
+                {cs?'Vybrané cvičení':'Selected exercise'}
               </span>
             )}
           </div>
@@ -486,7 +485,7 @@ export default function AdminEventsPage() {
     {
       header: t('field.actions'),
       accessor: (item) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px',flexWrap:'wrap' }}>
           <button
             onClick={() => handleEnterEvent(item)}
             className="btn btn-secondary"
@@ -509,17 +508,18 @@ export default function AdminEventsPage() {
             <Radio size={12}/> {cs?'Zprávy':'Broadcast'}
           </button>}
           {isPlatformAdmin && <button className="btn btn-secondary"
-            title={cs?'Statistiky, závěrečný report a náhled promazání':'Statistics, after-action report and cleanup preview'}
+            title={cs?'Statistiky a závěrečný report':'Statistics and after-action report'}
             onClick={() => router.push('/admin/events/' + item.id + '/report')}
             style={{fontSize:'11px',padding:'3px 7px'}}>
             <BarChart3 size={12}/> {cs?'Report':'Report'}
           </button>}
+          {isPlatformAdmin&&<button type="button" className="btn btn-secondary" title={cs?'Inventář a bezpečné čištění dat':'Data inventory and safe retention'} onClick={()=>router.push('/admin/events/'+item.id+'/data')} style={{fontSize:'11px',padding:'3px 7px'}}><Database size={12}/> {cs?'Data':'Data'}</button>}
           {canManage && (
             <>
               <button
                 onClick={() => openEditModal(item)}
                 className="btn btn-secondary"
-                title="Edit event metadata & lifecycle"
+                title={cs?'Upravit cvičení':'Edit exercise'} aria-label={cs?'Upravit cvičení':'Edit exercise'}
                 style={{ fontSize: '11px', padding: '3px 7px' }}
               >
                 <Edit2 size={12} />
@@ -536,7 +536,7 @@ export default function AdminEventsPage() {
               <button
                 onClick={() => openDuplicateModal(item)}
                 className="btn btn-secondary"
-                title="Duplicate edition as starting template"
+                title={cs?'Duplikovat cvičení':'Duplicate exercise'} aria-label={cs?'Duplikovat cvičení':'Duplicate exercise'}
                 style={{ fontSize: '11px', padding: '3px 7px' }}
               >
                 <Copy size={12} />
@@ -545,7 +545,7 @@ export default function AdminEventsPage() {
                 <button
                   onClick={() => handleArchive(item)}
                   className="btn btn-ghost"
-                  title="Archive event"
+                  title={cs?'Archivovat cvičení':'Archive exercise'} aria-label={cs?'Archivovat cvičení':'Archive exercise'}
                   style={{ fontSize: '11px', padding: '3px 6px', color: 'var(--text-muted)' }}
                 >
                   <Archive size={12} />
@@ -555,7 +555,7 @@ export default function AdminEventsPage() {
           )}
         </div>
       ),
-      width: '210px',
+      width: '300px',
     },
   ];
 

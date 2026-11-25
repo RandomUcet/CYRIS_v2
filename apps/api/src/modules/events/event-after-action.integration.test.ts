@@ -65,6 +65,12 @@ test('admin UTC after-action metrics and partial cleanup preview remain tenant-s
     assert.equal(preview.executable,false);
     assert.equal(preview.selection.inventoryCoverage,'DATABASE_RESOURCES_ONLY');
     assert.equal(preview.selection.matchingResources,1);
+    assert.equal(preview.retention.execution,'HOST_ONLY');
+    assert.equal(preview.retention.eventSlug,eventA);
+    assert.equal(preview.retention.inventory.resources,2);
+    assert.equal(preview.retention.inventory.audit,2);
+    assert.equal(preview.retention.notificationHistory,0);
+    assert.equal(preview.retention.terminalManualTasks,0);
     assert.equal(preview.selection.unselectedResources,1);
     assert.deepEqual(preview.profiles.exerciseDataOnly.counts,{device:1});
     await assert.rejects(()=>service.purgePreview(eventA,admin,['other']),BadRequestException);
