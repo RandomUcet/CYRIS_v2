@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { eq, and, gte, lte, desc, isNull, notInArray, notLike, or, count, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { DatabaseService } from '../database/database.service.js';
 import {
   auditEvents,
+  users,
   outboxEvents,
   AuditActorType,
   AuditOutcome,
@@ -14,6 +16,12 @@ import { generateId } from '@cyris/shared';
 import { privateControlTypes } from '../disruptions/module-resources.js';
 import { redactSensitiveData } from '../../common/redaction.js';
 import type { AuditQueryFilters, AuditListResponse, AuditEventItem } from '@cyris/contracts';
+
+const actorAccount=alias(users,'audit_actor_account');
+const targetAccount=alias(users,'audit_target_account');
+// Text comparison is intentional: historical resource IDs are not always UUIDs.
+const actorJoin=eq(auditEvents.actorUserId,actorAccount.id);
+const targetJoin=and(eq(auditEvents.resourceType,'user'),sql`${auditEvents.resourceId} = ${targetAccount.id}::text`);
 
 function visibleAuditActions(isPlatformAdmin: boolean) {
   if (isPlatformAdmin) return undefined;
@@ -149,6 +157,8 @@ export class AuditService {
         sql`strpos(lower(coalesce(${auditEvents.resourceId}, '')), lower(${term})) > 0`,
         sql`strpos(lower(coalesce(${auditEvents.actorUserId}::text, '')), lower(${term})) > 0`,
         sql`strpos(lower(coalesce(${auditEvents.ipAddress}, '')), lower(${term})) > 0`,
+        sql`strpos(lower(coalesce(${actorAccount.displayName}, '')), lower(${term})) > 0`,
+        sql`strpos(lower(coalesce(${targetAccount.displayName}, '')), lower(${term})) > 0`,
       )!);
     }
     if (filters.outcome) {
@@ -166,19 +176,22 @@ export class AuditService {
     const [totalResult] = await db
       .select({ count: count() })
       .from(auditEvents)
+      .leftJoin(actorAccount,actorJoin).leftJoin(targetAccount,targetJoin)
       .where(whereClause);
 
     const total = totalResult ? Number(totalResult.count) : 0;
 
     const rows = await db
-      .select()
+      .select({row:auditEvents,actorDisplayName:actorAccount.displayName,resourceDisplayName:targetAccount.displayName})
       .from(auditEvents)
+      .leftJoin(actorAccount,actorJoin).leftJoin(targetAccount,targetJoin)
       .where(whereClause)
-      .orderBy(desc(auditEvents.occurredAt))
+      .orderBy(desc(auditEvents.occurredAt),desc(auditEvents.id))
       .limit(limit)
       .offset(offset);
 
-    const items: AuditEventItem[] = rows.map((r) => ({
+    const items: AuditEventItem[] = rows.map(({row:r,actorDisplayName,resourceDisplayName}) => ({
+      actorDisplayName,resourceDisplayName,
       id: r.id,
       occurredAt: r.occurredAt.toISOString(),
       actorUserId: r.actorUserId,
@@ -209,17 +222,17 @@ export class AuditService {
    */
   async getById(id: string, isPlatformAdmin = false): Promise<AuditEventItem | null> {
     const db = this.databaseService.client;
-    const [row] = await db
-      .select()
+    const [result] = await db
+      .select({row:auditEvents,actorDisplayName:actorAccount.displayName,resourceDisplayName:targetAccount.displayName})
       .from(auditEvents)
+      .leftJoin(actorAccount,actorJoin).leftJoin(targetAccount,targetJoin)
       .where(and(eq(auditEvents.id, id), visibleAuditActions(isPlatformAdmin)))
       .limit(1);
 
-    if (!row) {
-      return null;
-    }
-
+    if (!result) return null;
+    const {row,actorDisplayName,resourceDisplayName}=result;
     return {
+      actorDisplayName,resourceDisplayName,
       id: row.id,
       occurredAt: row.occurredAt.toISOString(),
       actorUserId: row.actorUserId,

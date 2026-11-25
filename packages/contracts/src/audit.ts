@@ -5,6 +5,8 @@ export const AuditEventItemSchema = z.object({
   occurredAt: z.string(),
   actorUserId: z.string().uuid().nullable().optional(),
   actorType: z.string(),
+  actorDisplayName: z.string().nullable().optional(),
+  resourceDisplayName: z.string().nullable().optional(),
   eventId: z.string().uuid().nullable().optional(),
   action: z.string(),
   category: z.string(),
@@ -29,7 +31,7 @@ export const AuditQueryFiltersSchema = z.object({
   category: z.string().optional(),
   resourceType: z.string().optional(),
   resourceId: z.string().optional(),
-  /** Case-insensitive literal substring search across audit identifiers and IP. */
+  /** Case-insensitive literal substring search across audit identifiers, actor and account names, and IP. */
   q: z.string().trim().max(160).optional(),
   outcome: z.string().optional(),
   from: z.string().optional(),

@@ -19,7 +19,9 @@ export default function AdminAuditPage() {
   const { formatTime, formatDate, locale } = usePreferences();
   const cs=locale==='cs';
   const tr=(cz:string,en:string)=>cs?cz:en;
-  const displayDate=(stamp:string)=>stamp?formatDate(stamp)+' · '+formatTime(stamp):'—';
+  const displayDate=(stamp:string)=>stamp?formatTime(stamp):'—';
+  const actorLabel=(item:AuditEntry)=>item.actorDisplayName||(item.actorUserId?tr('Neznámý účet','Unavailable account'):item.actorType==='SYSTEM'?tr('Systém','System'):item.actorType);
+  const resourceLabel=(item:AuditEntry)=>item.resourceDisplayName||(item.resourceType?item.resourceType.replaceAll('_',' '):'—');
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -128,16 +130,16 @@ export default function AdminAuditPage() {
       header: tr('Uživatel / aktér','Actor User'),
       accessor: (item) => (
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-dim)' }}>
-          {item.actorUserId ? item.actorUserId.slice(0, 8) : tr('Systém','System')}
+          {actorLabel(item)}
         </span>
       ),
-      width: '130px',
+      width: '180px',
     },
     {
       header: tr('Cílový záznam','Target Resource'),
       accessor: (item) => (
         item.resourceId ? (
-          <RecordIdentifier id={item.resourceId} prefix="" />
+          <span style={{overflowWrap:'anywhere'}}>{resourceLabel(item)}</span>
         ) : (
           <span style={{ color: 'var(--color-text-dim)', fontSize: '11px' }}>—</span>
         )
@@ -190,7 +192,7 @@ export default function AdminAuditPage() {
               {tr('Bezpečnostní audit a historie změn','Security & audit history')}
             </h1>
             <p style={{ margin: '3px 0 0 0', fontSize: '11px', color: 'var(--color-text-dim)' }}>
-              {tr('Neměnné auditní záznamy provozu. Detail každé události obsahuje uložené metainformace.','Immutable operational audit history with stored event metadata.')}
+              {tr('Neměnné události. Zobrazená jména odpovídají aktuálním účtům; technické identifikátory zůstávají v detailu.','Immutable events. Displayed names reflect current accounts; technical identifiers remain in the inspector.')}
             </p>
           </div>
 
@@ -209,7 +211,7 @@ export default function AdminAuditPage() {
         {resourceFilter&&<div role="status" style={{padding:'10px 24px',background:'var(--bg-surface)',
           borderBottom:'1px solid var(--border-default)',fontSize:'12px',display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
           {tr('Auditní historie účtu: ','Account audit history: ')}
-          <code>{resourceFilter}</code>
+          <strong>{entries.find(row=>row.resourceId===resourceFilter)?.resourceDisplayName??tr('Vybraný účet','Selected account')}</strong>
           <button type="button" className="btn btn-secondary"
             onClick={()=>{setResourceFilter('');setPage(1);setSelectedEntry(null);
               window.history.replaceState(null,'','/admin/audit');}}>
@@ -343,20 +345,20 @@ export default function AdminAuditPage() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px', marginBottom: '16px' }}>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('ID záznamu','Record ID')}: </span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.id}</span>
+                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('Výsledek','Outcome')}: </span>
+                    <strong>{selectedEntry.outcome}</strong>
                   </div>
                   <div>
                     <span style={{ color: 'var(--color-text-dim)' }}>{tr('Datum a čas','Timestamp')}: </span>
                     <span>{displayDate(selectedEntry.occurredAt)}</span>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('ID aktéra','Actor user ID')}: </span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.actorUserId || 'SYSTEM'}</span>
+                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('Aktér','Actor')}: </span>
+                    <span style={{ fontFamily: 'var(--font-mono)' }}>{actorLabel(selectedEntry)}</span>
                   </div>
                   <div>
                     <span style={{ color: 'var(--color-text-dim)' }}>{tr('Cílový záznam','Target resource')}: </span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.resourceId || 'N/A'}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)' }}>{resourceLabel(selectedEntry)}</span>
                   </div>
                   <div>
                     <span style={{ color: 'var(--color-text-dim)' }}>{tr('IP klienta','Client IP')}: </span>
@@ -364,6 +366,7 @@ export default function AdminAuditPage() {
                   </div>
                 </div>
 
+                <details style={{marginBottom:12,overflowWrap:'anywhere'}}><summary>{tr('Technické identifikátory','Technical identifiers')}</summary><p>{tr('Záznam','Record')}: <code>{selectedEntry.id}</code></p><p>{tr('Aktér','Actor')}: <code>{selectedEntry.actorUserId??'—'}</code></p><p>{tr('Cíl','Target')}: <code>{selectedEntry.resourceId??'—'}</code></p><p>{tr('Požadavek','Request')}: <code>{selectedEntry.requestId??'—'}</code></p></details>
                 <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '12px' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-dim)', marginBottom: '8px' }}>
                     {tr('Metainformace události','Audit payload and diff')}
