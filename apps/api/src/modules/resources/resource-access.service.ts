@@ -14,7 +14,7 @@ import {
   roleAssignments,
   roles,
   rolePermissions,
-  operationalTasks,
+  operationalTasks,labAnalyses,
   MembershipStatus,
   ResourceVisibility,
 } from '@cyris/db';
@@ -215,6 +215,13 @@ export class ResourceAccessService {
           return false;
         }
       }
+    }
+
+    // A requester may follow their own laboratory request, not browse the lab queue.
+    // Membership, module availability and private visibility checks above still apply.
+    if(resource.resourceType==='lab_analysis'&&permission===Permissions.LAB_READ&&resource.ownerUserId===user.id){
+      const [request]=await db.select({requester:labAnalyses.requestedByUserId,unit:labAnalyses.requestedFromUnitId}).from(labAnalyses).where(eq(labAnalyses.id,resource.id)).limit(1);
+      if(request?.requester===user.id&&await this.authzService.authorize({user,permission:Permissions.LAB_REQUEST,context:{eventId:resource.eventId,unitId:request.unit??undefined,resourceOwnerId:user.id}}))return true;
     }
 
     // Check if operator has the required permission under an applicable scope

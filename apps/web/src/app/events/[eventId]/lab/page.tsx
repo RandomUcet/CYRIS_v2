@@ -14,23 +14,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { FlaskConical, Plus, RefreshCw, X, ArrowRight } from 'lucide-react';
 
-interface LabItem {
-  id: string;
-  analysisNumber: string;
-  analysisType: string;
-  purpose?: string;
-  status: 'REQUESTED' | 'ACCEPTED' | 'IN_PROGRESS' | 'COMPLETED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
-  evidenceIds?: string[];
-  assignedUnitId?: string | null;
-  assignedToUserId?: string | null;
-  createdAt: string;
-}
+type LabItem=import('@cyris/contracts').LabAnalysisResponse;
 
 export default function LabListPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
-  const { hasPermission, user } = useAuth();
+  const { hasPermission, user,viewAs } = useAuth();
   const { formatDate, locale } = usePreferences();
   const cs = locale === 'cs';
   const sourceEvidence = useSearchParams().get('fromEvidence');
@@ -38,7 +28,7 @@ export default function LabListPage() {
 
   const [analyses, setAnalyses] = useState<LabItem[]>([]);
   const [labUnits, setLabUnits] = useState<Array<{ id: string; name: string }>>([]);
-  const [workspace, setWorkspace] = useState<'all' | 'mine' | 'unassigned' | 'unit' | 'completed'>('all');
+  const [workspace, setWorkspace] = useState<'all' | 'mine' | 'requested' | 'unassigned' | 'unit' | 'completed'>('all');
   const [selectedUnitId, setSelectedUnitId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +49,7 @@ export default function LabListPage() {
     requestedFromUnitId: '',
   });
 
-  const canRequest = hasPermission('lab.request', eventId);
+  const canRequest = !viewAs&&hasPermission('lab.request', eventId);
 
   useEffect(() => {
     if (!sourceEvidence || !canRequest) return;
@@ -109,6 +99,7 @@ export default function LabListPage() {
       const workspaceMatch =
         workspace === 'all' ||
         (workspace === 'mine' && a.assignedToUserId === user?.user.id) ||
+        (workspace === 'requested' && a.requestedByUserId === user?.user.id) ||
         (workspace === 'unassigned' && !a.assignedToUserId) ||
         (workspace === 'unit' && (!selectedUnitId || a.assignedUnitId === selectedUnitId)) ||
         (workspace === 'completed' && ['COMPLETED', 'APPROVED'].includes(a.status));
@@ -125,6 +116,7 @@ export default function LabListPage() {
 
   const handleCreateAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(!canRequest||submitting)return;
     if (!formData.analysisType.trim()) {
       setFormError('Analysis type is required');
       return;

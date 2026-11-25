@@ -23,8 +23,9 @@ export class LabAnalysisSearchProjectionProvider implements SearchProjectionProv
     }
 
     const assignedUserIds = row.lab.assignedToUserId ? [row.lab.assignedToUserId] : [];
-    const content = [row.lab.purpose, row.lab.findings, row.lab.conclusion].filter(Boolean).join(' ');
-    const searchable = `${row.lab.analysisNumber} ${row.lab.analysisType} ${row.lab.status} ${row.lab.method || ''} ${content}`;
+    // Search is discovery, not a report distribution channel. Draft and final findings stay in authorized detail.
+    const content = row.lab.purpose??'';
+    const searchable = `${row.lab.analysisNumber} ${row.lab.analysisType} ${row.lab.status} ${content}`;
 
     return {
       id: `lab_analysis:${row.lab.id}`,

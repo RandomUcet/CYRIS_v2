@@ -4,6 +4,7 @@ import {
   Post,
   Patch,
   Param,
+  Query,ParseUUIDPipe,
   Body,
   UseGuards,
   BadRequestException,
@@ -30,9 +31,10 @@ export class LaboratoryController {
   @Get()
   async listAnalyses(
     @Param('eventId') eventId: string,
-    @CurrentUser() user: AuthenticatedUser
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('evidenceId',new ParseUUIDPipe({optional:true})) evidenceId?:string
   ) {
-    return this.laboratoryService.listAnalyses(eventId, user);
+    return this.laboratoryService.listAnalyses(eventId, user,evidenceId);
   }
 
   @Get('units')

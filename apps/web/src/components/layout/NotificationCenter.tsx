@@ -131,6 +131,8 @@ export function NotificationCenter(){
       case 'briefing.requiresAcknowledgement':return t('notification.briefingAck');
       case 'evidence.transfer':return t('notification.evidenceTransfer');
       case 'lab.ready':return t('notification.labReady');
+      case 'lab.request.status':return String(p.analysisNumber??'LAB')+' · '+t('notification.labStatus.'+String(p.status??'REQUESTED') as any);
+      case 'lab.assigned':return String(p.analysisNumber??'LAB')+' · '+t('notification.labAssigned');
       case 'medical.assignment':return t('notification.medicalAssign');
       case 'court.request.created':return t('notification.courtRequestCreated');
       case 'court.request.responded':return t('notification.courtRequestResponded');

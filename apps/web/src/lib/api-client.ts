@@ -503,8 +503,8 @@ export class CyrisApiClient {
   }
 
   // Laboratory
-  async getLabAnalyses(eventId: string) {
-    return this.fetchJson<any[]>(`/events/${eventId}/lab`);
+  async getLabAnalyses(eventId: string,evidenceId?:string,signal?:AbortSignal) {
+    return this.fetchJson<import('@cyris/contracts').LabAnalysisResponse[]>(`/events/${eventId}/lab${evidenceId?'?evidenceId='+encodeURIComponent(evidenceId):''}`,signal);
   }
   async getLabUnits(eventId: string) {
     return this.fetchJson<Array<{ id: string; name: string }>>(`/events/${eventId}/lab/units`);

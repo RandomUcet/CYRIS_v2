@@ -128,9 +128,7 @@ export default function LabAnalysisDetailPage() {
     try {
       const res = await apiClient.updateLabAnalysis(eventId, analysisId, {
         status: nextStatus,
-        method: method || undefined,
-        findings: findings || undefined,
-        conclusion: conclusion || undefined,
+        ...(nextStatus==='COMPLETED'?{method,findings,conclusion}:{}),
       });
 
       if (res.ok) {
@@ -252,7 +250,7 @@ export default function LabAnalysisDetailPage() {
   const currentStageIndex = STAGES.findIndex(stage => stage === analysisData.status);
   const evidenceItems: LabAnalysisDetail['evidenceItems'] = analysisData.evidenceItems ?? [];
   const actions: LabAnalysisDetail['actions'] = analysisData.actions;
-  const canEdit = !viewAs && actions?.work && analysisData.status !== 'APPROVED';
+  const canEdit = !viewAs && actions?.work && ['REQUESTED','ACCEPTED','IN_PROGRESS'].includes(analysisData.status);
 
   return (
     <AppShell
@@ -274,8 +272,8 @@ export default function LabAnalysisDetailPage() {
           lead={analysisData.analystName || '—'}
           actions={
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <Link className="btn btn-secondary" href={'/events/'+eventId+'/lab/'+analysisId+'/print'}
-                target="_blank" rel="noopener noreferrer">Vytisknout laboratorní zprávu</Link>
+              {analysisData.reportAvailable&&<Link className="btn btn-secondary" href={'/events/'+eventId+'/lab/'+analysisId+'/print'}
+                target="_blank" rel="noopener noreferrer">Vytisknout laboratorní zprávu</Link>}
               <button
                 onClick={() => setInspectorOpen(!inspectorOpen)}
                 className={`btn ${inspectorOpen ? 'btn-secondary' : 'btn-ghost'}`}
@@ -628,7 +626,7 @@ export default function LabAnalysisDetailPage() {
             onClose={() => setInspectorOpen(false)}
             rows={[
               { label: 'Analysis Number', value: analysisData.analysisNumber || analysisData.id, copyable: true },
-              { label: 'Resource UUID', value: analysisData.id, copyable: true },
+              { label: cs?'Žadatel':'Requester', value: analysisData.requesterName||'—' },
               { label: 'Lifecycle Stage', value: <StatusBadge status={analysisData.status} /> },
               { label: 'Assigned Lab Unit', value: analysisData.unitName || '—' },
               { label: 'Analyst', value: analysisData.analystName || '—' },

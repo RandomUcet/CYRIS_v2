@@ -60,6 +60,10 @@ export const LabAnalysisResponseSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   evidenceIds: z.array(z.string().uuid()).optional(),
+  reportAvailable:z.boolean().optional(),
+  requesterName:z.string().nullable().optional(),
+  unitName:z.string().nullable().optional(),
+  analystName:z.string().nullable().optional(),
 });
 
 export type LabAnalysisResponse = z.infer<typeof LabAnalysisResponseSchema>;
