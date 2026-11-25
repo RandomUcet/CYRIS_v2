@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import type { TransferEvidenceRequest, CustodyHolderType } from '@cyris/contracts';
+import { CustodyRecipientPicker } from '@/app/events/[eventId]/evidence/[evidenceId]/CustodyRecipientPicker';
 import { apiClient } from '@/lib/api-client';
 import { usePreferences } from '@/contexts/PreferencesContext';
 
@@ -28,7 +30,7 @@ export function EvidencePanel({ eventId }: EvidencePanelProps) {
     currentHolderId: '',
   });
 
-  const [transferForm, setTransferForm] = useState({
+  const [transferForm, setTransferForm] = useState<TransferEvidenceRequest>({
     toHolderType: 'UNIT',
     toHolderId: '',
     reason: '',
@@ -89,7 +91,7 @@ export function EvidencePanel({ eventId }: EvidencePanelProps) {
 
   const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedId || !transferForm.toHolderId) return;
+    if (!selectedId || !transferForm.toHolderId || !transferForm.reason.trim()) return;
     const res = await apiClient.transferEvidence(eventId, selectedId, transferForm);
     if (res.ok) {
       setTransferForm({ toHolderType: 'UNIT', toHolderId: '', reason: '', notes: '' });
@@ -164,7 +166,7 @@ export function EvidencePanel({ eventId }: EvidencePanelProps) {
               >
                 <strong>{item.evidenceNumber}</strong>: {item.title}
                 <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>
-                  {item.evidenceType} · Status: {item.status} · Holder: {item.currentHolderType} ({item.currentHolderId})
+                  {item.evidenceType} · Status: {item.status} · Holder: {item.currentHolderName??(item.currentHolderType==='STORAGE'?item.currentHolderId:item.currentHolderType)}
                 </div>
               </li>
             ))}
@@ -181,7 +183,7 @@ export function EvidencePanel({ eventId }: EvidencePanelProps) {
               <div style={{ fontSize: '0.85rem', color: '#6b7280', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                 <span>Type: <strong>{selectedItem.evidenceType}</strong></span>
                 <span>Status: <strong>{selectedItem.status}</strong></span>
-                <span>Current Holder: <strong>{selectedItem.currentHolderType}</strong> ({selectedItem.currentHolderId})</span>
+                <span>Current Holder: <strong>{selectedItem.currentHolderName??(selectedItem.currentHolderType==='STORAGE'?selectedItem.currentHolderId:selectedItem.currentHolderType)}</strong></span>
                 <span>Condition: {selectedItem.condition || 'N/A'}</span>
               </div>
             </div>
@@ -192,21 +194,16 @@ export function EvidencePanel({ eventId }: EvidencePanelProps) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                 <select
                   value={transferForm.toHolderType}
-                  onChange={(e) => setTransferForm({ ...transferForm, toHolderType: e.target.value })}
+                  onChange={(e) => setTransferForm({ ...transferForm, toHolderType: e.target.value as CustodyHolderType,toHolderId:'' })}
                 >
                   <option value="USER">USER</option>
                   <option value="UNIT">UNIT</option>
                   <option value="STORAGE">STORAGE</option>
                 </select>
-                <input
-                  placeholder="Destination Holder ID/Name *"
-                  value={transferForm.toHolderId}
-                  onChange={(e) => setTransferForm({ ...transferForm, toHolderId: e.target.value })}
-                  required
-                />
+                {transferForm.toHolderType==='STORAGE'?<input placeholder="Storage location" maxLength={255} value={transferForm.toHolderId} onChange={e=>setTransferForm(old=>({...old,toHolderId:e.target.value}))} required/>:<CustodyRecipientPicker key={selectedId+':'+transferForm.toHolderType} eventId={eventId} evidenceId={selectedId!} type={transferForm.toHolderType} value={transferForm.toHolderId} disabled={false} onChange={id=>setTransferForm(old=>({...old,toHolderId:id}))}/>} 
               </div>
               <input
-                placeholder="Reason for Transfer"
+                placeholder="Reason for Transfer" required
                 value={transferForm.reason}
                 onChange={(e) => setTransferForm({ ...transferForm, reason: e.target.value })}
               />
@@ -229,10 +226,10 @@ export function EvidencePanel({ eventId }: EvidencePanelProps) {
                     <div key={h.id} style={{ padding: '0.5rem 0.75rem', background: 'var(--card-hover)', borderRadius: '4px', fontSize: '0.85rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', color: '#6b7280' }}>
                         <span>{formatTime(h.occurredAt)}</span>
-                        <span>Transferred by: {h.transferredByUserId}</span>
+                        <span>Transferred by: {h.transferredByName??'Recorded account'}</span>
                       </div>
                       <div>
-                        From <strong>{h.fromHolderType}:{h.fromHolderId}</strong> ➔ To <strong>{h.toHolderType}:{h.toHolderId}</strong>
+                        From <strong>{h.fromHolderName??(h.fromHolderType==='STORAGE'?h.fromHolderId:h.fromHolderType)}</strong> ➔ To <strong>{h.toHolderName??(h.toHolderType==='STORAGE'?h.toHolderId:h.toHolderType)}</strong>
                       </div>
                       {h.reason && <div style={{ color: '#4b5563' }}>Reason: {h.reason}</div>}
                     </div>
