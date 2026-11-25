@@ -141,9 +141,13 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         await assert.rejects(forensicController.getAnalysisDetail(eventB,created.id,requester),NotFoundException);
         await assert.rejects(forensicController.updateStatus(eventB,created.id,{status:'APPROVED'},requester),NotFoundException);
         await assert.rejects(forensics.updateStatus(created.id,{status:'APPROVED'},requester),ForbiddenException);
+        const outgoing=await tasks.listMyWork(eventA,MyWorkQuerySchema.parse({view:'requested'}),requester);
+        assert.ok(outgoing.items.some(x=>x.id===created.id&&x.kind==='FORENSIC_ANALYSIS'&&!x.reportAvailable));
         assert.equal(created.assignedUnitId,unitA);assert.ok([worker.id,secondWorker.id].includes(created.assignedToUserId!));
         const examiner=created.assignedToUserId===worker.id?worker:secondWorker;
         await assert.rejects(forensics.updateStatus(created.id,{status:'APPROVED'},organizer),BadRequestException);
+        const assignedWork=await tasks.listMyWork(eventA,MyWorkQuerySchema.parse({view:'personal'}),examiner);
+        assert.ok(assignedWork.items.some(x=>x.id===created.id&&x.kind==='FORENSIC_ANALYSIS'));
         await forensics.updateStatus(created.id,{status:'ACCEPTED'},examiner);
         await forensics.updateStatus(created.id,{status:'IN_PROGRESS'},examiner);
         await assert.rejects(forensics.updateStatus(created.id,{status:'COMPLETED'},examiner),BadRequestException);
@@ -158,6 +162,10 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         const inbox=new NotificationsService(database,{} as never,{} as never,{} as never,auth);
         const receipts=(await inbox.getNotifications(requester.id,eventA)).newItems.filter(x=>x.resourceId===created.id&&x.templateKey==='forensics.request.status');
         assert.deepEqual(receipts.map(x=>x.templateParams.status).sort(),['ACCEPTED','APPROVED','COMPLETED','IN_PROGRESS','REQUESTED']);
+        const results=await tasks.listMyWork(eventA,MyWorkQuerySchema.parse({view:'requested'}),requester);
+        assert.ok(results.items.some(x=>x.id===created.id&&x.reportAvailable));
+        const assignment=(await inbox.getNotifications(examiner.id,eventA)).newItems.find(x=>x.resourceId===created.id&&x.templateKey==='forensics.assigned');
+        assert.ok(assignment);await inbox.markRead(assignment.id,examiner.id);
       }finally{await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,role!.id),eq(rolePermissions.permissionKey,Permissions.FORENSICS_REQUEST)));}
     });
     await t.test('task creation denies an outsider and a member without TASK_CREATE before writes', async () => {
@@ -245,7 +253,7 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       assert.deepEqual(personal.availableViews, ['personal']);
       assert.deepEqual(personal.availableUnits, []);
       const leaderWork = await tasks.listMyWork(eventA, MyWorkQuerySchema.parse({}), leader);
-      assert.deepEqual(leaderWork.availableViews, ['personal', 'unit']);
+      assert.deepEqual(leaderWork.availableViews, ['personal', 'unit','requested']);
       assert.deepEqual(leaderWork.availableUnits.map((unit) => unit.id), [unitA]);
       await assert.rejects(tasks.listMyWork(eventA, MyWorkQuerySchema.parse({ view: 'event' }), worker), ForbiddenException);
       await assert.rejects(tasks.listMyWork(eventA, MyWorkQuerySchema.parse({ view: 'unit', unitId: unitA }), worker), ForbiddenException);

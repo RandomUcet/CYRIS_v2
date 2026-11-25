@@ -16,7 +16,9 @@ import { serviceModuleLabels, type MyWorkResponse, type MyWorkView } from '@cyri
 
 export default function MyWorkPage() {
   const { eventId } = useParams<{ eventId: string }>();
-  return <WorkQueue key={eventId} eventId={eventId} />;
+  const {currentUser,viewAs,loading}=useAuth();
+  if(loading)return <AppShell><LoadingState/></AppShell>;
+  return <WorkQueue key={JSON.stringify([eventId,currentUser?.user.id,viewAs?.id,currentUser?.memberships.find(m=>m.eventId===eventId)?.permissions,currentUser?.platformPermissions])} eventId={eventId} />;
 }
 
 function WorkQueue({ eventId }: { eventId: string }) {
@@ -40,14 +42,15 @@ function WorkQueue({ eventId }: { eventId: string }) {
 
 
   const requestSequence = useRef(0);
-  const availableViews = result?.availableViews ?? ['personal'];
+  const availableViews = result?.availableViews ?? ['personal','requested'];
   const units = result?.availableUnits ?? [];
   const needsUnitSelection = view === 'unit' && !unitId;
 
   useEffect(() => {
     const refresh = () => setRefreshNonce(n => n + 1);
     window.addEventListener('focus', refresh);
-    return () => window.removeEventListener('focus', refresh);
+    const timer=window.setInterval(()=>{if(!document.hidden)refresh();},20000);
+    return () => {window.removeEventListener('focus', refresh);window.clearInterval(timer);};
   }, []);
 
   useEffect(() => {
@@ -71,10 +74,10 @@ function WorkQueue({ eventId }: { eventId: string }) {
         const lastPage = Math.max(1, Math.ceil(response.data.total / response.data.limit));
         if (page > lastPage) setPage(lastPage);
       }
-      else setError(response.error || 'Unable to load My Work');
+      else {setResult(null);setError(response.error || 'Unable to load My Work');}
     }).catch((cause) => {
       if (sequence !== requestSequence.current) return;
-      setError(cause instanceof Error ? cause.message : 'Unable to load My Work');
+      setResult(null);setError(cause instanceof Error ? cause.message : 'Unable to load My Work');
     }).finally(() => {
       if (sequence === requestSequence.current) setLoading(false);
     });
@@ -125,7 +128,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
                 color: 'var(--color-text-main)',
               }}
             >
-              {option === 'personal' ? (cs ? 'Moje práce' : 'My work') : option === 'unit' ? (cs ? 'Práce týmu' : 'Unit queue') : (cs ? 'Přehled cvičení' : 'Event overview')}
+              {option==='requested'?(cs?'Moje žádanky a výsledky':'My requests and results'):option === 'personal' ? (cs ? 'Moje práce' : 'My work') : option === 'unit' ? (cs ? 'Práce týmu' : 'Unit queue') : (cs ? 'Přehled cvičení' : 'Event overview')}
             </button>
           ))}
           {view === 'unit' && (
@@ -151,7 +154,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
 
         {loading && <LoadingState />}
         {!loading && error && <ErrorState message={error} onRetry={() => setRefreshNonce((value) => value + 1)} />}
-        {!loading && !error && needsUnitSelection && <EmptyState title={cs ? 'Vyber tým' : 'Select a team'} description={cs ? 'Zobrazí se úkoly a laboratorní požadavky vybraného týmu.' : 'See the selected team’s tasks and laboratory requests.'} />}
+        {!loading && !error && needsUnitSelection && <EmptyState title={cs ? 'Vyber tým' : 'Select a team'} description={cs ? 'Zobrazí se dostupné úkoly a odborné rozbory vybraného týmu.' : 'See the selected team’s accessible tasks and specialist requests.'} />}
         {!loading && !error && !needsUnitSelection && result && result.items.length === 0 && (
           <EmptyState title={t('myWork.emptyTitle')} description={t('myWork.emptyDescription')} />
         )}
@@ -165,7 +168,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
                   className="my-work-item"
                 >
                   <span>{item.identifier}</span>
-                  <span><strong>{item.title}</strong><small>{item.kind === 'LAB_ANALYSIS' ? (cs ? 'Laboratorní požadavek' : 'Laboratory request') : (cs ? 'Úkol' : 'Task')}</small></span>
+                  <span><strong>{item.title}</strong><small>{item.kind === 'LAB_ANALYSIS' ? (cs ? 'Laboratorní požadavek' : 'Laboratory request') : item.kind==='FORENSIC_ANALYSIS'?(cs?'Digitální forenzní analýza':'Digital forensic analysis'):(cs ? 'Úkol' : 'Task')}{item.assignedUnitName?' · '+item.assignedUnitName:''}{item.reportAvailable?' · '+(cs?'Schválený protokol':'Approved report'):''}</small></span>
                   <StatusBadge status={item.status} />
                   <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>{formatDate(item.updatedAt)}</span>
                 </Link>

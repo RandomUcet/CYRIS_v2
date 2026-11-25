@@ -44,10 +44,13 @@ test('My Work excludes terminal task and laboratory statuses', () => {
   assert.equal(isActionableMyWorkItem({ kind: 'TASK', status: 'IN_PROGRESS' }), true);
   assert.equal(isActionableMyWorkItem({ kind: 'LAB_ANALYSIS', status: 'APPROVED' }), false);
   assert.equal(isActionableMyWorkItem({ kind: 'LAB_ANALYSIS', status: 'REQUESTED' }), true);
+  assert.equal(isActionableMyWorkItem({kind:'FORENSIC_ANALYSIS',status:'APPROVED'}),false);
+  assert.equal(isActionableMyWorkItem({kind:'FORENSIC_ANALYSIS',status:'COMPLETED'}),true);
 });
 
 test('My Work view scope allows only personal, authorized unit, or authorized event views', () => {
   assert.equal(isMyWorkViewAllowed('personal', false, false, false), true);
+  assert.equal(isMyWorkViewAllowed('requested',false,false,false),true);
   assert.equal(isMyWorkViewAllowed('unit', true, false, true), true);
   assert.equal(isMyWorkViewAllowed('unit', true, false, false), false);
   assert.equal(isMyWorkViewAllowed('event', false, false, false), false);

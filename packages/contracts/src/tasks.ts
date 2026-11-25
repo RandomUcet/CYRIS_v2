@@ -186,7 +186,7 @@ export type TaskQueryFilters = z.infer<typeof TaskQueryFiltersSchema>;
 export type TaskPriority = TaskPriorityType;
 export type TaskStatus = TaskStatusType;
 
-export const MyWorkViewSchema = z.enum(['personal', 'unit', 'event']);
+export const MyWorkViewSchema = z.enum(['personal', 'unit', 'event','requested']);
 export type MyWorkView = z.infer<typeof MyWorkViewSchema>;
 
 export const MyWorkQuerySchema = z.object({
@@ -200,7 +200,8 @@ export type MyWorkQuery = z.infer<typeof MyWorkQuerySchema>;
 export const MyWorkItemSchema = z.object({
   id: z.string().uuid(),
   eventId: z.string().uuid(),
-  kind: z.enum(['TASK', 'LAB_ANALYSIS']),
+  kind: z.enum(['TASK', 'LAB_ANALYSIS','FORENSIC_ANALYSIS']),
+  reportAvailable:z.boolean().optional(),
   identifier: z.string(),
   title: z.string(),
   status: z.string(),

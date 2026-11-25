@@ -1286,7 +1286,7 @@ export class CyrisApiClient {
 
   async listMyWork(
     eventId: string,
-    query?: { view?: 'personal' | 'unit' | 'event'; unitId?: string; page?: number; limit?: number }
+    query?: { view?: 'personal' | 'unit' | 'event' | 'requested'; unitId?: string; page?: number; limit?: number }
   ): Promise<{ ok: boolean; data?: MyWorkResponse; error?: string }> {
     const params = new URLSearchParams();
     if (query?.view) params.set('view', query.view);
