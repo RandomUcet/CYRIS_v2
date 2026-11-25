@@ -21,6 +21,8 @@ import { SearchIndexerService } from '../modules/search/search-indexer.service.j
 import { NotificationsService } from '../modules/notifications/notifications.service.js';
 import { TasksService } from '../modules/tasks/tasks.service.js';
 import { TasksController } from '../modules/tasks/tasks.controller.js';
+import { ForensicsService } from '../modules/forensics/forensics.service.js';
+import { ForensicsController } from '../modules/forensics/forensics.controller.js';
 import { LaboratoryService } from '../modules/laboratory/laboratory.service.js';
 import { DisruptionsService } from '../modules/disruptions/disruptions.service.js';
 import type { AuthenticatedUser } from '../modules/auth/session.service.js';
@@ -59,6 +61,8 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
   const disruptions = new DisruptionsService(database, auth, audit);
   const tasks = new TasksService(database, resource, access, allocator, audit, activity, indexer, notificationService, auth, disruptions);
   const controller = new TasksController(tasks);
+  const forensics=new ForensicsService(database,audit,activity,resource,access,allocator,auth);
+  const forensicController=new ForensicsController(forensics);
   const lab = new LaboratoryService(database, resource, access, allocator, audit, activity, indexer, notificationService, auth);
 
   const eventA = generateId();
@@ -116,6 +120,25 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
     await db.insert(resources).values({ id: evidenceId, eventId: eventA, resourceType: 'evidence', visibility: 'EVENT', ownerUserId: requester.id });
     await db.insert(evidence).values({ id: evidenceId, evidenceNumber: 'EV-TEST', title: 'Fixture sample', evidenceType: 'sample', currentHolderId: requester.id });
 
+    await t.test('forensic request and indicator creation require permission, event routes are scoped',async()=>{
+      const request={purpose:'Fixture review',analysisType:'FILE_ANALYSIS',priority:'MEDIUM',visibility:'EVENT',evidenceIds:[evidenceId] } as const;
+      const dto={...request,evidenceIds:[...request.evidenceIds]};
+      await assert.rejects(forensics.createAnalysis(eventA,dto,outsider),ForbiddenException);
+      await assert.rejects(forensics.createAnalysis(eventA,dto,requester),ForbiddenException);
+      await assert.rejects(forensics.createIndicator(eventA,{indicatorType:'OTHER',value:'fixture',verificationState:'UNVERIFIED'},requester),ForbiddenException);
+      const [role]=await db.select({id:roles.id}).from(roles).where(and(eq(roles.eventId,eventA),eq(roles.slug,'laboratory-requester')));
+      await db.insert(rolePermissions).values({roleId:role!.id,permissionKey:Permissions.FORENSICS_REQUEST,scope:'EVENT'});
+      try{
+        await assert.rejects(forensics.createAnalysis(eventB,dto,requester),ForbiddenException);
+        await assert.rejects(forensics.createAnalysis(eventA,{...dto,deviceIds:[evidenceId]},requester),BadRequestException);
+        const created=await forensics.createAnalysis(eventA,dto,requester);
+        assert.equal(created.requestedByUserId,requester.id);
+        assert.equal(created.status,'REQUESTED');
+        await assert.rejects(forensicController.getAnalysisDetail(eventB,created.id,requester),NotFoundException);
+        await assert.rejects(forensicController.updateStatus(eventB,created.id,{status:'APPROVED'},requester),NotFoundException);
+        await assert.rejects(forensics.updateStatus(created.id,{status:'APPROVED'},requester),ForbiddenException);
+      }finally{await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,role!.id),eq(rolePermissions.permissionKey,Permissions.FORENSICS_REQUEST)));}
+    });
     await t.test('task creation denies an outsider and a member without TASK_CREATE before writes', async () => {
       const dto = CreateOperationalTaskRequestSchema.parse({ title: 'Unauthorized task' });
       await assert.rejects(tasks.createTask(eventA, dto, outsider), ForbiddenException);

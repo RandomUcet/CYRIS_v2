@@ -14,7 +14,7 @@ import {
   roleAssignments,
   roles,
   rolePermissions,
-  operationalTasks,labAnalyses,labAnalysisEvidence,
+  operationalTasks,labAnalyses,labAnalysisEvidence,forensicAnalyses,
   MembershipStatus,
   ResourceVisibility,
 } from '@cyris/db';
@@ -229,6 +229,11 @@ export class ResourceAccessService {
     if(resource.resourceType==='lab_analysis'&&permission===Permissions.LAB_READ&&resource.ownerUserId===user.id){
       const [request]=await db.select({requester:labAnalyses.requestedByUserId,unit:labAnalyses.requestedFromUnitId}).from(labAnalyses).where(eq(labAnalyses.id,resource.id)).limit(1);
       if(request?.requester===user.id&&await this.authzService.authorize({user,permission:Permissions.LAB_REQUEST,context:{eventId:resource.eventId,unitId:request.unit??undefined,resourceOwnerId:user.id}}))return true;
+    }
+
+    if(resource.resourceType==='forensic_analysis'&&permission===Permissions.FORENSICS_READ&&resource.ownerUserId===user.id){
+      const [request]=await db.select({requester:forensicAnalyses.requestedByUserId,unit:forensicAnalyses.requestedFromUnitId}).from(forensicAnalyses).where(and(eq(forensicAnalyses.id,resource.id),eq(forensicAnalyses.eventId,resource.eventId))).limit(1);
+      if(request?.requester===user.id&&await this.authzService.authorize({user,permission:Permissions.FORENSICS_REQUEST,context:{eventId:resource.eventId,unitId:request.unit??undefined,resourceOwnerId:user.id}}))return true;
     }
 
     // Check if operator has the required permission under an applicable scope
