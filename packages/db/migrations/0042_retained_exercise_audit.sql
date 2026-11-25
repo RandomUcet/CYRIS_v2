@@ -64,6 +64,27 @@ CREATE TRIGGER "events_validate_retention"
 BEFORE INSERT OR UPDATE OF "id" OR DELETE ON "events"
 FOR EACH ROW EXECUTE FUNCTION "validate_exercise_retention"();
 --> statement-breakpoint
+-- A receipt must describe a live archived exercise before removal, not an
+-- arbitrary UUID. The lock also serializes the receipt with audit inserts.
+CREATE FUNCTION "validate_removed_exercise_receipt_insert"() RETURNS trigger LANGUAGE plpgsql AS $
+BEGIN
+  PERFORM 1 FROM public.events e
+    WHERE e.id=NEW.event_id AND e.status='ARCHIVED' AND e.slug=NEW.slug AND e.name=NEW.name
+    FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Removal receipt requires a matching live archived exercise';
+  END IF;
+  IF NEW.audit_count <> (SELECT count(*) FROM public.audit_events a WHERE a.event_id=NEW.event_id) THEN
+    RAISE EXCEPTION 'Removal receipt audit count does not match';
+  END IF;
+  RETURN NEW;
+END;
+$;
+--> statement-breakpoint
+CREATE TRIGGER "removed_exercise_receipt_validate_insert"
+BEFORE INSERT ON "removed_exercise_receipts"
+FOR EACH ROW EXECUTE FUNCTION "validate_removed_exercise_receipt_insert"();
+--> statement-breakpoint
 CREATE FUNCTION "validate_removed_exercise_receipt"() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF EXISTS (SELECT 1 FROM public.events WHERE id=NEW.event_id) THEN

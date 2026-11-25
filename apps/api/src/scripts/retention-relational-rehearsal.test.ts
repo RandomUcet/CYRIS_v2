@@ -90,6 +90,12 @@ test('real relational reset and full removal execute in disposable PostgreSQL an
         await recordRemovedExerciseReceipt(sub,a);
         await sub.execute(sql`SET CONSTRAINTS removed_exercise_receipt_requires_removal IMMEDIATE`);
       }),/same transaction/);
+      await assert.rejects(tx.transaction(async sub=>{
+        await sub.execute(sql`INSERT INTO removed_exercise_receipts(event_id,slug,name,audit_count) VALUES(gen_random_uuid(),'missing','Missing',0)`);
+      }),/matching live archived exercise/);
+      await assert.rejects(tx.transaction(async sub=>{
+        await sub.execute(sql`INSERT INTO removed_exercise_receipts(event_id,slug,name,audit_count) VALUES(${a},${a},'Reset fixture',999)`);
+      }),/audit count does not match/);
       const removal=await executeRehearsal(tx,a,'remove');
       assert.ok(removal.removed>=7);
       assert.equal(removal.order.at(-1),'events');

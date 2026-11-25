@@ -17,7 +17,7 @@ import { privateControlTypes } from '../disruptions/module-resources.js';
 import { redactSensitiveData } from '../../common/redaction.js';
 import type { AuditQueryFilters, AuditListResponse, AuditEventItem } from '@cyris/contracts';
 
-const liveEventId=sql<string|null>`(SELECT e.id FROM public.events e WHERE e.id=${auditEvents.eventId})`;
+const liveEventIdExpression=sql<string|null>`(SELECT e.id FROM public.events e WHERE e.id=${auditEvents.eventId})`;
 const historicalExerciseName=sql<string|null>`coalesce((SELECT e.name FROM public.events e WHERE e.id=${auditEvents.eventId}),(SELECT r.name FROM public.removed_exercise_receipts r WHERE r.event_id=${auditEvents.eventId}))`;
 const actorAccount=alias(users,'audit_actor_account');
 const targetAccount=alias(users,'audit_target_account');
@@ -232,7 +232,7 @@ export class AuditService {
     const total = totalResult ? Number(totalResult.count) : 0;
 
     const rows = await db
-      .select({row:auditEvents,liveEventId,exerciseName:historicalExerciseName,actorDisplayName:actorAccount.displayName,resourceDisplayName:targetAccount.displayName})
+      .select({row:auditEvents,liveEventId:liveEventIdExpression,exerciseName:historicalExerciseName,actorDisplayName:actorAccount.displayName,resourceDisplayName:targetAccount.displayName})
       .from(auditEvents)
       .leftJoin(actorAccount,actorJoin).leftJoin(targetAccount,targetJoin)
       .where(whereClause)
@@ -274,7 +274,7 @@ export class AuditService {
   async getById(id: string, isPlatformAdmin = false): Promise<AuditEventItem | null> {
     const db = this.databaseService.client;
     const [result] = await db
-      .select({row:auditEvents,liveEventId,exerciseName:historicalExerciseName,actorDisplayName:actorAccount.displayName,resourceDisplayName:targetAccount.displayName})
+      .select({row:auditEvents,liveEventId:liveEventIdExpression,exerciseName:historicalExerciseName,actorDisplayName:actorAccount.displayName,resourceDisplayName:targetAccount.displayName})
       .from(auditEvents)
       .leftJoin(actorAccount,actorJoin).leftJoin(targetAccount,targetJoin)
       .where(and(eq(auditEvents.id, id), visibleAuditActions(isPlatformAdmin)))
