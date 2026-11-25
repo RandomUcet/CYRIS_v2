@@ -1300,8 +1300,62 @@ WantedBy=timers.target
         run_command(["systemctl", "disable", "--now", "cyris-backup.timer"], capture=False)
 
 
+# Only fixed classifications leave the process. Raw logs can contain scenario
+# answers, personal data and credentials, so do not export snippets or hashes.
+DIAGNOSTIC_LOG_PATTERNS = (
+    ("OUT_OF_MEMORY", r"\b(?:oomkilled|out of memory|heap out of memory)\b"),
+    ("DATABASE_CONNECTION", r"\b(?:database connection|connection terminated|too many connections|password authentication failed)\b"),
+    ("MIGRATION", r"\b(?:migration failed|relation .{1,100} does not exist|undefined_table)\b"),
+    ("PROVIDER_AUTH", r"\b(?:AUTH_FAILED|unauthorized|forbidden)\b"),
+    ("TIMEOUT", r"\b(?:timeout|timed out|ETIMEDOUT|TIMEOUT)\b"),
+    ("CAPACITY", r"\b(?:capacity rejected|rate limit|too many requests|CAPACITY)\b"),
+    ("CONNECTION_REFUSED", r"\b(?:ECONNREFUSED|ENOTFOUND|connection refused|connection reset|EHOSTUNREACH)\b"),
+    ("INVALID_OUTPUT", r"\b(?:INVALID_OUTPUT|EMPTY_OUTPUT|TRUNCATED|invalid json)\b"),
+    ("HTTP_5XX", r"\b(?:HTTP[/ ](?:[0-9.]+ )?5[0-9]{2}|status(?:Code)?[=: ]+5[0-9]{2})\b"),
+    ("ERROR", r"\b(?:error|exception|fatal|panic|traceback)\b"),
+)
+DIAGNOSTIC_SERVICES=("api","worker","web","postgres","redis","typesense","minio")
+
+def classify_diagnostic_logs(raw):
+    """Count matching lines, not incidents; one fixed category per line."""
+    counts = {}
+    lines = raw.splitlines()
+    for line in lines:
+        for category, pattern in DIAGNOSTIC_LOG_PATTERNS:
+            if re.search(pattern, line, re.IGNORECASE):
+                counts[category] = counts.get(category, 0) + 1
+                break
+    return {"sampledLines": len(lines), "categories":counts}
+
+def diagnostic_summary(minutes):
+    if not 1 <= minutes <= 1440:
+        raise ValueError("Choose a log window between 1 and 1440 minutes")
+    report={"schema":"cyris.diagnostic-summary.v1","collectedAt":datetime.now(timezone.utc).isoformat(),
+            "version":get_installed_version(),"windowMinutes":minutes,"maxLinesPerService":500,"services":{}}
+    # Do not export arbitrary values from Compose, stderr, host info or logs.
+    cmd=["docker","compose","-f",CYRIS_COMPOSE_FILE]
+    if os.path.exists(CYRIS_ENV_FILE):
+        cmd.extend(["--env-file",CYRIS_ENV_FILE])
+    for name in DIAGNOSTIC_SERVICES:
+        try:
+            result=subprocess.run(cmd+["logs","--no-color","--no-log-prefix","--since",f"{minutes}m","--tail","500",name],
+                capture_output=True,timeout=20,check=False,text=True,errors="replace")
+            if result.returncode:
+                report["services"][name]={"status":"unavailable"}
+                continue
+            # Never include raw log lines in the report, even when classification fails.
+            report["services"][name]={"status":"sampled",**classify_diagnostic_logs(result.stdout)}
+        except (OSError,subprocess.TimeoutExpired):
+            report["services"][name]={"status":"unavailable"}
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-(?:rc|alpha|beta)\.[0-9]+)?",str(report["version"])):
+        report["version"]="unknown"
+    return report
+
 def cmd_diagnostics(args):
     """Collect non-secret operational diagnostics for troubleshooting."""
+    if getattr(args,'summary',False):
+        print(json.dumps(diagnostic_summary(args.minutes),indent=2,ensure_ascii=True))
+        return
     print("Collecting non-sensitive system diagnostics...")
     os.makedirs(CYRIS_BACKUPS, mode=0o700, exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -1546,6 +1600,8 @@ def main():
 
     # diagnostics
     p_diag = subparsers.add_parser("diagnostics", help="Generate non-secret diagnostics archive")
+    p_diag.add_argument('--summary',action='store_true',help='Print only fixed-category log counts as JSON; never exports raw log messages')
+    p_diag.add_argument('--minutes',type=int,default=60,help='Log sampling window for --summary (1–1440 minutes)')
     p_diag.set_defaults(func=cmd_diagnostics)
 
     args = parser.parse_args()

@@ -264,3 +264,25 @@ class ComposeRefreshPolicy(unittest.TestCase):
         del new["services"]["worker"]
         with self.assertRaisesRegex(ValueError,"topology"):
             ctl.validate_compose_refresh(old,new)
+
+
+class DiagnosticSummary(unittest.TestCase):
+    def test_only_fixed_categories_are_exported(self):
+        sample="ERROR password=super-secret person=John Example\nETIMEDOUT token=private-token\nnormal message\nAUTH_FAILED user=secret"
+        report=ctl.classify_diagnostic_logs(sample)
+        self.assertEqual(report,{"sampledLines":4,"categories":{"ERROR":1,"TIMEOUT":1,"PROVIDER_AUTH":1}})
+        self.assertNotIn("secret",json.dumps(report))
+        self.assertNotIn("John",json.dumps(report))
+
+    def test_window_and_unavailable_services(self):
+        with patch.object(ctl,"get_installed_version",return_value="2.5.1"), patch.object(ctl.subprocess,"run") as run:
+            run.side_effect=[Mock(returncode=0,stdout="ERROR private-password"),Mock(returncode=1,stdout="sensitive"),*[Mock(returncode=0,stdout="") for _ in range(5)]]
+            report=ctl.diagnostic_summary(60)
+            self.assertEqual(report["services"]["api"]["categories"],{"ERROR":1})
+            self.assertEqual(report["services"]["worker"],{"status":"unavailable"})
+            self.assertNotIn("private-password",json.dumps(report))
+            self.assertEqual(run.call_count,7)
+            self.assertIn("--tail",run.call_args_list[0].args[0])
+            self.assertIn("500",run.call_args_list[0].args[0])
+        with self.assertRaises(ValueError):
+            ctl.diagnostic_summary(1441)
