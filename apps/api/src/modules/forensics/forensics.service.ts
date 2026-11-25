@@ -225,7 +225,7 @@ export class ForensicsService {
       activityType: 'forensics.requested',
       actorUserId: user.id,
       title: `Forensic Analysis Requested: ${analysisNumber} (${dto.analysisType})`,
-      summary: dto.purpose,
+      visibility: dto.visibility,
     });
 
     return this.getAnalysisDetail(analysisId, user);
@@ -318,7 +318,7 @@ export class ForensicsService {
       activityType: `forensics.${dto.status.toLowerCase()}`,
       actorUserId: user.id,
       title: `Forensic Analysis ${dto.status}: ${existing.analysisNumber}`,
-      summary: dto.notes || `Transitioned from ${existing.status} to ${dto.status}`,
+      summary: `Transitioned from ${existing.status} to ${dto.status}`,
     });
 
     // Update search index
@@ -398,8 +398,7 @@ export class ForensicsService {
       resourceId: analysisId,
       activityType: 'forensics.finding.created',
       actorUserId: user.id,
-      title: `Finding Added (${dto.findingType}): ${dto.title}`,
-      summary: dto.description.slice(0, 150),
+      title: `Forensic finding recorded: ${analysis.analysisNumber}`,
     });
 
     // Reindex analysis

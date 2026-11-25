@@ -240,11 +240,12 @@ export class ActivityService {
 
   private mapActivityRow(row: typeof activityEvents.$inferSelect): ActivityEventItem {
     const legacyLabCompletion=row.activityType==='lab.completed';
+    const forensicEvent=row.activityType.startsWith('forensics.');
     return {
       id: row.id, eventId: row.eventId, resourceId: row.resourceId,
       activityType: row.activityType, actorUserId: row.actorUserId,
-      occurredAt: row.occurredAt.toISOString(), title: legacyLabCompletion?'Laboratory analysis completed; see the authorized protocol':row.title,
-      summary: legacyLabCompletion?null:row.summary, reason: row.reason, source: row.source,
+      occurredAt: row.occurredAt.toISOString(), title: legacyLabCompletion?'Laboratory analysis completed; see the authorized protocol':forensicEvent?'Forensic analysis activity; see the authorized record':row.title,
+      summary: legacyLabCompletion||forensicEvent?null:row.summary, reason: forensicEvent?null:row.reason, source: row.source,
       causationId: row.causationId, requestId: row.requestId,
       relatedResourceIds: row.relatedResourceIds,
       metadata: row.metadata as Record<string, unknown> | null,
