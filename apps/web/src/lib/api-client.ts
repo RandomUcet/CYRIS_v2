@@ -495,7 +495,8 @@ export class CyrisApiClient {
   async createEvidence(eventId: string, data: any) {
     return this.postJson<any>(`/events/${eventId}/evidence`, data);
   }
-  async transferEvidence(eventId: string, evidenceId: string, data: any) {
+  searchCustodyRecipients(eventId:string,evidenceId:string,type:'USER'|'UNIT',q:string,signal?:AbortSignal){return this.fetchJson<import('@cyris/contracts').CustodyRecipient[]>(`/events/${eventId}/evidence/${evidenceId}/recipients?type=${type}&q=${encodeURIComponent(q)}`,signal);}
+  async transferEvidence(eventId: string, evidenceId: string, data: import('@cyris/contracts').TransferEvidenceRequest) {
     return this.postJson<any>(`/events/${eventId}/evidence/${evidenceId}/transfers`, data);
   }
 

@@ -5,6 +5,7 @@ import {
   Patch,
   Param,
   Body,
+  Query,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import {
   CreateEvidenceRequestSchema,
   UpdateEvidenceRequestSchema,
   TransferEvidenceRequestSchema,
+  CustodyRecipientQuerySchema,
 } from '@cyris/contracts';
 
 @Controller('events/:eventId/evidence')
@@ -65,6 +67,12 @@ export class EvidenceController {
       throw new BadRequestException(parsed.error.errors[0]?.message ?? 'Invalid evidence update');
     }
     return this.evidenceService.updateEvidence(eventId, evidenceId, parsed.data, user);
+  }
+
+  @Get(':evidenceId/recipients')
+  async recipients(@Param('eventId') eventId:string,@Param('evidenceId') evidenceId:string,@Query() query:unknown,@CurrentUser() user:AuthenticatedUser){
+    const parsed=CustodyRecipientQuerySchema.safeParse(query);if(!parsed.success)throw new BadRequestException('Enter at least two search characters');
+    return this.evidenceService.searchRecipients(eventId,evidenceId,parsed.data,user);
   }
 
   @Post(':evidenceId/transfers')

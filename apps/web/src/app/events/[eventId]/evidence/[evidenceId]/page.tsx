@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { CustodyRecipientPicker } from './CustodyRecipientPicker';
 import { ResourcePicker } from '@/components/common/ResourcePicker';
 import { RecordHeader } from '@/components/common/RecordHeader';
 import { RecordTabs } from '@/components/common/RecordTabs';
@@ -41,7 +42,7 @@ export default function EvidenceDetailPage() {
 }
 function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:string}) {
   const router = useRouter();
-  const { hasPermission, user } = useAuth();
+  const { hasPermission, user,viewAs } = useAuth();
   const { currentEvent } = useEvent();
   const { formatTime, locale } = usePreferences();
 
@@ -57,12 +58,8 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
-  const [transferData, setTransferData] = useState({
-    toUserId: '',
-    toUnitId: '',
-    reason: '',
-    storageLocation: '',
-  });
+  const [transferData, setTransferData] = useState<{type:'USER'|'UNIT'|'STORAGE';id:string;reason:string}>({type:'USER',id:'',reason:''});
+  const [transferError,setTransferError]=useState('');
   const [transferring, setTransferring] = useState(false);
 
   // Add Relationship Modal
@@ -71,7 +68,7 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
   const [relType, setRelType] = useState('RELATED_TO');
   const [addingRel, setAddingRel] = useState(false);
 
-  const canTransfer = hasPermission('evidence.transfer', eventId);
+  const canTransfer = !viewAs&&hasPermission('evidence.transfer', eventId);
 
   const fetchEvidenceDetails = async () => {
     setLoading(true);
@@ -118,29 +115,25 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
 
   const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!transferData.reason.trim()) {
-      alert('Custody transfer reason is mandatory for legal continuity.');
-      return;
-    }
+    if(!canTransfer||transferring)return;
+    if(!transferData.reason.trim()||!transferData.id.trim()){setTransferError('Choose a recipient or storage location and enter a reason.');return;}
+    setTransferError('');
 
     setTransferring(true);
     try {
       const res = await apiClient.transferEvidence(eventId, evidenceId, {
-        toUserId: transferData.toUserId.trim() || undefined,
-        toUnitId: transferData.toUnitId.trim() || undefined,
-        reason: transferData.reason.trim(),
-        storageLocation: transferData.storageLocation.trim() || undefined,
+        toHolderType:transferData.type,toHolderId:transferData.id.trim(),reason:transferData.reason.trim(),
       });
 
       if (res.ok) {
         setShowTransferModal(false);
-        setTransferData({ toUserId: '', toUnitId: '', reason: '', storageLocation: '' });
+        setTransferData({type:'USER',id:'',reason:''});
         fetchEvidenceDetails();
       } else {
-        alert(res.error || 'Custody transfer failed');
+        setTransferError(res.error || 'Custody transfer failed');
       }
     } catch (err: any) {
-      alert(err.message);
+      setTransferError(err.message||'Custody transfer failed');
     } finally {
       setTransferring(false);
     }
@@ -203,6 +196,7 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
 
   const evidence = evidenceData.evidence || evidenceData;
   const custodyHistory = evidenceData.custodyHistory ?? evidenceData.custody ?? evidenceData.transfers ?? [];
+  const holderLabel=evidence.currentHolderName||(evidence.currentHolderType==='STORAGE'?(evidence.currentHolderId||'Storage'):'Unavailable holder');
   const linkedCase = evidenceData.case;
   const relationships = evidenceData.relationships || [];
 
@@ -222,8 +216,7 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
           status={<StatusBadge status={evidence.status} />}
           priority={<span className="badge badge-neutral">{evidence.type}</span>}
           classification={<span className="badge badge-neutral">FORENSIC CUSTODY</span>}
-          owningUnit={evidence.currentHolderUnitId ? `Unit: ${evidence.currentHolderUnitId.slice(0, 8)}` : undefined}
-          lead={evidence.currentHolderUserId ? `Holder: ${evidence.currentHolderUserId.slice(0, 8)}` : 'Secure Storage'}
+          lead={holderLabel}
           actions={
             <div style={{ display: 'flex', gap: '8px' }}>
               {hasPermission('lab.request', eventId) && (
@@ -323,7 +316,7 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
                       </span>
                     </div>
                     <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                      {evidence.storageLocation || 'Secure Evidence Room'}
+                      {evidence.currentHolderType==='STORAGE'?holderLabel:'—'}
                     </div>
                   </div>
 
@@ -342,7 +335,7 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
                       </span>
                     </div>
                     <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                      {evidence.currentHolderUserId ? `User ${evidence.currentHolderUserId.slice(0, 8)}` : 'Station Custodian / Unit Vault'}
+                      {holderLabel}
                     </div>
                   </div>
                 </div>
@@ -433,14 +426,10 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
                 ) : (
                   <div className="custody-stream" style={{ maxWidth: '800px' }}>
                     {custodyHistory.map((entry: any, index: number) => {
-                      const timeStr = formatTime(entry.transferredAt || entry.createdAt);
-                      const fromStr = entry.fromUserId ? `User (${entry.fromUserId.slice(0, 8)})` : 'Scene / Seizure';
-                      const toStr = entry.toUserId
-                        ? `User (${entry.toUserId.slice(0, 8)})`
-                        : entry.toUnitId
-                        ? `Unit (${entry.toUnitId.slice(0, 8)})`
-                        : 'Forensics Vault';
-                      const action = entry.action || (index === 0 ? 'SECURED' : 'TRANSFER');
+                      const timeStr = formatTime(entry.occurredAt);
+                      const fromStr = entry.fromHolderName??(entry.fromHolderType==='STORAGE'?entry.fromHolderId:'Unavailable holder');
+                      const toStr=entry.toHolderName??(entry.toHolderType==='STORAGE'?entry.toHolderId:'Unavailable holder');
+                      const action=entry.fromHolderId==='SCENE_ORIGIN'?'SECURED':'TRANSFER';
 
                       return (
                         <div key={entry.id || index} className="custody-stream-item">
@@ -526,12 +515,12 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
             onClose={() => setInspectorOpen(false)}
             rows={[
               { label: 'Evidence Number', value: evidence.evidenceNumber || evidence.id, copyable: true },
-              { label: 'Resource UUID', value: evidence.id, copyable: true },
+              
               { label: 'Category / Type', value: evidence.type },
               { label: 'Custody Status', value: <StatusBadge status={evidence.status} /> },
               { label: 'Associated Case', value: linkedCase?.caseNumber || 'None' },
-              { label: 'Current Holder', value: evidence.currentHolderUserId || 'Vault Custodian' },
-              { label: 'Storage Location', value: evidence.storageLocation || 'Vault' },
+              { label: 'Current Holder', value: holderLabel },
+              { label: 'Storage Location', value: evidence.currentHolderType==='STORAGE'?holderLabel:'—' },
               { label: 'Secured At', value: formatTime(evidence.createdAt) },
             ]}
             actions={
@@ -625,50 +614,11 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                      Recipient User UUID
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Optional User UUID"
-                      value={transferData.toUserId}
-                      onChange={(e) => setTransferData({ ...transferData, toUserId: e.target.value })}
-                      className="input-field"
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                      Recipient Unit UUID
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Optional Unit UUID"
-                      value={transferData.toUnitId}
-                      onChange={(e) => setTransferData({ ...transferData, toUnitId: e.target.value })}
-                      className="input-field"
-                      style={{ width: '100%' }}
-                    />
-                  </div>
+                <div style={{display:'grid',gap:12,marginBottom:18}}>
+                  <label>Recipient type<select className="input-field" style={{display:'block',width:'100%'}} value={transferData.type} disabled={transferring} onChange={e=>{setTransferData(old=>({...old,type:e.target.value as typeof old.type,id:''}));setTransferError('');}}><option value="USER">User</option><option value="UNIT">Team / unit</option><option value="STORAGE">Storage location</option></select></label>
+                  {transferData.type==='STORAGE'?<label>Storage location<input className="input-field" style={{display:'block',width:'100%'}} required maxLength={255} value={transferData.id} disabled={transferring} onChange={e=>setTransferData(old=>({...old,id:e.target.value}))}/></label>:<CustodyRecipientPicker key={transferData.type} eventId={eventId} evidenceId={evidenceId} type={transferData.type} value={transferData.id} disabled={transferring} onChange={id=>setTransferData(old=>({...old,id}))}/>}
+                  {transferError&&<p role="alert">{transferError}</p>}
                 </div>
-
-                <div style={{ marginBottom: '18px' }}>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                    New Physical Storage Location
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Digital Forensics Lab - Locker 3"
-                    value={transferData.storageLocation}
-                    onChange={(e) => setTransferData({ ...transferData, storageLocation: e.target.value })}
-                    className="input-field"
-                    style={{ width: '100%' }}
-                  />
-                </div>
-
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                   <button
                     type="button"
@@ -678,7 +628,7 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
                   >
                     Cancel
                   </button>
-                  <button type="submit" className="btn btn-primary" disabled={transferring}>
+                  <button type="submit" className="btn btn-primary" disabled={transferring||!transferData.id.trim()||!transferData.reason.trim()}>
                     {transferring ? 'Logging Transfer...' : 'Commit Transfer'}
                   </button>
                 </div>

@@ -37,12 +37,12 @@ export type UpdateEvidenceRequest = z.infer<typeof UpdateEvidenceRequestSchema>;
 
 export const TransferEvidenceRequestSchema = z.object({
   toHolderType: CustodyHolderTypeSchema,
-  toHolderId: z.string().min(1),
-  reason: z.string().optional(),
+  toHolderId: z.string().trim().min(1).max(255),
+  reason: z.string().trim().min(1).max(2000),
   notes: z.string().optional(),
   newStatus: EvidenceStatusSchema.optional(),
   causationId: z.string().uuid().optional(),
-});
+}).strict().refine(v=>v.toHolderType==='STORAGE'||z.string().uuid().safeParse(v.toHolderId).success,'Select an existing user or unit');
 
 export type TransferEvidenceRequest = z.infer<typeof TransferEvidenceRequestSchema>;
 
@@ -53,6 +53,8 @@ export const EvidenceCustodyTransferResponseSchema = z.object({
   transferredByUserId: z.string().uuid(),
   fromHolderType: z.string(),
   fromHolderId: z.string(),
+  fromHolderName:z.string().nullable().optional(),
+  toHolderName:z.string().nullable().optional(),
   toHolderType: z.string(),
   toHolderId: z.string(),
   reason: z.string().nullable().optional(),
@@ -75,6 +77,7 @@ export const EvidenceResponseSchema = z.object({
   owningUnitId: z.string().uuid().nullable().optional(),
   currentHolderType: z.string(),
   currentHolderId: z.string(),
+  currentHolderName:z.string().nullable().optional(),
   visibility: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -82,3 +85,7 @@ export const EvidenceResponseSchema = z.object({
 });
 
 export type EvidenceResponse = z.infer<typeof EvidenceResponseSchema>;
+
+export const CustodyRecipientQuerySchema=z.object({q:z.string().trim().min(2).max(80),type:z.enum(['USER','UNIT'])}).strict();
+export type CustodyRecipientQuery=z.infer<typeof CustodyRecipientQuerySchema>;
+export type CustodyRecipient={id:string;name:string};
