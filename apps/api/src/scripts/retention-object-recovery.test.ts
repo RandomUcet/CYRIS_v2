@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {S3Client,CreateBucketCommand,DeleteBucketCommand,PutObjectCommand,GetObjectCommand,DeleteObjectCommand} from '@aws-sdk/client-s3';
-import {selectRecoveryObjects,stageRecoveryObjects,removeStagedObjects,restoreStagedObjects} from './retention-object-recovery.js';
+import {selectRecoveryObjects,stageRecoveryObjects,removeStagedObjects,restoreStagedObjects,resumeStagedRemoval,resumeStagedRestore,validateRecoveryManifest} from './retention-object-recovery.js';
 
 const event=randomUUID(),other=randomUUID(),resource=randomUUID();
 const key='documents/'+event+'/file',foreign='documents/'+other+'/file';
@@ -44,6 +44,44 @@ test('actual MinIO objects are staged, conditionally removed, and restored with 
     assert.equal(await (await client.send(new GetObjectCommand({Bucket:source,Key:key}))).Body!.transformToString(),'first content');
   }finally{
     for(const [Bucket,Key] of [[source,key],[source,foreign],[backup,backupKey]] as const)await client.send(new DeleteObjectCommand({Bucket,Key})).catch(()=>{});
+    for(const Bucket of [source,backup])await client.send(new DeleteBucketCommand({Bucket})).catch(()=>{});
+    client.destroy();
+  }
+});
+
+test('manifest rejects substituted object identity, backup key and invalid size',()=>{
+  const operation=randomUUID(),entry={key,backupKey:'retention/'+operation+'/0',sha256:'a'.repeat(64),size:3,etag:'"etag"'};
+  assert.doesNotThrow(()=>validateRecoveryManifest(operation,[key],[entry]));
+  assert.throws(()=>validateRecoveryManifest(operation,[foreign],[entry]),/manifest entry/);
+  assert.throws(()=>validateRecoveryManifest(operation,[key],[{...entry,backupKey:'unrelated'}]),/manifest entry/);
+  assert.throws(()=>validateRecoveryManifest(operation,[key],[{...entry,size:-1}]),/manifest entry/);
+});
+test('interrupted MinIO removal and restore reconcile actual object state without overwriting replacements',{skip:!isolated},async()=>{
+  const client=new S3Client({endpoint:endpoint!,region:'us-east-1',forcePathStyle:true,credentials:{accessKeyId:'cyris-test-only',secretAccessKey:'local-ci-storage-only'},maxAttempts:1});
+  const source='retention-source-'+randomUUID(),backup='retention-backup-'+randomUUID(),operation=randomUUID();
+  const keys=[key,key+'-second'];
+  try{
+    await client.send(new CreateBucketCommand({Bucket:source}));
+    await client.send(new CreateBucketCommand({Bucket:backup}));
+    for(const Key of [...keys,foreign])await client.send(new PutObjectCommand({Bucket:source,Key,Body:Key,ContentType:'text/plain'}));
+    const manifest=await stageRecoveryObjects(client,client,source,backup,operation,keys);
+    // Simulate interruption after one successful deletion, before local progress was persisted.
+    await client.send(new DeleteObjectCommand({Bucket:source,Key:keys[0]!}));
+    await client.send(new PutObjectCommand({Bucket:source,Key:keys[1]!,Body:'replacement',ContentType:'text/plain'}));
+    await assert.rejects(resumeStagedRemoval(client,client,source,backup,operation,keys,manifest),/Stale original/);
+    await client.send(new PutObjectCommand({Bucket:source,Key:keys[1]!,Body:keys[1]!,ContentType:'text/plain'}));
+    assert.deepEqual(await resumeStagedRemoval(client,client,source,backup,operation,keys,manifest),{removedNow:1,alreadyAbsent:1});
+    assert.deepEqual(await resumeStagedRemoval(client,client,source,backup,operation,keys,manifest),{removedNow:0,alreadyAbsent:2});
+    // Simulate interrupted restore and a conflicting replacement.
+    await client.send(new PutObjectCommand({Bucket:source,Key:keys[0]!,Body:'replacement',ContentType:'text/plain'}));
+    await assert.rejects(resumeStagedRestore(client,client,source,backup,operation,keys,manifest),/Stale original/);
+    await client.send(new PutObjectCommand({Bucket:source,Key:keys[0]!,Body:keys[0]!,ContentType:'text/plain'}));
+    assert.deepEqual(await resumeStagedRestore(client,client,source,backup,operation,keys,manifest),{restoredNow:1,alreadyPresent:1});
+    assert.deepEqual(await resumeStagedRestore(client,client,source,backup,operation,keys,manifest),{restoredNow:0,alreadyPresent:2});
+    for(const Key of [...keys,foreign])assert.equal(await (await client.send(new GetObjectCommand({Bucket:source,Key}))).Body!.transformToString(),Key);
+  }finally{
+    for(const Key of [...keys,foreign])await client.send(new DeleteObjectCommand({Bucket:source,Key})).catch(()=>{});
+    for(const i of keys.keys())await client.send(new DeleteObjectCommand({Bucket:backup,Key:'retention/'+operation+'/'+i})).catch(()=>{});
     for(const Bucket of [source,backup])await client.send(new DeleteBucketCommand({Bucket})).catch(()=>{});
     client.destroy();
   }

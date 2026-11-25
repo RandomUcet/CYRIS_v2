@@ -6,6 +6,7 @@ type ObjectStore=Pick<S3Client,'send'>;
 export type RecoveryObject={key:string;sha256:string;size:number;etag:string;backupKey:string;contentType?:string};
 const MAX_BYTES=16*1024*1024;
 const hash=(data:Uint8Array)=>createHash('sha256').update(data).digest('hex');
+const missingObject=(e:unknown)=>{const x=e as {name?:string;$metadata?:{httpStatusCode?:number}};return x?.name==='NoSuchKey'||x?.name==='NotFound';};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Exact ownership allowlist; no deletion from prefix listing alone. */
@@ -32,7 +33,7 @@ async function assertUnversioned(client:ObjectStore,bucket:string){
   if(state.Status)throw Error('Versioned or suspended bucket requires separate procedure');
 }
 async function read(client:ObjectStore,bucket:string,key:string,etag?:string){
-  const result=await client.send(new GetObjectCommand({Bucket:bucket,Key:key,IfMatch:etag}));
+  const result=await client.send(new GetObjectCommand({Bucket:bucket,Key:key,IfMatch:etag}),{abortSignal:AbortSignal.timeout(30000)});
   if(!result.Body||!result.ETag||result.ContentLength===undefined||result.ContentLength>MAX_BYTES){
     // Abort the body instead of draining an unexpectedly large response.
     const body=result.Body as unknown as {destroy?:()=>void}|undefined;body?.destroy?.();
@@ -70,6 +71,40 @@ export async function stageRecoveryObjects(client:ObjectStore,recovery:ObjectSto
   return manifest;
 }
 
+async function readIfPresent(client:ObjectStore,bucket:string,key:string){
+  try{return await read(client,bucket,key);}catch(e){if(missingObject(e))return null;throw e;}
+}
+type ObjectBytes=Awaited<ReturnType<typeof read>>;
+function matches(m:RecoveryObject,object:ObjectBytes){
+  return hash(object.bytes)===m.sha256&&object.bytes.length===m.size&&object.contentType===m.contentType;
+}
+/** Validate a persisted manifest against the original exact selection. Never
+ * authorize an operation solely from a manifest or a bucket prefix. */
+export function validateRecoveryManifest(operationId:string,keys:readonly string[],manifest:readonly RecoveryObject[]){
+  if(!uuid.test(operationId)||keys.length!==manifest.length||keys.length>2000||new Set(keys).size!==keys.length)throw Error('Invalid recovery manifest');
+  let total=0;
+  for(const [i,m] of manifest.entries()){
+    if(m.key!==keys[i]||m.backupKey!=='retention/'+operationId+'/'+i||!m.etag||!/^[0-9a-f]{64}$/.test(m.sha256)||!Number.isSafeInteger(m.size)||m.size<0||m.size>MAX_BYTES)throw Error('Invalid recovery manifest entry');
+    total+=m.size;
+    if(total>128*1024*1024)throw Error('Recovery manifest exceeds byte budget');
+  }
+}
+/** Read-only reconciliation, based on verified bytes, not only a local
+ * progress counter. A missing backup, stale original, or access error blocks
+ * the entire operation. Identical restored bytes count as already restored. */
+export async function inspectRecoveryProgress(client:ObjectStore,recovery:ObjectStore,sourceBucket:string,recoveryBucket:string,manifest:readonly RecoveryObject[]){
+  if(sourceBucket===recoveryBucket||new Set(manifest.map(x=>x.key)).size!==manifest.length||new Set(manifest.map(x=>x.backupKey)).size!==manifest.length)throw Error('Invalid manifest');
+  await assertUnversioned(client,sourceBucket);await assertUnversioned(recovery,recoveryBucket);
+  const states:{key:string;state:'PRESENT'|'ABSENT';etag?:string}[]=[];
+  for(const m of manifest){
+    const backup=await read(recovery,recoveryBucket,m.backupKey);
+    if(!matches(m,backup))throw Error('Invalid recovery backup');
+    const original=await readIfPresent(client,sourceBucket,m.key);
+    if(original&&!matches(m,original))throw Error('Stale original object');
+    states.push(original?{key:m.key,state:'PRESENT',etag:original.etag}:{key:m.key,state:'ABSENT'});
+  }
+  return states;
+}
 /** Explicit object removal with complete preflight and per-object conditional
  * deletion. Requires independent durable manifest/recovery proof and writer
  * isolation from the future orchestrator. Not wired to a production route. */
@@ -95,4 +130,40 @@ export async function restoreStagedObjects(client:ObjectStore,recovery:ObjectSto
     const restored=await read(client,sourceBucket,m.key);
     if(hash(restored.bytes)!==m.sha256||restored.contentType!==m.contentType)throw Error('Restore verification failed');
   }
+}
+
+/** Recovery after an interrupted removal. Explicit resume is separate from
+ * initial apply: do not reinterpret missing objects as an initial success.
+ * Caller must re-establish writer isolation and verify the persisted signed
+ * manifest plus exact ownership selection before invoking either action.
+ * No production entry point is enabled. */
+export async function resumeStagedRemoval(client:ObjectStore,recovery:ObjectStore,sourceBucket:string,recoveryBucket:string,operationId:string,keys:readonly string[],manifest:readonly RecoveryObject[]){
+  validateRecoveryManifest(operationId,keys,manifest);
+  const states=await inspectRecoveryProgress(client,recovery,sourceBucket,recoveryBucket,manifest);
+  for(const state of states){
+    if(state.state==='ABSENT')continue;
+    const entry=manifest.find(x=>x.key===state.key)!;
+    // For resumed deletion retain the original ETag guard; a replacement
+    // with identical bytes but changed ETag must be reviewed, not erased.
+    if(entry.etag!==state.etag)throw Error('Stale original ETag');
+  }
+  for(const state of states)if(state.state==='PRESENT'){
+    await client.send(new DeleteObjectCommand({Bucket:sourceBucket,Key:state.key,IfMatch:state.etag}),{abortSignal:AbortSignal.timeout(30000)});
+  }
+  const after=await inspectRecoveryProgress(client,recovery,sourceBucket,recoveryBucket,manifest);
+  if(after.some(x=>x.state!=='ABSENT'))throw Error('Removal incomplete');
+  return {removedNow:states.filter(x=>x.state==='PRESENT').length,alreadyAbsent:states.filter(x=>x.state==='ABSENT').length};
+}
+export async function resumeStagedRestore(client:ObjectStore,recovery:ObjectStore,sourceBucket:string,recoveryBucket:string,operationId:string,keys:readonly string[],manifest:readonly RecoveryObject[]){
+  validateRecoveryManifest(operationId,keys,manifest);
+  const states=await inspectRecoveryProgress(client,recovery,sourceBucket,recoveryBucket,manifest);
+  for(const state of states)if(state.state==='ABSENT'){
+    const m=manifest.find(x=>x.key===state.key)!;
+    const copy=await read(recovery,recoveryBucket,m.backupKey);
+    if(!matches(m,copy))throw Error('Invalid recovery backup');
+    await client.send(new PutObjectCommand({Bucket:sourceBucket,Key:m.key,Body:copy.bytes,ContentType:m.contentType,IfNoneMatch:'*'}),{abortSignal:AbortSignal.timeout(30000)});
+  }
+  const after=await inspectRecoveryProgress(client,recovery,sourceBucket,recoveryBucket,manifest);
+  if(after.some(x=>x.state!=='PRESENT'))throw Error('Restore incomplete');
+  return {restoredNow:states.filter(x=>x.state==='ABSENT').length,alreadyPresent:states.filter(x=>x.state==='PRESENT').length};
 }
