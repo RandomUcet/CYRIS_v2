@@ -2,9 +2,10 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { eq } from 'drizzle-orm';
-import { closeDatabaseConnection, events, getDbClient, persons, registryMedia, resources, scenarioDraftMedia, users } from '@cyris/db';
+import { closeDatabaseConnection, events, getDbClient, persons, registryMedia, resources, scenarioDraftMedia, users, outboxEvents } from '@cyris/db';
 import { generateId } from '@cyris/shared';
 import { localWorld, fullName, nameKey, samples } from '../modules/scenario-data/world.js';
+import { ScenarioGenerationService } from '../modules/scenario-data/scenario-generation.service.js';
 import { ScenarioDataService } from '../modules/scenario-data/scenario-data.service.js';
 import { ScenarioDraftMediaService } from '../modules/scenario-data/scenario-draft-media.service.js';
 import { IdentifierAllocatorService } from '../modules/resources/identifier-allocator.service.js';
@@ -54,8 +55,9 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
       assert.match(exclusiveScope, /^scenario-draft:[0-9a-f-]{36}$/);
       const ctx = JSON.parse(messages[1].content);
       if (promptTemplateVersion === 'scenario-blueprint-fast-v1') {
-        assert.equal(options.timeoutMs, 45_000);
-        assert.equal(options.maxTokens, 450);
+        assert.equal(options.timeoutMs, 110_000);
+        assert.equal(options.maxTokens, 700);
+        assert.equal(options.responseFormat,'json_object');
         assert.equal(ctx.scenario, 'Regional railway depot');
         return { text: JSON.stringify({ setting: 'Simulované železniční depo', activities: ['předání směny', 'příjem zboží'], roles: ['dispečer', 'technik'], sites: ['depo', 'sklad'], organisations: ['dopravce', 'dodavatel'], equipment: ['přeprava dokumentů', 'evidence materiálu'] }) };
       }
@@ -85,7 +87,7 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
     index, audit, auth as any, storage as any);
   const media = new ScenarioDraftMediaService(database, auth as any, storage as any, audit);
   try {
-    await db.insert(users).values({ id: uid, email: uid + '@example.test', displayName: 'Generator test' });
+    await db.insert(users).values({ id: uid, email: uid + '@example.test', displayName: 'Generator test',status:'ACTIVE' });
     await db.insert(events).values(ids.map(id => ({ id, slug: id, name: id })));
     const req = { preset: 'CUSTOM' as const, seed: 2027, counts: { ...empty, persons: 6, locations: 2, devices: 2 } };
     const prev = await svc.preview(a, req, user);
@@ -94,13 +96,20 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
     const names = await db.select({ displayName: persons.displayName }).from(persons).where(eq(persons.generationBatchId, local.id)).orderBy(persons.identifier);
     assert.deepEqual(names.slice(0, 4).map(p => p.displayName), prev.samples.persons);
     assert.equal(local.relationshipCount, prev.estimatedRelationships);
+    const publishedIds = new Set((await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,a))).map(row=>row.id));
+    const queued = (await db.select().from(outboxEvents)).filter(row=>{
+      const payload=row.payload as {id?:string};
+      return payload.id && publishedIds.has(payload.id) && row.eventType==='search.upsert';
+    });
+    assert.equal(queued.length,10,'one canonical search job per generated record');
+    assert.ok(queued.every(row=>(row.payload as {type:string}).type!=='resource'));
     await assert.rejects(() => svc.generate(a, req, user), /already exists/);
     await svc.generate(b, req, user);
     const next = await Promise.all([17, 31].map(seed => svc.generate(a, { ...req, seed }, user)));
     const generated = await db.select({ name: persons.displayName }).from(persons).innerJoin(resources, eq(resources.id, persons.id)).where(eq(resources.eventId, a));
     assert.equal(new Set(generated.map(p => p.name)).size, 18);
     assert.notEqual(next[0]!.identifier, next[1]!.identifier);
-    const draft = await svc.startDraft(a, { ...req, counts: { ...empty, persons: 13, devices: 1 }, brief: 'Regional railway depot' }, user);
+    const draft = await svc.startDraft(a, { ...req, counts: { ...empty, persons: 13, devices: 1 }, brief: 'Regional railway depot', strategy:'DETAILED' }, user);
     await assert.rejects(() => svc.advance(b, draft.id, 0, user), /unavailable/);
     await assert.rejects(() => svc.advance(a, draft.id, 0, { id: generateId() } as any), /denied/);
     await assert.rejects(() => svc.advance(a, draft.id, 0, user), /incomplete JSON/);
@@ -163,6 +172,22 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
     assert.equal(fastPublished.counts?.persons, 7);
     assert(fastPublished.relationshipCount > 0);
     await svc.cleanup(a, fast.id, user);
+
+    // Durable dispatch is independent of the browser and coordinates claim ownership.
+    const queue=new ScenarioGenerationService(database,auth as any,svc);
+    const submission={...fastRequest,seed:9342,requestId:generateId()};
+    const [pending,repeated]=await Promise.all([svc.startDraft(a,submission,user),svc.startDraft(a,submission,user)]);
+    assert.equal(pending.id,repeated.id);assert.equal(pending.generation?.state,'QUEUED');
+    assert.equal((await queue.enqueue(a,pending.id,user)).generation?.state,'QUEUED');
+    await assert.rejects(()=>svc.advance(a,pending.id,0,user),/active generation job/);
+    await assert.rejects(()=>svc.cleanup(a,pending.id,user),/Pause generation/);
+    assert.equal((await queue.pause(a,pending.id,user)).generation?.state,'PAUSED');
+    assert.equal((await queue.enqueue(a,pending.id,user)).generation?.state,'QUEUED');
+    await queue.tick();
+    const ready=await svc.get(a,pending.id,user);
+    assert.equal(ready.generation?.state,'COMPLETED');assert.equal(ready.prepared,12);
+    assert.ok(!('token' in ready.generation!));
+    await svc.cleanup(a,pending.id,user);
 
     await svc.cleanup(a, draft.id, user);
     assert.equal(objects.has(attachment.objectKey), false);

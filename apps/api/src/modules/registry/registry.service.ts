@@ -16,6 +16,7 @@ import {
   vehicles,
   devices,
   weapons,
+  licences,
   registryMedia,
   resources,
   type ResourceVisibilityValue,
@@ -72,7 +73,7 @@ export class RegistryService {
     const pattern='%'+query.q+'%';
     // Limit the candidate work per entity type; never scan unrestricted whole-table results into JS.
     const cap=Math.min(90,Math.max(20,query.limit*3));
-    const [personRows,organisationRows,locationRows,vehicleRows,deviceRows,weaponRows]=await Promise.all([
+    const [personRows,organisationRows,locationRows,vehicleRows,deviceRows,weaponRows,licenceRows]=await Promise.all([
       this.db.select({id:persons.id,identifier:persons.identifier,label:persons.displayName})
         .from(persons).innerJoin(resources,eq(persons.id,resources.id))
         .where(and(eq(resources.eventId,eventId),or(ilike(persons.displayName,pattern),ilike(persons.identifier,pattern))))
@@ -98,6 +99,10 @@ export class RegistryService {
         .from(weapons).innerJoin(resources,eq(weapons.id,resources.id))
         .where(and(eq(resources.eventId,eventId),or(ilike(weapons.category,pattern),ilike(weapons.manufacturer,pattern),ilike(weapons.model,pattern),ilike(weapons.identifier,pattern))))
         .orderBy(asc(weapons.category)).limit(cap),
+      this.db.select({id:licences.id,identifier:licences.identifier,label:licences.title})
+        .from(licences).innerJoin(resources,eq(licences.id,resources.id))
+        .where(and(eq(resources.eventId,eventId),or(ilike(licences.title,pattern),ilike(licences.identifier,pattern),ilike(licences.licenceNumber,pattern))))
+        .orderBy(asc(licences.title)).limit(cap),
     ]);
     const candidates=[
       ...personRows.map(row=>({...row,entityType:'persons' as const})),
@@ -106,6 +111,7 @@ export class RegistryService {
       ...vehicleRows.map(row=>({...row,entityType:'vehicles' as const})),
       ...deviceRows.map(row=>({...row,entityType:'devices' as const})),
       ...weaponRows.map(row=>({...row,entityType:'weapons' as const})),
+      ...licenceRows.map(row=>({...row,entityType:'licences' as const})),
     ].sort((a,b)=>a.label.localeCompare(b.label));
     const visible:RegistryPickerResult[]=[];
     for(const candidate of candidates){

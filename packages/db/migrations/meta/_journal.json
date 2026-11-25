@@ -246,6 +246,55 @@
       "when": 1792636000000,
       "tag": "0034_legal_library",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1792637000000,
+      "tag": "0035_exercise_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792638000000,
+      "tag": "0036_exercise_observations",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1792639000000,
+      "tag": "0037_exercise_phase_setup",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792640000000,
+      "tag": "0038_exercise_team_setup",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1792641000000,
+      "tag": "0039_local_test_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792642000000,
+      "tag": "0040_registry_licences",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792643000000,
+      "tag": "0041_exercise_inject_setup",
+      "breakpoints": true
     }
   ]
 }

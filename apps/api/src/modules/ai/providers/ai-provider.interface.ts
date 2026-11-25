@@ -13,6 +13,7 @@ export interface AIGenerateOptions {
   timeoutMs?: number;
   stop?: string[];
   reasoning?: AIReasoningMode;
+  responseFormat?: 'json_object';
 }
 
 export interface AIGenerateResult {

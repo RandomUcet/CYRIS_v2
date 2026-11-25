@@ -1,3 +1,4 @@
+import {parseModelJson} from '../ai/structured-output.js';
 import {ExerciseAdviceDraftSchema,type ExerciseSignal,type ExconDashboardResponse} from '@cyris/contracts';
 export function exerciseSignals(snapshot:ExconDashboardResponse):ExerciseSignal[]{
  return [
@@ -8,11 +9,15 @@ export function exerciseSignals(snapshot:ExconDashboardResponse):ExerciseSignal[
  {id:'unacknowledged-briefings',level:'MEDIUM',label:'Unacknowledged briefing receipts',labelCs:'Nepotvrzená doručení briefingů',count:Math.max(0,snapshot.participation.briefingReceipts-snapshot.participation.briefingsAcknowledged),source:'participation.briefingReceipts - briefingsAcknowledged',href:'/scenario/control'},
  ] satisfies ExerciseSignal[];
 }
-export function validateExerciseDraft(text:string,signals:readonly ExerciseSignal[]){
- const raw=text.trim().replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,'');
- if(raw.length>30000)throw Error('Oversized draft');
- const draft=ExerciseAdviceDraftSchema.parse(JSON.parse(raw));
+export function validateExerciseDraft(text:string,signals:readonly ExerciseSignal[],allowPhasePlan=false){
+ const draft=ExerciseAdviceDraftSchema.parse(parseModelJson(text));
  const ids=new Set(signals.map(s=>s.id));
  if(draft.actions.some(a=>a.signalIds.some(id=>!ids.has(id))))throw Error('Unknown signal reference');
+ if(draft.actions.some(a=>a.phasePlan&&(!allowPhasePlan||a.module!=='SCENARIO')))throw Error('Phase plans require architect scenario actions and a saved blueprint');
+ if(draft.actions.filter(a=>a.phasePlan).length>1)throw Error('Only one phase plan per draft');
+ if(draft.actions.some(a=>a.teamPlan&&(!allowPhasePlan||a.module!=='COMMAND'||a.phasePlan)))throw Error('Team plans require architect command actions and a saved blueprint');
+ if(draft.actions.some(a=>a.injectPlan&&(!allowPhasePlan||a.module!=='SCENARIO'||a.phasePlan||a.teamPlan)))throw Error('Inject plans require a separate architect scenario action and saved blueprint');
+ if(draft.actions.filter(a=>a.injectPlan).length>1)throw Error('Only one inject plan per draft');
+ if(draft.actions.filter(a=>a.teamPlan).length>1)throw Error('Only one team plan per draft');
  return draft;
 }

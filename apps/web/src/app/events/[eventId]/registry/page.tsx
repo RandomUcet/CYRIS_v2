@@ -24,13 +24,13 @@ import {
   ArrowRight,
 } from 'lucide-react';
 
-type RegistryTab = 'persons' | 'organisations' | 'vehicles' | 'devices' | 'locations' | 'weapons';
+type RegistryTab = 'persons' | 'organisations' | 'vehicles' | 'devices' | 'locations' | 'weapons' | 'licences';
 
 export default function RegistryPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
-  const { hasPermission } = useAuth();
+  const { hasPermission, viewAs } = useAuth();
   const { formatDate, t } = usePreferences();
 
   const [activeTab, setActiveTab] = useState<RegistryTab>('persons');
@@ -51,9 +51,30 @@ export default function RegistryPage() {
   // Dynamic form state
   const [formData, setFormData] = useState<Record<string, any>>({});
 
-  const canManage = hasPermission('registry.manage') || hasPermission('case.create');
+  const canManage = !viewAs && hasPermission('registry.create', eventId) && (activeTab !== 'licences' || hasPermission('registry.relationship.manage', eventId));
+  const [licenceParties,setLicenceParties] = useState<{persons:any[];organisations:any[]}>({persons:[],organisations:[]});
+  const [partiesError,setPartiesError] = useState('');
+  useEffect(() => {
+    if (!showCreateModal || activeTab !== 'licences') return;
+    let cancelled = false;
+    setLicenceParties({persons:[],organisations:[]});
+    setPartiesError('');
+    Promise.all([apiClient.getPersons(eventId),apiClient.getOrganisations(eventId)]).then(([p,o]) => {
+      if (cancelled) return;
+      if (!p.ok || !o.ok) setPartiesError('Unable to load eligible registry records');
+      else setLicenceParties({persons:p.data || [],organisations:o.data || []});
+    }).catch(() => {if (!cancelled) setPartiesError('Unable to load registry records');});
+    return () => {cancelled = true;};
+  },[showCreateModal,activeTab,eventId]);
 
+  const requestId = React.useRef(0);
+  const [loadedScope,setLoadedScope] = useState('');
+  const scope = eventId + ':' + activeTab;
+  const currentScope = React.useRef(scope);
+  currentScope.current = scope;
   const fetchData = async () => {
+    if (scope !== currentScope.current) return;
+    const request = ++requestId.current;
     setLoading(true);
     setError(null);
     try {
@@ -64,16 +85,19 @@ export default function RegistryPage() {
       else if (activeTab === 'devices') res = await apiClient.getDevices(eventId);
       else if (activeTab === 'locations') res = await apiClient.getLocations(eventId);
       else if (activeTab === 'weapons') res = await apiClient.getWeapons(eventId);
+      else if (activeTab === 'licences') res = await apiClient.getLicences(eventId);
 
+      if (request !== requestId.current || scope !== currentScope.current) return;
       if (res?.ok && res.data) {
         setDataList(res.data);
+        setLoadedScope(scope);
       } else {
         setError(res?.error || `Failed to load ${activeTab}`);
       }
     } catch (err: any) {
-      setError(err.message || 'Network error');
+      if (request === requestId.current && scope === currentScope.current) setError(err.message || 'Network error');
     } finally {
-      setLoading(false);
+      if (request === requestId.current && scope === currentScope.current) setLoading(false);
     }
   };
 
@@ -81,9 +105,11 @@ export default function RegistryPage() {
     if (eventId) {
       fetchData();
     }
+    return () => {++requestId.current;};
   }, [eventId, activeTab]);
 
   const filteredData = useMemo(() => {
+    if (loadedScope !== scope) return [];
     return dataList.filter((item) => {
       if (provenanceFilter && item.provenance !== provenanceFilter) return false;
       if (!search) return true;
@@ -106,12 +132,14 @@ export default function RegistryPage() {
         item.address?.toLowerCase().includes(s)
         || item.category?.toLowerCase().includes(s)
         || item.manufacturer?.toLowerCase().includes(s)
+        || item.licenceNumber?.toLowerCase().includes(s)
       );
     });
-  }, [dataList, search]);
+  }, [dataList, search, provenanceFilter, loadedScope, scope]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(!canManage||submitting||scope!==currentScope.current)return;
     setSubmitting(true);
     setFormError(null);
     try {
@@ -172,6 +200,14 @@ export default function RegistryPage() {
           postalCode: formData.postalCode?.trim() || undefined,
           latitude: formData.latitude ? Number(formData.latitude) : undefined,
           longitude: formData.longitude ? Number(formData.longitude) : undefined,
+        });
+      } else if (activeTab === 'licences') {
+        res = await apiClient.createLicence(eventId,{
+          title:formData.title?.trim(),category:formData.category || 'OTHER',
+          holderId:formData.holderId,issuerId:formData.issuerId,
+          licenceNumber:formData.licenceNumber?.trim() || undefined,
+          validFrom:formData.validFrom,validUntil:formData.validUntil || null,
+          status:formData.status || 'ISSUED',description:formData.notes?.trim() || undefined,
         });
       } else if (activeTab === 'weapons') {
         res = await apiClient.createWeapon(eventId, {
@@ -269,6 +305,17 @@ export default function RegistryPage() {
       ];
     }
 
+    if (activeTab === 'licences') {
+      return [
+        {header:'Identifier',accessor:item=><RecordIdentifier id={item.identifier || item.id} />,width:'130px'},
+        {header:'Licence / permit',accessor:item=><span style={{fontWeight:600}}>{item.title}</span>},
+        {header:'Category',accessor:item=>item.category},
+        {header:'Number',accessor:item=>item.licenceNumber || '—'},
+        {header:'Valid from',accessor:item=>item.validFrom},
+        {header:'Valid until',accessor:item=>item.validUntil || '—'},
+        {header:'Status',accessor:item=>item.status},
+      ];
+    }
     if (activeTab === 'weapons') {
       return [
         { header: 'Identifier', accessor: (item) => <RecordIdentifier value={item.identifier} id={item.id} prefix={item.identifier ? '' : 'WPN'} />, width: '130px' },
@@ -481,6 +528,7 @@ export default function RegistryPage() {
             { id: 'devices', label: 'Devices', icon: <Cpu size={14} /> },
             { id: 'locations', label: 'Locations', icon: <MapPin size={14} /> },
             { id: 'weapons', label: 'Weapons', icon: <Database size={14} /> },
+            { id: 'licences', label: 'Licences & permits', icon: <Database size={14} /> },
           ].map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -554,7 +602,7 @@ export default function RegistryPage() {
         )}
 
         {/* Modal: Register Entity */}
-        {showCreateModal && (
+        {showCreateModal && canManage && (
           <div className="dialog-overlay dialog-overlay-top" role="presentation">
             <div className="dialog-surface form-dialog-surface" role="dialog" aria-modal="true" aria-label="Register Intelligence Entity" style={{ maxWidth: '500px' }}>
               <div
@@ -998,6 +1046,20 @@ export default function RegistryPage() {
                   </>
                 )}
 
+                {activeTab === 'licences' && (
+                  <div style={{display:'grid',gap:12,marginBottom:16}}>
+                    {partiesError && <p role="alert">{partiesError}</p>}
+                    <label className="form-label">Licence title<input required maxLength={200} className="input-field" style={{width:'100%'}} value={formData.title || ''} onChange={e=>setFormData({...formData,title:e.target.value})}/></label>
+                    <label className="form-label">Category<select className="input-field" style={{width:'100%'}} value={formData.category || 'OTHER'} onChange={e=>setFormData({...formData,category:e.target.value})}>{['DRIVING','FIREARMS','PROFESSIONAL','BUSINESS','SECURITY','OTHER'].map(v=><option key={v}>{v}</option>)}</select></label>
+                    <label className="form-label">Holder<select required className="input-field" style={{width:'100%'}} value={formData.holderId || ''} onChange={e=>setFormData({...formData,holderId:e.target.value})}><option value="">Select holder</option><optgroup label="Persons">{licenceParties.persons.map(p=><option key={p.id} value={p.id}>{p.displayName} · {p.identifier}</option>)}</optgroup><optgroup label="Organisations">{licenceParties.organisations.map(o=><option key={o.id} value={o.id}>{o.name} · {o.identifier}</option>)}</optgroup></select></label>
+                    <label className="form-label">Issuing authority<select required className="input-field" style={{width:'100%'}} value={formData.issuerId || ''} onChange={e=>setFormData({...formData,issuerId:e.target.value})}><option value="">Select organisation</option>{licenceParties.organisations.filter(o=>o.id!==formData.holderId).map(o=><option key={o.id} value={o.id}>{o.name} · {o.identifier}</option>)}</select></label>
+                    <label className="form-label">Licence number<input maxLength={100} className="input-field" style={{width:'100%'}} value={formData.licenceNumber || ''} onChange={e=>setFormData({...formData,licenceNumber:e.target.value})}/></label>
+                    <label className="form-label">Valid from<input required type="date" className="input-field" style={{width:'100%'}} value={formData.validFrom || ''} onChange={e=>setFormData({...formData,validFrom:e.target.value})}/></label>
+                    <label className="form-label">Valid until (optional)<input type="date" min={formData.validFrom || undefined} className="input-field" style={{width:'100%'}} value={formData.validUntil || ''} onChange={e=>setFormData({...formData,validUntil:e.target.value})}/></label>
+                    <label className="form-label">Status<select className="input-field" style={{width:'100%'}} value={formData.status || 'ISSUED'} onChange={e=>setFormData({...formData,status:e.target.value})}>{['ISSUED','SUSPENDED','REVOKED','ARCHIVED'].map(v=><option key={v}>{v}</option>)}</select></label>
+                    <label className="form-label">Notes<textarea rows={3} className="input-field" style={{width:'100%'}} value={formData.notes || ''} onChange={e=>setFormData({...formData,notes:e.target.value})}/></label>
+                  </div>
+                )}
                 {activeTab === 'weapons' && (
                   <>
                     <div style={{ marginBottom: '14px' }}>

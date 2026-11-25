@@ -66,8 +66,8 @@ export function scenarioReleaseGate(
 ): string | null {
   if (['CLOSED', 'ARCHIVED'].includes(eventStatus)) return 'The exercise is closed';
   if (inject.status === 'CANCELLED') return 'The inject is cancelled';
-  if (releaseType === 'OVERRIDE') return null;
   if (inject.status === 'DRAFT') return 'A draft cannot be released';
+  if (releaseType === 'OVERRIDE') return null;
   if (!prerequisitesReady) return 'Prerequisites or conditions are not satisfied';
   if (inject.triggerType === 'SCHEDULED_TIME' && (!inject.scheduledAt || inject.scheduledAt > calculateScenarioTime(clock, now))) {
     return 'The scheduled scenario time has not been reached';

@@ -7,7 +7,7 @@ const routes:Record<string,string>={
   case:'cases',incident:'incidents',evidence:'evidence',lab_analysis:'lab',
   person:'registry/persons',organisation:'registry/organisations',
   organization:'registry/organisations',vehicle:'registry/vehicles',
-  device:'registry/devices',location:'registry/locations',weapon:'registry/weapons',
+  device:'registry/devices',location:'registry/locations',weapon:'registry/weapons',licence:'registry/licences',
 };
 export function relationshipRecordHref(eventId:string, node:RelationshipRecordLocator):string|null {
   if(!eventId||!node.id)return null;

@@ -1,3 +1,8 @@
+import type {CreateLocalTestAccount,LocalTestAccount,LocalTestAccountCreated} from '@cyris/contracts';
+import type {ExerciseTeamSetupInput,ExerciseInjectSetupInput} from '@cyris/contracts';
+import type {ExercisePhaseSetupInput} from '@cyris/contracts';
+import type {ExerciseObserverHistory} from '@cyris/contracts';
+import type {ExerciseJob,ExerciseJobSubmit} from '@cyris/contracts';
 import type {LegalSourceInput,LegalSource,LegalSearchResult,LegalResearchInput,LegalResearchResult} from '@cyris/contracts';
 import type {StoredExerciseAdvice,ExerciseAdviceDecision,ExerciseAdviceHandoffInput} from '@cyris/contracts';
 import type {ExerciseBlueprintInput,ExerciseBlueprint,ExerciseBlueprintOverview} from '@cyris/contracts';
@@ -193,6 +198,9 @@ export class CyrisApiClient {
     return { ok: response.ok, code: body.code as string | undefined, error: body.message as string | undefined };
   }
 
+  listLocalTestAccounts(eventId:string,signal?:AbortSignal){return this.fetchJson<LocalTestAccount[]>('/events/'+encodeURIComponent(eventId)+'/local-test-accounts',signal);}
+  createLocalTestAccount(eventId:string,input:CreateLocalTestAccount){return this.postJson<LocalTestAccountCreated>('/events/'+encodeURIComponent(eventId)+'/local-test-accounts',input);}
+  disableLocalTestAccount(eventId:string,userId:string){return this.postJson<LocalTestAccount>('/events/'+encodeURIComponent(eventId)+'/local-test-accounts/'+encodeURIComponent(userId)+'/disable',{});}
   getPreviewAccess() { return this.fetchJson<{ enabled: boolean }>('/auth/team-preview'); }
   setPreviewAccess(enabled: boolean) { return this.patchJson<{ enabled: boolean }>('/auth/team-preview', { enabled }); }
   getTeamDisplays(eventId: string) { return this.fetchJson<Array<{ id: string; name: string; slug: string }>>(
@@ -284,7 +292,7 @@ export class CyrisApiClient {
     if (!response.ok) throw new Error('Unable to end the session. Please try again.');
   }
 
-  async getMe(cookieHeader?: string): Promise<{ ok: boolean; data?: CurrentUserResponse }> {
+  async getMe(cookieHeader?: string): Promise<{ ok: boolean; data?: CurrentUserResponse; status?:number }> {
     try {
       const headers: Record<string, string> = {};
       if (cookieHeader) {
@@ -298,7 +306,7 @@ export class CyrisApiClient {
       });
 
       if (!res.ok) {
-        return { ok: false };
+        return { ok: false,status:res.status };
       }
 
       const data = (await res.json()) as CurrentUserResponse;
@@ -389,6 +397,8 @@ export class CyrisApiClient {
   async startScenarioDraft(eventId:string, payload:SparkDraftRequest) {
     return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/spark-drafts`,payload);
   }
+  queueScenarioDraft(eventId:string,id:string){return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/batches/${id}/queue`,{});}
+  pauseScenarioDraft(eventId:string,id:string){return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/batches/${id}/pause`,{});}
   async advanceScenarioDraft(eventId:string,id:string,prepared:number) {
     return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/batches/${id}/advance`,{prepared});
   }
@@ -539,6 +549,21 @@ export class CyrisApiClient {
   }
   async updateDevice(eventId: string, deviceId: string, data: any) {
     return this.patchJson<any>(`/events/${eventId}/registry/devices/${deviceId}`, data);
+  }
+  async getRegistryRecordActions(eventId:string,id:string) {
+    return this.fetchJson<{edit:boolean;link:boolean;timeline:boolean}>(`/events/${eventId}/registry/records/${id}/actions`);
+  }
+  async getLicences(eventId: string) {
+    return this.fetchJson<any[]>(`/events/${eventId}/registry/licences`);
+  }
+  async getLicence(eventId: string,id:string) {
+    return this.fetchJson<any>(`/events/${eventId}/registry/licences/${id}`);
+  }
+  async createLicence(eventId:string,data:any) {
+    return this.postJson<any>(`/events/${eventId}/registry/licences`,data);
+  }
+  async updateLicence(eventId:string,id:string,data:any) {
+    return this.patchJson<any>(`/events/${eventId}/registry/licences/${id}`,data);
   }
   async getWeapons(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/registry/weapons`);
@@ -821,6 +846,8 @@ export class CyrisApiClient {
     return this.deleteJson<{ success: boolean }>(`/admin/integrations/ai/${id}`);
   }
 
+  testSparkInference(){return this.postJson<{success:boolean;category:string;durationMs:number;model:string}>('/admin/integrations/ai/test-spark-inference',{});}
+
   async testAIConnection(payload: TestConnectionRequest): Promise<{ ok: boolean; data?: TestConnectionResponse; error?: string }> {
     return this.postJson<TestConnectionResponse>('/admin/integrations/ai/test-connection', payload);
   }
@@ -898,6 +925,7 @@ export class CyrisApiClient {
     return this.patchJson<ScenarioInjectResponse>(`/events/${eventId}/scenario/injects/${injectId}`, payload);
   }
 
+  prepareScenarioInject(eventId:string,injectId:string){return this.postJson<ScenarioInjectResponse>(`/events/${eventId}/scenario/injects/${injectId}/prepare`,{});}
   async releaseScenarioInject(eventId: string, injectId: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
     return this.postJson(`/events/${eventId}/scenario/injects/${injectId}/release`, {});
   }
@@ -1619,6 +1647,13 @@ export class CyrisApiClient {
   // ============================================================================
 
   handoffExerciseAdvice(eventId:string,runId:string,input:ExerciseAdviceHandoffInput){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/handoff',input);}
+  getExerciseObserverHistory(eventId:string,signal?:AbortSignal){return this.fetchJson<ExerciseObserverHistory>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/observer-history',signal);}
+  listExerciseJobs(eventId:string,signal?:AbortSignal){return this.fetchJson<ExerciseJob[]>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/jobs',signal);}
+  submitExerciseJob(eventId:string,input:ExerciseJobSubmit){return this.postJson<ExerciseJob>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/jobs',input);}
+  cancelExerciseJob(eventId:string,jobId:string){return this.postJson<ExerciseJob>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/jobs/'+encodeURIComponent(jobId)+'/cancel',{});}
+  setupExerciseInjects(eventId:string,runId:string,input:ExerciseInjectSetupInput){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/setup-injects',input);}
+  setupExerciseTeams(eventId:string,runId:string,input:ExerciseTeamSetupInput){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/setup-teams',input);}
+  setupExercisePhases(eventId:string,runId:string,input:ExercisePhaseSetupInput){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/setup-phases',input);}
   getExerciseAdviceHistory(eventId:string,signal?:AbortSignal){return this.fetchJson<StoredExerciseAdvice[]>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history',signal);}
   reviewExerciseAdvice(eventId:string,runId:string,input:ExerciseAdviceDecision){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/review',input);}
   getExerciseBlueprint(eventId:string,signal?:AbortSignal){return this.fetchJson<ExerciseBlueprintOverview>('/events/'+encodeURIComponent(eventId)+'/command/excon/blueprint',signal);}

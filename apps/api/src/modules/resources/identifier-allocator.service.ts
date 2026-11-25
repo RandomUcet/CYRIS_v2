@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
-import { identifierCounters, persons, organisations, locations, vehicles, devices, weapons } from '@cyris/db';
+import { identifierCounters, persons, organisations, locations, vehicles, devices, weapons, licences } from '@cyris/db';
 
-const registryTables = { person:persons, organisation:organisations, location:locations, vehicle:vehicles, device:devices, weapon:weapons };
+const registryTables = { person:persons, organisation:organisations, location:locations, vehicle:vehicles, device:devices, weapon:weapons, licence:licences };
 type RegistryType = keyof typeof registryTables;
 type Transaction = Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0];
 @Injectable()

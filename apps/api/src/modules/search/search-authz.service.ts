@@ -1,3 +1,4 @@
+import { activeUnitGrant } from '../authorization/active-unit-grants.js';
 import { Injectable, Logger } from '@nestjs/common';
 import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
@@ -8,6 +9,7 @@ import {
   roleAssignments,
   eventMemberships,
   membershipUnitAssignments,
+  organizationalUnits,
   MembershipStatus,
 } from '@cyris/db';
 import { Permissions, PermissionScopes } from '@cyris/shared';
@@ -118,9 +120,11 @@ export class SearchAuthzService {
       if(!row.membershipId||eventByMembership.get(row.membershipId)!==row.eventId)continue;
       const rows=rolesByMembership.get(row.membershipId)??[];rows.push(row);rolesByMembership.set(row.membershipId,rows);
     }
-    const unitMembershipIds=[...rolesByMembership].filter(([,rows])=>rows.some(r=>r.scope===PermissionScopes.UNIT&&!r.unitId)).map(([id])=>id);
+    const unitMembershipIds=[...rolesByMembership].filter(([,rows])=>rows.some(r=>r.scope===PermissionScopes.UNIT||r.unitId)).map(([id])=>id);
     const allUnits=unitMembershipIds.length?await db.select({membershipId:membershipUnitAssignments.membershipId,unitId:membershipUnitAssignments.unitId})
-      .from(membershipUnitAssignments).where(inArray(membershipUnitAssignments.membershipId,unitMembershipIds)):[];
+      .from(membershipUnitAssignments).innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId))
+      .innerJoin(eventMemberships,eq(eventMemberships.id,membershipUnitAssignments.membershipId))
+      .where(and(inArray(membershipUnitAssignments.membershipId,unitMembershipIds),eq(organizationalUnits.eventId,eventMemberships.eventId),isNull(organizationalUnits.archivedAt))):[];
     const unitsByMembership=new Map<string,string[]>();
     for(const row of allUnits){const ids=unitsByMembership.get(row.membershipId)??[];ids.push(row.unitId);unitsByMembership.set(row.membershipId,ids);}
     const eventExclusions: string[] = [];
@@ -131,7 +135,8 @@ export class SearchAuthzService {
       if (hiddenTypes.length) {
         eventExclusions.push(`(eventId:!=${membership.eventId} || resourceType:!=[${hiddenTypes.join(',')}])`);
       }
-      const roleRows=rolesByMembership.get(membership.id)??[];
+      const activeUnits=new Set(unitsByMembership.get(membership.id)??[]);
+      const roleRows=(rolesByMembership.get(membership.id)??[]).filter(row=>activeUnitGrant(row.unitId,activeUnits));
 
       if (roleRows.length === 0) {
         continue;

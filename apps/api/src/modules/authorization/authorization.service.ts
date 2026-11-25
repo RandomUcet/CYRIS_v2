@@ -1,3 +1,4 @@
+import { activeUnitGrant } from './active-unit-grants.js';
 import { Injectable, ForbiddenException, Logger } from '@nestjs/common';
 import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
@@ -8,6 +9,7 @@ import {
   roleAssignments,
   eventMemberships,
   membershipUnitAssignments,
+  organizationalUnits,
   MembershipStatus,
   users,
 } from '@cyris/db';
@@ -118,7 +120,12 @@ export class AuthorizationService {
           eq(roles.eventId, context.eventId), isNull(roleAssignments.userId),
         ));
 
+      const activeUnits = new Set((await db.select({id:membershipUnitAssignments.unitId})
+        .from(membershipUnitAssignments).innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId))
+        .where(and(eq(membershipUnitAssignments.membershipId,membership.id),eq(organizationalUnits.eventId,context.eventId),isNull(organizationalUnits.archivedAt))))
+        .map(row=>row.id));
       for (const ra of eventRoleAssignments) {
+        if (!activeUnitGrant(ra.assignmentUnitId,activeUnits)) continue;
         if (ra.permissionKey !== permission || ra.permissionKey === Permissions.PLATFORM_MANAGE || ra.scope === PermissionScopes.PLATFORM) {
           continue;
         }
@@ -135,21 +142,7 @@ export class AuthorizationService {
             continue;
           }
 
-          // Check if operator belongs to this unit via membership_unit_assignments
-          const [unitAssignment] = await db
-            .select({ id: membershipUnitAssignments.id })
-            .from(membershipUnitAssignments)
-            .where(
-              and(
-                eq(membershipUnitAssignments.membershipId, membership.id),
-                eq(membershipUnitAssignments.unitId, context.unitId)
-              )
-            )
-            .limit(1);
-
-          if (unitAssignment) {
-            return true;
-          }
+          if (activeUnits.has(context.unitId)) return true;
         }
 
         // Scope: OWN (Resource owner check)
@@ -214,7 +207,8 @@ export class AuthorizationService {
     if(!membership)return allowed;
     const [unitRows,platformGrants,grants]=await Promise.all([
       db.select({unitId:membershipUnitAssignments.unitId}).from(membershipUnitAssignments)
-        .where(eq(membershipUnitAssignments.membershipId,membership.id)),
+        .innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId))
+        .where(and(eq(membershipUnitAssignments.membershipId,membership.id),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt))),
       db.select({permissionKey:rolePermissions.permissionKey,scope:rolePermissions.scope})
         .from(roleAssignments).innerJoin(roles,eq(roleAssignments.roleId,roles.id))
         .innerJoin(rolePermissions,eq(roles.id,rolePermissions.roleId))
@@ -234,7 +228,7 @@ export class AuthorizationService {
     for(const permission of requested)if(platformKeys.has(permission))allowed.add(permission);
     const requestedKeys=new Set<string>(requested);
     for(const grant of grants){
-      if(!requestedKeys.has(grant.permissionKey))continue;
+      if(!requestedKeys.has(grant.permissionKey)||!activeUnitGrant(grant.unitId,unitIds))continue;
       if(unitId&&grant.unitId&&grant.unitId!==unitId)continue;
       const matches=grant.scope===PermissionScopes.EVENT||
         (grant.scope===PermissionScopes.UNIT

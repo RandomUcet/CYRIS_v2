@@ -39,6 +39,7 @@ export const ScenarioDataBatchResponseSchema = z.object({
   failureMessage: z.string().nullable(),
   source: z.enum(['LOCAL', 'SPARK']).optional(),
   prepared: z.number().int().optional(),
+  generation:z.object({state:z.enum(['QUEUED','RUNNING','PAUSED','FAILED','COMPLETED','INTERRUPTED']),attempts:z.number().int().nonnegative(),updatedAt:z.string().datetime(),pauseRequested:z.boolean(),error:z.string().optional()}).optional(),
   brief: z.string().optional(),
   strategy: z.enum(['FAST', 'DETAILED']).optional(),
   samples: z.record(z.array(z.string())).optional(),
@@ -64,6 +65,8 @@ export type ScenarioDataPreview = z.infer<typeof ScenarioDataPreviewSchema>;
 
 export const SparkDraftRequestSchema = ScenarioDataRequestSchema.extend({
   brief: z.string().trim().min(1).max(1200),
+  // A request ID opts into atomic creation + queueing; omitted for legacy manual advance clients.
+  requestId:z.string().uuid().optional(),
   // FAST: one short AI scene blueprint + local deterministic records.
   // DETAILED: AI writes every page. Missing preserves the old detailed API path.
   strategy: z.enum(['FAST', 'DETAILED']).optional(),

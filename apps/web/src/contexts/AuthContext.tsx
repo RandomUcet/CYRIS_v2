@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '@/lib/api-client';
 import type { CurrentUserResponse, LoginRequest, ViewAsContext } from '@cyris/contracts';
 import { readViewAs, clearViewAs, VIEW_AS_INVALID_EVENT } from '@/lib/view-as';
@@ -27,18 +27,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [viewAs, setViewAs] = useState<ViewAsContext | null>(null);
   const [previewInvalid, setPreviewInvalid] = useState(false);
 
+  const sessionRequest = useRef(0);
   const refreshSession = useCallback(async () => {
+    const request = ++sessionRequest.current;
     try {
       const res = await apiClient.getMe();
+      if (request !== sessionRequest.current) return;
       if (res.ok && res.data) {
-        setCurrentUser(res.data);
-      } else {
+        const next = res.data;
+        setCurrentUser(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+      } else if (res.status===401||res.status===403) {
         setCurrentUser(null);
       }
     } catch {
-      setCurrentUser(null);
+      // A transient network failure is not an explicit session revocation.
     } finally {
-      setLoading(false);
+      if (request === sessionRequest.current) setLoading(false);
     }
   }, []);
 
@@ -47,8 +51,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener(VIEW_AS_INVALID_EVENT, invalidate);
     try { setViewAs(readViewAs()); } catch { setPreviewInvalid(true); }
     void refreshSession();
-    return () => window.removeEventListener(VIEW_AS_INVALID_EVENT, invalidate);
+    return () => {++sessionRequest.current;window.removeEventListener(VIEW_AS_INVALID_EVENT, invalidate);};
   }, [refreshSession]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const refresh = () => {if (document.visibilityState === 'visible') void refreshSession();};
+    window.addEventListener('focus',refresh);
+    const interval = window.setInterval(refresh,60000);
+    return () => {window.removeEventListener('focus',refresh);window.clearInterval(interval);};
+  }, [currentUser?.user.id,refreshSession]);
 
   const exitViewAs = async () => {
     let validContext = false;
@@ -72,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    ++sessionRequest.current;
     await apiClient.logout();
     if (typeof window !== 'undefined') {
       clearViewAs();
@@ -87,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const hasPermission = useCallback(
     (permission: string, eventId?: string): boolean => {
       if (!currentUser) return false;
-      if (platformPermissions.includes('platform.manage')) return true;
+      if (!viewAs && (platformPermissions.includes('platform.manage') || platformPermissions.includes(permission))) return true;
       return currentUser.memberships.some(
         (membership) =>
           (!eventId || membership.eventId === eventId) &&
@@ -95,7 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           (membership.permissions ?? []).includes(permission)
       );
     },
-    [currentUser, platformPermissions]
+    [currentUser, platformPermissions, viewAs]
   );
 
   return (

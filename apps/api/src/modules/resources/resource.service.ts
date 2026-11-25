@@ -1,3 +1,4 @@
+import { writeChunks } from '../database/write-chunks.js';
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { eq, and, or, isNull, desc, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
@@ -16,6 +17,7 @@ import {
   vehicles,
   devices,
   weapons,
+  licences,
   incidents,
   cases,
   evidence,
@@ -88,6 +90,12 @@ export class ResourceService {
       createdAt: created!.createdAt.toISOString(),
       updatedAt: created!.updatedAt.toISOString(),
     };
+  }
+
+  /** Atomic bulk registration for the synthetic dataset publisher. */
+  async registerResourceBatch(eventId:string, rows:ReadonlyArray<{id:string;resourceType:string}>, ownerUserId:string,
+    tx:Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0]):Promise<void> {
+    for(const page of writeChunks(rows))await tx.insert(resources).values(page.map(row=>({...row,eventId,ownerUserId,visibility:ResourceVisibility.EVENT})));
   }
 
   /**
@@ -542,6 +550,14 @@ export class ResourceService {
             }
           })
       );
+    }
+
+    if (typeGroups.has('licence')) {
+      typeQueries.push(db.select({ id: licences.id, identifier: licences.identifier, title: licences.title })
+        .from(licences).where(inArray(licences.id, typeGroups.get('licence')!))
+        .then(rows => {
+          for (const row of rows) map.set(row.id, { ...row, type: 'licence' });
+        }));
     }
 
     if (typeGroups.has('incident')) {

@@ -6,6 +6,7 @@ import {AppShell} from '@/components/layout/AppShell';
 import {useAuth} from '@/contexts/AuthContext';
 import {usePreferences} from '@/contexts/PreferencesContext';
 import {apiClient} from '@/lib/api-client';
+import {CyrisWordmark} from '@/components/layout/Brand';
 import type {ExerciseIntelligenceOverview} from '@cyris/contracts';
 
 export default function PresentationPage(){
@@ -50,13 +51,14 @@ function Presentation({eventId}:{eventId:string}){
  async function toggle(){setFullscreenError(false);try{if(document.fullscreenElement)await document.exitFullscreen();else if(root.current?.requestFullscreen)await root.current.requestFullscreen();else setFullscreenError(true);}catch{setFullscreenError(true);}}
  return <AppShell title="CYRIS Intelligence"><main className="excon-optimized mx-auto max-w-[1600px] p-4 md:p-8">
  <section className="intel-presentation" ref={root}>
- <header className="intel-present-top"><div><p>CYRIS / CzechCybertron · CYLAB</p><h1>Intelligence &amp; Operations</h1><p>NVIDIA DGX Spark · {tr('provozní přehled','operational overview')}</p></div><div className="intel-actions"><button type="button" onClick={()=>void toggle()}>{full?tr('Ukončit celou obrazovku','Exit fullscreen'):tr('Celá obrazovka','Fullscreen')}</button><Link href={'/events/'+eventId+'/excon/intelligence'}>{tr('Zpět','Back')}</Link></div></header>
+ <header className="intel-present-top"><div className="wall-title"><CyrisWordmark/><div><h1>{tr('Průběh cvičení','Exercise operations')}</h1><p>CzechCybertron / CYLAB</p></div></div><div className="intel-actions"><button type="button" onClick={()=>void toggle()}>{full?tr('Ukončit celou obrazovku','Exit fullscreen'):tr('Celá obrazovka','Fullscreen')}</button><Link href={'/events/'+eventId+'/excon/intelligence'}>{tr('Zpět','Back')}</Link></div></header>
  {fullscreenError&&<p role="status">{tr('Celá obrazovka není dostupná.','Fullscreen unavailable.')}</p>}
  <p role="status">{error?tr('Data nedostupná','Data unavailable'):stale?tr('Čeká na aktuální snímek','Waiting for current snapshot'):tr('Aktuální snímek · obnovování po 15 s','Current snapshot · refreshed every 15s')}</p>
- <div className="intel-present-grid">{cards.map(([label,v,note])=><article className="intel-present-stat" key={label}><h2>{label}</h2><strong>{v}</strong><small>{note}</small></article>)}</div>
- <section className="intel-present-stat"><h2>{tr('AI operace podle využití','AI operations by usage')}</h2>
+ <div className="wall-summary"><div><h2>{tr('Průběh scénáře','Scenario progression')}</h2><strong>{value?value.phases.completed+' / '+value.phases.total:'—'}</strong><progress aria-label={tr('Dokončené fáze','Completed phases')} max={Math.max(1,value?.phases.total??0)} value={value?.phases.completed??0}/></div><div><h2>{tr('Členství a týmy','Memberships and teams')}</h2><strong>{number(value?.participation.activeUsers)} <span>/ {number(value?.participation.activeTeams)}</span></strong><small>{tr('Aktivní členství / týmy, nikoli online uživatelé','Active memberships / teams, not online users')}</small></div><div><h2>NVIDIA DGX Spark</h2><strong className="wall-provider">{!value?'—':!value.provider.enabled?tr('Vypnuto','Disabled'):value.provider.status}</strong><small>{tr('Stav integrace podle CYRIS','Integration status reported by CYRIS')}</small></div></div>
+ <div className="wall-details"><section><h2>{tr('AI provoz za posledních 24 h','AI operations in last 24h')}</h2><table className="wall-table"><tbody>{cards.slice(0,6).map(([label,v,note])=><tr key={label}><th scope="row">{label}<small>{note}</small></th><td>{v}</td></tr>)}</tbody></table></section>
+ <section><h2>{tr('Využití podle operací','Usage by operation')}</h2>
  <div className="intel-present-bars">{operations.map(o=><div key={o.operation}><p>{o.operation} · {number(o.count)}</p><progress max={max} value={o.count} aria-label={o.operation}/></div>)}</div>
- {!operations.length&&<p>{tr('Žádné dostupné záznamy.','No available records.')}</p>}</section>
+ {!operations.length&&<p>{tr('Žádné dostupné záznamy.','No available records.')}</p>}</section></div>
  <footer className="intel-present-footer"><span>{tr('Interní prezentační režim · pouze agregované údaje','Internal presentation · aggregate data only')}</span><span>{value?new Date(value.asOf).toLocaleString(cs?'cs-CZ':'en-GB'):'—'}</span></footer>
  </section></main></AppShell>;
 }

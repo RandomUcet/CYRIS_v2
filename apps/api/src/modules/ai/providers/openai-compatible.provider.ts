@@ -1,3 +1,4 @@
+import { InferenceError } from '../structured-output.js';
 import { Logger } from '@nestjs/common';
 import { Agent } from 'undici';
 import {
@@ -109,6 +110,7 @@ export class OpenAICompatibleProvider implements AIProvider {
       temperature: options?.temperature ?? 0.2,
       max_tokens: options?.maxTokens ?? 2048,
       stop: options?.stop,
+      ...(options?.responseFormat ? {response_format:{type:options.responseFormat}} : {}),
       ...(options?.reasoning && options.reasoning !== 'default'
         ? {
             chat_template_kwargs: {
@@ -137,7 +139,7 @@ export class OpenAICompatibleProvider implements AIProvider {
       }
 
       const data = (await response.json()) as {
-        choices?: Array<{ message?: { content?: string | null } }>;
+        choices?: Array<{ finish_reason?: string|null; message?: { content?: string | null } }>;
         usage?: {
           prompt_tokens?: number;
           completion_tokens?: number;
@@ -146,11 +148,11 @@ export class OpenAICompatibleProvider implements AIProvider {
       };
 
       const durationMs = Date.now() - startTime;
-      const text = data.choices?.[0]?.message?.content;
+      const choice = data.choices?.[0];
+      if(options?.responseFormat && choice?.finish_reason==='length')throw new InferenceError('TRUNCATED');
+      const text = choice?.message?.content;
       if (typeof text !== 'string' || text.trim().length === 0) {
-        throw new Error(
-          'AI Provider returned no usable text content. Reasoning output is not accepted as a text response.'
-        );
+        throw new InferenceError('EMPTY_OUTPUT');
       }
 
       return {
@@ -168,6 +170,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     } catch (err: unknown) {
       const durationMs = Date.now() - startTime;
       this.logger.warn(`AI generation failed after ${durationMs}ms: ${this.sanitizeError(err)}`);
+      if(controller.signal.aborted)throw new InferenceError('TIMEOUT');
       throw err;
     } finally {
       clearTimeout(timer);

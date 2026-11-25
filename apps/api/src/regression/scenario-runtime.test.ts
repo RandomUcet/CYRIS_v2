@@ -17,6 +17,7 @@ test('automatic release respects pause, event lifecycle and explicit confirmatio
 test('manual release rechecks prerequisites; only explicit override bypasses time and conditions', () => {
   assert.match(scenarioReleaseGate(ready, 'MANUAL', false, 'ACTIVE', null, now)!, /Prerequisites/);
   assert.equal(scenarioReleaseGate(ready, 'OVERRIDE', false, 'ACTIVE', null, now), null);
+  assert.match(scenarioReleaseGate({...ready,status:'DRAFT'},'OVERRIDE',false,'ACTIVE',null,now)!,/draft/i);
   assert.match(scenarioReleaseGate({ ...ready, status: 'CANCELLED' }, 'OVERRIDE', false, 'ACTIVE', null, now)!, /cancelled/);
 });
 

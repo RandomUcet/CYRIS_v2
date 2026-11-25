@@ -311,8 +311,43 @@ export type RegistryPickerQuery = z.infer<typeof RegistryPickerQuerySchema>;
 export const RegistryPickerResultSchema = z.object({
   id: z.string().uuid(),
   eventId: z.string().uuid(),
-  entityType: z.enum(['persons','organisations','locations','vehicles','devices','weapons']),
+  entityType: z.enum(['persons','organisations','locations','vehicles','devices','weapons','licences']),
   identifier: z.string().nullable(),
   label: z.string(),
 });
 export type RegistryPickerResult = z.infer<typeof RegistryPickerResultSchema>;
+
+export const LicenceCategorySchema = z.enum(['DRIVING','FIREARMS','PROFESSIONAL','BUSINESS','SECURITY','OTHER']);
+export const LicenceStatusSchema = z.enum(['ISSUED','SUSPENDED','REVOKED','ARCHIVED']);
+const LicenceDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
+  const date = new Date(value + 'T00:00:00Z');
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0,10) === value;
+}, 'Invalid calendar date');
+const LicenceFieldsSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  category: LicenceCategorySchema,
+  licenceNumber: z.string().trim().min(1).max(100).nullable().optional(),
+  validFrom: LicenceDateSchema,
+  validUntil: LicenceDateSchema.nullable().optional(),
+  status: LicenceStatusSchema.default('ISSUED'),
+  description: z.string().max(10000).nullable().optional(),
+});
+export function licenceDatesOrdered(from: string, until?: string | null): boolean {
+  return !until || from <= until;
+}
+export const CreateLicenceRequestSchema = LicenceFieldsSchema.extend({
+  holderId: z.string().uuid(),
+  issuerId: z.string().uuid(),
+  visibility: z.enum(['EVENT','RESTRICTED','SCENARIO']).default('EVENT'),
+}).strict().refine(data => data.holderId !== data.issuerId, 'Holder and issuer must be different')
+  .refine(data => licenceDatesOrdered(data.validFrom, data.validUntil), 'End date precedes start date');
+export const UpdateLicenceRequestSchema = LicenceFieldsSchema.partial().strict();
+export type CreateLicenceRequest = z.infer<typeof CreateLicenceRequestSchema>;
+export type UpdateLicenceRequest = z.infer<typeof UpdateLicenceRequestSchema>;
+/** Evaluate against the exercise date, never silently against the host clock. */
+export function effectiveLicenceStatus(status: z.infer<typeof LicenceStatusSchema>, from: string, until: string | null, exerciseDate: string) {
+  if (status !== 'ISSUED') return status;
+  if (exerciseDate < from) return 'NOT_YET_VALID';
+  if (until && exerciseDate > until) return 'EXPIRED';
+  return 'VALID';
+}

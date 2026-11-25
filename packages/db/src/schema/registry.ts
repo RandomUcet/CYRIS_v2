@@ -227,3 +227,24 @@ export const registryMedia = pgTable(
     resourceUniqueIdx: uniqueIndex('registry_media_resource_unique_idx').on(table.resourceId),
   })
 );
+
+/** Fictional licence/permit, distinct from ownership of any regulated asset. */
+export const licences = pgTable('licences', {
+  id: uuid('id').primaryKey().references(() => resources.id, { onDelete: 'cascade' }),
+  identifier: varchar('identifier', { length: 32 }).notNull(),
+  title: varchar('title', { length: 200 }).notNull(),
+  category: varchar('category', { length: 32 }).notNull(),
+  licenceNumber: varchar('licence_number', { length: 100 }),
+  validFrom: varchar('valid_from', { length: 10 }).notNull(),
+  validUntil: varchar('valid_until', { length: 10 }),
+  status: varchar('status', { length: 32 }).notNull().default('ISSUED'),
+  description: text('description'),
+  provenance: varchar('provenance', { length: 32 }).notNull().default('MANUAL'),
+  generationBatchId: varchar('generation_batch_id', { length: 128 }),
+  generationSeed: varchar('generation_seed', { length: 255 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => ({
+  identifierIdx: uniqueIndex('licences_identifier_unique_idx').on(table.identifier),
+  categoryIdx: index('licences_category_idx').on(table.category),
+}));

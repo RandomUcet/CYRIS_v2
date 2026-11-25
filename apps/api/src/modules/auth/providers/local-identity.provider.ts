@@ -63,7 +63,7 @@ export class LocalIdentityProvider implements IIdentityProvider {
     }
 
     // 2. Verify account is not DISABLED
-    if (identityRecord.user.status !== UserStatus.ACTIVE) {
+    if (identityRecord.user.status !== UserStatus.ACTIVE || (identityRecord.user.testExpiresAt!=null&&identityRecord.user.testExpiresAt.getTime()<=Date.now())) {
       this.logger.warn(`Authentication denied: user account is disabled for subject`);
       return null;
     }

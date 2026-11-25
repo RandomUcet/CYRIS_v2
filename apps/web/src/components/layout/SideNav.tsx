@@ -2,6 +2,7 @@
 
 import { CyrisWordmark, CylabLogo } from './Brand';
 import React, { useState } from 'react';
+import { navigationSectionMode } from '@/lib/navigation-section';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { activeWorkspaceHref, workspaceItemLabel, workspaceLabel } from '@/lib/workspace-navigation';
@@ -140,7 +141,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
   };
 
   const baseSections: WorkspaceNavSection[] =
-    workspace && workspace.sections.length > 0
+    workspace && workspace.eventId === selectedEventId && workspace.sections.length > 0
       ? workspace.sections
       : isPlatformAdmin
       ? [staticAdminSection]
@@ -150,6 +151,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
   const seen = new Set<string>();
   const sectionsToRender = source.map(section => ({...section, items: section.items.filter(item => {
     if (item.href.startsWith('/admin') !== adminMode || seen.has(item.href)) return false;
+    if (viewAs && item.href.startsWith('/admin')) return false;
     if (item.href === '/admin/settings/modules' && !isPlatformAdmin) return false;
     seen.add(item.href); return true;
   })})).filter(section => section.items.length > 0);
@@ -160,16 +162,14 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
     const personal = sectionsToRender.find(section => section.items.some(item => item.href === workHref));
     const displayItem = { id: 'nav-team-displays', label: 'Team displays', href: `${root}/boards`, iconKey: 'activity' };
     if (personal) {
-      if (!seen.has(displayItem.href)) personal.items.push(displayItem);
+      if (!seen.has(displayItem.href)) {personal.items.push(displayItem);seen.add(displayItem.href);}
     } else {
       sectionsToRender.unshift({ id: 'personal-work', title: 'My Work', items: [
         { id: 'nav-my-work', label: 'My Work', href: workHref, iconKey: 'briefcase' }, displayItem,
       ] });
     }
-    if (!seen.has(`${root}/service-status`)) sectionsToRender.push({ id: 'exercise-services', title: 'Support', items: [
-      { id: 'nav-service-status', label: 'Service status', href: `${root}/service-status`, iconKey: 'activity' },
-      { id: 'nav-exercise-help', label: 'Help & support', href: `${root}/support`, iconKey: 'mail' },
-    ] });
+    const supportItems=[{id:'nav-service-status',label:'Service status',href:root+'/service-status',iconKey:'activity'},{id:'nav-exercise-help',label:'Help & support',href:root+'/support',iconKey:'mail'}].filter(item=>!sectionsToRender.some(s=>s.items.some(i=>i.href===item.href)));
+    if(supportItems.length)sectionsToRender.push({id:'exercise-services',title:'Support',items:supportItems});
   }
   // Organizer shortcut stays available regardless of server-defined workspace sections.
   // Never expose future scenario control to ordinary members or during view-as.
@@ -188,14 +188,16 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
   const renderSection = (section: WorkspaceNavSection) => {
     if (!section.items || section.items.length === 0) return null;
     const sectionHasActiveRoute = section.items.some((item) => item.href === activeHref);
-    const isSectionCollapsed = !collapsed && (collapsedSections[section.id] ?? (!sectionHasActiveRoute && section.id !== 'personal-work' && !['Overview', 'Operations', 'Administration'].includes(section.title)));
+    const mode = navigationSectionMode(section.items.length, collapsed, sectionHasActiveRoute, collapsedSections[section.id]);
+    const isSectionCollapsed = mode === 'closed';
 
     return (
-      <div key={section.id} style={{ marginBottom: '14px' }}>
-        {!collapsed && (
+      <div key={section.id} style={{ marginBottom: section.items.length===1?'5px':'12px' }}>
+        {!collapsed && mode==='heading' && <div style={{padding:'7px 14px 5px',fontSize:'10px',fontWeight:650,color:'var(--text-dim)',letterSpacing:'.045em'}}>{getSectionTitle(section.title)}</div>}
+        {!collapsed && (mode==='open'||mode==='closed') && (
           <button
             type="button"
-            aria-expanded={!isSectionCollapsed}
+            aria-expanded={!isSectionCollapsed} aria-controls={'nav-section-'+section.id}
             onClick={() => setCollapsedSections((current) => ({ ...current, [section.id]: !isSectionCollapsed }))}
             style={{
               display: 'flex',
@@ -218,7 +220,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
             <ChevronRight size={12} style={{ transform: isSectionCollapsed ? undefined : 'rotate(90deg)' }} />
           </button>
         )}
-        {!isSectionCollapsed && <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+        {!isSectionCollapsed && <div id={'nav-section-'+section.id} style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
           {section.items.map((item: WorkspaceNavItem) => {
             const isActive = item.href === activeHref;
 

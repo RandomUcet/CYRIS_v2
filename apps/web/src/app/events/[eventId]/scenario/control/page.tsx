@@ -242,7 +242,8 @@ function RunSheet({ eventId }: { eventId: string }) {
             <footer><button type="button" className="btn btn-primary" onClick={() => open({ kind:'preview',id:selected.id })}>{tr('Náhled briefingu','Preview briefing')}</button>
               {!['CANCELLED','RELEASED'].includes(selected.status) && !selected.designReadOnly && <>
                 {canManage && <button type="button" className="btn btn-secondary" onClick={() => open({ kind:'edit', id:selected.id })}>{tr('Upravit vstup','Edit inject')}</button>}
-                {canOverride && <button type="button" className="btn btn-secondary" onClick={() => open({ kind:'override',id:selected.id })}>{tr('Vydat výjimkou','Override release')}</button>}
+                {canManage&&selected.status==='DRAFT'&&<button type="button" className="btn btn-secondary" disabled={busy} onClick={()=>{if(window.confirm(tr('Připravit vstup k ručnímu potvrzení? Zpráva se nyní neodešle.','Prepare for manual confirmation? No message will be sent now.')))void act(()=>apiClient.prepareScenarioInject(eventId,selected.id),tr('Vstup připraven k vyhodnocení.','Inject prepared for evaluation.'),true);}}>{tr('Připravit k vydání','Prepare for release')}</button>}
+                {canOverride && selected.status!=='DRAFT' && <button type="button" className="btn btn-secondary" onClick={() => open({ kind:'override',id:selected.id })}>{tr('Vydat výjimkou','Override release')}</button>}
                 {canManage && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => {
                   if (window.confirm(tr('Zrušit tento vstup?','Cancel this inject?') + ' ' + selected.injectNumber)) void act(() => apiClient.cancelScenarioInject(eventId,selected.id), selected.injectNumber + ' · ' + term('CANCELLED',tr), true);
                 }}>{tr('Zrušit vstup','Cancel inject')}</button>}
@@ -253,7 +254,7 @@ function RunSheet({ eventId }: { eventId: string }) {
         {modal?.kind === 'preview' && selected && <BriefingPreview key={selected.id + selected.updatedAt} eventId={eventId} inject={selected} tr={tr} onClose={close}
           onRelease={canRelease && canReleaseNow(selected) ? () => void act(() => apiClient.releaseScenarioInject(eventId,selected.id), selected.injectNumber + ' · ' + term('RELEASED',tr), true) : undefined}
           busy={busy} actionError={actionError} />}
-        {modal?.kind === 'override' && selected && canOverride && !selected.designReadOnly && !['RELEASED','CANCELLED'].includes(selected.status) &&
+        {modal?.kind === 'override' && selected && canOverride && !selected.designReadOnly && !['RELEASED','CANCELLED','DRAFT'].includes(selected.status) &&
           <ScenarioDialog title={tr('Vydat výjimkou', 'Override release')} closeLabel={tr('Zavřít','Close')} onClose={close}>
             <form className={styles.form} onSubmit={e => { e.preventDefault(); if (reason.trim().length >= 5) void act(() => apiClient.overrideReleaseScenarioInject(eventId, selected.id, reason.trim()), selected.injectNumber + ' · ' + term('RELEASED',tr), true); }}>
               <p className={styles.prose}>{selected.injectNumber} · {audience(selected,tr)}. {tr('Potvrzením vydáte briefing ihned i s nesplněnými podmínkami. Důvod se zapíše do auditu.', 'Confirming releases the briefing immediately, including when requirements are pending. The reason is recorded in the audit log.')}</p>

@@ -31,7 +31,9 @@ test('legal inbox is top-aligned and EXCON white text is scoped to readable colo
 
 test('EXCON attention precedes quick actions and scope changes cancel old requests',()=>{
  const source=read('../app/events/[eventId]/excon/page.tsx');
- assert.ok(source.indexOf('Vyžaduje pozornost')<source.indexOf('Rychlé ovládání'));
+ assert.ok(source.includes('Vyžaduje pozornost'));
+ assert.ok(source.indexOf('Vyžaduje pozornost')<source.lastIndexOf('className="excon-toolbar"'));
+ assert.match(source,/\{!snapshot && <nav className="excon-toolbar"/);
  assert.match(source,/controllerRef\.current\?\.abort\(\)/);
  assert.match(source,/result\.data\?\.event\.id===eventId/);
 });

@@ -1,3 +1,4 @@
+import { completeWorkspaceSections } from './workspace-permission-links.js';
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { eq, and, inArray, or, isNull, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
@@ -154,26 +155,10 @@ export class WorkspaceResolverService {
       canReadEvaluation,
       canUseLab,
     ] = await Promise.all([
-      this.authzService.authorize({
-        user,
-        permission: Permissions.CASE_READ,
-        context: { eventId },
-      }),
-      this.authzService.authorize({
-        user,
-        permission: Permissions.INCIDENT_READ,
-        context: { eventId },
-      }),
-      this.authzService.authorize({
-        user,
-        permission: Permissions.EVIDENCE_READ,
-        context: { eventId },
-      }),
-      this.authzService.authorize({
-        user,
-        permission: Permissions.REGISTRY_READ,
-        context: { eventId },
-      }),
+      isPlatformAdmin || this.authzService.hasEventCapability({user, permission: Permissions.CASE_READ, eventId, resourceScopes: ['OWN','ASSIGNED']}),
+      isPlatformAdmin || this.authzService.hasEventCapability({user, permission: Permissions.INCIDENT_READ, eventId, resourceScopes: ['OWN','ASSIGNED']}),
+      isPlatformAdmin || this.authzService.hasEventCapability({user, permission: Permissions.EVIDENCE_READ, eventId, resourceScopes: ['OWN','ASSIGNED']}),
+      isPlatformAdmin || this.authzService.hasEventCapability({user, permission: Permissions.REGISTRY_READ, eventId, resourceScopes: ['OWN','ASSIGNED']}),
       this.authzService.authorize({
         user,
         permission: Permissions.UNIT_MANAGE,
@@ -194,21 +179,13 @@ export class WorkspaceResolverService {
         permission: Permissions.BRIEFING_READ,
         context: { eventId },
       }),
-      this.authzService.authorize({
-        user,
-        permission: Permissions.FORENSICS_READ,
-        context: { eventId },
-      }),
+      isPlatformAdmin || this.authzService.hasEventCapability({user, permission: Permissions.FORENSICS_READ, eventId, resourceScopes: ['OWN','ASSIGNED']}),
       this.authzService.authorize({
         user,
         permission: Permissions.COURT_READ,
         context: { eventId },
       }),
-      this.authzService.authorize({
-        user,
-        permission: Permissions.DOCUMENT_READ,
-        context: { eventId },
-      }),
+      isPlatformAdmin || this.authzService.hasEventCapability({user, permission: Permissions.DOCUMENT_READ, eventId, resourceScopes: ['OWN','ASSIGNED']}),
       isPlatformAdmin || this.authzService.hasEventCapability({
         user, permission: Permissions.TASK_READ, eventId, resourceScopes: ['OWN', 'ASSIGNED'],
       }),
@@ -941,13 +918,28 @@ export class WorkspaceResolverService {
       sections.push(legalInbox);
     }
 
+    // These endpoints require exact event-level grants; resource-filtered
+    // list endpoints instead use capability checks above.
+    const [canCommand,canTimeline,canReadIndicators] = await Promise.all([
+      this.authzService.authorize({user,permission:Permissions.COMMAND_READ,context:{eventId}}),
+      isPlatformAdmin || this.authzService.hasEventCapability({user,permission:Permissions.TIMELINE_READ,eventId,resourceScopes:['OWN','ASSIGNED']}),
+      isPlatformAdmin || this.authzService.hasEventCapability({user,permission:Permissions.INDICATOR_READ,eventId,resourceScopes:['OWN','ASSIGNED']}),
+    ]);
+    const availability = {
+      member:true,command:canCommand,timeline:canTimeline,tasks:canReadTasks,briefings:canReadBriefings,
+      documents:canReadDocuments,cases:canReadCases,incidents:canReadIncidents,registry:canReadRegistry,
+      evidence:canReadEvidence,lab:canUseLab,forensics:canReadForensics,indicators:canReadIndicators,
+      medical:canReadMedical,court:canReadCourt,evaluation:canReadEvaluation,scenario:canReadScenario,
+      'scenario-manage':canGenerateJsoc,
+    };
+    const allowed = new Set(Object.entries(availability).filter(([,value])=>value).map(([key])=>key));
     return {
       eventId: event.id,
       eventName: event.name,
       unitIds,
       unitNames,
       capabilities,
-      sections,
+      sections: completeWorkspaceSections(sections,eventId,allowed),
     };
   }
 }

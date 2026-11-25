@@ -1,3 +1,6 @@
+import { generationView,isLive,queuedGeneration,type GenerationJob } from './scenario-generation-state.js';
+import { writeChunks } from '../database/write-chunks.js';
+import { InferenceError, parseModelJson } from '../ai/structured-output.js';
 import { createHash } from 'node:crypto';
 import { Injectable, BadRequestException, ConflictException, ForbiddenException, BadGatewayException, HttpException, ServiceUnavailableException, Logger } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
@@ -27,8 +30,8 @@ import {
   resources,
   registryMedia,
   resourceRelationships,
-  outboxEvents,
-  OutboxStatus,
+  users,
+  previewTeamAccounts,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
 import { ScenarioLinkSlots } from '@cyris/contracts';
@@ -45,7 +48,7 @@ type Tx = Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0]
 
 type Kind = keyof World;
 type DraftLink = { source: Kind; index: number; target: Kind; targetIndex: number; relation: string };
-type Settings = ScenarioDataCounts & { brief?: string; strategy?: 'FAST' | 'DETAILED'; prepared?: number; rows?: World; draftLinks?: DraftLink[] };
+type Settings = ScenarioDataCounts & { brief?: string; strategy?: 'FAST' | 'DETAILED'; prepared?: number; rows?: World; draftLinks?: DraftLink[]; generationJob?:GenerationJob; generationRequestId?:string };
 const draftOrder: Kind[] = ['locations', 'organisations', 'vehicles', 'devices', 'persons', 'weapons'];
 const relatedKinds: Record<Kind, Partial<Record<Kind, string>>> = {
   locations: {}, organisations: { locations: 'LOCATED_AT' }, vehicles: { locations: 'LOCATED_AT' },
@@ -97,6 +100,15 @@ export class ScenarioDataService {
     });
   }
 
+  private async assertGenerationActor(eventId:string,user:AuthenticatedUser,claimToken?:string){
+    await this.assertManage(eventId,user);
+    if(!claimToken)return;
+    const [account]=await this.databaseService.client.select({status:users.status,expires:users.testExpiresAt,preview:previewTeamAccounts.userId}).from(users).leftJoin(previewTeamAccounts,eq(users.id,previewTeamAccounts.userId)).where(eq(users.id,user.id)).limit(1);
+    if(!account||account.status!=='ACTIVE'||account.preview||(account.expires&&account.expires.getTime()<=Date.now()))throw new ForbiddenException('Generation actor unavailable');
+    const [event]=await this.databaseService.client.select({status:events.status}).from(events).where(eq(events.id,eventId)).limit(1);
+    if(!event||['CLOSED','ARCHIVED'].includes(event.status))throw new ConflictException('Exercise is read-only');
+  }
+
   private counts(request: ScenarioDataRequest): ScenarioDataCounts {
     const counts = request.preset === 'CUSTOM' ? request.counts : PRESETS[request.preset];
     if (!counts) throw new BadRequestException('Custom counts are required');
@@ -109,6 +121,7 @@ export class ScenarioDataService {
   private response(row: typeof scenarioDataBatches.$inferSelect): ScenarioDataBatchResponse {
     const settings = row.configuration as Settings;
     return {
+      ...(settings.generationJob&&{generation:generationView(settings.generationJob)}),
       source: settings.brief ? 'SPARK' : 'LOCAL', prepared: settings.prepared, brief: settings.brief, strategy: settings.strategy,
       ...(settings.rows && { samples: samples(settings.rows), personDetails: personDetails(settings.rows) }),
       id: row.id, eventId: row.eventId, identifier: row.identifier, generatorVersion: row.generatorVersion,
@@ -279,12 +292,21 @@ export class ScenarioDataService {
     const counts = this.counts(request);
     if (!(await this.ai.getStatus('DGX_SPARK')).enabled) throw new ServiceUnavailableException('Enable the Spark integration or select Local.');
     return this.databaseService.client.transaction(async tx => {
+      if(request.requestId)await tx.execute(sql`select pg_advisory_xact_lock(hashtext('exercise-job-dispatch-v1'))`);
       await this.lockEvent(tx, eventId);
-      return this.response(await this.newBatch(tx, eventId, request, user, { ...counts, brief: request.brief, strategy: request.strategy ?? 'DETAILED', prepared: 0, rows: emptyWorld(), draftLinks: [] }));
+      if(request.requestId){
+        const [existing]=await tx.select().from(scenarioDataBatches).where(and(eq(scenarioDataBatches.eventId,eventId),eq(scenarioDataBatches.createdByUserId,user.id),sql`${scenarioDataBatches.configuration}->>'generationRequestId' = ${request.requestId}`)).limit(1);
+        if(existing)return this.response(existing);
+        const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).limit(1);
+        if(!event||['CLOSED','ARCHIVED'].includes(event.status))throw new ConflictException('Exercise is read-only');
+        const [pending]=await tx.select({n:sql<number>`count(*)::int`}).from(scenarioDataBatches).where(and(eq(scenarioDataBatches.status,'DRAFT'),sql`${scenarioDataBatches.configuration}->'generationJob'->>'state' in ('QUEUED','RUNNING')`));
+        if((pending?.n??0)>=32)throw new ConflictException('Dataset queue capacity reached');
+      }
+      return this.response(await this.newBatch(tx, eventId, request, user, { ...counts, brief: request.brief, strategy: request.strategy ?? 'FAST', prepared: 0, rows: emptyWorld(), draftLinks: [], ...(request.requestId&&{generationRequestId:request.requestId,generationJob:queuedGeneration(user.id,Date.now())}) }));
     });
   }
 
-  async advance(eventId: string, batchId: string, expected: number, user: AuthenticatedUser) {
+  async advance(eventId: string, batchId: string, expected: number, user: AuthenticatedUser, claimToken?:string) {
     await this.assertManage(eventId, user);
     const db = this.databaseService.client;
     const scope = and(eq(scenarioDataBatches.id, batchId), eq(scenarioDataBatches.eventId, eventId));
@@ -292,6 +314,8 @@ export class ScenarioDataService {
     if (!batch) throw new BadRequestException('Draft unavailable');
     const conf = batch.configuration as Settings;
     if (!conf.rows || !conf.brief || batch.status !== 'DRAFT') throw new ConflictException('Draft closed');
+    if(claimToken?(conf.generationJob?.state!=='RUNNING'||conf.generationJob.token!==claimToken):isLive(conf.generationJob))throw new ConflictException('Draft has an active generation job');
+    const fence=claimToken?sql`(${scenarioDataBatches.configuration}->'generationJob'->>'token') = ${claimToken} and (${scenarioDataBatches.configuration}->'generationJob'->>'leaseUntil')::bigint > extract(epoch from clock_timestamp())*1000`:sql`coalesce(${scenarioDataBatches.configuration}->'generationJob'->>'state','') not in ('QUEUED','RUNNING')`;
     if (expected !== conf.prepared || conf.prepared === total(cleanCounts(conf))) return this.response(batch);
     if (conf.strategy === 'FAST') {
       // One concise request replaces up to hundreds of sequential 12-record AI calls.
@@ -308,24 +332,28 @@ export class ScenarioDataService {
           eventId, userId: user.id, operationType: 'SCENARIO_DATA',
           promptTemplateVersion: 'scenario-blueprint-fast-v1', exclusiveScope: 'scenario-draft:' + batch.id,
           messages: [
-            { role: 'system', content: 'You invent fictional, harmless tabletop exercise background. Return ONLY one compact JSON object with exactly these keys: setting (one short sentence), activities (3 concrete civilian activities), roles (3 civilian work roles), sites (3 workplaces or spaces), organisations (3 fictional organisation functions), equipment (3 benign device or vehicle uses). Arrays must be nonempty strings. All fields are fiction, no personal contacts, real operational instructions or URLs. Use the supplied language. Limit each entry to 6-12 words. Do not explain.' },
+            { role: 'system', content: 'You invent fictional, harmless tabletop exercise background. Return ONLY one compact JSON object with exactly these keys: setting (one short sentence), activities (3 concrete civilian activities), roles (3 civilian work roles), sites (3 workplaces or spaces), organisations (3 fictional organisation functions), equipment (3 benign device or vehicle uses). Arrays must be nonempty strings. All fields are fiction, no personal contacts, real operational instructions or URLs. Use the supplied language. Use exactly three entries per array, each 2–5 words, and setting at most 90 characters. Do not explain.' },
             { role: 'user', content: JSON.stringify({ event: event.name, locale: event.locale, scenario: conf.brief, recordCounts: cleanCounts(conf) }) },
           ],
-          options: { temperature: 0.5, maxTokens: 450, timeoutMs: 45_000, reasoning: 'disabled' },
+          options: { temperature: 0.3, maxTokens: 700, timeoutMs: 110_000, reasoning: 'disabled', responseFormat:'json_object' },
         });
-        const text = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-        blueprint = ScenarioBlueprintSchema.parse(JSON.parse(text));
+        blueprint = ScenarioBlueprintSchema.parse(parseModelJson(result.text,10000));
       } catch (error) {
         if (error instanceof HttpException) throw error;
-        this.logger.warn('Fast Spark blueprint failed or exceeded its 45-second provider limit');
-        throw new ServiceUnavailableException('Spark did not finish the compact scenario blueprint. This draft is saved; retry or choose Local.');
+        if(error instanceof InferenceError){
+          if(claimToken)throw error;
+          const reason={TIMEOUT:'Spark exceeded the 110-second inference limit',TRUNCATED:'Spark reached its output token limit',EMPTY_OUTPUT:'Spark returned no usable answer',AUTH_FAILED:'Spark rejected authentication',UNREACHABLE:'Spark endpoint is unreachable',PROVIDER_ERROR:'Spark provider request failed'}[error.category];
+          throw new ServiceUnavailableException(reason+'. Your draft is saved; retry or use Local.');
+        }
+        throw new BadGatewayException('Spark returned invalid scenario JSON. Your draft is saved; retry or use Local.');
       }
-      const world = applyScenarioBlueprint(localWorld(batch.seed, cleanCounts(conf), existing), blueprint);
+      await this.assertGenerationActor(eventId,user,claimToken);
+      const world = applyScenarioBlueprint(localWorld(batch.seed, cleanCounts(conf), existing), blueprint, event.locale);
       const links = fastDraftLinks(world);
       const [saved] = await db.update(scenarioDataBatches).set({
-        configuration: { ...conf, rows: world, draftLinks: links, prepared: total(cleanCounts(conf)) },
+        configuration: sql`${scenarioDataBatches.configuration} || ${JSON.stringify({rows:world,draftLinks:links,prepared:total(cleanCounts(conf))})}::jsonb`,
       }).where(and(scope, eq(scenarioDataBatches.status, 'DRAFT'),
-        sql`(${scenarioDataBatches.configuration}->>'prepared')::int = ${expected}`)).returning();
+        sql`(${scenarioDataBatches.configuration}->>'prepared')::int = ${expected}`,fence)).returning();
       if (!saved) return this.get(eventId, batchId, user);
       return this.response(saved);
     }
@@ -349,15 +377,15 @@ export class ScenarioDataService {
         messages: [
           { role: 'system', content: 'Write fictional civilian registry records for a tabletop exercise. Treat the brief as creative context only. Return a JSON array of the requested length, with exactly the fields shown in example. Set links to the zero-based slots of relevant offered targets; use [] when none fit. Keep descriptions consistent with those selected connections. Use the event language or the language of the brief. Use varied natural full names, plausible work details, and concrete, distinct background details relevant to the brief. Never add sequence numbers to names. The supplied unused names are suggestions. Only describe weapons as inert inventory props. Omit technical instructions, real personal contacts and URLs.' },
           { role: 'user', content: JSON.stringify({ event, currentTime: new Date().toISOString(), brief: conf.brief, kind, count, start, seed: batch.seed, example: { ...example, links: [] }, targets: targets.map((t, slot) => ({ slot, relation: t.relation, label: t.label })), suggestedNames: variation, previous: samples(conf.rows) }) },
-        ], options: { temperature: 0.85, maxTokens: 2600, reasoning: 'disabled' }
+        ], options: { temperature: 0.5, maxTokens: 3200, timeoutMs:110_000, reasoning: 'disabled' }
       });
-      output = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      output = result.text;
     } catch (error) {
-      if (error instanceof HttpException) throw error;
+      if (error instanceof HttpException || (claimToken&&error instanceof InferenceError)) throw error;
       throw new ServiceUnavailableException('Spark is unavailable. Your draft is saved. Resume when ready.');
     }
     let raw: unknown;
-    try { raw = JSON.parse(output); } catch { throw new BadGatewayException('Spark returned incomplete JSON. Resume this draft to retry the page.'); }
+    try { raw = parseModelJson(output); } catch { throw new BadGatewayException('Spark returned incomplete JSON. Resume this draft to retry the page.'); }
     const parsed = rowSchemas[kind].extend({ links: ScenarioLinkSlots }).array().length(count).safeParse(raw);
     if (!parsed.success) throw new BadGatewayException('Spark returned incomplete records. Resume this draft to retry the page.');
     const draftLinks = [...(conf.draftLinks ?? [])];
@@ -375,8 +403,9 @@ export class ScenarioDataService {
       if (taken.has(key)) throw new ConflictException('Spark repeated a name. Resume the draft to request a new page.');
       taken.add(key);
     }
-    const [saved] = await db.update(scenarioDataBatches).set({ configuration: { ...conf, rows: updated, draftLinks, prepared: expected + count } })
-      .where(and(scope, eq(scenarioDataBatches.status, 'DRAFT'), sql`(${scenarioDataBatches.configuration}->>'prepared')::int = ${expected}`)).returning();
+    await this.assertGenerationActor(eventId,user,claimToken);
+    const [saved] = await db.update(scenarioDataBatches).set({ configuration: sql`${scenarioDataBatches.configuration} || ${JSON.stringify({rows:updated,draftLinks,prepared:expected+count})}::jsonb` })
+      .where(and(scope, eq(scenarioDataBatches.status, 'DRAFT'), sql`(${scenarioDataBatches.configuration}->>'prepared')::int = ${expected}`,fence)).returning();
     if (!saved) return this.get(eventId, batchId, user);
     return this.response(saved);
   }
@@ -406,6 +435,7 @@ export class ScenarioDataService {
       if (!batch) throw new BadRequestException('Draft unavailable');
       if (batch.status === 'COMPLETED') return this.response(batch);
       const { rows, draftLinks, ...conf } = batch.configuration as Settings;
+      if(isLive(conf.generationJob))throw new ConflictException('Pause generation before publishing');
       if (batch.status !== 'DRAFT' || !rows || kinds.some(k => rows[k].length !== conf[k])) throw new ConflictException('Complete the draft before publishing');
       const taken = await this.existingNames(eventId, tx);
       if (rows.persons.some(p => taken.has(nameKey(fullName(p))))) throw new ConflictException('A person with the same name has been added since this draft was prepared. Start a new draft.');
@@ -422,70 +452,49 @@ export class ScenarioDataService {
   }
 
   private async populate(eventId: string, batchId: string, seed: number, world: World, userId: string, tx: Tx, draftLinks?: DraftLink[]) {
-    const ids: Record<string, string[]> = { persons: [], organisations: [], locations: [], vehicles: [], devices: [], weapons: [] };
-    const addResource = async (type: string, key: keyof typeof ids) => {
-      const id = generateId();
-      await this.resourceService.registerResource(eventId, type, { id, ownerUserId: userId, txClient: tx });
-      ids[key].push(id);
-      return id;
-    };
-    const addSearch = async (type: string, id: string) => this.searchIndexerService.emitSearchUpsert(type, id, tx);
+    const ids: Record<Kind, string[]> = { persons: [], organisations: [], locations: [], vehicles: [], devices: [], weapons: [] };
     const provenance = { provenance: 'SYNTHETIC', generationBatchId: batchId, generationSeed: String(seed) };
     const series: Record<string, number> = {};
     const registryTypes = [['persons', 'person', 'PER'], ['organisations', 'organisation', 'ORG'], ['locations', 'location', 'LOC'],
     ['vehicles', 'vehicle', 'VEH'], ['devices', 'device', 'DEV'], ['weapons', 'weapon', 'WPN']] as const;
+    const registered: Array<{id:string;resourceType:string}> = [];
     for (const [kind, type, prefix] of registryTypes) {
       if (world[kind].length) series[prefix] = await this.identifiers.reserveRegistry(eventId, type, prefix, world[kind].length, tx);
+      ids[kind] = world[kind].map(()=>generateId());
+      registered.push(...ids[kind].map(id=>({id,resourceType:type})));
     }
+    await this.resourceService.registerResourceBatch(eventId,registered,userId,tx);
     const key = (prefix: string, i: number) => `${prefix}-${String(series[prefix]! + i).padStart(6, '0')}`;
-    for (const [i, row] of world.organisations.entries()) {
-      const id = await addResource('organisation', 'organisations');
-      const domain = key('ORG', i).toLowerCase() + '.example.test';
-      await tx.insert(organisations).values({ id, identifier: key('ORG', i), ...row, email: 'office@' + domain, website: 'https://' + domain, ...provenance });
-      await addSearch('organisation', id);
-    }
-    for (const [i, row] of world.locations.entries()) {
-      const id = await addResource('location', 'locations');
-      await tx.insert(locations).values({ id, identifier: key('LOC', i), ...row, ...provenance });
-      await addSearch('location', id);
-    }
-    for (const [i, row] of world.persons.entries()) {
-      const id = await addResource('person', 'persons');
-      await tx.insert(persons).values({
-        id, identifier: key('PER', i), ...row, displayName: fullName(row),
-        phones: i % 3 ? [{ value: String(1000 + series.PER! + i), label: 'Exercise extension', primary: true }] : [],
-        emails: [{ value: `${nameKey(fullName(row)).replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '').slice(0, 40) || 'staff'}.${series.PER! + i}@scenario.example.test`, primary: true }], ...provenance
-      });
-      await addSearch('person', id);
-    }
-    for (const [i, row] of world.vehicles.entries()) {
-      const id = await addResource('vehicle', 'vehicles');
-      await tx.insert(vehicles).values({ id, identifier: key('VEH', i), ...row, label: row.make + ' ' + row.model, registrationPlate: 'SIM-' + String(series.VEH! + i).padStart(6, '0'), ...provenance });
-      await addSearch('vehicle', id);
-    }
-    for (const [i, row] of world.devices.entries()) {
-      const id = await addResource('device', 'devices');
-      const tag = key('DEV', i);
-      const address = (series.DEV! + i).toString(16).padStart(8, '0');
-      await tx.insert(devices).values({
-        id, identifier: tag, ...row, label: row.manufacturer + ' ' + row.model,
-        serialNumber: 'SN-' + tag, assetTag: tag, hostname: tag.toLowerCase() + '.example.test',
-        ipAddress: '2001:db8::' + address.slice(0, 4) + ':' + address.slice(4), ...provenance
-      });
-      await addSearch('device', id);
-    }
-    for (const [i, row] of world.weapons.entries()) {
-      const id = await addResource('weapon', 'weapons');
-      await tx.insert(weapons).values({ id, identifier: key('WPN', i), ...row, serialNumber: 'PROP-' + key('WPN', i), ...provenance });
-      await addSearch('weapon', id);
-    }
+    for(const page of writeChunks(world.organisations.map((row,i)=>{
+      const domain=key('ORG',i).toLowerCase()+'.example.test';
+      return {id:ids.organisations[i]!,identifier:key('ORG',i),...row,email:'office@'+domain,website:'https://'+domain,...provenance};
+    })))await tx.insert(organisations).values(page);
+    for(const page of writeChunks(world.locations.map((row,i)=>({id:ids.locations[i]!,identifier:key('LOC',i),...row,...provenance}))))
+      await tx.insert(locations).values(page);
+    for(const page of writeChunks(world.persons.map((row,i)=>({
+      id:ids.persons[i]!,identifier:key('PER',i),...row,displayName:fullName(row),
+      phones:i%3?[{value:String(1000+series.PER!+i),label:'Exercise extension',primary:true}]:[],
+      emails:[{value:`${nameKey(fullName(row)).replace(/[^a-z0-9]+/g,'.').replace(/^\.|\.$/g,'').slice(0,40)||'staff'}.${series.PER!+i}@scenario.example.test`,primary:true}],
+      ...provenance,
+    }))))await tx.insert(persons).values(page);
+    for(const page of writeChunks(world.vehicles.map((row,i)=>({
+      id:ids.vehicles[i]!,identifier:key('VEH',i),...row,label:row.make+' '+row.model,registrationPlate:'SIM-'+String(series.VEH!+i).padStart(6,'0'),...provenance,
+    }))))await tx.insert(vehicles).values(page);
+    for(const page of writeChunks(world.devices.map((row,i)=>{
+      const tag=key('DEV',i),address=(series.DEV!+i).toString(16).padStart(8,'0');
+      return {id:ids.devices[i]!,identifier:tag,...row,label:row.manufacturer+' '+row.model,serialNumber:'SN-'+tag,assetTag:tag,
+        hostname:tag.toLowerCase()+'.example.test',ipAddress:'2001:db8::'+address.slice(0,4)+':'+address.slice(4),...provenance};
+    })))await tx.insert(devices).values(page);
+    for(const page of writeChunks(world.weapons.map((row,i)=>({
+      id:ids.weapons[i]!,identifier:key('WPN',i),...row,serialNumber:'PROP-'+key('WPN',i),...provenance,
+    }))))await tx.insert(weapons).values(page);
     // Draft media metadata becomes permanent atomically with the new registry
     // records. Binary objects are already in private MinIO; no payload reaches AI.
     const stagedImages = await tx.select().from(scenarioDraftMedia)
       .where(and(eq(scenarioDraftMedia.eventId, eventId), eq(scenarioDraftMedia.batchId, batchId)));
     if (stagedImages.length) {
       const mediaRows = stagedImages.map(image => {
-        const recordIds = ids[image.kind];
+        const recordIds = ids[image.kind as Kind];
         const resourceId = recordIds?.[image.recordIndex];
         if (!resourceId) throw new ConflictException('A staged image references a missing generated record');
         return {
@@ -493,7 +502,7 @@ export class ScenarioDataService {
           filename: image.filename, mimeType: image.mimeType, byteSize: String(image.byteSize),
         };
       });
-      await tx.insert(registryMedia).values(mediaRows);
+      for(const page of writeChunks(mediaRows))await tx.insert(registryMedia).values(page);
       await tx.delete(scenarioDraftMedia).where(eq(scenarioDraftMedia.batchId, batchId));
     }
     const links: Array<[string, string, string]> = [];
@@ -515,10 +524,9 @@ export class ScenarioDataService {
       await tx.insert(resourceRelationships).values(page.map(([sourceResourceId, targetResourceId, relationshipType]) => ({
         id: generateId(), eventId, sourceResourceId, targetResourceId, relationshipType, createdByUserId: userId
       })));
-      await tx.insert(outboxEvents).values([...new Set(page.map(link => link[0]))].map(id => ({
-        id: generateId(), eventType: 'search.upsert', payload: { type: 'resource', id }, status: OutboxStatus.PENDING, retryCount: 0
-      })));
+      // Each canonical record is indexed once after the entire transaction commits.
     }
+    await this.searchIndexerService.emitSearchBatch('upsert',registered.map(row=>({type:row.resourceType,id:row.id})),tx);
     return { relationshipCount: links.length };
   }
 
@@ -527,9 +535,10 @@ export class ScenarioDataService {
     const objectsToDelete: Array<{key:string;bucket:string}> = [];
     const result = await this.databaseService.client.transaction(async (tx) => {
       await this.lockEvent(tx, eventId);
-      const [batch] = await tx.select().from(scenarioDataBatches).where(and(eq(scenarioDataBatches.id, batchId), eq(scenarioDataBatches.eventId, eventId))).limit(1);
+      const [batch] = await tx.select().from(scenarioDataBatches).where(and(eq(scenarioDataBatches.id, batchId), eq(scenarioDataBatches.eventId, eventId))).for('update').limit(1);
       if (!batch) throw new BadRequestException('Generation batch not found');
       if (batch.status === ScenarioDataBatchStatus.CLEANED) return this.response(batch);
+      if(isLive((batch.configuration as Settings).generationJob))throw new ConflictException('Pause generation before removing this draft');
       const db = tx;
       const entityTables = [
         ['person', persons],
@@ -570,9 +579,7 @@ export class ScenarioDataService {
 
       if (ids.length) {
         await tx.delete(resources).where(inArray(resources.id, ids));
-        for (const entity of entityIds) {
-          await this.searchIndexerService.emitSearchDelete(entity.type, entity.id, tx);
-        }
+        await this.searchIndexerService.emitSearchBatch('delete',entityIds,tx);
       }
       await tx.update(scenarioDataBatches).set({ configuration: { ...cleanCounts(batch.configuration as Settings), brief: (batch.configuration as Settings).brief }, status: ScenarioDataBatchStatus.CLEANED, cleanedAt: new Date(), cleanedByUserId: user.id }).where(eq(scenarioDataBatches.id, batchId));
       const [cleaned] = await db.select().from(scenarioDataBatches).where(eq(scenarioDataBatches.id, batchId));

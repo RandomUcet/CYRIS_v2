@@ -1,9 +1,9 @@
 import {Injectable,Logger} from '@nestjs/common';
 import {loadConfig} from '@cyris/config';
-import {getDbClient,events,operationalTasks,resources,scenarioClocks,operationalHolds,exerciseBlueprints} from '@cyris/db';
+import {getDbClient,events,operationalTasks,resources,scenarioClocks,operationalHolds,exerciseBlueprints,exerciseObservations} from '@cyris/db';
 import {and,eq,inArray,isNull,sql} from 'drizzle-orm';
 import {Redis} from 'ioredis';
-import {exerciseObserverKey,ExerciseObserverSnapshotSchema} from '@cyris/contracts';
+import {exerciseObserverKey,ExerciseObserverSnapshotSchema,observerBucket} from '@cyris/contracts';
 
 @Injectable()
 export class ExerciseObserverWorkerService{
@@ -34,11 +34,15 @@ export class ExerciseObserverWorkerService{
   // No history of identities or task descriptions; Redis is a disposable derived cache.
   for(let i=0;i<rows.length;i+=100){
    const pipeline=this.redis.pipeline();
+   const history:typeof exerciseObservations.$inferInsert[]=[];
    for(const row of rows.slice(i,i+100)){
     const sample=ExerciseObserverSnapshotSchema.parse({...row,observedAt:now.toISOString()});
     pipeline.set(exerciseObserverKey(row.eventId),JSON.stringify(sample),'EX',180);
+    history.push({...row,bucketAt:observerBucket(now),observedAt:now});
    }
    await pipeline.exec();
+   // First observed value per UTC bucket wins across replicas; no synthetic backfill.
+   if(history.length)await this.db.insert(exerciseObservations).values(history).onConflictDoNothing();
   }
  }
  async stop(){this.stopping=true;try{await this.running;}finally{this.redis.disconnect();}}

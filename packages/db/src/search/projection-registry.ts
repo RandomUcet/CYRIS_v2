@@ -10,6 +10,7 @@ import {
   VehicleSearchProjectionProvider,
   DeviceSearchProjectionProvider,
   WeaponSearchProjectionProvider,
+  LicenceSearchProjectionProvider,
 } from './projections/registry.projection.js';
 import {
   IncidentSearchProjectionProvider,
@@ -40,6 +41,7 @@ export class SearchProjectionRegistry {
     this.register(new VehicleSearchProjectionProvider());
     this.register(new DeviceSearchProjectionProvider());
     this.register(new WeaponSearchProjectionProvider());
+    this.register(new LicenceSearchProjectionProvider());
     this.register(new IncidentSearchProjectionProvider());
     this.register(new CaseSearchProjectionProvider());
     this.register(new EvidenceSearchProjectionProvider());

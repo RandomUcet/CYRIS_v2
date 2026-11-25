@@ -41,9 +41,21 @@ test('fast strategy is explicit in UI and the backend uses one bounded AI reques
   const page = readFileSync(new URL('../../../web/src/app/events/[eventId]/scenario-data/page.tsx', import.meta.url), 'utf8');
   assert.match(service, /conf\.strategy === 'FAST'/);
   assert.match(service, /promptTemplateVersion: 'scenario-blueprint-fast-v1'/);
-  assert.match(service, /maxTokens: 450, timeoutMs: 45_000/);
-  assert.match(service, /prepared: total\(cleanCounts\(conf\)\)/);
+  assert.ok(service.includes("maxTokens: 700, timeoutMs: 110_000, reasoning: 'disabled', responseFormat:'json_object'"));
+  assert.match(service, /prepared:\s*total\(cleanCounts\(conf\)\)/);
   assert.match(page, /setSparkStrategy/);
   assert.match(page, /strategy: sparkStrategy/);
   assert.match(page, /value="DETAILED"/);
+});
+
+test('scenario vocabulary controls visible names and partial datasets remain valid',()=>{
+ const empty={persons:0,organisations:0,locations:0,vehicles:0,devices:0,weapons:0};
+ const only=applyScenarioBlueprint(localWorld(31,{...empty,persons:20},new Set()),blueprint,'en');
+ assert.equal(only.persons.length,20);assert.equal(fastDraftLinks(only).length,0);
+ assert.match(only.persons[0]!.description,/Fictional scenario/);
+ const a=applyScenarioBlueprint(localWorld(31,{...empty,persons:40,organisations:2,locations:3},new Set()),blueprint);
+ assert.ok(a.organisations[0]!.name.includes(blueprint.organisations[0]!));
+ assert.ok(a.locations[0]!.name.includes(blueprint.sites[0]!));
+ assert.ok(a.persons[0]!.description.includes(a.organisations[0]!.name));
+ assert.ok(a.persons[2]!.description.includes(a.organisations[0]!.name));
 });

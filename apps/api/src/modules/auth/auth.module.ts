@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { LocalTestAccountsController } from './local-test-accounts.controller.js';
 import { PreviewAccessController } from './preview-access.controller.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
@@ -13,7 +14,7 @@ import { ViewAsController } from './view-as.controller.js';
 
 @Global()
 @Module({
-  controllers: [AuthController, ViewAsController, PreviewAccessController],
+  controllers: [AuthController, ViewAsController, PreviewAccessController, LocalTestAccountsController],
   providers: [
     AuthService,
     SessionService,

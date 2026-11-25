@@ -12,7 +12,7 @@ import { ProviderCard } from './ProviderCard';
 import { ProviderEditor } from './ProviderEditor';
 import styles from './providers.module.css';
 
-type Operation = { id: string; kind: 'toggle' | 'test' | 'delete' };
+type Operation = { id: string; kind: 'toggle' | 'test' | 'delete' | 'inference' };
 
 export default function AdminAIIntegrationsPage() {
   const { isPlatformAdmin, loading: authLoading } = useAuth();
@@ -23,6 +23,7 @@ export default function AdminAIIntegrationsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [operation, setOperation] = useState<Operation | null>(null);
   const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
+  const [inference,setInference]=useState<{success:boolean;category:string;durationMs:number;model:string}|null>(null);
   const [test, setTest] = useState<{ id: string; result: TestConnectionResponse } | null>(null);
   const [editor, setEditor] = useState<AIProviderResponse | 'new' | null>(null);
   const listRequest = useRef(0);
@@ -77,6 +78,11 @@ export default function AdminAIIntegrationsPage() {
         const response = await apiClient.deleteAIProvider(id);
         if (!response.ok) throw new Error(response.error);
         setProviders(previous => (previous ?? []).filter(item => item.id !== id));
+      } else if(kind==='inference'){
+        setInference(null);
+        const response=await apiClient.testSparkInference();
+        if(!response.ok||!response.data)throw new Error(response.error);
+        setInference(response.data);
       } else {
         setTest(null);
         const response = await apiClient.testAIConnection({ providerId: id });
@@ -91,7 +97,7 @@ export default function AdminAIIntegrationsPage() {
         await loadProviders();
       }
     } catch (cause) {
-      const fallback = kind === 'test'
+      const fallback = kind === 'test'||kind==='inference'
         ? (cs ? 'Kontrolu se nepodařilo dokončit.' : 'The check could not be completed.')
         : (cs ? 'Změnu se nepodařilo uložit.' : 'The change could not be saved.');
       setActionError({ id, message: (cause instanceof Error && cause.message) || fallback });
@@ -118,6 +124,8 @@ export default function AdminAIIntegrationsPage() {
       test={test?.id === provider.id ? test.result : null}
       onToggle={() => void runOperation(provider, 'toggle')}
       onTest={() => void runOperation(provider, 'test')}
+      inference={provider.systemProfile==='DGX_SPARK'?inference:null}
+      onInference={provider.systemProfile==='DGX_SPARK'?()=>void runOperation(provider,'inference'):undefined}
       onEdit={provider.systemProfile ? undefined : () => setEditor(provider)}
       onDelete={provider.systemProfile ? undefined : () => void runOperation(provider, 'delete')}
       otherActive={provider.systemProfile ? otherActive?.name : undefined} />;

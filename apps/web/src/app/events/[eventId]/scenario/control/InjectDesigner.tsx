@@ -29,7 +29,7 @@ export function InjectDesigner({ eventId, sheet, inject, tr, onClose, onSaved }:
   const [participantTitle, setParticipantTitle] = useState(inject?.participantTitle ?? '');
   const [body, setBody] = useState(inject?.participantContent ?? '');
   const [ack, setAck] = useState(inject?.requiresAcknowledgement ?? false);
-  const [audienceType, setAudienceType] = useState(target?.targetType ?? (inject ? 'EVENT' : ''));
+  const [audienceType, setAudienceType] = useState(target?.targetType ?? (inject&&inject.status!=='DRAFT' ? 'EVENT' : ''));
   const [unit, setUnit] = useState(target?.targetUnitId ?? '');
   const [user, setUser] = useState(target?.targetUserId ?? '');
   const [trigger, setTrigger] = useState(inject?.triggerType ?? 'MANUAL');
@@ -98,6 +98,7 @@ export function InjectDesigner({ eventId, sheet, inject, tr, onClose, onSaved }:
     if (!title.trim() || !summary.trim()) {
       setError(tr('Vyplňte interní název a záměr vstupu.', 'Enter the internal title and purpose.')); return;
     }
+    if(!multiTarget&&!audienceType){setError(tr('Vyberte příjemce briefingu.','Select the briefing audience.'));return;}
     if (trigger === 'CONDITION' && !complexCondition && !conditionType) {
       setError(tr('Pro tento způsob spuštění vyberte podmínku.', 'Select a condition for this trigger.')); return;
     }
