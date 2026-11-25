@@ -200,7 +200,7 @@ export type MyWorkQuery = z.infer<typeof MyWorkQuerySchema>;
 export const MyWorkItemSchema = z.object({
   id: z.string().uuid(),
   eventId: z.string().uuid(),
-  kind: z.enum(['TASK', 'LAB_ANALYSIS','FORENSIC_ANALYSIS']),
+  kind: z.enum(['TASK', 'LAB_ANALYSIS','FORENSIC_ANALYSIS','COURT_REQUEST']),
   reportAvailable:z.boolean().optional(),
   identifier: z.string(),
   title: z.string(),

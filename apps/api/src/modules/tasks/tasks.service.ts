@@ -49,6 +49,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { isActionableMyWorkItem, isMyWorkViewAllowed, sortAndPaginateMyWork } from './my-work.js';
 import { DisruptionsService } from '../disruptions/disruptions.service.js';
+import { listCourtWork } from '../court/court-work.js';
 
 @Injectable()
 export class TasksService {
@@ -567,7 +568,8 @@ export class TasksService {
       eventWide:await this.authorizationService.authorize({user,permission:d.read,context:{eventId}}),
       unitWide:query.unitId?await this.authorizationService.authorize({user,permission:d.read,context:{eventId,unitId:query.unitId}}):false,
     })));
-    if(!access.some(d=>d.readable||d.requestable))throw new ForbiddenException('Work queues are not available in this exercise');
+    const canReadCourtRequests=await this.authorizationService.authorize({user,permission:Permissions.COURT_REQUEST_READ,context:{eventId}});
+    if(!canReadCourtRequests&&!access.some(d=>d.readable||d.requestable))throw new ForbiddenException('Work queues are not available in this exercise');
     const units=await this.db.select({id:organizationalUnits.id,name:organizationalUnits.name}).from(organizationalUnits).where(and(eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt)));
     const availableUnits:Array<{id:string;name:string}>=[];
     for(const unit of units){
@@ -602,6 +604,10 @@ export class TasksService {
     for(const {row:r} of taskRows)await append({id:r.id,eventId,kind:'TASK',identifier:r.taskNumber,title:r.title,status:r.status,assignedToUserId:r.assignedUserId,assignedUnitId:r.assignedUnitId,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/tasks/${r.id}`},Permissions.TASK_READ,this.resourceAccessService);
     for(const {row:r} of labRows)await append({id:r.id,eventId,kind:'LAB_ANALYSIS',identifier:r.analysisNumber,title:r.analysisType,status:r.status,assignedToUserId:r.assignedToUserId,assignedUnitId:r.assignedUnitId,reportAvailable:r.status==='APPROVED'&&!!r.approvedAt,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/lab/${r.id}`},Permissions.LAB_READ,this.resourceAccessService);
     for(const {row:r} of forensicRows)await append({id:r.id,eventId,kind:'FORENSIC_ANALYSIS',identifier:r.analysisNumber,title:r.analysisType,status:r.status,assignedToUserId:r.assignedToUserId,assignedUnitId:r.assignedUnitId,reportAvailable:r.status==='APPROVED'&&!!r.approvedAt,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/forensics/${r.id}`},Permissions.FORENSICS_READ,this.resourceAccessService);
+    if(canReadCourtRequests&&impacts.get('court')!=='UNAVAILABLE'){
+      const legalItems=await listCourtWork(this.db,this.authorizationService,this.resourceAccessService,eventId,user,query.view);
+      items.push(...legalItems.map(item=>({...item,assignedUnitName:item.assignedUnitId?names.get(item.assignedUnitId):undefined})));
+    }
     const paged=sortAndPaginateMyWork(items,query.page,query.limit);
     return {items:paged.items,total:paged.total,page:query.page,limit:query.limit,view:query.view,availableViews:['personal',...(availableUnits.length?['unit' as const]:[]),...(canViewEvent?['event' as const]:[]),'requested',...(canApprove?['approval' as const]:[])],availableUnits};
   }

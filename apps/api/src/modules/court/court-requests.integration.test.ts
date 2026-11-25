@@ -10,6 +10,7 @@ import { generateId, Permissions, PermissionScopes } from '@cyris/shared';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { CourtRequestsService } from '../court/court-requests.service.js';
+import { listCourtWork } from './court-work.js';
 import { requireVerifiedIsolatedDatabase } from '../../regression/isolated-postgres-harness.js';
 
 const url = requireVerifiedIsolatedDatabase();
@@ -31,7 +32,7 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
         (permission===Permissions.COURT_REQUEST_RESPOND&&user.id!==responderId))
         throw new ForbiddenException('Not authorised');
     },
-    authorize:async({user,permission}:any)=>permission===Permissions.COURT_REQUEST_CREATE && user.id===requesterId,
+    authorize:async({user,permission,context}:any)=>context?.eventId===eventA&&((permission===Permissions.COURT_REQUEST_CREATE&&user.id===requesterId)||(permission===Permissions.COURT_REQUEST_READ&&[requesterId,responderId].includes(user.id))||(permission===Permissions.COURT_REQUEST_RESPOND&&user.id===responderId)),
   };
   const access={
     assertCanAccessResource:async(user:AuthenticatedUser,id:string)=>{
@@ -89,6 +90,16 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
       ...input,requestedFromUnitId:unitId,
     },requester);
     assert.equal(created.status,'OPEN');
+    const work=(user:AuthenticatedUser,view:'personal'|'requested',event=eventA)=>listCourtWork(db,authz as any,access as any,event,user,view);
+    assert.deepEqual((await work(responder,'personal')).map(x=>x.id),[created.id]);
+    assert.deepEqual((await work(requester,'requested')).map(x=>x.id),[created.id]);
+    assert.equal((await work(responder,'requested')).length,0);
+    assert.equal((await work(requester,'personal')).length,0);
+    assert.equal((await work(stranger,'personal')).length,0);
+    assert.equal((await work(responder,'personal',eventB)).length,0);
+    await db.delete(membershipUnitAssignments).where(eq(membershipUnitAssignments.membershipId,memberId));
+    assert.equal((await work(responder,'personal')).length,0);
+    await db.insert(membershipUnitAssignments).values({id:generateId(),membershipId:memberId,unitId});
     const newAlerts=await db.select().from(notifications).where(eq(notifications.eventId,eventA));
     assert.equal(newAlerts.filter(row=>row.type==='COURT_REQUEST_CREATED').length,1);
     assert.equal(newAlerts[0]?.userId,responderId);
@@ -118,6 +129,8 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
       expectedRevision:2,status:'FULFILLED',response:'Signed simulated expert opinion.',
     },responder);
     assert.equal(returned.revision,3);
+    assert.equal((await work(responder,'personal')).length,0);
+    assert.deepEqual((await work(requester,'requested')).map(x=>[x.id,x.status]),[[created.id,'FULFILLED']]);
     assert.deepEqual(returned.history.map(x=>x.status),['IN_PROGRESS','FULFILLED']);
     assert.equal(returned.history[0]?.response,'Expert team is preparing the report.');
     assert.equal(returned.respondedByUserId,responderId);

@@ -169,7 +169,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
                   className="my-work-item"
                 >
                   <span>{item.identifier}</span>
-                  <span><strong>{item.title}</strong><small>{item.kind === 'LAB_ANALYSIS' ? (cs ? 'Laboratorní požadavek' : 'Laboratory request') : item.kind==='FORENSIC_ANALYSIS'?(cs?'Digitální forenzní analýza':'Digital forensic analysis'):(cs ? 'Úkol' : 'Task')}{item.assignedUnitName?' · '+item.assignedUnitName:''}{item.reportAvailable?' · '+(cs?'Schválený protokol':'Approved report'):''}</small></span>
+                  <span><strong>{item.title}</strong><small>{item.kind === 'LAB_ANALYSIS' ? (cs ? 'Laboratorní požadavek' : 'Laboratory request') : item.kind==='FORENSIC_ANALYSIS'?(cs?'Digitální forenzní analýza':'Digital forensic analysis'):item.kind==='COURT_REQUEST'?(cs?'Právní žádost':'Legal request'):(cs ? 'Úkol' : 'Task')}{item.assignedUnitName?' · '+item.assignedUnitName:''}{item.reportAvailable?' · '+(cs?'Schválený protokol':'Approved report'):''}</small></span>
                   <StatusBadge status={item.status} />
                   <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>{formatDate(item.updatedAt)}</span>
                 </Link>
