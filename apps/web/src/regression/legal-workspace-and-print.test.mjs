@@ -25,6 +25,9 @@ test('admin report and data administration are separate; cleanup is explicitly h
   assert.ok(!report.includes('getEventPurgePreview'));
   assert.ok(data.includes('getEventPurgePreview'));
   assert.ok(data.includes('requestSequence'));
+  assert.ok(data.includes('getEventRetentionPlan(id,controller.signal)'));
+  assert.ok(data.includes('planSequence'));
+  assert.ok(data.includes("profile==='reset'"));
   assert.ok(data.includes('sudo cyrisctl cleanup'));
   assert.ok(data.includes('HOST_ONLY'));
   assert.ok(data.includes("mode==='selected'"));

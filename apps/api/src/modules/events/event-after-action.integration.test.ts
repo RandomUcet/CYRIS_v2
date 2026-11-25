@@ -49,6 +49,14 @@ test('admin UTC after-action metrics and partial cleanup preview remain tenant-s
     ]);
     await assert.rejects(()=>service.report(eventA,denied),ForbiddenException);
     await assert.rejects(()=>service.purgePreview(eventA,denied),ForbiddenException);
+    await assert.rejects(()=>service.relationalPlan(eventA,denied),ForbiddenException);
+    const plan=await service.relationalPlan(eventA,admin);
+    assert.equal(plan.eventId,eventA);
+    assert.equal(plan.relational.executable,false);
+    assert.equal(plan.relational.tables.find(t=>t.table==='resources')?.count,2);
+    assert.equal(plan.relational.auditRows,2);
+    assert.equal(plan.relational.tables.find(t=>t.table==='events')?.reset,'KEEP');
+    assert.equal(plan.relational.tables.find(t=>t.table==='events')?.remove,'DELETE');
     const report=await service.report(eventA,admin);
     assert.equal(report.eventId,eventA);
     assert.equal(report.auditEvents,2);

@@ -9,7 +9,7 @@ import {StatusBadge} from '@/components/common/Badges';
 import {apiClient} from '@/lib/api-client';
 import {useAuth} from '@/contexts/AuthContext';
 import {usePreferences} from '@/contexts/PreferencesContext';
-import {RetentionInventoryReportSchema,type EventPurgePreview,type RetentionInventoryReport} from '@cyris/contracts';
+import {EventRetentionPlanSchema,RetentionInventoryReportSchema,type EventRetentionPlan,type EventPurgePreview,type RetentionInventoryReport} from '@cyris/contracts';
 import styles from './data.module.css';
 
 type Scope='read-notifications'|'terminal-tasks';
@@ -44,13 +44,34 @@ function DataWorkspace({id}:{id:string}){
   const [refresh,setRefresh]=useState(0),[copied,setCopied]=useState(false);
   const [hostInventory,setHostInventory]=useState<RetentionInventoryReport|null>(null),[importError,setImportError]=useState('');
   const importSequence=useRef(0);
+  const [plan,setPlan]=useState<EventRetentionPlan|null>(null),[planError,setPlanError]=useState(''),[planBusy,setPlanBusy]=useState(false);
+  const [profile,setProfile]=useState<'reset'|'remove'>('reset'),[showEmpty,setShowEmpty]=useState(false);
+  const planSequence=useRef(0),planAbort=useRef<AbortController|null>(null);
+  function clearPlan(){
+    planSequence.current++;planAbort.current?.abort();planAbort.current=null;
+    setPlan(null);setPlanError('');setPlanBusy(false);
+  }
+  async function loadPlan(){
+    const sequence=++planSequence.current;planAbort.current?.abort();
+    const controller=new AbortController();planAbort.current=controller;
+    setPlan(null);setPlanError('');setPlanBusy(true);
+    try{
+      const res=await apiClient.getEventRetentionPlan(id,controller.signal);
+      if(sequence!==planSequence.current)return;
+      if(!res.ok||!res.data)throw new Error(res.error||tr('Plán se nepodařilo načíst.','Plan unavailable.'));
+      const parsed=EventRetentionPlanSchema.parse(res.data);
+      if(parsed.eventId!==id)throw new Error(tr('Plán patří jinému cvičení.','Plan belongs to another exercise.'));
+      setPlan(parsed);
+    }catch(e){if(sequence===planSequence.current)setPlanError(e instanceof Error?e.message:String(e));}
+    finally{if(sequence===planSequence.current){setPlanBusy(false);planAbort.current=null;}}
+  }
   const requestSequence=useRef(0);
   const selectionKey=JSON.stringify([mode,[...selected].sort()]);
   const selectionKeyRef=useRef(selectionKey);
   selectionKeyRef.current=selectionKey;
   useEffect(()=>{
     const sequence=++requestSequence.current;
-    importSequence.current++;setHostInventory(null);setImportError('');
+    importSequence.current++;setHostInventory(null);setImportError('');clearPlan();
     setLoading(true);setError('');setBase(null);setPreview(null);setWorking(false);setSelected([]);
     void apiClient.getEventPurgePreview(id).then(res=>{
       if(sequence!==requestSequence.current)return;
@@ -58,7 +79,7 @@ function DataWorkspace({id}:{id:string}){
       setBase(res.data);
     }).catch(err=>{if(sequence===requestSequence.current)setError(String(err instanceof Error?err.message:err));})
       .finally(()=>{if(sequence===requestSequence.current)setLoading(false)});
-    return()=>{requestSequence.current++;importSequence.current++};
+    return()=>{requestSequence.current++;importSequence.current++;planSequence.current++;planAbort.current?.abort();};
   },[id,refresh]);
   function changeSelection(nextMode:'all'|'selected',next:string[]){
     requestSequence.current++;setMode(nextMode);setSelected(next);setPreview(null);setWorking(false);setError('');
@@ -150,7 +171,30 @@ function DataWorkspace({id}:{id:string}){
           </section>
         </div>
         <section className={styles.panel}>
-          <h2><Database size={19}/>{tr('3 · Ověření úložiště a front','3 · Storage and queue inspection')}</h2>
+          <h2><Database size={19}/>{tr('3 · Plán vyčištění cvičení','3 · Exercise cleanup plan')}</h2>
+          <p>{tr('Prověřte vlastnictví databázových tabulek a vazby. Tento náhled je nedestruktivní a nezahrnuje fyzické soubory ani fronty.','Inspect database table ownership and relationships. This preview is non-destructive and excludes physical files and queues.')}</p>
+          <div className={styles.actions}><button type="button" className="btn btn-primary" disabled={planBusy} onClick={()=>void loadPlan()}>{planBusy?tr('Prověřuji…','Inspecting…'):tr('Vypočítat databázový plán','Calculate database plan')}</button>
+            {plan&&<button type="button" className="btn btn-secondary" onClick={()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(plan,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='cyris-relational-plan-'+id+'.json';a.click();URL.revokeObjectURL(url);}}><Download size={14}/>{tr('Export plánu','Export plan')}</button>}</div>
+          {planError&&<p role="alert">{planError}</p>}
+          {plan&&<div className={styles.result}>
+            <small>{tr('Databázový snímek','Database snapshot')} · {formatTime(plan.generatedAt)} · {plan.status}</small>
+            <fieldset className={styles.fieldset}><legend>{tr('Režim','Profile')}</legend>
+              <label><input type="radio" name="relational-profile" checked={profile==='reset'} onChange={()=>setProfile('reset')}/>{tr('Vyčistit obsah, zachovat týmy, role a členství','Reset content; retain teams, roles and memberships')}</label>
+              <label><input type="radio" name="relational-profile" checked={profile==='remove'} onChange={()=>setProfile('remove')}/>{tr('Odstranit celé cvičení včetně týmů a rolí','Remove exercise including teams and roles')}</label>
+            </fieldset>
+            <div className={styles.metrics}><div><span>{tr('Řádky navržené k odstranění','Rows proposed for deletion')}</span><strong>{profile==='reset'?plan.relational.resetRows:plan.relational.removeRows}</strong></div>
+              <div><span>{tr('Auditní záznamy k zachování','Audit records retained')}</span><strong>{plan.relational.auditRows}</strong></div>
+              <div><span>{tr('Prověřené cizí klíče','Foreign keys checked')}</span><strong>{plan.relational.checkedForeignKeys}</strong></div></div>
+            <label><input type="checkbox" checked={showEmpty} onChange={e=>setShowEmpty(e.target.checked)}/> {tr('Zobrazit i prázdné tabulky','Show empty tables')}</label>
+            <div className={styles.planTable}><table><thead><tr><th scope="col">{tr('Tabulka','Table')}</th><th scope="col">{tr('Počet','Count')}</th><th scope="col">{tr('Navržená operace','Proposed action')}</th></tr></thead>
+              <tbody>{plan.relational.tables.filter(t=>showEmpty||t.count>0).map(t=><tr key={t.table}><td>{display(t.table)}</td><td>{t.count}</td><td>{t[profile]==='DELETE'?tr('Odstranit','Delete'):t[profile]==='DETACH_AUDIT'?tr('Zachovat audit, odpojit vazbu','Retain audit, detach reference'):tr('Zachovat','Keep')}</td></tr>)}</tbody></table></div>
+            {([ ...plan.relational.unknownTables,...plan.relational.missingTables,...plan.relational.unsupportedTables].length>0)&&<div className={styles.warning} role="alert">{tr('Neúplné pokrytí schématu: ','Incomplete schema coverage: ')}{[...plan.relational.unknownTables,...plan.relational.missingTables,...plan.relational.unsupportedTables].join(', ')}</div>}
+            {plan.relational.conflicts.length>0&&<div className={styles.warning} role="alert"><div><strong>{tr('Nalezené vazby mimo cvičení','References outside exercise scope')}</strong><ul>{plan.relational.conflicts.map(c=><li key={c.child+':'+c.constraint}>{c.child} → {c.parent} ({c.count})</li>)}</ul></div></div>}
+            <div className={styles.warning}><AlertTriangle size={17}/>{tr('Nejde o povolení k mazání. Úplné provedení je zatím blokováno.','This is not deletion authorization. Full execution is still blocked.')}</div>
+          </div>}
+        </section>
+        <section className={styles.panel}>
+          <h2><Database size={19}/>{tr('4 · Ověření úložiště a front','4 · Storage and queue inspection')}</h2>
           <p>{tr('Serverový inventář porovná známé odkazy se skutečnými objekty a vyhledávacím indexem. Nikdy nemaže.','Host inventory compares known references with actual objects and the search index. It never deletes.')}</p>
           <div className={styles.command}><code>{inventoryCommand}</code><small>{tr('Výstup uložte jako JSON a načtěte níže.','Save the output as JSON and load it below.')}</small></div>
           <label>{tr('Načíst JSON ze serveru','Load host JSON')} <input type="file" accept=".json,application/json" onChange={e=>{const f=e.target.files?.[0];e.target.value='';void importInventory(f)}}/></label>
@@ -180,7 +224,7 @@ function DataWorkspace({id}:{id:string}){
           </div>}
         </section>
         <section className={styles.panel}>
-          <h2><ShieldCheck size={19}/>{tr('4 · Co zůstává zachováno','4 · What is retained')}</h2>
+          <h2><ShieldCheck size={19}/>{tr('5 · Co zůstává zachováno','5 · What is retained')}</h2>
           <p>{tr('Uživatelé, role, členství, auditní stopa a operační historie. Samotné cvičení zůstává archivované.','Users, roles, memberships, audit and operational history. The exercise itself remains archived.')}</p>
           <div className={styles.warning}><AlertTriangle size={19}/><div><strong>{tr('Úplné odstranění cvičení zatím není k dispozici','Complete exercise deletion is not yet available')}</strong><p>{tr('Důkazy, zprávy, soubory, externí integrace a závislosti musí projít samostatnou akceptací. Náhled neznamená oprávnění odstranit všechna data.','Evidence, reports, files, external integrations and dependencies require separate acceptance. Preview is not permission to delete all data.')}</p></div></div>
         </section>

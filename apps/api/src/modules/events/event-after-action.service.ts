@@ -5,7 +5,8 @@ import {
   supportRequests, auditEvents, courtRequests, activityEvents,
 } from '@cyris/db';
 import { Permissions } from '@cyris/shared';
-import type { EventAfterActionReport, EventPurgePreview } from '@cyris/contracts';
+import { EventRetentionPlanSchema, type EventRetentionPlan, type EventAfterActionReport, type EventPurgePreview } from '@cyris/contracts';
+import { inspectRelationalRetention } from '../../scripts/retention-relational-plan.js';
 import { mergeActivityDays, previewResourceSelection } from './event-report-utils.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { DatabaseService } from '../database/database.service.js';
@@ -85,6 +86,17 @@ export class EventAfterActionService {
         })),
       ),
     };
+  }
+  async relationalPlan(eventId:string,actor:AuthenticatedUser):Promise<EventRetentionPlan>{
+    await this.getForAdmin(eventId,actor);
+    return this.db.transaction(async tx=>{
+      await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`);
+      await tx.execute(sql`SET LOCAL statement_timeout='15s'`);
+      await tx.execute(sql`SET LOCAL lock_timeout='2s'`);
+      const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).limit(1);
+      if(!event)throw new NotFoundException('Exercise not found');
+      return EventRetentionPlanSchema.parse({eventId,status:event.status,generatedAt:new Date().toISOString(),relational:await inspectRelationalRetention(tx,eventId)});
+    });
   }
   async purgePreview(eventId: string, actor: AuthenticatedUser, selectedResourceTypes?: string[]): Promise<EventPurgePreview> {
     const report = await this.report(eventId, actor);

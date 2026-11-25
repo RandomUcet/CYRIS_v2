@@ -17,6 +17,11 @@ export class EventAfterActionController {
   report(@Param('eventId',ParseUUIDPipe) eventId: string, @CurrentUser() actor: AuthenticatedUser) {
     return this.reports.report(eventId, actor);
   }
+  @Get('retention-plan')
+  @Header('Cache-Control','private, no-store')
+  relationalPlan(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() actor:AuthenticatedUser){
+    return this.reports.relationalPlan(eventId,actor);
+  }
   @Get('purge-preview')
   @Header('Cache-Control','private, no-store')
   purgePreview(@Param('eventId',ParseUUIDPipe) eventId: string, @CurrentUser() actor: AuthenticatedUser,

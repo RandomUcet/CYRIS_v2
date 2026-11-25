@@ -18,6 +18,7 @@ import type {
   EventResponse,
   EventAfterActionReport,
   EventPurgePreview,
+  EventRetentionPlan,
   LoginRequest,
   SearchResponse,
   AIProviderResponse,
@@ -710,6 +711,9 @@ export class CyrisApiClient {
   getEventAfterActionReport(eventId: string) {
     return this.fetchJson<EventAfterActionReport>(
       '/events/' + encodeURIComponent(eventId) + '/after-action-report');
+  }
+  getEventRetentionPlan(eventId:string,signal?:AbortSignal){
+    return this.fetchJson<EventRetentionPlan>('/events/'+encodeURIComponent(eventId)+'/retention-plan',signal);
   }
   getEventPurgePreview(eventId: string, resourceTypes?: string[]) {
     const suffix = resourceTypes && resourceTypes.length

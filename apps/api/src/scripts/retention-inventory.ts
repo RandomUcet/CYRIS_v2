@@ -3,6 +3,7 @@ import { Client as TypesenseClient } from 'typesense';
 import {loadConfig} from '@cyris/config';
 import {getDbClient,closeDatabaseConnection,sql,GLOBAL_SEARCH_COLLECTION} from '@cyris/db';
 import {classifyRetentionObjects,objectIdentity,belongsToEventNamespace,type ObjectReference,type ListedObject} from './retention-inventory-core.js';
+import {inspectRelationalRetention} from './retention-relational-plan.js';
 import {RetentionInventoryReportSchema} from '@cyris/contracts';
 
 const MAX_REFERENCES=20000,MAX_LISTED=20000,MAX_HEAD=2000;
@@ -34,7 +35,8 @@ async function main(){
         not (coalesce(o.payload->>'eventId','')<>''
         or exists(select 1 from resources r where r.id::text in (o.payload->>'id',o.payload->>'resourceId',o.payload->>'documentId')))) as "unclassifiedOutbox"
     `);
-    return {event,refs:[...refs],ids:[...ids],jobs};
+    const relational=await inspectRelationalRetention(tx,eventId);
+    return {event,refs:[...refs],ids:[...ids],jobs,relational};
   });
   const blockers:string[]=[];
   if(snapshot.refs.length>MAX_REFERENCES||snapshot.ids.length>MAX_REFERENCES)throw new Error('Inventory cap exceeded; use a larger reviewed offline inventory');
@@ -103,7 +105,7 @@ async function main(){
   // Never advertise a complete deletion plan from this inspection.
   blockers.push('REDIS_AND_EXTERNAL_RECONCILIATION_PENDING');
   const result=RetentionInventoryReportSchema.parse({eventId,status:snapshot.event.status,generatedAt:new Date().toISOString(),
-    mode:'READ_ONLY',listingComplete,storage,indexedDocuments,background:snapshot.jobs,blockers});
+    mode:'READ_ONLY',listingComplete,storage,indexedDocuments,background:snapshot.jobs,relational:snapshot.relational,blockers});
   console.log(JSON.stringify(result,null,2));
 }
 main().catch(()=>{console.error('Retention inventory failed or exceeded its safety limits; no data was modified.');process.exitCode=1;}).finally(()=>closeDatabaseConnection());
