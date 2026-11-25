@@ -8,3 +8,5 @@ export const StorageReportSchema=z.object({schema:z.literal('cyris.storage.v1'),
  directories:z.object({installation:bytes.nullable(),data:bytes.nullable(),backups:bytes.nullable(),docker:bytes.nullable(),containerd:bytes.nullable()}).strict(),
  docker:z.object({Images:docker,Containers:docker,'Local Volumes':docker,'Build Cache':docker}).strict()}).strict();
 export type StorageReport=z.infer<typeof StorageReportSchema>;
+
+export const MaintenanceActionSchema=z.object({action:z.enum(['API_STATUS','DEPENDENCY_CHECK'])}).strict();

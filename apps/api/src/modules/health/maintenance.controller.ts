@@ -7,9 +7,8 @@ import {RequirePermission} from '../authorization/decorators/require-permission.
 import {Permissions,PermissionScopes} from '@cyris/shared';
 import {AuditService} from '../audit/audit.service.js';
 import {HealthService} from './health.service.js';
-import {z} from 'zod';
-
-export const MaintenanceActionSchema=z.object({action:z.enum(['API_STATUS','DEPENDENCY_CHECK'])}).strict();
+import {MaintenanceActionSchema} from '@cyris/contracts';
+export {MaintenanceActionSchema} from '@cyris/contracts';
 
 @Controller('admin/maintenance')
 @UseGuards(AuthGuard,PermissionsGuard)
