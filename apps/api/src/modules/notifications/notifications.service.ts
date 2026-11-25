@@ -4,7 +4,7 @@ import { DatabaseService } from '../database/database.service.js';
 import { PreferencesService } from '../preferences/preferences.service.js';
 import { InAppNotificationProvider } from './providers/in-app-notification.provider.js';
 import { EmailNotificationProvider } from './providers/email-notification.provider.js';
-import { notifications, users, labAnalyses, forensicAnalyses, resources } from '@cyris/db';
+import { notifications, users, labAnalyses, forensicAnalyses, medicalEncounters, resources, eventMemberships, membershipUnitAssignments, organizationalUnits } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
@@ -224,7 +224,7 @@ export class NotificationsService {
     const labGroups:NonNullable<ReturnType<typeof and>>[]=[];
     for(const group of groups){
       if(!await canShow(group.eventId,group.templateKey,group.resourceId))continue;
-      if(['lab.request.status','forensics.request.status','forensics.assigned'].includes(group.templateKey)&&group.resourceId&&group.eventId){
+      if(['lab.request.status','forensics.request.status','forensics.assigned','medical.handoff'].includes(group.templateKey)&&group.resourceId&&group.eventId){
         labGroups.push(and(eq(notifications.eventId,group.eventId),eq(notifications.templateKey,group.templateKey),eq(notifications.resourceId,group.resourceId))!);continue;
       }
       const keys=allowed.get(group.eventId)??new Set<string>();
@@ -293,6 +293,25 @@ export class NotificationsService {
           if(record?.requester!==userId)return false;
           const [user]=await db.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status}).from(users).where(eq(users.id,userId)).limit(1);
           return Boolean(user&&await access.canAccessResource(user,resourceId,templateKey!=='lab.request.status'?Permissions.FORENSICS_READ:Permissions.LAB_READ));
+        })();labVisibility.set(key,visible);}
+        return visible;
+      }
+      if(templateKey==='medical.handoff'){
+        if(!eventId||!resourceId)return false;
+        const key=templateKey+':'+eventId+':'+resourceId;
+        let visible=labVisibility.get(key);
+        if(!visible){visible=(async()=>{
+          const [user]=await db.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status,testExpiresAt:users.testExpiresAt}).from(users).where(eq(users.id,userId)).limit(1);
+          if(!user||user.status!=='ACTIVE'||(user.testExpiresAt&&user.testExpiresAt<=new Date()))return false;
+          const [row]=await db.select({id:medicalEncounters.id}).from(medicalEncounters)
+            .innerJoin(resources,eq(resources.id,medicalEncounters.id))
+            .innerJoin(organizationalUnits,eq(organizationalUnits.id,medicalEncounters.assignedUnitId))
+            .innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.unitId,organizationalUnits.id))
+            .innerJoin(eventMemberships,eq(eventMemberships.id,membershipUnitAssignments.membershipId))
+            .where(and(eq(medicalEncounters.id,resourceId),eq(medicalEncounters.eventId,eventId),eq(resources.eventId,eventId),
+              eq(resources.resourceType,'medical_encounter'),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt),
+              eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,userId),eq(eventMemberships.status,'ACTIVE'))).limit(1);
+          return Boolean(row&&await access.canAccessResource(user,resourceId,Permissions.MEDICAL_READ)&&await access.canAccessResource(user,resourceId,Permissions.MEDICAL_INTERVENE));
         })();labVisibility.set(key,visible);}
         return visible;
       }

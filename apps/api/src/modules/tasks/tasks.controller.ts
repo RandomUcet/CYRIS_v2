@@ -7,7 +7,7 @@ import {
   Query,
   Body,
   UseGuards,
-  BadRequestException,
+  BadRequestException, Header,
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -48,6 +48,7 @@ export class TasksController {
   }
 
   @Get('my-work')
+  @Header('Cache-Control','private, no-store')
   async listMyWork(
     @Param('eventId') eventId: string,
     @Query() query: unknown,

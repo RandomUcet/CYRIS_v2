@@ -143,6 +143,7 @@ export function NotificationCenter(){
         return String(p.analysisNumber??'—')+' · '+label;
       }
       case 'lab.assigned':return String(p.analysisNumber??'LAB')+' · '+t('notification.labAssigned');
+      case 'medical.handoff':
       case 'medical.assignment':return t('notification.medicalAssign');
       case 'court.request.created':return t('notification.courtRequestCreated');
       case 'court.request.responded':return t('notification.courtRequestResponded');

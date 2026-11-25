@@ -6,7 +6,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import {
   getDbClient, closeDatabaseConnection, users, events, eventMemberships,
   membershipUnitAssignments, organizationalUnits, unitCapabilities,
-  roles, rolePermissions, roleAssignments, resources, medicalEncounters, medicalInterventions, locations,
+  roles, rolePermissions, roleAssignments, resources, medicalEncounters, medicalInterventions, locations, notifications,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
 import { MyWorkQuerySchema, UnitCapabilityKeys } from '@cyris/contracts';
@@ -14,6 +14,7 @@ import { DatabaseService } from '../modules/database/database.service.js';
 import { AuthorizationService } from '../modules/authorization/authorization.service.js';
 import { ResourceAccessService } from '../modules/resources/resource-access.service.js';
 import { ResourceService } from '../modules/resources/resource.service.js';
+import { NotificationsService } from '../modules/notifications/notifications.service.js';
 import { TasksService } from '../modules/tasks/tasks.service.js';
 import { MedicalService } from '../modules/medical/medical.service.js';
 import { WorkspaceResolverService } from '../modules/events/workspace-resolver.service.js';
@@ -166,11 +167,19 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
       assert.equal(after.resource?.ownerUserId,original.resource?.ownerUserId);
       assert.equal(after.record?.status,'RECEIVED');
       assert.equal(after.record?.locationId,null);
+      assert.equal((await db.select().from(notifications).where(eq(notifications.resourceId,created.id))).length,0);
 
       const success=await medical.transferEncounter(created.id,{
         targetLocationId:locationId,receivingUnitId:medB,disposition:'Clinic B',
       },actor);
       assert.equal(success.status,'TRANSFERRED');
+      const alerts=await db.select().from(notifications).where(eq(notifications.resourceId,created.id));
+      assert.equal(alerts.length,1);assert.equal(alerts[0]?.userId,recipientId);assert.equal(alerts[0]?.templateKey,'medical.handoff');assert.deepEqual(alerts[0]?.templateParams,{});
+      const inbox=new NotificationsService(database,{} as never,{} as never,{} as never,authz);
+      assert.ok((await inbox.getNotifications(recipientId,eventA)).newItems.some(x=>x.id===alerts[0]?.id));
+      await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,roleB),eq(rolePermissions.permissionKey,Permissions.MEDICAL_INTERVENE)));
+      try{assert.ok(!(await inbox.getNotifications(recipientId,eventA)).newItems.some(x=>x.id===alerts[0]?.id));}
+      finally{await db.insert(rolePermissions).values({roleId:roleB,permissionKey:Permissions.MEDICAL_INTERVENE,scope:'UNIT'});}
       assert.equal((await queue(eventA,recipient)).items.find(x=>x.id===created.id)?.status,'TRANSFERRED');
       assert.ok(!(await queue(eventA,actor)).items.some(x=>x.id===created.id));
       assert.equal(success.assignedUnitId,medB);

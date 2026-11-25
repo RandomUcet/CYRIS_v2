@@ -5,7 +5,7 @@ import {
   ForbiddenException,
   ConflictException,
 } from '@nestjs/common';
-import { eq, and, desc, sql, isNull } from 'drizzle-orm';
+import { eq, and, desc, sql, isNull, or, gt } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
@@ -30,7 +30,7 @@ import {
   eventMemberships,
   membershipUnitAssignments,
   unitCapabilities,
-  MembershipStatus,
+  MembershipStatus, notifications, previewTeamAccounts,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
 import { UnitCapabilityKeys } from '@cyris/contracts';
@@ -770,6 +770,21 @@ export class MedicalService {
         title: `Casualty Transferred: ${locked.medicalNumber} → ${destination.name}`,
         summary: 'Patient transferred to a receiving medical facility',
       }, tx);
+      if(teamChanged&&nextUnitId){
+        const recipients=await tx.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status})
+          .from(eventMemberships).innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.membershipId,eventMemberships.id))
+          .innerJoin(users,eq(users.id,eventMemberships.userId)).leftJoin(previewTeamAccounts,eq(previewTeamAccounts.userId,users.id))
+          .where(and(eq(eventMemberships.eventId,locked.eventId),eq(eventMemberships.status,MembershipStatus.ACTIVE),
+            eq(membershipUnitAssignments.unitId,nextUnitId),eq(users.status,'ACTIVE'),isNull(previewTeamAccounts.userId),
+            or(isNull(users.testExpiresAt),gt(users.testExpiresAt,now))));
+        for(const recipient of recipients){
+          if(!await this.resourceAccessService.canAccessResource(recipient,encounterId,Permissions.MEDICAL_READ,tx)||
+            !await this.resourceAccessService.canAccessResource(recipient,encounterId,Permissions.MEDICAL_INTERVENE,tx))continue;
+          await tx.insert(notifications).values({id:generateId(),userId:recipient.id,eventId:locked.eventId,type:'MEDICAL_HANDOFF',
+            severity:'ACTION',templateKey:'medical.handoff',templateParams:{},resourceId:encounterId,
+            actionUrl:`/events/${locked.eventId}/medical/${encounterId}`,sourceEventId:generateId()});
+        }
+      }
       await this.searchIndexer.emitSearchUpsert('medical_encounter', encounterId, tx);
     });
 
