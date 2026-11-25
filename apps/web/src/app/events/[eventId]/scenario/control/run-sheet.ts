@@ -31,6 +31,7 @@ export function term(value: string, tr: Translate): string {
 }
 
 export function audience(inject: ScenarioInjectResponse, tr: Translate) {
+  if(inject.status==='DRAFT'&&!inject.targets.length)return tr('Příjemci nejsou určeni','Audience not selected');
   return inject.targets.length ? inject.targets.map(target => {
     if (target.targetType === 'UNIT') return target.unitName || target.targetUnitId || term('UNIT', tr);
     if (target.targetType === 'USER') return target.userFullName || target.targetUserId || term('USER', tr);

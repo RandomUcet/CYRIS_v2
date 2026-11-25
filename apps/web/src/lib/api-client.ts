@@ -925,6 +925,7 @@ export class CyrisApiClient {
     return this.patchJson<ScenarioInjectResponse>(`/events/${eventId}/scenario/injects/${injectId}`, payload);
   }
 
+  prepareScenarioInject(eventId:string,injectId:string){return this.postJson<ScenarioInjectResponse>(`/events/${eventId}/scenario/injects/${injectId}/prepare`,{});}
   async releaseScenarioInject(eventId: string, injectId: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
     return this.postJson(`/events/${eventId}/scenario/injects/${injectId}/release`, {});
   }

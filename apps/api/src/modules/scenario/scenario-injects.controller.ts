@@ -96,6 +96,12 @@ export class ScenarioInjectsController {
     return this.injectsService.updateInject(eventId, injectId, parse.data, user.id, await this.allowPlatformConditions(user));
   }
 
+  @Post('injects/:injectId/prepare')
+  @RequirePermission(Permissions.SCENARIO_MANAGE, PermissionScopes.EVENT)
+  async prepareDraft(@Param('eventId') eventId:string,@Param('injectId') injectId:string,@CurrentUser() user:AuthenticatedUser){
+    return this.injectsService.prepareDraft(eventId,injectId,user.id,await this.allowPlatformConditions(user));
+  }
+
   @Post('injects/:injectId/release')
   @RequirePermission(Permissions.SCENARIO_RELEASE, PermissionScopes.EVENT)
   async releaseInject(

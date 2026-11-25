@@ -463,6 +463,31 @@ export class ScenarioInjectsService {
     return this.getInject(eventId, injectId, allowPlatformConditions);
   }
 
+  /** Explicitly prepare a completed draft for manual confirmation. Never release here. */
+  async prepareDraft(eventId:string,injectId:string,userId:string,allowPlatformConditions=false):Promise<ScenarioInjectResponse>{
+    await this.db.transaction(async tx=>{
+      await this.lockScenarioEvent(tx,eventId);
+      const [row]=await tx.select().from(scenarioInjects).where(and(eq(scenarioInjects.eventId,eventId),eq(scenarioInjects.id,injectId))).for('update');
+      if(!row)throw new NotFoundException('Inject not found');
+      if(row.status!=='DRAFT')throw new BadRequestException('Only draft injects can be prepared');
+      try{await assertScenarioDesignWritable(tx,eventId,injectId,allowPlatformConditions);}catch(error){rethrowScenarioError(error);}
+      if(!row.participantTitle?.trim()||!row.participantContent?.trim())throw new BadRequestException('Write participant title and briefing content before preparing');
+      if(row.releasePolicy!=='MANUAL_CONFIRMATION')throw new BadRequestException('Select manual confirmation before preparing a draft');
+      const targets=await tx.select().from(scenarioInjectTargets).where(and(eq(scenarioInjectTargets.eventId,eventId),eq(scenarioInjectTargets.injectId,injectId)));
+      if(!targets.length)throw new BadRequestException('Choose an explicit audience before preparing');
+      const conditions=await tx.select().from(scenarioInjectConditions).where(eq(scenarioInjectConditions.injectId,injectId));
+      const dependencies=await tx.select().from(scenarioInjectDependencies).where(eq(scenarioInjectDependencies.injectId,injectId));
+      if(row.triggerType==='CONDITION'&&!conditions.length)throw new BadRequestException('Select a condition before preparing');
+      if(row.triggerType==='SCHEDULED_TIME'&&!row.scheduledAt)throw new BadRequestException('Select scenario time before preparing');
+      // Transition starts blocked. The normal runtime evaluates requirements and
+      // manual confirmation prevents the reconciliation worker from releasing.
+      await tx.update(scenarioInjects).set({status:'BLOCKED',updatedAt:new Date()}).where(eq(scenarioInjects.id,injectId));
+      await this.auditService.record({txClient:tx,eventId,actorUserId:userId,action:'scenario.inject.prepared',category:'scenario',resourceType:'scenario_inject',resourceId:injectId,metadata:{injectNumber:row.injectNumber,dependencies:dependencies.length,conditions:conditions.length,targets:targets.length}});
+    });
+    await this.conditionEvaluator.evaluateInject(injectId);
+    return this.getInject(eventId,injectId,allowPlatformConditions);
+  }
+
   async cancelInject(eventId: string, injectId: string, userId: string, allowPlatformConditions = false): Promise<ScenarioInjectResponse> {
     const current = await this.getInject(eventId, injectId);
 
