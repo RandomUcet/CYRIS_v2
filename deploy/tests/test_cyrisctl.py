@@ -305,3 +305,23 @@ class DiagnosticTransport(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"unavailable"):
                 ctl.analyze_diagnostic_summary({},"en")
             self.assertEqual(req.call_args_list[-1].args[1],"/auth/logout")
+
+
+class StorageReporting(unittest.TestCase):
+    def test_docker_decimal_sizes_and_unknown_format(self):
+        self.assertEqual(ctl.docker_size_bytes("36.25GB"),36250000000)
+        self.assertEqual(ctl.docker_size_bytes("9.569GB (26%)"),9569000000)
+        self.assertEqual(ctl.docker_size_bytes("500kB"),500000)
+        with self.assertRaises(ValueError):
+            ctl.docker_size_bytes("unknown secret")
+    def test_bounded_report_never_exports_raw_rows(self):
+        row={"Type":"Images","Total":"51","Active":"9","Size":"36.25GB","Reclaimable":"9.569GB (26%)","extra":"SECRET"}
+        with patch.object(ctl,"storage_du",return_value=10),patch.object(ctl,"storage_filesystem",return_value={"totalBytes":100,"usedBytes":51,"availableBytes":49}),patch.object(ctl,"get_installed_version",return_value="2.5.1"),patch.object(ctl.subprocess,"run",return_value=Mock(returncode=0,stdout=json.dumps(row))) as run:
+            report=ctl.storage_report()
+            self.assertEqual(report["docker"]["Images"]["active"],9)
+            self.assertIsNone(report["docker"]["Build Cache"])
+            self.assertNotIn("SECRET",json.dumps(report))
+            self.assertEqual(run.call_args.args[0][2],"unix:///var/run/docker.sock")
+    def test_du_timeout_is_unavailable(self):
+        with patch.object(ctl.Path,"is_dir",return_value=True),patch.object(ctl.subprocess,"run",side_effect=subprocess.TimeoutExpired("du",20)):
+            self.assertIsNone(ctl.storage_du("/example"))

@@ -1413,6 +1413,95 @@ def analyze_diagnostic_summary(summary, locale):
             except (ValueError,OSError):
                 print("Warning: temporary session logout was not confirmed. Revoke the session if necessary.",file=sys.stderr)
 
+# Fixed read-only host measurements. Do not expose arbitrary filesystem paths,
+# Docker inspect payloads, container IDs, or privileged command execution to web.
+STORAGE_COMPONENTS=("postgres","redis","typesense","minio","caddy")
+DOCKER_STORAGE_TYPES=("Images","Containers","Local Volumes","Build Cache")
+
+def docker_size_bytes(value):
+    # Docker reports rounded decimal units. Reclaimable includes a percentage.
+    match=re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*(B|kB|KB|MB|GB|TB|PB)(?:\s+\([0-9]+%\))?",str(value).strip())
+    if not match:
+        raise ValueError("Unknown Docker size format")
+    units={"B":1,"kB":1000,"KB":1000,"MB":1000**2,"GB":1000**3,"TB":1000**4,"PB":1000**5}
+    result=round(float(match.group(1))*units[match.group(2)])
+    if not 0<=result<=9007199254740991:
+        raise ValueError("Docker size outside report bounds")
+    return result
+
+def storage_du(path):
+    try:
+        if not Path(path).is_dir():
+            return None
+        result=subprocess.run(["/usr/bin/du","-s","-x","-B1","--",str(path)],capture_output=True,text=True,timeout=20,check=False)
+        if result.returncode:
+            return None
+        value=int(result.stdout.split("\t",1)[0])
+        return value if 0<=value<=9007199254740991 else None
+    except (OSError,ValueError,subprocess.TimeoutExpired):
+        return None
+
+def storage_filesystem(path):
+    try:
+        usage=shutil.disk_usage(path)
+        return {"totalBytes":usage.total,"usedBytes":usage.used,"availableBytes":usage.free}
+    except OSError:
+        return None
+
+def storage_report():
+    components={name:storage_du(Path(CYRIS_VAR)/name) for name in STORAGE_COMPONENTS}
+    directories={"installation":storage_du(CYRIS_OPT),"data":storage_du(CYRIS_VAR),"backups":storage_du(CYRIS_BACKUPS),"docker":storage_du("/var/lib/docker"),"containerd":storage_du("/var/lib/containerd")}
+    docker={name:None for name in DOCKER_STORAGE_TYPES}
+    try:
+        # Explicit local socket, not an environment-selected remote daemon.
+        result=subprocess.run(["/usr/bin/docker","--host","unix:///var/run/docker.sock","system","df","--format","{{json .}}"],capture_output=True,text=True,check=False,timeout=30)
+        if result.returncode==0:
+            for line in result.stdout.splitlines():
+                try:
+                    row=json.loads(line)
+                    name=row.get("Type")
+                    if name not in docker:
+                        continue
+                    total,active=int(row["Total"]),int(row["Active"])
+                    if not 0<=active<=total<=1000000:
+                        continue
+                    docker[name]={"total":total,"active":active,"sizeBytes":docker_size_bytes(row["Size"]),"reclaimableBytes":docker_size_bytes(row["Reclaimable"])}
+                except (KeyError,TypeError,ValueError,AttributeError):
+                    continue
+    except (OSError,subprocess.TimeoutExpired):
+        pass
+    version=str(get_installed_version())
+    if not re.fullmatch(r"\d{1,5}\.\d{1,5}\.\d{1,5}(?:-(?:rc|beta|alpha)\.\d{1,5})?",version):
+        version="unknown"
+    return {"schema":"cyris.storage.v1","collectedAt":datetime.now(timezone.utc).isoformat(),"version":version,
+            "filesystems":{"root":storage_filesystem("/"),"data":storage_filesystem(CYRIS_VAR),"backups":storage_filesystem(CYRIS_BACKUPS)},
+            "components":components,"directories":directories,"docker":docker}
+
+def cmd_storage(args):
+    report=storage_report()
+    if args.json:
+        print(json.dumps(report,indent=2,ensure_ascii=True))
+        return
+    def readable(value):
+        return "unavailable" if value is None else f"{value/1024**3:.3f} GiB"
+    print("CYRIS host storage — read-only, no cleanup performed")
+    for name,value in report["filesystems"].items():
+        if value:
+            percent=100*(value["totalBytes"]-value["availableBytes"])/max(1,value["totalBytes"])
+            print(f"{name}: {readable(value['availableBytes'])} available / {readable(value['totalBytes'])} total ({percent:.1f}% unavailable)")
+        else:
+            print(f"{name}: unavailable")
+    print("Persistent components (allocated bytes):")
+    for name,value in report["components"].items():
+        print(f"  {name}: {readable(value)}")
+    print("Directories (may overlap; do not sum):")
+    for name,value in report["directories"].items():
+        print(f"  {name}: {readable(value)}")
+    print("Docker logical accounting (rounded, shared layers may overlap):")
+    for name,value in report["docker"].items():
+        print(f"  {name}: {readable(value['sizeBytes'])}, potentially reclaimable {readable(value['reclaimableBytes'])}, active {value['active']}/{value['total']}" if value else f"  {name}: unavailable")
+    print("Reclaimable is not permission to delete. Preserve rollback images and backups.")
+
 def cmd_diagnostics(args):
     """Collect non-secret operational diagnostics for troubleshooting."""
     if getattr(args,'analyze',False):
@@ -1668,6 +1757,10 @@ def main():
     watchdog_sub = p_watchdog.add_subparsers(dest="watchdog_action", required=True)
     for action in ("status", "enable", "disable", "recover"):
         watchdog_sub.add_parser(action).set_defaults(func=cmd_watchdog)
+
+    p_storage=subparsers.add_parser('storage',help='Read-only host disk, CYRIS data and Docker storage accounting')
+    p_storage.add_argument('--json',action='store_true',help='Export a bounded storage snapshot for System Health')
+    p_storage.set_defaults(func=cmd_storage)
 
     # diagnostics
     p_diag = subparsers.add_parser("diagnostics", help="Generate non-secret diagnostics archive")
