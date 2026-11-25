@@ -65,13 +65,11 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
   const [historyFilter, setHistoryFilter] = useState('ALL');
   const [historyQuery, setHistoryQuery] = useState('');
   const [generating, setGenerating] = useState(false);
-  const [pauseRequested, setPauseRequested] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const operation = useRef(false);
   const historyRequest = useRef(0);
   const startedAt = useRef(0);
   const alive = useRef(true);
-  const paused = useRef(false);
   const scope = useRef(eventId);
   const load = async () => {
     const request = ++historyRequest.current;
@@ -104,7 +102,6 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
     return () => {
       alive.current = false;
       historyRequest.current++;
-      paused.current = true;
       scope.current = '';
     };
   }, [eventId]);
@@ -155,8 +152,6 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
   }
   const payload: ScenarioDataRequest = { preset, seed: seed ?? 0, ...(preset === 'CUSTOM' && { counts }) };
   async function generateDraft(existing?: Batch) {
-    paused.current = false;
-    setPauseRequested(false);
     setQuality(null);
     startedAt.current = Date.now();
     setElapsed(0);
@@ -181,7 +176,6 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
       if (alive.current) {
         setElapsed(Math.floor((Date.now() - startedAt.current) / 1000));
         setGenerating(false);
-        setPauseRequested(false);
       }
     }
   }
@@ -220,6 +214,7 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
   const history = batches.filter(batch => (historyFilter === 'ALL' || batch.status === historyFilter) &&
     [batch.identifier, batch.brief, batch.source, batch.seed].join(' ').toLowerCase().includes(historyQuery.trim().toLowerCase()));
   const activeJob=draft?.generation?.state==='QUEUED'||draft?.generation?.state==='RUNNING';
+  const generationErrors:Record<string,string>={CAPACITY:tr('Spark je vytížený','Spark is busy'),TIMEOUT:tr('Časový limit inference','Inference timeout'),TRUNCATED:tr('Překročen limit tokenů','Token limit exceeded'),EMPTY_OUTPUT:tr('Prázdná odpověď','Empty output'),INVALID_OUTPUT:tr('Neplatný formát výstupu','Invalid output'),UNREACHABLE:tr('Spark nedostupný','Spark unreachable'),AUTH_FAILED:tr('Chyba autentizace','Authentication failed'),SPARK_UNAVAILABLE:tr('Spark nedostupný','Spark unavailable'),LEASE_EXPIRED:tr('Zpracování přerušeno','Processing interrupted'),ACCESS_REVOKED:tr('Oprávnění odebráno','Access revoked'),CONTEXT_CHANGED:tr('Kontext se změnil','Context changed'),NO_PROGRESS:tr('Dávka nepostoupila','No progress'),PROVIDER_ERROR:tr('Chyba poskytovatele','Provider error'),GENERATION_FAILED:tr('Generování selhalo','Generation failed')};
   const complete = draft?.status === 'DRAFT' && draft.prepared === total(draft.configuration)&&!activeJob;
   useEffect(()=>{
     if(!draft||!activeJob)return;
@@ -290,14 +285,14 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
             <span>{progress ? progress.prepared + ' / ' + progress.expected + ' · ' + progress.percent + '%' : tr('Čekám na založení konceptu','Waiting for draft creation')}</span>
             <progress aria-label={tr('Průběh generování','Generation progress')} max={progress?.expected || 1} value={progress?.prepared ?? 0}/>
             <small>{(draft?.strategy ?? sparkStrategy) === 'FAST' ? tr('Rychlý režim: jeden AI návrh, poté lokální sestavení','Fast mode: one AI blueprint, then local assembly') : tr('Detailní režim: záznamy v uložených dávkách','Detailed mode: records in saved pages')}</small>
-            {generating && <small>{tr('Čas tohoto pokusu','Elapsed this attempt')}: {formatElapsed(elapsed)} · {pauseRequested ? tr('Čekám na bezpečné pozastavení','Waiting to pause safely') : tr('Čekám na výsledek aktuální části','Waiting for current page')}</small>}
-            {generating && (draft?.strategy ?? sparkStrategy) === 'FAST' && <small>{tr('Rychlý režim aktualizuje počet až po uložení celé sady; 0 % během AI požadavku není chyba.','Fast mode updates the count after saving the complete dataset; 0% during the AI request is normal.')}</small>}
+            {generating && <small>{tr('Čas tohoto pokusu','Elapsed this attempt')}: {formatElapsed(elapsed)} · {tr('Zakládám úlohu na serveru','Submitting server job')}</small>}
+            {(generating||activeJob) && (draft?.strategy ?? sparkStrategy) === 'FAST' && <small>{tr('Rychlý režim aktualizuje počet až po uložení celé sady; 0 % během AI požadavku není chyba.','Fast mode updates the count after saving the complete dataset; 0% during the AI request is normal.')}</small>}
           </div>}
           {!view && <p>{tr('Vyberte datovou sadu a zde se zobrazí ukázkové záznamy.','Choose a dataset to see sample registry records here.')}</p>}
           {view?.personDetails?.map(p => <article key={p.name}><strong>{p.name}</strong><small>{tr('Narození','Born')} {p.dateOfBirth}</small><p>{p.description}</p></article>)}
           {view?.samples && keys.filter(k => k !== 'persons' && view.samples?.[k]?.length).map(k => <p key={k}><b>{kindName(k)}</b> · {view.samples?.[k]?.join(' · ')}</p>)}
           {preview && !draft && <small>{total(preview.counts)} {tr('záznamů','records')} · {preview.estimatedRelationships} {tr('vazeb','relationships')}</small>}
-          {draft?.generation&&<p role="status">{({QUEUED:tr('Ve frontě','Queued'),RUNNING:tr('Spark generuje','Spark generating'),PAUSED:tr('Pozastaveno','Paused'),FAILED:tr('Chyba generování','Generation failed'),INTERRUPTED:tr('Přerušeno','Interrupted'),COMPLETED:tr('Připraveno','Ready')})[draft.generation.state]}{draft.generation.error&&' · '+draft.generation.error}{draft.generation.pauseRequested&&tr(' · pozastavení vyžádáno',' · pause requested')}</p>}
+          {draft?.generation&&<p role="status">{({QUEUED:tr('Ve frontě','Queued'),RUNNING:tr('Spark generuje','Spark generating'),PAUSED:tr('Pozastaveno','Paused'),FAILED:tr('Chyba generování','Generation failed'),INTERRUPTED:tr('Přerušeno','Interrupted'),COMPLETED:tr('Připraveno','Ready')})[draft.generation.state]}{draft.generation.error&&' · '+(generationErrors[draft.generation.error]??draft.generation.error)}{draft.generation.pauseRequested&&tr(' · pozastavení vyžádáno',' · pause requested')}</p>}
           {activeJob&&draft&&<button disabled={busy||draft.generation?.pauseRequested} onClick={()=>void action(async()=>{const r=await apiClient.pauseScenarioDraft(eventId,draft.id);if(!r.ok||!r.data)throw Error(r.error||'Pause failed');if(alive.current)setDraft(r.data);})}>{tr('Pozastavit po aktuální dávce','Pause after current page')}</button>}
           {!busy && !activeJob && draft?.status === 'DRAFT' && !complete && <button disabled={qualityBusy} onClick={() => void action(() => generateDraft(draft))}>{tr('Pokračovat v konceptu','Resume draft')}</button>}
           {(complete || (preview && !draft)) && <button disabled={busy || qualityBusy} className={styles.primary} onClick={() => void action(publish)}>{tr('Zveřejnit v registru','Add to registry')}</button>}

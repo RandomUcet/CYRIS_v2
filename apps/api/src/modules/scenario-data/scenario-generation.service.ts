@@ -1,3 +1,4 @@
+import {InferenceError} from '../ai/structured-output.js';
 import {Injectable,Logger,ConflictException,ForbiddenException,NotFoundException,HttpException,type OnModuleInit,type OnModuleDestroy} from '@nestjs/common';
 import {and,eq,sql,asc} from 'drizzle-orm';
 import {scenarioDataBatches,events,users,previewTeamAccounts,exerciseJobs} from '@cyris/db';
@@ -80,13 +81,15 @@ export class ScenarioGenerationService implements OnModuleInit,OnModuleDestroy{
     await this.data.advance(row.eventId,row.id,config(row).prepared??0,actor,job.token);
    }catch(e){
     const code=e instanceof HttpException?e.getStatus():0;
-    error=code===429?'CAPACITY':code===401||code===403?'ACCESS_REVOKED':code===409?'CONTEXT_CHANGED':code===502?'INVALID_OUTPUT':code===503?'SPARK_UNAVAILABLE':'GENERATION_FAILED';
+    error=e instanceof InferenceError?e.category:code===429?'CAPACITY':code===401||code===403?'ACCESS_REVOKED':code===409?'CONTEXT_CHANGED':code===502?'INVALID_OUTPUT':code===503?'SPARK_UNAVAILABLE':'GENERATION_FAILED';
    }
    await this.db.client.transaction(async tx=>{
     const [current]=await tx.select().from(scenarioDataBatches).where(and(eq(scenarioDataBatches.id,row.id),draft)).for('update').limit(1);
     if(!current)return;const c=config(current),live=c.generationJob;
     if(live?.state!=='RUNNING'||live.token!==job.token)return;
     const now=Date.now();
+    if((live.leaseUntil??0)<=now){await this.write(tx,current,expireGeneration(live,now));return;}
+    if(!error&&(c.prepared??0)<=(config(row).prepared??0)&&c.prepared!==total(c))error='NO_PROGRESS';
     await this.write(tx,current,error?failGenerationPage(live,error,now):finishGenerationPage(live,c.prepared===total(c),now));
    });
   }catch{this.logger.warn('Dataset dispatch unavailable; persisted claims recover after expiration');}finally{this.running=false;}

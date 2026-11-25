@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { closeDatabaseConnection, events, getDbClient, persons, registryMedia, resources, scenarioDraftMedia, users, outboxEvents } from '@cyris/db';
 import { generateId } from '@cyris/shared';
 import { localWorld, fullName, nameKey, samples } from '../modules/scenario-data/world.js';
+import { ScenarioGenerationService } from '../modules/scenario-data/scenario-generation.service.js';
 import { ScenarioDataService } from '../modules/scenario-data/scenario-data.service.js';
 import { ScenarioDraftMediaService } from '../modules/scenario-data/scenario-draft-media.service.js';
 import { IdentifierAllocatorService } from '../modules/resources/identifier-allocator.service.js';
@@ -86,7 +87,7 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
     index, audit, auth as any, storage as any);
   const media = new ScenarioDraftMediaService(database, auth as any, storage as any, audit);
   try {
-    await db.insert(users).values({ id: uid, email: uid + '@example.test', displayName: 'Generator test' });
+    await db.insert(users).values({ id: uid, email: uid + '@example.test', displayName: 'Generator test',status:'ACTIVE' });
     await db.insert(events).values(ids.map(id => ({ id, slug: id, name: id })));
     const req = { preset: 'CUSTOM' as const, seed: 2027, counts: { ...empty, persons: 6, locations: 2, devices: 2 } };
     const prev = await svc.preview(a, req, user);
@@ -171,6 +172,20 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
     assert.equal(fastPublished.counts?.persons, 7);
     assert(fastPublished.relationshipCount > 0);
     await svc.cleanup(a, fast.id, user);
+
+    // Durable dispatch is independent of the browser and coordinates claim ownership.
+    const queue=new ScenarioGenerationService(database,auth as any,svc);
+    const pending=await svc.startDraft(a,{...fastRequest,seed:9342},user);
+    assert.equal((await queue.enqueue(a,pending.id,user)).generation?.state,'QUEUED');
+    await assert.rejects(()=>svc.advance(a,pending.id,0,user),/active generation job/);
+    await assert.rejects(()=>svc.cleanup(a,pending.id,user),/Pause generation/);
+    assert.equal((await queue.pause(a,pending.id,user)).generation?.state,'PAUSED');
+    assert.equal((await queue.enqueue(a,pending.id,user)).generation?.state,'QUEUED');
+    await queue.tick();
+    const ready=await svc.get(a,pending.id,user);
+    assert.equal(ready.generation?.state,'COMPLETED');assert.equal(ready.prepared,12);
+    assert.ok(!('token' in ready.generation!));
+    await svc.cleanup(a,pending.id,user);
 
     await svc.cleanup(a, draft.id, user);
     assert.equal(objects.has(attachment.objectKey), false);

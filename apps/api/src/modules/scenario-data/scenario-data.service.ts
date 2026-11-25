@@ -30,6 +30,8 @@ import {
   resources,
   registryMedia,
   resourceRelationships,
+  users,
+  previewTeamAccounts,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
 import { ScenarioLinkSlots } from '@cyris/contracts';
@@ -96,6 +98,15 @@ export class ScenarioDataService {
       permission: Permissions.SCENARIO_MANAGE,
       context: { eventId },
     });
+  }
+
+  private async assertGenerationActor(eventId:string,user:AuthenticatedUser,claimToken?:string){
+    await this.assertManage(eventId,user);
+    if(!claimToken)return;
+    const [account]=await this.databaseService.client.select({status:users.status,expires:users.testExpiresAt,preview:previewTeamAccounts.userId}).from(users).leftJoin(previewTeamAccounts,eq(users.id,previewTeamAccounts.userId)).where(eq(users.id,user.id)).limit(1);
+    if(!account||account.status!=='ACTIVE'||account.preview||(account.expires&&account.expires.getTime()<=Date.now()))throw new ForbiddenException('Generation actor unavailable');
+    const [event]=await this.databaseService.client.select({status:events.status}).from(events).where(eq(events.id,eventId)).limit(1);
+    if(!event||['CLOSED','ARCHIVED'].includes(event.status))throw new ConflictException('Exercise is read-only');
   }
 
   private counts(request: ScenarioDataRequest): ScenarioDataCounts {
@@ -321,12 +332,13 @@ export class ScenarioDataService {
       } catch (error) {
         if (error instanceof HttpException) throw error;
         if(error instanceof InferenceError){
+          if(claimToken)throw error;
           const reason={TIMEOUT:'Spark exceeded the 110-second inference limit',TRUNCATED:'Spark reached its output token limit',EMPTY_OUTPUT:'Spark returned no usable answer',AUTH_FAILED:'Spark rejected authentication',UNREACHABLE:'Spark endpoint is unreachable',PROVIDER_ERROR:'Spark provider request failed'}[error.category];
           throw new ServiceUnavailableException(reason+'. Your draft is saved; retry or use Local.');
         }
         throw new BadGatewayException('Spark returned invalid scenario JSON. Your draft is saved; retry or use Local.');
       }
-      await this.assertManage(eventId,user);
+      await this.assertGenerationActor(eventId,user,claimToken);
       const world = applyScenarioBlueprint(localWorld(batch.seed, cleanCounts(conf), existing), blueprint, event.locale);
       const links = fastDraftLinks(world);
       const [saved] = await db.update(scenarioDataBatches).set({
@@ -360,7 +372,7 @@ export class ScenarioDataService {
       });
       output = result.text;
     } catch (error) {
-      if (error instanceof HttpException) throw error;
+      if (error instanceof HttpException || (claimToken&&error instanceof InferenceError)) throw error;
       throw new ServiceUnavailableException('Spark is unavailable. Your draft is saved. Resume when ready.');
     }
     let raw: unknown;
@@ -382,7 +394,7 @@ export class ScenarioDataService {
       if (taken.has(key)) throw new ConflictException('Spark repeated a name. Resume the draft to request a new page.');
       taken.add(key);
     }
-    await this.assertManage(eventId,user);
+    await this.assertGenerationActor(eventId,user,claimToken);
     const [saved] = await db.update(scenarioDataBatches).set({ configuration: sql`${scenarioDataBatches.configuration} || ${JSON.stringify({rows:updated,draftLinks,prepared:expected+count})}::jsonb` })
       .where(and(scope, eq(scenarioDataBatches.status, 'DRAFT'), sql`(${scenarioDataBatches.configuration}->>'prepared')::int = ${expected}`,fence)).returning();
     if (!saved) return this.get(eventId, batchId, user);
@@ -414,6 +426,7 @@ export class ScenarioDataService {
       if (!batch) throw new BadRequestException('Draft unavailable');
       if (batch.status === 'COMPLETED') return this.response(batch);
       const { rows, draftLinks, ...conf } = batch.configuration as Settings;
+      if(isLive(conf.generationJob))throw new ConflictException('Pause generation before publishing');
       if (batch.status !== 'DRAFT' || !rows || kinds.some(k => rows[k].length !== conf[k])) throw new ConflictException('Complete the draft before publishing');
       const taken = await this.existingNames(eventId, tx);
       if (rows.persons.some(p => taken.has(nameKey(fullName(p))))) throw new ConflictException('A person with the same name has been added since this draft was prepared. Start a new draft.');
@@ -513,7 +526,7 @@ export class ScenarioDataService {
     const objectsToDelete: Array<{key:string;bucket:string}> = [];
     const result = await this.databaseService.client.transaction(async (tx) => {
       await this.lockEvent(tx, eventId);
-      const [batch] = await tx.select().from(scenarioDataBatches).where(and(eq(scenarioDataBatches.id, batchId), eq(scenarioDataBatches.eventId, eventId))).limit(1);
+      const [batch] = await tx.select().from(scenarioDataBatches).where(and(eq(scenarioDataBatches.id, batchId), eq(scenarioDataBatches.eventId, eventId))).for('update').limit(1);
       if (!batch) throw new BadRequestException('Generation batch not found');
       if (batch.status === ScenarioDataBatchStatus.CLEANED) return this.response(batch);
       if(isLive((batch.configuration as Settings).generationJob))throw new ConflictException('Pause generation before removing this draft');
