@@ -54,7 +54,7 @@ function PickerWorkspace({
           if(!response.ok||!response.data){setResolveError(true);return;}
           const person=response.data;
           setSelected({id:value,canonicalId:value,type:'person',
-            title:String(person.displayName||person.name||value),subtitle:person.identifier||undefined,eventId,highlights:[],tags:[]});
+            title:String(person.displayName||person.name||'Selected person'),subtitle:person.identifier||undefined,eventId,highlights:[],tags:[]});
         }else{
           const response=await apiClient.search(value,{eventId,types,limit:5,signal:controller.signal});
           if(controller.signal.aborted)return;
@@ -85,7 +85,7 @@ function PickerWorkspace({
         }else{
           const response=await apiClient.search(query.trim(),{eventId,types,limit:8,signal:controller.signal});
           if(controller.signal.aborted)return;
-          setResults(response.ok?response.data?.results??[]:[]);
+          setResults(response.ok?(response.data?.results??[]).filter(item=>(!eventId||item.eventId===eventId)&&(!types||types.split(',').includes(item.type))):[]);
           if(!response.ok)setSearchError(response.error||'Search is unavailable');
         }
         setResultQuery(query.trim());

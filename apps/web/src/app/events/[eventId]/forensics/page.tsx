@@ -4,6 +4,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { ResourcePicker } from '@/components/common/ResourcePicker';
 import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
@@ -16,10 +17,14 @@ import { Cpu, Plus, RefreshCw, X, ArrowRight, Hash, HardDrive, Shield } from 'lu
 import type { ForensicAnalysisListItemDto, ForensicAnalysisType, ForensicPriority } from '@cyris/contracts';
 
 export default function ForensicsListPage() {
-  const params = useParams();
+  const {eventId}=useParams<{eventId:string}>();
+  const {currentUser,viewAs,loading,hasPermission}=useAuth();
+  if(loading)return <AppShell><LoadingState message="Loading workspace…"/></AppShell>;
+  return <ForensicsWorkspace key={JSON.stringify([eventId,currentUser?.user.id,viewAs?.id,hasPermission('forensics.request',eventId)])} eventId={eventId}/>;
+}
+function ForensicsWorkspace({eventId}:{eventId:string}) {
   const router = useRouter();
-  const eventId = params.eventId as string;
-  const { hasPermission } = useAuth();
+  const { hasPermission,viewAs } = useAuth();
   const { formatDate } = usePreferences();
 
   const [analyses, setAnalyses] = useState<ForensicAnalysisListItemDto[]>([]);
@@ -52,13 +57,16 @@ export default function ForensicsListPage() {
     deviceId: '',
   });
 
-  const canRequest = hasPermission('forensics.request');
+  const canRequest = !viewAs&&hasPermission('forensics.request',eventId);
+  const alive=React.useRef(true);
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
 
   const fetchAnalyses = async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await apiClient.getForensicAnalyses(eventId);
+      if(!alive.current)return;
       if (res.ok && res.data) {
         setAnalyses(res.data);
       } else {
@@ -93,6 +101,7 @@ export default function ForensicsListPage() {
 
   const handleCreateAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(!canRequest||submitting)return;
     if (!formData.purpose.trim()) {
       setFormError('Purpose / description is required');
       return;
@@ -111,6 +120,7 @@ export default function ForensicsListPage() {
       if (formData.deviceId?.trim()) payload.deviceIds = [formData.deviceId.trim()];
 
       const res = await apiClient.createForensicAnalysis(eventId, payload);
+      if(!alive.current)return;
       if (res.ok && res.data) {
         setShowCreateModal(false);
         setFormData({
@@ -403,26 +413,8 @@ export default function ForensicsListPage() {
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div>
-                      <label className="field-label">Evidence Item ID (optional)</label>
-                      <input
-                        type="text"
-                        className="field-input"
-                        placeholder="UUID of evidence item"
-                        value={formData.evidenceId}
-                        onChange={(e) => setFormData({ ...formData, evidenceId: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label className="field-label">Device ID (optional)</label>
-                      <input
-                        type="text"
-                        className="field-input"
-                        placeholder="UUID of device"
-                        value={formData.deviceId}
-                        onChange={(e) => setFormData({ ...formData, deviceId: e.target.value })}
-                      />
-                    </div>
+                    <ResourcePicker eventId={eventId} types="evidence" label="Evidence item (optional)" placeholder="Search by evidence number or title…" value={formData.evidenceId??''} disabled={submitting} onChange={id=>setFormData(old=>({...old,evidenceId:id}))}/>
+                    <ResourcePicker eventId={eventId} types="device" label="Device (optional)" placeholder="Search by device name or identifier…" value={formData.deviceId??''} disabled={submitting} onChange={id=>setFormData(old=>({...old,deviceId:id}))}/>
                   </div>
                 </div>
 

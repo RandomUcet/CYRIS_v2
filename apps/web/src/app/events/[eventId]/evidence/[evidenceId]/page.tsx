@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { ResourcePicker } from '@/components/common/ResourcePicker';
 import { RecordHeader } from '@/components/common/RecordHeader';
 import { RecordTabs } from '@/components/common/RecordTabs';
 import { RecordInspector } from '@/components/common/RecordInspector';
@@ -33,10 +34,13 @@ import {
 } from 'lucide-react';
 
 export default function EvidenceDetailPage() {
-  const params = useParams();
+  const {eventId,evidenceId}=useParams<{eventId:string;evidenceId:string}>();
+  const {currentUser,viewAs,loading}=useAuth();
+  if(loading)return <AppShell><LoadingState message="Loading workspace…"/></AppShell>;
+  return <EvidenceWorkspace key={JSON.stringify([eventId,evidenceId,currentUser?.user.id,viewAs?.id])} eventId={eventId} evidenceId={evidenceId}/>;
+}
+function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:string}) {
   const router = useRouter();
-  const eventId = params.eventId as string;
-  const evidenceId = params.evidenceId as string;
   const { hasPermission, user } = useAuth();
   const { currentEvent } = useEvent();
   const { formatTime, locale } = usePreferences();
@@ -144,7 +148,7 @@ export default function EvidenceDetailPage() {
 
   const handleAddRelationship = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!targetResourceId.trim()) return;
+    if (!targetResourceId.trim()||targetResourceId===evidenceId||addingRel) return;
     setAddingRel(true);
     try {
       const res = await apiClient.createRelationship(evidenceId, {
@@ -814,19 +818,7 @@ export default function EvidenceDetailPage() {
 
               <form onSubmit={handleAddRelationship} style={{ padding: '18px' }}>
                 <div style={{ marginBottom: '14px' }}>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
-                    Target Resource UUID *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. 0192a4b5-..."
-                    value={targetResourceId}
-                    onChange={(e) => setTargetResourceId(e.target.value)}
-                    className="input-field"
-                    style={{ width: '100%' }}
-                    autoFocus
-                  />
+                  <ResourcePicker eventId={eventId} label="Related record" required disabled={addingRel} value={targetResourceId} onChange={setTargetResourceId} placeholder="Search by name, title or identifier…"/>
                 </div>
 
                 <div style={{ marginBottom: '18px' }}>
