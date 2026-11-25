@@ -208,6 +208,42 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       await assert.rejects(tasks.listMyWork(eventB, MyWorkQuerySchema.parse({}), worker), ForbiddenException);
       await assert.rejects(tasks.listMyWork(eventA, MyWorkQuerySchema.parse({}), outsider), ForbiddenException);
     });
+    await t.test('evidence requester receives status and approved laboratory result without a worker role',async()=>{
+      const row=await lab.createAnalysis(eventA,{analysisType:'Fingerprint comparison',evidenceIds:[evidenceId],requestedFromUnitId:unitA,visibility:'EVENT'},requester);
+      const analyst=row.assignedToUserId===worker.id?worker:secondWorker;
+      const [requesterRole]=await db.select({id:roles.id}).from(roles).where(and(eq(roles.eventId,eventA),eq(roles.slug,'laboratory-requester')));
+      await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,requesterRole!.id),eq(rolePermissions.permissionKey,Permissions.LAB_READ)));
+      try{
+        const initial=await lab.getAnalysisDetail(eventA,row.id,requester);
+        assert.equal(initial.status,'REQUESTED');assert.equal(initial.reportAvailable,false);
+        assert.ok(Object.values(initial.actions).every(v=>!v));
+        await assert.rejects(lab.updateAnalysis(eventA,row.id,{status:'ACCEPTED'},requester),ForbiddenException);
+        await lab.updateAnalysis(eventA,row.id,{status:'ACCEPTED'},analyst);
+        await lab.updateAnalysis(eventA,row.id,{status:'IN_PROGRESS'},analyst);
+        await assert.rejects(lab.updateAnalysis(eventA,row.id,{status:'COMPLETED'},analyst),BadRequestException);
+        await lab.updateAnalysis(eventA,row.id,{method:'Comparison',findings:'Fixture intermediate findings',conclusion:'Fixture final conclusion',status:'COMPLETED'},analyst);
+        const pending=await lab.getAnalysisDetail(eventA,row.id,requester);
+        assert.equal(pending.status,'COMPLETED');assert.equal(pending.findings,null);assert.equal(pending.conclusion,null);
+        assert.equal((await lab.listAnalyses(eventA,requester,evidenceId)).find(x=>x.id===row.id)?.reportAvailable,false);
+        await lab.updateAnalysis(eventA,row.id,{status:'APPROVED'},organizer);
+        const result=await lab.getAnalysisDetail(eventA,row.id,requester);
+        assert.equal(result.reportAvailable,true);assert.equal(result.conclusion,'Fixture final conclusion');
+        assert.equal(result.findings,'Fixture intermediate findings');assert.equal(result.requesterName,requester.displayName);
+        assert.deepEqual(result.evidenceIds,[evidenceId]);
+        await assert.rejects(lab.updateAnalysis(eventA,row.id,{findings:'Unauthorized revision'},analyst),BadRequestException);
+        await assert.rejects(lab.getAnalysisDetail(eventA,row.id,outsider),ForbiddenException);
+        await assert.rejects(lab.getAnalysisDetail(eventB,row.id,requester),NotFoundException);
+        const inbox=new NotificationsService(database,{} as never,{} as never,{} as never,auth);
+        const receipts=(await inbox.getNotifications(requester.id,eventA)).newItems.filter(x=>x.resourceId===row.id&&x.templateKey==='lab.request.status');
+        assert.deepEqual(receipts.map(x=>x.templateParams.status).sort(),['ACCEPTED','APPROVED','COMPLETED','IN_PROGRESS','REQUESTED']);
+        assert.ok(receipts.every(x=>!JSON.stringify(x.templateParams).includes('Fixture')));
+        await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,requesterRole!.id),eq(rolePermissions.permissionKey,Permissions.LAB_REQUEST)));
+        assert.equal((await inbox.getNotifications(requester.id,eventA)).newItems.filter(x=>x.resourceId===row.id).length,0);
+        await assert.rejects(lab.getAnalysisDetail(eventA,row.id,requester),ForbiddenException);
+      }finally{
+        await db.insert(rolePermissions).values([{roleId:requesterRole!.id,permissionKey:Permissions.LAB_READ,scope:'OWN'},{roleId:requesterRole!.id,permissionKey:Permissions.LAB_REQUEST,scope:'EVENT'}]).onConflictDoNothing();
+      }
+    });
     await t.test('task retries preserve progress and concurrent completion records one audit transition', async () => {
       const row = await tasks.createTask(eventA, CreateOperationalTaskRequestSchema.parse({ title: 'Transition regression', assignedUnitId: unitA, assignedUserId: worker.id }), organizer);
       await tasks.startTask(row.id, {}, worker, eventA);
