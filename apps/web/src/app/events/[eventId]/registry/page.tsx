@@ -30,7 +30,7 @@ export default function RegistryPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
-  const { hasPermission, viewAs } = useAuth();
+  const { hasPermission, viewAs,currentUser } = useAuth();
   const { formatDate, t } = usePreferences();
 
   const [activeTab, setActiveTab] = useState<RegistryTab>('persons');
@@ -69,7 +69,7 @@ export default function RegistryPage() {
 
   const requestId = React.useRef(0);
   const [loadedScope,setLoadedScope] = useState('');
-  const scope = eventId + ':' + activeTab;
+  const scope = JSON.stringify([eventId,activeTab,currentUser?.user.id,viewAs?.targetUserId,hasPermission('registry.read',eventId),canManage]);
   const currentScope = React.useRef(scope);
   currentScope.current = scope;
   const fetchData = async () => {
@@ -106,7 +106,7 @@ export default function RegistryPage() {
       fetchData();
     }
     return () => {++requestId.current;};
-  }, [eventId, activeTab]);
+  }, [scope]);
 
   const filteredData = useMemo(() => {
     if (loadedScope !== scope) return [];
@@ -313,6 +313,7 @@ export default function RegistryPage() {
         {header:'Number',accessor:item=>item.licenceNumber || '—'},
         {header:'Valid from',accessor:item=>item.validFrom},
         {header:'Valid until',accessor:item=>item.validUntil || '—'},
+        {header:'Exercise validity',accessor:item=><span title={item.asOfDate||''}>{item.effectiveStatus??'—'}</span>},
         {header:'Status',accessor:item=>item.status},
       ];
     }

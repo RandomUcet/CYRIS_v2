@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CreateLicenceRequestSchema, UpdateLicenceRequestSchema, effectiveLicenceStatus, licenceDatesOrdered } from './registry.js';
+import { CreateLicenceRequestSchema, UpdateLicenceRequestSchema, effectiveLicenceStatus, licenceDatesOrdered, licenceExerciseDate } from './registry.js';
 const input = {title:'Fictional licence',category:'DRIVING',holderId:'00000000-0000-4000-8000-000000000001',issuerId:'00000000-0000-4000-8000-000000000002',validFrom:'2026-01-01',validUntil:'2026-12-31'};
 test('licence validates calendar dates and distinct principals', () => {
   assert.equal(CreateLicenceRequestSchema.safeParse(input).success,true);
@@ -15,4 +15,12 @@ test('licence validity uses exercise date and inclusive end date', () => {
   assert.equal(effectiveLicenceStatus('ISSUED',input.validFrom,input.validUntil,'2026-12-31'),'VALID');
   assert.equal(effectiveLicenceStatus('ISSUED',input.validFrom,input.validUntil,'2027-01-01'),'EXPIRED');
   assert.equal(effectiveLicenceStatus('REVOKED',input.validFrom,input.validUntil,'2026-04-01'),'REVOKED');
+});
+
+test('exercise date uses event timezone, including midnight and daylight saving',()=>{
+ assert.equal(licenceExerciseDate(new Date('2027-01-01T00:30:00Z'),'America/New_York'),'2026-12-31');
+ assert.equal(licenceExerciseDate(new Date('2026-07-01T22:30:00Z'),'Europe/Prague'),'2026-07-02');
+ assert.equal(licenceExerciseDate(new Date('2026-12-01T22:30:00Z'),'Europe/Prague'),'2026-12-01');
+ assert.equal(licenceExerciseDate(new Date('2026-12-01T22:30:00Z'),'Invalid/Zone'),null);
+ assert.equal(licenceExerciseDate(new Date(NaN),'Europe/Prague'),null);
 });
