@@ -11,6 +11,25 @@ test('isolated PostgreSQL outbox cleanup rejects stale or ambiguous work and pre
   const ids=Array.from({length:9},()=>randomUUID());
   const rollback=new Error('rollback outbox fixture');
   try{await db.transaction(async tx=>{
+    // Regression suites run sequentially but other fixtures can leave queued
+    // records with deleted targets. Hold the table lock throughout and verify
+    // that these existing ambiguous rows block apply before isolating fixtures.
+    await tx.execute(sql`LOCK TABLE outbox_events IN SHARE ROW EXCLUSIVE MODE`);
+    const prior=await inspectRetentionOutbox(tx,a,'reset');
+    if(prior.blocked.length){
+      const before=await tx.execute<{id:string}>(sql`SELECT id FROM outbox_events ORDER BY id`);
+      // No exercise exists yet; after creating it, assert the same blockers.
+      await tx.execute(sql`INSERT INTO events(id,slug,name,status) VALUES(${a},${a},'Temporary guard fixture','ARCHIVED')`);
+      const guarded=await inspectRetentionOutbox(tx,a,'reset');
+      assert.deepEqual(guarded.blocked,prior.blocked);
+      await assert.rejects(removeRetentionOutbox(tx,a,'reset',guarded.digest),/Unresolved/);
+      assert.deepEqual(await tx.execute<{id:string}>(sql`SELECT id FROM outbox_events ORDER BY id`),before);
+      await tx.execute(sql`DELETE FROM events WHERE id=${a}`);
+    }
+    // Test-only isolation inside the transaction that always rolls back.
+    // Do not modify the production planner to ignore unknown work.
+    const preexisting=await tx.execute<{id:string}>(sql`SELECT id FROM outbox_events ORDER BY id`);
+    await tx.execute(sql`DELETE FROM outbox_events`);
     await tx.execute(sql`INSERT INTO events(id,slug,name,status) VALUES(${a},${a},'A','ARCHIVED'),(${b},${b},'B','ARCHIVED')`);
     await tx.execute(sql`INSERT INTO resources(id,event_id,resource_type) VALUES(${ra},${a},'document'),(${rb},${b},'document')`);
     await tx.execute(sql`INSERT INTO organizational_units(id,event_id,name,slug) VALUES(${unit},${a},'Team','team')`);
@@ -46,6 +65,7 @@ test('isolated PostgreSQL outbox cleanup rejects stale or ambiguous work and pre
     assert.deepEqual(await removeRetentionOutbox(tx,a,'remove',full.digest),{removed:1});
     const remaining=await tx.execute<{id:string}>(sql`SELECT id FROM outbox_events WHERE id IN (${ids[0]},${ids[1]},${ids[2]},${ids[3]},${ids[4]},${ids[5]})`);
     assert.deepEqual(remaining.map(x=>x.id).sort(),[ids[2],ids[3],ids[5]].sort());
+    assert.ok(preexisting.every(row=>!remaining.some(x=>x.id===row.id)));
     throw rollback;
   });}catch(e){if(e!==rollback)throw e;}finally{await closeDatabaseConnection();}
 });
