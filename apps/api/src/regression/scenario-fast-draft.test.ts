@@ -42,7 +42,7 @@ test('fast strategy is explicit in UI and the backend uses one bounded AI reques
   assert.match(service, /conf\.strategy === 'FAST'/);
   assert.match(service, /promptTemplateVersion: 'scenario-blueprint-fast-v1'/);
   assert.ok(service.includes("maxTokens: 700, timeoutMs: 110_000, reasoning: 'disabled', responseFormat:'json_object'"));
-  assert.match(service, /prepared: total\(cleanCounts\(conf\)\)/);
+  assert.match(service, /prepared:\s*total\(cleanCounts\(conf\)\)/);
   assert.match(page, /setSparkStrategy/);
   assert.match(page, /strategy: sparkStrategy/);
   assert.match(page, /value="DETAILED"/);
