@@ -195,6 +195,7 @@ export class AIAdminController {
     const [saved]=await this.databaseService.client.select().from(integrations)
       .where(and(eq(integrations.category,IntegrationCategory.AI_PROVIDER),eq(integrations.systemProfile,'DGX_SPARK'))).limit(1);
     if(!saved)throw new NotFoundException('Managed Spark profile not found');
+    await this.auditService.record({action:'platform.maintenance.spark_probe',category:'system',actorUserId:user.id,metadata:{check:'SPARK_INFERENCE'}});
     const config=(saved.config??{}) as Record<string,unknown>;
     const provider=new OpenAICompatibleProvider({id:saved.id,name:saved.name,endpoint:String(config.endpoint||''),chatModel:String(config.chatModel||''),apiKey:(await this.integrationSecretService.getSecret(saved.id,'API_KEY'))??undefined,timeoutSeconds:90,tlsVerify:config.tlsVerify!==false});
     const started=performance.now();

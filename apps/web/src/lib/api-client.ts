@@ -256,6 +256,7 @@ export class CyrisApiClient {
   }
 
   analyzeOperationalDiagnostics(input:DiagnosticAnalysisInput){return this.postJson<DiagnosticAnalysisResult>('/admin/diagnostics/analyze',input);}
+  runMaintenanceCheck(action:'API_STATUS'|'DEPENDENCY_CHECK'){return this.postJson<Record<string,unknown>>('/admin/maintenance/check',{action});}
   async getReadiness(): Promise<{ ok: boolean; data?: ReadinessResponse; error?: string }> {
     try {
       const res = await this.request(`${this.baseUrl}/health/ready`, {
