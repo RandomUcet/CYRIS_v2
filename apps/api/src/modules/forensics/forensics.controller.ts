@@ -97,6 +97,7 @@ export class ForensicsController {
   ): Promise<ForensicFinding> {
     const dto = CreateForensicFindingRequestSchema.parse(body);
     await this.forensicsService.assertAnalysisEvent(eventId,analysisId);
+    await this.forensicsService.assertAnalysisEvent(eventId,analysisId);
     return this.forensicsService.createFinding(analysisId, dto, user);
   }
 

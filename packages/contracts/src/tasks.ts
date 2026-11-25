@@ -186,7 +186,7 @@ export type TaskQueryFilters = z.infer<typeof TaskQueryFiltersSchema>;
 export type TaskPriority = TaskPriorityType;
 export type TaskStatus = TaskStatusType;
 
-export const MyWorkViewSchema = z.enum(['personal', 'unit', 'event','requested']);
+export const MyWorkViewSchema = z.enum(['personal', 'unit', 'event','requested','approval']);
 export type MyWorkView = z.infer<typeof MyWorkViewSchema>;
 
 export const MyWorkQuerySchema = z.object({

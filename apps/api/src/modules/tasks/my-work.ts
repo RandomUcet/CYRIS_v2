@@ -7,12 +7,13 @@ export function isActionableMyWorkItem(item: Pick<MyWorkItem, 'kind' | 'status'>
 }
 
 export function isMyWorkViewAllowed(
-  view: 'personal' | 'unit' | 'event' | 'requested',
+  view: 'personal' | 'unit' | 'event' | 'requested' | 'approval',
   canViewUnit: boolean,
   canViewEvent: boolean,
-  unitSelected: boolean
+  unitSelected: boolean,
+  canApprove = false
 ): boolean {
-  return view === 'personal' || view === 'requested' ||
+  return view === 'personal' || view === 'requested' || (view === 'approval' && canApprove) ||
     (view === 'unit' && canViewUnit && unitSelected) ||
     (view === 'event' && canViewEvent);
 }

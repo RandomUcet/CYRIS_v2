@@ -574,27 +574,36 @@ export class TasksService {
       if((await Promise.all(access.map(d=>this.authorizationService.authorize({user,permission:d.read,context:{eventId,unitId:unit.id}})))).some(Boolean))availableUnits.push(unit);
     }
     const canViewEvent=access.some(d=>d.eventWide);
+    const [canApproveLab,canApproveForensics]=await Promise.all([
+      access[1]!.readable?this.canUseModule(eventId,user,Permissions.LAB_APPROVE):false,
+      access[2]!.readable?this.canUseModule(eventId,user,Permissions.FORENSICS_APPROVE):false,
+    ]);
+    const canApprove=canApproveLab||canApproveForensics;
     if(query.view==='unit'&&!query.unitId)throw new BadRequestException('unitId is required for a unit work queue');
-    if(!isMyWorkViewAllowed(query.view,access.some(d=>d.unitWide)&&availableUnits.some(u=>u.id===query.unitId),canViewEvent,Boolean(query.unitId)))throw new ForbiddenException('Work queue scope is not authorized');
+    if(!isMyWorkViewAllowed(query.view,access.some(d=>d.unitWide)&&availableUnits.some(u=>u.id===query.unitId),canViewEvent,Boolean(query.unitId),canApprove))throw new ForbiddenException('Work queue scope is not authorized');
     const impacts=await this.disruptionsService.getModuleImpacts(eventId,user);
-    const show=(d:typeof access[number])=>impacts.get(d.module)!=='UNAVAILABLE'&&(query.view==='event'?d.eventWide:query.view==='unit'?d.unitWide:query.view==='requested'?d.readable||d.requestable:d.readable);
+    const show=(d:typeof access[number])=>impacts.get(d.module)!=='UNAVAILABLE'&&(query.view==='approval'?(d.module==='lab'?canApproveLab:d.module==='forensics'?canApproveForensics:false):query.view==='event'?d.eventWide:query.view==='unit'?d.unitWide:query.view==='requested'?d.readable||d.requestable:d.readable);
     const [taskRows,labRows,forensicRows]=await Promise.all([
       show(access[0]!)?this.db.select({row:operationalTasks}).from(operationalTasks).innerJoin(resources,eq(resources.id,operationalTasks.id)).where(and(eq(operationalTasks.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'operational_task'),query.view==='personal'?eq(operationalTasks.assignedUserId,user.id):query.view==='requested'?eq(operationalTasks.createdByUserId,user.id):query.view==='unit'?eq(operationalTasks.assignedUnitId,query.unitId!):undefined)):[],
-      show(access[1]!)?this.db.select({row:labAnalyses}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id)).where(and(eq(resources.eventId,eventId),eq(resources.resourceType,'lab_analysis'),query.view==='personal'?eq(labAnalyses.assignedToUserId,user.id):query.view==='requested'?eq(labAnalyses.requestedByUserId,user.id):query.view==='unit'?eq(labAnalyses.assignedUnitId,query.unitId!):undefined)):[],
-      show(access[2]!)?this.db.select({row:forensicAnalyses}).from(forensicAnalyses).innerJoin(resources,eq(resources.id,forensicAnalyses.id)).where(and(eq(forensicAnalyses.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'forensic_analysis'),query.view==='personal'?eq(forensicAnalyses.assignedToUserId,user.id):query.view==='requested'?eq(forensicAnalyses.requestedByUserId,user.id):query.view==='unit'?eq(forensicAnalyses.assignedUnitId,query.unitId!):undefined)):[],
+      show(access[1]!)?this.db.select({row:labAnalyses}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id)).where(and(eq(resources.eventId,eventId),eq(resources.resourceType,'lab_analysis'),query.view==='approval'?eq(labAnalyses.status,'COMPLETED'):query.view==='personal'?eq(labAnalyses.assignedToUserId,user.id):query.view==='requested'?eq(labAnalyses.requestedByUserId,user.id):query.view==='unit'?eq(labAnalyses.assignedUnitId,query.unitId!):undefined)):[],
+      show(access[2]!)?this.db.select({row:forensicAnalyses}).from(forensicAnalyses).innerJoin(resources,eq(resources.id,forensicAnalyses.id)).where(and(eq(forensicAnalyses.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'forensic_analysis'),query.view==='approval'?eq(forensicAnalyses.status,'COMPLETED'):query.view==='personal'?eq(forensicAnalyses.assignedToUserId,user.id):query.view==='requested'?eq(forensicAnalyses.requestedByUserId,user.id):query.view==='unit'?eq(forensicAnalyses.assignedUnitId,query.unitId!):undefined)):[],
     ]);
     const items:MyWorkItem[]=[];
     const names=new Map(units.map(u=>[u.id,u.name]));
     async function append(item:MyWorkItem,permission:PermissionKey,service:ResourceAccessService){
       if(query.view!=='requested'&&!isActionableMyWorkItem(item))return;
       if(!await service.canAccessResource(user,item.id,permission))return;
+      if(query.view==='approval'){
+        const approvalPermission=item.kind==='LAB_ANALYSIS'?Permissions.LAB_APPROVE:item.kind==='FORENSIC_ANALYSIS'?Permissions.FORENSICS_APPROVE:null;
+        if(!approvalPermission||item.status!=='COMPLETED'||!await service.canAccessResource(user,item.id,approvalPermission))return;
+      }
       items.push({...item,assignedUnitName:item.assignedUnitId?names.get(item.assignedUnitId):undefined});
     }
     for(const {row:r} of taskRows)await append({id:r.id,eventId,kind:'TASK',identifier:r.taskNumber,title:r.title,status:r.status,assignedToUserId:r.assignedUserId,assignedUnitId:r.assignedUnitId,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/tasks/${r.id}`},Permissions.TASK_READ,this.resourceAccessService);
     for(const {row:r} of labRows)await append({id:r.id,eventId,kind:'LAB_ANALYSIS',identifier:r.analysisNumber,title:r.analysisType,status:r.status,assignedToUserId:r.assignedToUserId,assignedUnitId:r.assignedUnitId,reportAvailable:r.status==='APPROVED'&&!!r.approvedAt,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/lab/${r.id}`},Permissions.LAB_READ,this.resourceAccessService);
     for(const {row:r} of forensicRows)await append({id:r.id,eventId,kind:'FORENSIC_ANALYSIS',identifier:r.analysisNumber,title:r.analysisType,status:r.status,assignedToUserId:r.assignedToUserId,assignedUnitId:r.assignedUnitId,reportAvailable:r.status==='APPROVED'&&!!r.approvedAt,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/forensics/${r.id}`},Permissions.FORENSICS_READ,this.resourceAccessService);
     const paged=sortAndPaginateMyWork(items,query.page,query.limit);
-    return {items:paged.items,total:paged.total,page:query.page,limit:query.limit,view:query.view,availableViews:['personal',...(availableUnits.length?['unit' as const]:[]),...(canViewEvent?['event' as const]:[]),'requested'],availableUnits};
+    return {items:paged.items,total:paged.total,page:query.page,limit:query.limit,view:query.view,availableViews:['personal',...(availableUnits.length?['unit' as const]:[]),...(canViewEvent?['event' as const]:[]),'requested',...(canApprove?['approval' as const]:[])],availableUnits};
   }
 
   private async validateAssignmentTargets(

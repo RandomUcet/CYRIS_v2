@@ -129,7 +129,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
                 color: 'var(--color-text-main)',
               }}
             >
-              {option==='requested'?(cs?'Moje žádanky a výsledky':'My requests and results'):option === 'personal' ? (cs ? 'Moje práce' : 'My work') : option === 'unit' ? (cs ? 'Práce týmu' : 'Unit queue') : (cs ? 'Přehled cvičení' : 'Event overview')}
+              {option==='approval'?(cs?'Ke schválení':'Awaiting approval'):option==='requested'?(cs?'Moje žádanky a výsledky':'My requests and results'):option === 'personal' ? (cs ? 'Moje práce' : 'My work') : option === 'unit' ? (cs ? 'Práce týmu' : 'Unit queue') : (cs ? 'Přehled cvičení' : 'Event overview')}
             </button>
           ))}
           {view === 'unit' && (
@@ -157,7 +157,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
         {!loading && error && <ErrorState message={error} onRetry={() => setRefreshNonce((value) => value + 1)} />}
         {!loading && !error && needsUnitSelection && <EmptyState title={cs ? 'Vyber tým' : 'Select a team'} description={cs ? 'Zobrazí se dostupné úkoly a odborné rozbory vybraného týmu.' : 'See the selected team’s accessible tasks and specialist requests.'} />}
         {!loading && !error && !needsUnitSelection && result && result.items.length === 0 && (
-          <EmptyState title={t('myWork.emptyTitle')} description={t('myWork.emptyDescription')} />
+          <EmptyState title={view==='approval'?(cs?'Žádné protokoly ke schválení':'No reports awaiting approval'):t('myWork.emptyTitle')} description={view==='approval'?(cs?'Dokončené protokoly, které smíte schválit, se zobrazí zde.':'Completed reports you can approve will appear here.'):t('myWork.emptyDescription')} />
         )}
         {!loading && !error && !needsUnitSelection && result && result.items.length > 0 && (
           <>
