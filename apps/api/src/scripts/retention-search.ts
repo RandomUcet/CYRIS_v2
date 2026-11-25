@@ -30,7 +30,7 @@ async function snapshot(client:TypesenseClient,eventId:string){
     if(expected===undefined)expected=found;
     if(expected!==found)throw Error('Incomplete search inventory');
     for(const hit of res.hits??[]){
-      if(hit.document.eventId!==eventId||typeof hit.document.id!=='string')throw Error('Unexpected search scope');
+      if(!('eventId' in hit.document)||hit.document.eventId!==eventId||!('id' in hit.document)||typeof hit.document.id!=='string')throw Error('Unexpected search scope');
       ids.push(hit.document.id);
     }
     if(ids.length>=found)break;
@@ -53,7 +53,7 @@ export async function reconcileRetentionSearch(client:TypesenseClient,eventId:st
     let existing;
     try{existing=await client.collections(GLOBAL_SEARCH_COLLECTION).documents(id).retrieve();}
     catch(e){if((e as {httpStatus?:number})?.httpStatus===404)continue;throw e;}
-    if(existing.eventId!==eventId)throw Error('Foreign search projection collision');
+    if(!('eventId' in existing)||existing.eventId!==eventId)throw Error('Foreign search projection collision');
   }
   // Event filter is exact and UUID-validated. Never drop the whole collection.
   const result=await client.collections(GLOBAL_SEARCH_COLLECTION).documents().delete({filter_by:'eventId:='+eventId});

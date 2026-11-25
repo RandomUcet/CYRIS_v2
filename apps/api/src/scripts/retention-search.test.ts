@@ -34,8 +34,8 @@ test('actual Typesense reset and removal reconcile scoped documents and preserve
     const collision=doc(other,'unit',randomUUID());
     await collection.documents().upsert(collision);
     await assert.rejects(reconcileRetentionSearch(client,event,'reset',[...retained,{...collision,eventId:event}]),/Foreign search projection collision/);
-    assert.equal((await collection.documents(collision.id).retrieve()).eventId,other);
-    assert.equal((await collection.documents(stale.id).retrieve()).eventId,event);
+    assert.equal((await collection.documents(collision.id).retrieve() as Record<string,unknown>).eventId,other);
+    assert.equal((await collection.documents(stale.id).retrieve() as Record<string,unknown>).eventId,event);
     await collection.documents(collision.id).delete();
     const foreignBefore=await collection.documents(foreign.id).retrieve();
     const globalBefore=await collection.documents(global.id).retrieve();
