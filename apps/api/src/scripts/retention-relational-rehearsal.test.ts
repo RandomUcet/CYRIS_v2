@@ -7,6 +7,7 @@ import {getDbClient,closeDatabaseConnection,sql,type CyrisDatabase} from '@cyris
 import {inspectRelationalRetention,retentionOwnershipPredicate,childFirstRetentionOrder} from './retention-relational-plan.js';
 import {recordRemovedExerciseReceipt} from './retention-audit-receipt.js';
 import {inspectRetentionOutbox,removeRetentionOutbox} from './retention-outbox.js';
+import {recordRetentionCommit,readRetentionCommit,type RetentionCommitIdentity} from './retention-commit-witness.js';
 import {requireVerifiedIsolatedDatabase} from '../regression/isolated-postgres-harness.js';
 
 type Tx=Parameters<Parameters<CyrisDatabase['transaction']>[0]>[0];
@@ -44,10 +45,13 @@ async function executeRehearsal(tx:Tx,eventId:string,profile:'reset'|'remove'){
 /** Test-only combined transaction; never remove canonical rows before resolving
  * pending outbox ownership. A failed relational phase rolls back the outbox
  * phase too. The host must eventually provide independent writer isolation. */
-async function executeCombinedRehearsal(tx:Tx,eventId:string,profile:'reset'|'remove'){
+async function executeCombinedRehearsal(tx:Tx,identity:RetentionCommitIdentity){
+  const {eventId,profile}=identity;
   return tx.transaction(async sub=>{
+    if(await readRetentionCommit(sub,identity))throw Error('Retention operation already recorded');
     const plan=await inspectRetentionOutbox(sub,eventId,profile);
     const outbox=await removeRetentionOutbox(sub,eventId,profile,plan.digest);
+    await recordRetentionCommit(sub,identity);
     const relational=await executeRehearsal(sub,eventId,profile);
     return {...relational,outboxRemoved:outbox.removed};
   });
@@ -90,25 +94,32 @@ test('real relational reset and full removal execute in disposable PostgreSQL an
         (${archiveA},'audit.archival','PENDING',${JSON.stringify({eventId:a,id:audit})}::jsonb)`);
       const outboxIds=async()=> (await tx.execute<{id:string}>(sql`SELECT id FROM outbox_events ORDER BY id`)).map(x=>x.id);
       const initialOutbox=await outboxIds();
+      const resetIdentity:RetentionCommitIdentity={installationId:randomUUID(),operationId:randomUUID(),eventId:a,profile:'reset',planDigest:'a'.repeat(64)};
+      const removeIdentity:RetentionCommitIdentity={...resetIdentity,operationId:randomUUID(),profile:'remove',planDigest:'b'.repeat(64)};
+      assert.equal(await readRetentionCommit(tx,resetIdentity),false);
       const beforeB=await inspectRelationalRetention(tx,b);
       const auditBefore=await tx.execute<{body:unknown}>(sql`SELECT to_jsonb(a) AS body FROM audit_events a WHERE id=${audit}`);
       // Cross-event reference must refuse the entire operation before mutation.
       await tx.execute(sql`INSERT INTO resource_relationships(id,event_id,source_resource_id,target_resource_id,relationship_type) VALUES(${link},${b},${taskB},${task},'RELATED')`);
-      await assert.rejects(executeCombinedRehearsal(tx,a,'reset'),/Unsafe relational inventory/);
+      await assert.rejects(executeCombinedRehearsal(tx,resetIdentity),/Unsafe relational inventory/);
       assert.deepEqual(await outboxIds(),initialOutbox,'relational rejection must roll back outbox deletion');
+      assert.equal(await readRetentionCommit(tx,resetIdentity),false,'failed transaction must not leave a commit witness');
       assert.equal((await tx.execute(sql`SELECT id FROM resources WHERE id=${task}`)).length,1);
       await tx.execute(sql`DELETE FROM resource_relationships WHERE id=${link}`);
       await tx.execute(sql`UPDATE events SET status='ACTIVE' WHERE id=${a}`);
       await assert.rejects(executeRehearsal(tx,a,'reset'),/archived/);
       await tx.execute(sql`UPDATE events SET status='ARCHIVED' WHERE id=${a}`);
-      const reset=await executeCombinedRehearsal(tx,a,'reset');
+      const reset=await executeCombinedRehearsal(tx,resetIdentity);
       assert.equal(reset.outboxRemoved,1);
-      assert.deepEqual(await outboxIds(),[pendingB,pendingUnit,archiveA].sort());
+      assert.deepEqual(await outboxIds(),[pendingB,pendingUnit,archiveA,resetIdentity.operationId].sort());
+      assert.equal(await readRetentionCommit(tx,resetIdentity),true);
+      await assert.rejects(readRetentionCommit(tx,{...resetIdentity,planDigest:'c'.repeat(64)}),/identity collision/);
+      await assert.rejects(executeCombinedRehearsal(tx,resetIdentity),/already recorded/);
       assert.ok(reset.removed>=3);
       const afterReset=await inspectRelationalRetention(tx,a);
       assert.equal(afterReset.resetRows,0);
       for(const table of ['events','organizational_units','roles','role_permissions','role_assignments','event_memberships','membership_unit_assignments','audit_events'])
-        assert.equal(afterReset.tables.find(t=>t.table===table)?.count,1,table);
+        assert.equal(afterReset.tables.find(t=>t.table===table)?.count,table==='audit_events'?2:1,table);
       assert.deepEqual((await inspectRelationalRetention(tx,b)).tables,beforeB.tables);
       await assert.rejects(tx.transaction(async sub=>{
         await sub.execute(sql`DELETE FROM events WHERE id=${a}`);
@@ -123,9 +134,14 @@ test('real relational reset and full removal execute in disposable PostgreSQL an
       await assert.rejects(tx.transaction(async sub=>{
         await sub.execute(sql`INSERT INTO removed_exercise_receipts(event_id,slug,name,audit_count) VALUES(${a},${a},'Reset fixture',999)`);
       }),/audit count does not match/);
-      const removal=await executeCombinedRehearsal(tx,a,'remove');
+      const removal=await executeCombinedRehearsal(tx,removeIdentity);
       assert.equal(removal.outboxRemoved,1);
-      assert.deepEqual(await outboxIds(),[pendingB,archiveA].sort());
+      assert.deepEqual(await outboxIds(),[pendingB,archiveA,resetIdentity.operationId,removeIdentity.operationId].sort());
+      assert.equal(await readRetentionCommit(tx,removeIdentity),true);
+      assert.equal(await readRetentionCommit(tx,resetIdentity),true);
+      const archives=await tx.execute<{id:string;eventId:string;action:string}>(sql`SELECT id,payload->>'eventId' AS "eventId",payload->>'action' AS action FROM outbox_events WHERE id IN (${resetIdentity.operationId},${removeIdentity.operationId}) AND event_type='audit.archival'`);
+      assert.equal(archives.length,2);
+      assert.ok(archives.every(x=>x.eventId===a&&x.action==='event.retention.relational.commit'));
       assert.ok(removal.removed>=7);
       assert.equal(removal.order.at(-1),'events');
       assert.equal((await tx.execute(sql`SELECT id FROM events WHERE id=${a}`)).length,0);
@@ -134,7 +150,7 @@ test('real relational reset and full removal execute in disposable PostgreSQL an
       const [detached]=await tx.execute<{eventId:string|null;body:unknown}>(sql`SELECT event_id AS "eventId",to_jsonb(a) AS body FROM audit_events a WHERE id=${audit}`);
       assert.equal(detached?.eventId,a);assert.deepEqual(detached?.body,auditBefore[0]?.body);
       const [receipt]=await tx.execute<{eventId:string;slug:string;auditCount:number}>(sql`SELECT event_id AS "eventId",slug,audit_count AS "auditCount" FROM removed_exercise_receipts WHERE event_id=${a}`);
-      assert.equal(receipt?.eventId,a);assert.equal(receipt?.slug,a);assert.equal(receipt?.auditCount,1);
+      assert.equal(receipt?.eventId,a);assert.equal(receipt?.slug,a);assert.equal(receipt?.auditCount,3);
       await tx.execute(sql`SET CONSTRAINTS removed_exercise_receipt_requires_removal IMMEDIATE`);
       await assert.rejects(tx.transaction(async sub=>{
         await sub.execute(sql`INSERT INTO events(id,slug,name) VALUES(${a},${a},'Reused')`);
