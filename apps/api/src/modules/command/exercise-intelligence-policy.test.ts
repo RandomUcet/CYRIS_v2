@@ -27,3 +27,12 @@ test('inject plans are private, separate, and only allowed with a saved architec
  assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[{...a,phasePlan:[{title:'Phase',purpose:'Private'}]}]}),[],true));
  assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[{...a,injectPlan:[{...a.injectPlan[0],participantContent:'secret'}]}]}),[],true));
 });
+
+test('inject dependency slots reject self, forward, duplicate and out-of-range references',()=>{
+ const first={title:'First event',purpose:'Observe process'};
+ const second={title:'Second event',purpose:'Review response'};
+ const draft=(injectPlan:unknown[])=>JSON.stringify({summary:'Plan',actions:[{module:'SCENARIO',title:'Injects',proposal:'Plan',reason:'Planning',signalIds:[],injectPlan}],reviewNotes:[]});
+ assert.doesNotThrow(()=>validateExerciseDraft(draft([first,{...second,dependsOn:[0],phaseTitle:'Response'}]),[],true));
+ for(const dependsOn of [[1],[0,0],[-1],[8]])assert.throws(()=>validateExerciseDraft(draft([first,{...second,dependsOn}]),[],true));
+ assert.throws(()=>validateExerciseDraft(draft([{...first,dependsOn:[0]},second]),[],true));
+});

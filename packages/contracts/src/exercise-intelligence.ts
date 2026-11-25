@@ -21,7 +21,11 @@ export const ExerciseIntelligenceOverviewSchema=z.object({
 export type ExerciseIntelligenceOverview=z.infer<typeof ExerciseIntelligenceOverviewSchema>;
 export const ExercisePhasePlanSchema=z.array(z.object({title:z.string().trim().min(3).max(120),purpose:z.string().trim().min(3).max(400)}).strict()).min(1).max(8);
 export const ExerciseTeamPlanSchema=z.array(z.object({name:z.string().trim().min(3).max(120),slug:z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(64),purpose:z.string().trim().min(3).max(400)}).strict()).min(1).max(12);
-export const ExerciseInjectPlanSchema=z.array(z.object({title:z.string().trim().min(3).max(160),purpose:z.string().trim().min(3).max(600)}).strict()).min(1).max(8);
+const InjectDependencySlots=z.array(z.number().int().min(0).max(7)).max(7);
+function validInjectOrder(rows:readonly {dependsOn?:number[]}[]){
+ return rows.every((row,i)=>!row.dependsOn||(new Set(row.dependsOn).size===row.dependsOn.length&&row.dependsOn.every(n=>n<i)));
+}
+export const ExerciseInjectPlanSchema=z.array(z.object({title:z.string().trim().min(3).max(160),purpose:z.string().trim().min(3).max(600),phaseTitle:z.string().trim().min(3).max(120).optional(),dependsOn:InjectDependencySlots.optional()}).strict()).min(1).max(8).refine(validInjectOrder,'Dependencies must refer to distinct earlier injects');
 export const ExerciseAdviceDraftSchema=z.object({
  summary:z.string().min(1).max(2500),
  actions:z.array(z.object({module:z.enum(['EXCON','SCENARIO','REGISTRY','INVESTIGATION','JSOC','LAB','FORENSICS','MEDICAL','LEGAL','COMMAND','EVALUATION','SUPPORT']),title:z.string().min(1).max(160),proposal:z.string().min(1).max(1400),reason:z.string().min(1).max(700),signalIds:z.array(z.string()).max(8),phasePlan:ExercisePhasePlanSchema.optional(),teamPlan:ExerciseTeamPlanSchema.optional(),injectPlan:ExerciseInjectPlanSchema.optional()}).strict()).min(1).max(12),
@@ -87,7 +91,7 @@ export type ExerciseTeamSetupInput=z.infer<typeof ExerciseTeamSetupInputSchema>;
 export const ExerciseTeamSetupReceiptSchema=z.object({actionIndex:z.number().int().min(0).max(11),unitIds:z.array(z.string().uuid()).min(1).max(12),createdAt:z.string().datetime(),createdBy:z.string().uuid()}).strict();
 export type ExerciseTeamSetupReceipt=z.infer<typeof ExerciseTeamSetupReceiptSchema>;
 
-export const ExerciseInjectSetupInputSchema=z.object({actionIndex:z.number().int().min(0).max(11),expectedRevision:z.number().int().positive(),injects:z.array(z.object({title:z.string().trim().min(3).max(160),controllerSummary:z.string().trim().min(3).max(600)}).strict()).min(1).max(8),confirmedSafe:z.literal(true)}).strict().refine(p=>new Set(p.injects.map(i=>i.title.toLowerCase())).size===p.injects.length,'Duplicate inject titles');
+export const ExerciseInjectSetupInputSchema=z.object({actionIndex:z.number().int().min(0).max(11),expectedRevision:z.number().int().positive(),injects:z.array(z.object({title:z.string().trim().min(3).max(160),controllerSummary:z.string().trim().min(3).max(600),phaseId:z.string().uuid().nullable().optional(),dependsOn:InjectDependencySlots.optional()}).strict()).min(1).max(8),confirmedSafe:z.literal(true)}).strict().refine(p=>new Set(p.injects.map(i=>i.title.toLowerCase())).size===p.injects.length,'Duplicate inject titles').refine(p=>validInjectOrder(p.injects),'Dependencies must refer to distinct earlier injects');
 export type ExerciseInjectSetupInput=z.infer<typeof ExerciseInjectSetupInputSchema>;
 export const ExerciseInjectSetupReceiptSchema=z.object({actionIndex:z.number().int().min(0).max(11),injectIds:z.array(z.string().uuid()).min(1).max(8),createdAt:z.string().datetime(),createdBy:z.string().uuid()}).strict();
 export type ExerciseInjectSetupReceipt=z.infer<typeof ExerciseInjectSetupReceiptSchema>;

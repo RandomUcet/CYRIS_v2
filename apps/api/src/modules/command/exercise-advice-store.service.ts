@@ -1,6 +1,6 @@
 import {Injectable,ConflictException,NotFoundException,BadRequestException} from '@nestjs/common';
 import {and,eq,desc,isNull,gt} from 'drizzle-orm';
-import {events,exerciseAdvice,exerciseBlueprints,exerciseBroadcastPlans,organizationalUnits,exerciseJobs,users,scenarioPhases,scenarioInjects,outboxEvents,OutboxStatus} from '@cyris/db';
+import {events,exerciseAdvice,exerciseBlueprints,exerciseBroadcastPlans,organizationalUnits,exerciseJobs,users,scenarioPhases,scenarioInjects,scenarioInjectDependencies,outboxEvents,OutboxStatus} from '@cyris/db';
 import {Permissions,generateId} from '@cyris/shared';
 import {IdentifierAllocatorService} from '../resources/identifier-allocator.service.js';
 import {ExerciseInjectSetupInputSchema,ExerciseInjectSetupReceiptSchema,type ExerciseInjectSetupInput,ExerciseAdviceDraftSchema,ExerciseSignalSchema,ExerciseAdviceReviewSchema,ExerciseAdviceHandoffSchema,ExerciseAdviceHandoffInputSchema,ExerciseObserverSnapshotSchema,ExercisePhaseSetupInputSchema,ExercisePhaseSetupReceiptSchema,ExerciseTeamSetupInputSchema,ExerciseTeamSetupReceiptSchema,type ExerciseTeamSetupInput,type ExercisePhaseSetupInput,type ExerciseObserverSnapshot,type ExerciseAdviceHandoffInput,type ExerciseAdviceResult,type ExerciseAdviceDecision,type ExerciseAdviceReview,type StoredExerciseAdvice,type ExerciseSignal} from '@cyris/contracts';
@@ -203,12 +203,19 @@ export class ExerciseAdviceStore{
    const existing=await tx.select({title:scenarioInjects.title}).from(scenarioInjects).where(eq(scenarioInjects.eventId,eventId));
    const names=new Set(existing.map(i=>i.title.trim().toLowerCase()));
    if(request.injects.some(i=>names.has(i.title.toLowerCase())))throw new ConflictException('An inject with this title already exists');
+   const phaseIds=new Set(request.injects.flatMap(i=>i.phaseId?[i.phaseId]:[]));
+   if(phaseIds.size){
+    const phases=await tx.select({id:scenarioPhases.id,status:scenarioPhases.status}).from(scenarioPhases).where(eq(scenarioPhases.eventId,eventId)).for('share');
+    const valid=new Set(phases.filter(p=>p.status!=='CANCELLED'&&p.status!=='COMPLETED').map(p=>p.id));
+    if([...phaseIds].some(id=>!valid.has(id)))throw new BadRequestException('Selected phase is unavailable in this exercise');
+   }
    const ids:string[]=[];
    for(const inject of request.injects){
     const id=generateId(),injectNumber=await this.identifiers.allocate(eventId,'scenario_inject','INJ',tx);
-    await tx.insert(scenarioInjects).values({id,eventId,injectNumber,title:inject.title,controllerSummary:inject.controllerSummary,status:'DRAFT',triggerType:'MANUAL',releasePolicy:'MANUAL_CONFIRMATION',priority:'NORMAL',phaseId:null,participantTitle:null,participantContent:null,scheduledAt:null,createdByUserId:actor.id});
+    await tx.insert(scenarioInjects).values({id,eventId,injectNumber,title:inject.title,controllerSummary:inject.controllerSummary,status:'DRAFT',triggerType:'MANUAL',releasePolicy:'MANUAL_CONFIRMATION',priority:'NORMAL',phaseId:inject.phaseId??null,participantTitle:null,participantContent:null,scheduledAt:null,createdByUserId:actor.id});
+    for(const slot of inject.dependsOn??[])await tx.insert(scenarioInjectDependencies).values({id:generateId(),eventId,injectId:id,dependsOnInjectId:ids[slot]!});
     ids.push(id);
-    await this.audit.record({txClient:tx,eventId,actorUserId:actor.id,action:'scenario.inject.created',category:'scenario',resourceType:'scenario_inject',resourceId:id,metadata:{injectNumber,status:'DRAFT',source:'AI_SETUP',runId}});
+    await this.audit.record({txClient:tx,eventId,actorUserId:actor.id,action:'scenario.inject.created',category:'scenario',resourceType:'scenario_inject',resourceId:id,metadata:{injectNumber,status:'DRAFT',source:'AI_SETUP',runId,phaseId:inject.phaseId??null,dependencies:inject.dependsOn?.length??0}});
    }
    const receipt=ExerciseInjectSetupReceiptSchema.parse({actionIndex:request.actionIndex,injectIds:ids,createdAt:new Date().toISOString(),createdBy:actor.id});
    const [updated]=await tx.update(exerciseAdvice).set({injectReceipts:[...row.injectReceipts,receipt],revision:row.revision+1}).where(and(eq(exerciseAdvice.eventId,eventId),eq(exerciseAdvice.runId,runId),eq(exerciseAdvice.revision,row.revision))).returning();
