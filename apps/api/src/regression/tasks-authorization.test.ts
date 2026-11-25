@@ -162,6 +162,13 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         await assert.rejects(tasks.listMyWork(eventA,approvalQuery,examiner),ForbiddenException);
         await assert.rejects(tasks.listMyWork(eventA,approvalQuery,requester),ForbiddenException);
         await assert.rejects(tasks.listMyWork(eventB,approvalQuery,organizer),ForbiddenException);
+        const [leadRole]=await db.select({id:roles.id}).from(roles).where(and(eq(roles.eventId,eventA),eq(roles.slug,'laboratory-leader')));
+        await db.insert(rolePermissions).values({roleId:leadRole!.id,permissionKey:Permissions.LAB_APPROVE,scope:'UNIT'});
+        try{
+          const labOnlyApproval=await tasks.listMyWork(eventA,approvalQuery,leader);
+          assert.ok(labOnlyApproval.availableViews.includes('approval'));
+          assert.ok(!labOnlyApproval.items.some(x=>x.kind==='FORENSIC_ANALYSIS'));
+        }finally{await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,leadRole!.id),eq(rolePermissions.permissionKey,Permissions.LAB_APPROVE)));}
         await forensics.updateStatus(created.id,{status:'APPROVED'},organizer);
         assert.ok(!(await tasks.listMyWork(eventA,approvalQuery,organizer)).items.some(x=>x.id===created.id));
         const approved=await forensics.getAnalysisDetail(created.id,requester);
@@ -290,7 +297,11 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         const pending=await lab.getAnalysisDetail(eventA,row.id,requester);
         assert.equal(pending.status,'COMPLETED');assert.equal(pending.findings,null);assert.equal(pending.conclusion,null);
         assert.equal((await lab.listAnalyses(eventA,requester,evidenceId)).find(x=>x.id===row.id)?.reportAvailable,false);
+        const approvalQuery=MyWorkQuerySchema.parse({view:'approval'});
+        assert.ok((await tasks.listMyWork(eventA,approvalQuery,organizer)).items.some(x=>x.id===row.id&&x.kind==='LAB_ANALYSIS'&&x.status==='COMPLETED'));
+        await assert.rejects(tasks.listMyWork(eventA,approvalQuery,analyst),ForbiddenException);
         await lab.updateAnalysis(eventA,row.id,{status:'APPROVED'},organizer);
+        assert.ok(!(await tasks.listMyWork(eventA,approvalQuery,organizer)).items.some(x=>x.id===row.id));
         const result=await lab.getAnalysisDetail(eventA,row.id,requester);
         assert.equal(result.reportAvailable,true);assert.equal(result.conclusion,'Fixture final conclusion');
         assert.equal(result.findings,'Fixture intermediate findings');assert.equal(result.requesterName,requester.displayName);
