@@ -17,9 +17,13 @@ import { FlaskConical, Plus, RefreshCw, X, ArrowRight } from 'lucide-react';
 type LabItem=import('@cyris/contracts').LabAnalysisResponse;
 
 export default function LabListPage() {
-  const params = useParams();
-  const router = useRouter();
-  const eventId = params.eventId as string;
+  const {eventId}=useParams<{eventId:string}>();
+  const {currentUser,viewAs,loading}=useAuth();
+  if(loading)return <AppShell><LoadingState/></AppShell>;
+  return <LabWorkspace key={JSON.stringify([eventId,currentUser?.user.id,viewAs?.id,currentUser?.memberships.find(m=>m.eventId===eventId)?.permissions])} eventId={eventId}/>;
+}
+function LabWorkspace({eventId}:{eventId:string}){
+  const router=useRouter();
   const { hasPermission, user,viewAs } = useAuth();
   const { formatDate, locale } = usePreferences();
   const cs = locale === 'cs';
@@ -302,7 +306,8 @@ export default function LabListPage() {
         <div style={{ display: 'flex', gap: '8px', margin: '12px 0' }}>
           {([
             ['all', 'All work'],
-            ['mine', 'My work'],
+            ['mine', cs?'Moje práce':'My work'],
+            ['requested',cs?'Moje žádanky':'My requests'],
             ['unassigned', 'Unassigned'],
             ['unit', 'Unit work'],
             ['completed', 'Completed'],

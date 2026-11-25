@@ -32,10 +32,13 @@ import {
 const STAGES = ['REQUESTED', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'APPROVED'] as const;
 
 export default function LabAnalysisDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const eventId = params.eventId as string;
-  const analysisId = params.analysisId as string;
+  const {eventId,analysisId}=useParams<{eventId:string;analysisId:string}>();
+  const {currentUser,viewAs,loading}=useAuth();
+  if(loading)return <AppShell><LoadingState/></AppShell>;
+  return <LabDetailWorkspace key={JSON.stringify([eventId,analysisId,currentUser?.user.id,viewAs?.id,currentUser?.memberships.find(m=>m.eventId===eventId)?.permissions])} eventId={eventId} analysisId={analysisId}/>;
+}
+function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:string}){
+  const router=useRouter();
   const { hasPermission, user, viewAs } = useAuth();
   const { formatTime, locale } = usePreferences();
 

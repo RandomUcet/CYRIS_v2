@@ -564,7 +564,8 @@ export class LaboratoryService {
         tx
       );
 
-      // 8. Search outbox
+      // 8. Search outbox and receipt to requester.
+      await this.notifyRequester(tx,eventId,created!);
       await this.searchIndexerService.emitSearchUpsert('lab_analysis', analysisId, tx);
 
       await this.auditService.record({
@@ -583,6 +584,7 @@ export class LaboratoryService {
       });
 
       return {
+        reportAvailable:false,
         id: created!.id,
         eventId,
         analysisNumber: created!.analysisNumber,
@@ -700,6 +702,8 @@ export class LaboratoryService {
       const [locked]=await tx.select().from(labAnalyses).where(eq(labAnalyses.id,analysisId)).for('update').limit(1);
       if(!locked||locked.status!==currentStatus||locked.updatedAt.toISOString()!==existing.updatedAt)throw new ConflictException('Laboratory analysis changed while this update was being processed');
       if(writesReport)await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_WORK,tx);
+      const permission=data.status&&data.status!==currentStatus?data.status==='ACCEPTED'||data.status==='REJECTED'?Permissions.LAB_ACCEPT:data.status==='COMPLETED'?Permissions.LAB_COMPLETE:data.status==='APPROVED'?Permissions.LAB_APPROVE:Permissions.LAB_WORK:Permissions.LAB_WORK;
+      await this.resourceAccessService.assertCanAccessResource(user,analysisId,permission,tx);
       const [row] = await tx
         .update(labAnalyses)
         .set(updatePayload)
