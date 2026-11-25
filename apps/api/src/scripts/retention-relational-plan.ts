@@ -81,6 +81,41 @@ export async function inspectRelationalRetention(tx:Tx,eventId:string){
     const [row]=await tx.execute<{count:number}>(sql.raw('SELECT count(*)::integer AS count FROM public.operational_tasks c JOIN public.resources p ON c.source_resource_id=p.id WHERE (('+owned('operational_tasks','c',eventId)+') IS TRUE) <> (('+owned('resources','p',eventId)+') IS TRUE)'));
     if(row?.count)conflicts.push({child:'public.operational_tasks',parent:'public.resources',constraint:'source_resource_id (legacy)',count:Number(row.count)});
   }
+  // Explicit polymorphic references are not represented by PostgreSQL FKs.
+  // Platform roles are only valid as direct user grants; the authorization
+  // service deliberately does not honor platform roles on event memberships.
+  // Keep those inconsistent cross-scope assignments blocked by the FK checks.
+  if(usable.has('resource_access_control')&&usable.has('resources')&&usable.has('organizational_units')){
+    const [row]=await tx.execute<{count:number}>(sql`
+      SELECT count(*)::integer AS count FROM resource_access_control acl
+      JOIN resources r ON r.id=acl.resource_id
+      LEFT JOIN organizational_units u ON acl.principal_type='UNIT' AND u.id=acl.principal_id
+      LEFT JOIN users usr ON acl.principal_type='USER' AND usr.id=acl.principal_id
+      WHERE (r.event_id=${eventId}::uuid OR u.event_id=${eventId}::uuid)
+        AND (acl.principal_type NOT IN ('USER','UNIT')
+          OR (acl.principal_type='UNIT' AND (u.id IS NULL OR u.event_id<>r.event_id))
+          OR (acl.principal_type='USER' AND usr.id IS NULL))
+    `);
+    if(row?.count)conflicts.push({child:'public.resource_access_control',parent:'public.organizational_units',constraint:'principal_id (polymorphic ACL)',count:Number(row.count)});
+  }
+  if(usable.has('activity_events')&&usable.has('resources')){
+    // Related resource arrays may refer to other exercises without an FK.
+    // Do not cast arbitrary JSON strings to UUIDs or silently ignore malformed
+    // arrays on target rows. Missing historical IDs are left for review too.
+    const [row]=await tx.execute<{count:number}>(sql`
+      SELECT count(*)::integer AS count FROM activity_events a
+      WHERE (a.event_id=${eventId}::uuid AND a.related_resource_ids IS NOT NULL
+        AND jsonb_typeof(a.related_resource_ids)<>'array')
+      OR EXISTS (
+        SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(a.related_resource_ids)='array'
+          THEN a.related_resource_ids ELSE '[]'::jsonb END) j(value)
+        LEFT JOIN resources r ON jsonb_typeof(j.value)='string' AND r.id::text=(j.value #>> '{}')
+        WHERE (a.event_id=${eventId}::uuid AND (r.id IS NULL OR r.event_id<>a.event_id))
+          OR (r.event_id=${eventId}::uuid AND a.event_id<>r.event_id)
+      )
+    `);
+    if(row?.count)conflicts.push({child:'public.activity_events',parent:'public.resources',constraint:'related_resource_ids (JSON)',count:Number(row.count)});
+  }
   const total=(p:'reset'|'remove')=>tables.reduce((n,t)=>n+(t[p]==='DELETE'?t.count:0),0);
   return {mode:'READ_ONLY' as const,tables,unknownTables,missingTables,unsupportedTables,checkedForeignKeys,conflicts,
     resetRows:total('reset'),removeRows:total('remove'),auditRows:tables.find(t=>t.table==='audit_events')?.count??0,
