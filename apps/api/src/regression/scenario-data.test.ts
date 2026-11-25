@@ -175,7 +175,9 @@ skipWithoutVerifiedDatabase('generator preview, concurrent publication, saved Sp
 
     // Durable dispatch is independent of the browser and coordinates claim ownership.
     const queue=new ScenarioGenerationService(database,auth as any,svc);
-    const pending=await svc.startDraft(a,{...fastRequest,seed:9342},user);
+    const submission={...fastRequest,seed:9342,requestId:generateId()};
+    const [pending,repeated]=await Promise.all([svc.startDraft(a,submission,user),svc.startDraft(a,submission,user)]);
+    assert.equal(pending.id,repeated.id);assert.equal(pending.generation?.state,'QUEUED');
     assert.equal((await queue.enqueue(a,pending.id,user)).generation?.state,'QUEUED');
     await assert.rejects(()=>svc.advance(a,pending.id,0,user),/active generation job/);
     await assert.rejects(()=>svc.cleanup(a,pending.id,user),/Pause generation/);

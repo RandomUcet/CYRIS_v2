@@ -20,9 +20,10 @@ test('draft advance rejects no progress, regressions, closed or mismatched draft
 });
 test('workspace isolates event state, protects generation and restores draft strategy', () => {
   const page = readFileSync(new URL('../app/events/[eventId]/scenario-data/page.tsx',import.meta.url),'utf8');
-  assert.ok(page.includes('<ScenarioDataWorkspace key={eventId}'));
+  assert.ok(page.includes("<ScenarioDataWorkspace key={eventId+':'+currentUser?.user.id}"));
   assert.ok(page.includes('if (operation.current || !alive.current) return;'));
   assert.ok(page.includes('apiClient.queueScenarioDraft(eventId,current.id)'));
+  assert.ok(page.includes('requestId:pendingSubmission.current.id'));
   assert.ok(page.includes('old?.id===id?next:old'));
   assert.ok(page.includes('setSparkStrategy(r.data.strategy ?? \'DETAILED\')'));
   assert.ok(page.includes('request !== historyRequest.current'));

@@ -1,4 +1,4 @@
-import { generationView,isLive,type GenerationJob } from './scenario-generation-state.js';
+import { generationView,isLive,queuedGeneration,type GenerationJob } from './scenario-generation-state.js';
 import { writeChunks } from '../database/write-chunks.js';
 import { InferenceError, parseModelJson } from '../ai/structured-output.js';
 import { createHash } from 'node:crypto';
@@ -48,7 +48,7 @@ type Tx = Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0]
 
 type Kind = keyof World;
 type DraftLink = { source: Kind; index: number; target: Kind; targetIndex: number; relation: string };
-type Settings = ScenarioDataCounts & { brief?: string; strategy?: 'FAST' | 'DETAILED'; prepared?: number; rows?: World; draftLinks?: DraftLink[]; generationJob?:GenerationJob };
+type Settings = ScenarioDataCounts & { brief?: string; strategy?: 'FAST' | 'DETAILED'; prepared?: number; rows?: World; draftLinks?: DraftLink[]; generationJob?:GenerationJob; generationRequestId?:string };
 const draftOrder: Kind[] = ['locations', 'organisations', 'vehicles', 'devices', 'persons', 'weapons'];
 const relatedKinds: Record<Kind, Partial<Record<Kind, string>>> = {
   locations: {}, organisations: { locations: 'LOCATED_AT' }, vehicles: { locations: 'LOCATED_AT' },
@@ -292,8 +292,17 @@ export class ScenarioDataService {
     const counts = this.counts(request);
     if (!(await this.ai.getStatus('DGX_SPARK')).enabled) throw new ServiceUnavailableException('Enable the Spark integration or select Local.');
     return this.databaseService.client.transaction(async tx => {
+      if(request.requestId)await tx.execute(sql`select pg_advisory_xact_lock(hashtext('exercise-job-dispatch-v1'))`);
       await this.lockEvent(tx, eventId);
-      return this.response(await this.newBatch(tx, eventId, request, user, { ...counts, brief: request.brief, strategy: request.strategy ?? 'FAST', prepared: 0, rows: emptyWorld(), draftLinks: [] }));
+      if(request.requestId){
+        const [existing]=await tx.select().from(scenarioDataBatches).where(and(eq(scenarioDataBatches.eventId,eventId),eq(scenarioDataBatches.createdByUserId,user.id),sql`${scenarioDataBatches.configuration}->>'generationRequestId' = ${request.requestId}`)).limit(1);
+        if(existing)return this.response(existing);
+        const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).limit(1);
+        if(!event||['CLOSED','ARCHIVED'].includes(event.status))throw new ConflictException('Exercise is read-only');
+        const [pending]=await tx.select({n:sql<number>`count(*)::int`}).from(scenarioDataBatches).where(and(eq(scenarioDataBatches.status,'DRAFT'),sql`${scenarioDataBatches.configuration}->'generationJob'->>'state' in ('QUEUED','RUNNING')`));
+        if((pending?.n??0)>=32)throw new ConflictException('Dataset queue capacity reached');
+      }
+      return this.response(await this.newBatch(tx, eventId, request, user, { ...counts, brief: request.brief, strategy: request.strategy ?? 'FAST', prepared: 0, rows: emptyWorld(), draftLinks: [], ...(request.requestId&&{generationRequestId:request.requestId,generationJob:queuedGeneration(user.id,Date.now())}) }));
     });
   }
 

@@ -7,6 +7,7 @@ import type { ScenarioDataRequest, ScenarioDataPreview, ScenarioDataCounts, Scen
 import { AppShell } from '@/components/layout/AppShell';
 import { apiClient } from '@/lib/api-client';
 import { draftProgress, formatElapsed, plannedInferenceCalls } from '@/lib/scenario-draft-progress';
+import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import styles from './scenario-data.module.css';
 import { ScenarioBatchMediaManager } from './ScenarioBatchMediaManager';
@@ -25,7 +26,10 @@ type Batch = ScenarioDataBatchResponse;
 
 export default function ScenarioDataPage() {
   const { eventId } = useParams<{ eventId: string }>();
-  return <ScenarioDataWorkspace key={eventId} eventId={eventId} />;
+  const {currentUser,viewAs,loading,hasPermission}=useAuth();
+  if(loading)return <AppShell><p role="status">…</p></AppShell>;
+  if(viewAs||!hasPermission('scenario.manage',eventId))return <AppShell><p role="alert">Scenario management required / Pouze organizátoři</p></AppShell>;
+  return <ScenarioDataWorkspace key={eventId+':'+currentUser?.user.id} eventId={eventId} />;
 }
 
 function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
@@ -68,12 +72,16 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
   const [elapsed, setElapsed] = useState(0);
   const operation = useRef(false);
   const historyRequest = useRef(0);
+  const pendingSubmission=useRef<{key:string;id:string}|null>(null);
+  const historyFlight=useRef(false);
   const startedAt = useRef(0);
   const alive = useRef(true);
   const scope = useRef(eventId);
-  const load = async () => {
+  const load = async (silent=false) => {
+    if(silent&&historyFlight.current)return;
+    historyFlight.current=true;
     const request = ++historyRequest.current;
-    setHistoryLoading(true);
+    if(!silent)setHistoryLoading(true);
     try {
       const r = await apiClient.getScenarioDataBatches(eventId);
       if (!alive.current || request !== historyRequest.current) return;
@@ -83,7 +91,7 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
     } catch (error) {
       if (alive.current && request === historyRequest.current) setHistoryError(error instanceof Error ? error.message : tr('Historie není dostupná','History unavailable'));
     } finally {
-      if (alive.current && request === historyRequest.current) setHistoryLoading(false);
+      if (alive.current && request === historyRequest.current){setHistoryLoading(false);historyFlight.current=false;}
     }
   };
   useEffect(() => {
@@ -105,6 +113,7 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
       scope.current = '';
     };
   }, [eventId]);
+  useEffect(()=>{const timer=window.setInterval(()=>{if(!document.hidden)void load(true);},8000);return()=>window.clearInterval(timer);},[eventId]);
   useEffect(() => {
     if (!generating) return;
     const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt.current) / 1000)), 1000);
@@ -114,6 +123,7 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
     setQuality(null);
     setPreview(null);
     setDraft(null);
+    pendingSubmission.current=null;
     setMessage('');
   }
   async function importBlueprint(){
@@ -160,12 +170,17 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
       let current = existing;
       if (!current) {
         setDraft(null); setPreview(null);
-        const r = await apiClient.startScenarioDraft(eventId, { ...payload, brief, strategy: sparkStrategy });
+        const input={...payload,brief,strategy: sparkStrategy};
+        const key=JSON.stringify(input);
+        if(pendingSubmission.current?.key!==key)pendingSubmission.current={key,id:crypto.randomUUID()};
+        const r = await apiClient.startScenarioDraft(eventId, {...input,requestId:pendingSubmission.current.id});
         if (!alive.current || scope.current !== eventId) return;
         if (!r.ok || !r.data) throw Error(r.error ?? tr('Spark není dostupný','Spark unavailable'));
         current = r.data;
         if (current.eventId !== eventId || current.status !== 'DRAFT') throw Error(tr('Koncept není dostupný','Draft unavailable'));
-        setDraft(current);
+        setDraft(current);pendingSubmission.current=null;
+        setMessage(tr('Úloha je uložená na serveru. Stránku můžete zavřít.','Job saved on server. You may close this page.'));
+        return;
       }
       const queued=await apiClient.queueScenarioDraft(eventId,current.id);
       if(!alive.current||scope.current!==eventId)return;
@@ -214,6 +229,7 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
   const history = batches.filter(batch => (historyFilter === 'ALL' || batch.status === historyFilter) &&
     [batch.identifier, batch.brief, batch.source, batch.seed].join(' ').toLowerCase().includes(historyQuery.trim().toLowerCase()));
   const activeJob=draft?.generation?.state==='QUEUED'||draft?.generation?.state==='RUNNING';
+  const activeBatches=batches.filter(b=>b.generation?.state==='QUEUED'||b.generation?.state==='RUNNING');
   const generationErrors:Record<string,string>={CAPACITY:tr('Spark je vytížený','Spark is busy'),TIMEOUT:tr('Časový limit inference','Inference timeout'),TRUNCATED:tr('Překročen limit tokenů','Token limit exceeded'),EMPTY_OUTPUT:tr('Prázdná odpověď','Empty output'),INVALID_OUTPUT:tr('Neplatný formát výstupu','Invalid output'),UNREACHABLE:tr('Spark nedostupný','Spark unreachable'),AUTH_FAILED:tr('Chyba autentizace','Authentication failed'),SPARK_UNAVAILABLE:tr('Spark nedostupný','Spark unavailable'),LEASE_EXPIRED:tr('Zpracování přerušeno','Processing interrupted'),ACCESS_REVOKED:tr('Oprávnění odebráno','Access revoked'),CONTEXT_CHANGED:tr('Kontext se změnil','Context changed'),NO_PROGRESS:tr('Dávka nepostoupila','No progress'),PROVIDER_ERROR:tr('Chyba poskytovatele','Provider error'),GENERATION_FAILED:tr('Generování selhalo','Generation failed')};
   const complete = draft?.status === 'DRAFT' && draft.prepared === total(draft.configuration)&&!activeJob;
   useEffect(()=>{
@@ -234,6 +250,7 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
       </nav>
       <h1>{tr('Generátor scénářových dat','Scenario data generator')}</h1>
       <p>{tr('Připravte fiktivní osoby, místa a techniku pro cvičení. Před zveřejněním vždy zkontrolujte náhled nebo koncept.','Prepare the people, places and assets for this exercise. Review the draft before adding it to the registry.')}</p>
+      {activeBatches.length>0&&<section aria-label={tr('Aktivní úlohy','Active jobs')}><h2>{tr('Generování na serveru','Server generation')} · {activeBatches.length}</h2><p>{tr('Úlohy běží nezávisle na této stránce. Otevřete koncept v historii pro náhled nebo pozastavení.','Jobs run independently of this page. Open a draft in history to inspect or pause it.')}</p>{activeBatches.map(b=><p key={b.id}><strong>{b.identifier}</strong> · {b.generation?.state==='QUEUED'?tr('Ve frontě','Queued'):tr('Zpracovává se','Running')} · {b.prepared??0}/{total(b.configuration)}</p>)}</section>}
       <div className={styles.columns}>
         <section><h2>{tr('Datová sada','Dataset')}</h2>
           <fieldset disabled={busy || qualityBusy}>
