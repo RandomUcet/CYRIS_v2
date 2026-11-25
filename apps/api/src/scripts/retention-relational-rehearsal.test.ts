@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {getDbClient,closeDatabaseConnection,sql,type CyrisDatabase} from '@cyris/db';
 import {inspectRelationalRetention,retentionOwnershipPredicate,childFirstRetentionOrder} from './retention-relational-plan.js';
+import {recordRemovedExerciseReceipt} from './retention-audit-receipt.js';
 import {requireVerifiedIsolatedDatabase} from '../regression/isolated-postgres-harness.js';
 
 type Tx=Parameters<Parameters<CyrisDatabase['transaction']>[0]>[0];
@@ -27,6 +28,7 @@ async function executeRehearsal(tx:Tx,eventId:string,profile:'reset'|'remove'){
     WHERE c.contype='f' AND cn.nspname='public' AND pn.nspname='public'`);
   const order=childFirstRetentionOrder(names,[...edges]);
   let removed=0;
+  if(profile==='remove')await recordRemovedExerciseReceipt(tx,eventId);
   for(const table of order){
     // Child rows are deleted before their ownership parent; explicit count checks
     // reject accidental cascades or schema mismatch rather than counting them twice.
@@ -65,7 +67,7 @@ test('real relational reset and full removal execute in disposable PostgreSQL an
       await tx.execute(sql`INSERT INTO notifications(id,event_id,user_id,type,template_key) VALUES(${note},${a},${user},'TEST','test')`);
       await tx.execute(sql`INSERT INTO audit_events(id,event_id,action,category) VALUES(${audit},${a},'fixture.a','fixture'),(${foreignAudit},${b},'fixture.b','fixture')`);
       const beforeB=await inspectRelationalRetention(tx,b);
-      const auditBefore=await tx.execute<{body:unknown}>(sql`SELECT to_jsonb(a)-'event_id' AS body FROM audit_events a WHERE id=${audit}`);
+      const auditBefore=await tx.execute<{body:unknown}>(sql`SELECT to_jsonb(a) AS body FROM audit_events a WHERE id=${audit}`);
       // Cross-event reference must refuse the entire operation before mutation.
       await tx.execute(sql`INSERT INTO resource_relationships(id,event_id,source_resource_id,target_resource_id,relationship_type) VALUES(${link},${b},${taskB},${task},'RELATED')`);
       await assert.rejects(executeRehearsal(tx,a,'reset'),/Unsafe relational inventory/);
@@ -81,14 +83,33 @@ test('real relational reset and full removal execute in disposable PostgreSQL an
       for(const table of ['events','organizational_units','roles','role_permissions','role_assignments','event_memberships','membership_unit_assignments','audit_events'])
         assert.equal(afterReset.tables.find(t=>t.table===table)?.count,1,table);
       assert.deepEqual((await inspectRelationalRetention(tx,b)).tables,beforeB.tables);
+      await assert.rejects(tx.transaction(async sub=>{
+        await sub.execute(sql`DELETE FROM events WHERE id=${a}`);
+      }),/matching archived removal receipt/);
+      await assert.rejects(tx.transaction(async sub=>{
+        await recordRemovedExerciseReceipt(sub,a);
+        await sub.execute(sql`SET CONSTRAINTS removed_exercise_receipt_requires_removal IMMEDIATE`);
+      }),/same transaction/);
       const removal=await executeRehearsal(tx,a,'remove');
       assert.ok(removal.removed>=7);
       assert.equal(removal.order.at(-1),'events');
       assert.equal((await tx.execute(sql`SELECT id FROM events WHERE id=${a}`)).length,0);
       assert.equal((await tx.execute(sql`SELECT id FROM users WHERE id=${user}`)).length,1);
       assert.deepEqual((await inspectRelationalRetention(tx,b)).tables,beforeB.tables);
-      const [detached]=await tx.execute<{eventId:string|null;body:unknown}>(sql`SELECT event_id AS "eventId",to_jsonb(a)-'event_id' AS body FROM audit_events a WHERE id=${audit}`);
-      assert.equal(detached?.eventId,null);assert.deepEqual(detached?.body,auditBefore[0]?.body);
+      const [detached]=await tx.execute<{eventId:string|null;body:unknown}>(sql`SELECT event_id AS "eventId",to_jsonb(a) AS body FROM audit_events a WHERE id=${audit}`);
+      assert.equal(detached?.eventId,a);assert.deepEqual(detached?.body,auditBefore[0]?.body);
+      const [receipt]=await tx.execute<{eventId:string;slug:string;auditCount:number}>(sql`SELECT event_id AS "eventId",slug,audit_count AS "auditCount" FROM removed_exercise_receipts WHERE event_id=${a}`);
+      assert.equal(receipt?.eventId,a);assert.equal(receipt?.slug,a);assert.equal(receipt?.auditCount,1);
+      await tx.execute(sql`SET CONSTRAINTS removed_exercise_receipt_requires_removal IMMEDIATE`);
+      await assert.rejects(tx.transaction(async sub=>{
+        await sub.execute(sql`INSERT INTO events(id,slug,name) VALUES(${a},${a},'Reused')`);
+      }),/Historical exercise identity cannot be reused/);
+      await assert.rejects(tx.transaction(async sub=>{
+        await sub.execute(sql`UPDATE audit_events SET event_id=${b} WHERE id=${audit}`);
+      }),/Audit events are immutable/);
+      await assert.rejects(tx.transaction(async sub=>{
+        await sub.execute(sql`INSERT INTO audit_events(id,event_id,action,category) VALUES(gen_random_uuid(),${a},'late','fixture')`);
+      }),/existing exercise/);
       // Explicit exception forces rollback even when every assertion passes.
       throw rollback;
     });

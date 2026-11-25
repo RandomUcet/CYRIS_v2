@@ -225,6 +225,7 @@ function DataWorkspace({id}:{id:string}){
         </section>
         <section className={styles.panel}>
           <h2><ShieldCheck size={19}/>{tr('5 · Co zůstává zachováno','5 · What is retained')}</h2>
+          <Link className="btn btn-secondary" href={'/admin/audit?eventId='+encodeURIComponent(id)}>{tr('Audit tohoto cvičení','Audit for this exercise')}</Link>
           <p>{tr('Uživatelé, role, členství, auditní stopa a operační historie. Samotné cvičení zůstává archivované.','Users, roles, memberships, audit and operational history. The exercise itself remains archived.')}</p>
           <div className={styles.warning}><AlertTriangle size={19}/><div><strong>{tr('Úplné odstranění cvičení zatím není k dispozici','Complete exercise deletion is not yet available')}</strong><p>{tr('Důkazy, zprávy, soubory, externí integrace a závislosti musí projít samostatnou akceptací. Náhled neznamená oprávnění odstranit všechna data.','Evidence, reports, files, external integrations and dependencies require separate acceptance. Preview is not permission to delete all data.')}</p></div></div>
         </section>

@@ -5,10 +5,10 @@ import {randomUUID} from 'node:crypto';
 import {getDbClient,closeDatabaseConnection,sql} from '@cyris/db';
 import {inspectRelationalRetention,retentionAction} from './retention-relational-plan.js';
 import {requireVerifiedIsolatedDatabase} from '../regression/isolated-postgres-harness.js';
-test('reset keeps configuration and full removal detaches audit',()=>{
+test('reset and full removal retain the immutable audit',()=>{
   assert.equal(retentionAction('roles','reset'),'KEEP');
   assert.equal(retentionAction('roles','remove'),'DELETE');
-  assert.equal(retentionAction('audit_events','remove'),'DETACH_AUDIT');
+  assert.equal(retentionAction('audit_events','remove'),'KEEP');
   assert.throws(()=>retentionAction('users','remove'));
 });
 const url=requireVerifiedIsolatedDatabase();

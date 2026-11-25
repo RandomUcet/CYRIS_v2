@@ -1,7 +1,6 @@
 import { pgTable, uuid, varchar, text, timestamp, jsonb, index, integer } from 'drizzle-orm/pg-core';
 import { generateId } from '@cyris/shared';
 import { users } from './users.js';
-import { events } from './events.js';
 
 export const AuditActorType = {
   USER: 'USER',
@@ -39,7 +38,8 @@ export const auditEvents = pgTable(
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
     actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
     actorType: varchar('actor_type', { length: 32 }).notNull().default(AuditActorType.USER),
-    eventId: uuid('event_id').references(() => events.id, { onDelete: 'set null' }),
+    // Historical identity: immutable, validated on insert, retained after removal.
+    eventId: uuid('event_id'),
     action: varchar('action', { length: 128 }).notNull(),
     category: varchar('category', { length: 64 }).notNull(),
     resourceType: varchar('resource_type', { length: 64 }),
@@ -80,3 +80,12 @@ export const outboxEvents = pgTable(
     statusCreatedAtIdx: index('outbox_events_status_created_at_idx').on(table.status, table.createdAt),
   })
 );
+
+/** Retained full-removal receipt; never included in an event's deletion set. */
+export const removedExerciseReceipts=pgTable('removed_exercise_receipts',{
+  eventId:uuid('event_id').primaryKey(),
+  slug:varchar('slug',{length:128}).notNull(),
+  name:varchar('name',{length:255}).notNull(),
+  removedAt:timestamp('removed_at',{withTimezone:true}).notNull().defaultNow(),
+  auditCount:integer('audit_count').notNull(),
+});

@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, NotFoundException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, Param, Query, NotFoundException, UseGuards } from '@nestjs/common';
 import { AuditService } from './audit.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
@@ -19,6 +19,7 @@ export class AuditController {
   constructor(private readonly auditService: AuditService, private readonly authz: AuthorizationService) {}
 
   @Get()
+  @Header('Cache-Control','private, no-store')
   @RequirePermission(Permissions.AUDIT_READ, PermissionScopes.PLATFORM)
   async list(@Query() query: Record<string, string>, @CurrentUser() user: AuthenticatedUser): Promise<AuditListResponse> {
     const filters = AuditQueryFiltersSchema.parse(query);
@@ -26,6 +27,7 @@ export class AuditController {
   }
 
   @Get(':auditEventId')
+  @Header('Cache-Control','private, no-store')
   @RequirePermission(Permissions.AUDIT_READ, PermissionScopes.PLATFORM)
   async getById(@Param('auditEventId') auditEventId: string, @CurrentUser() user: AuthenticatedUser): Promise<AuditEventItem> {
     const item = await this.auditService.getById(auditEventId, await this.authz.authorize({ user, permission: Permissions.PLATFORM_MANAGE }));

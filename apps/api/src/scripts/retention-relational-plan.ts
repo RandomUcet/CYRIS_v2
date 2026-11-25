@@ -8,14 +8,14 @@ for(const t of roots)ownership[t]={column:'event_id'};
 ownership.events={column:'id'};
 const children='membership_unit_assignments:event_memberships:membership_id unit_capabilities:organizational_units:unit_id role_permissions:roles:role_id role_assignments:roles:role_id resource_access_control:resources:resource_id registry_media:resources:resource_id persons:resources:id organisations:resources:id locations:resources:id vehicles:resources:id devices:resources:id weapons:resources:id licences:resources:id incidents:resources:id cases:resources:id evidence:resources:id lab_analyses:resources:id evidence_custody_transfers:evidence:evidence_id lab_analysis_evidence:lab_analyses:analysis_id scenario_inject_translations:scenario_injects:inject_id scenario_briefing_receipts:scenario_inject_releases:release_id document_versions:documents:document_id forensic_acquisitions:forensic_analyses:analysis_id forensic_analysis_devices:forensic_analyses:analysis_id forensic_analysis_evidence:forensic_analyses:analysis_id forensic_findings:forensic_analyses:analysis_id charges:court_cases:court_case_id court_case_parties:court_cases:court_case_id court_decisions:court_cases:court_case_id court_exhibits:court_cases:court_case_id court_filings:court_cases:court_case_id court_hearings:court_cases:court_case_id medical_interventions:medical_encounters:encounter_id medical_observations:medical_encounters:encounter_id evaluation_criteria:evaluation_objectives:objective_id court_request_updates:court_requests:request_id support_messages:support_requests:request_id'.split(' ');
 for(const value of children){const [t,parent,column]=value.split(':');ownership[t!]={parent:parent!,column:column!};}
-const globalTables=new Set('users user_identities user_preferences preview_team_accounts integrations integration_secrets outbox_events'.split(' '));
+const globalTables=new Set('users user_identities user_preferences preview_team_accounts integrations integration_secrets outbox_events removed_exercise_receipts'.split(' '));
 const keep=new Set('events event_memberships organizational_units membership_unit_assignments unit_capabilities roles role_permissions role_assignments identifier_counters audit_events'.split(' '));
 const ident=(s:string)=>'"'+s.replaceAll('"','""')+'"';
 const relation=(s:string,t:string)=>ident(s)+'.'+ident(t);
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function retentionAction(table:string,profile:'reset'|'remove'):Action{
   if(!ownership[table])throw new Error('Unclassified table');
-  if(table==='audit_events')return profile==='remove'?'DETACH_AUDIT':'KEEP';
+  if(table==='audit_events')return 'KEEP';
   return profile==='reset'&&keep.has(table)?'KEEP':'DELETE';
 }
 function owned(table:string,alias:string,eventId:string,depth=0):string{

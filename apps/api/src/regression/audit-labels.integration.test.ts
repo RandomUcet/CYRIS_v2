@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
-import {eq} from 'drizzle-orm';
+import {eq,sql} from 'drizzle-orm';
+import {recordRemovedExerciseReceipt} from '../scripts/retention-audit-receipt.js';
 import {getDbClient,closeDatabaseConnection,users,events,resources,evidence,auditEvents} from '@cyris/db';
 import {generateId} from '@cyris/shared';
 import {AuditService} from '../modules/audit/audit.service.js';
@@ -33,6 +34,19 @@ skipWithoutVerifiedDatabase('audit resolves current canonical labels without rew
   assert.equal((await service.getById(valid,true))?.resourceDisplayName,'E-TEST-1 · Renamed evidence');
   const [stored]=await tx.select().from(auditEvents).where(eq(auditEvents.id,valid));
   assert.deepEqual(stored?.metadata,{fixture:true});assert.equal(stored?.resourceId,target);
+  await tx.execute(sql`UPDATE events SET status='ARCHIVED' WHERE id=${a}`);
+  await recordRemovedExerciseReceipt(tx,a);
+  await tx.delete(events).where(eq(events.id,a));
+  await tx.execute(sql`SET CONSTRAINTS removed_exercise_receipt_requires_removal IMMEDIATE`);
+  const retained=await service.list({eventId:a},true);
+  assert.equal(retained.total,4);
+  assert.ok(retained.items.every(item=>item.eventId===null&&item.originalEventId===a&&item.exerciseName==='Audit A'));
+  assert.equal((await service.list({eventId:a},false)).total,0);
+  assert.equal(await service.getById(valid,false),null);
+  assert.equal((await service.getById(valid,true))?.originalEventId,a);
+  assert.equal((await service.getById(valid,true))?.resourceDisplayName,null);
+  const [unchanged]=await tx.select().from(auditEvents).where(eq(auditEvents.id,valid));
+  assert.deepEqual(unchanged,stored);
   throw rollback;
  });}catch(e){if(e!==rollback)throw e;}finally{await closeDatabaseConnection();}
 });

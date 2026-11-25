@@ -20,9 +20,9 @@ export default function AdminAuditPage() {
   if(loading)return <AppShell><LoadingState message="Loading audit workspace…"/></AppShell>;
   const permissions=currentUser?.platformPermissions??[];
   if(!currentUser||viewAs||!permissions.some(p=>p==='audit.read'||p==='platform.manage'))return <AppShell><ErrorState message="Audit access required"/></AppShell>;
-  return <AuditWorkspace key={JSON.stringify([currentUser.user.id,permissions])}/>;
+  return <AuditWorkspace key={JSON.stringify([currentUser.user.id,permissions])} platformAdmin={permissions.includes('platform.manage')}/>;
 }
-function AuditWorkspace(){
+function AuditWorkspace({platformAdmin}:{platformAdmin:boolean}){
   const { formatTime, formatDate, locale } = usePreferences();
   const cs=locale==='cs';
   const tr=(cz:string,en:string)=>cs?cz:en;
@@ -49,14 +49,17 @@ function AuditWorkspace(){
   // null until the browser URL has been read, to avoid fetching an
   // unscoped audit list before applying a deep-linked account filter.
   const [resourceFilter, setResourceFilter] = useState<string | null>(null);
+  const [eventFilter,setEventFilter]=useState<string|null>(null);
   useEffect(() => {
-    const value = new URLSearchParams(window.location.search).get('resourceId');
-    setResourceFilter(value && /^[0-9a-f-]{36}$/i.test(value) ? value : '');
-  }, []);
+    const params=new URLSearchParams(window.location.search);
+    const valid=(v:string|null)=>v&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)?v:'';
+    setResourceFilter(valid(params.get('resourceId')));
+    setEventFilter(platformAdmin?valid(params.get('eventId')):'');
+  }, [platformAdmin]);
   const [selectedEntry, setSelectedEntry] = useState<AuditEntry | null>(null);
 
   const fetchAudit = async () => {
-    if (resourceFilter===null) return;
+    if (resourceFilter===null||eventFilter===null) return;
     const request = ++auditRequest.current;
     setLoading(true);
     setSelectedEntry(null);
@@ -66,6 +69,7 @@ function AuditWorkspace(){
         limit: 100,
         page,
         resourceId: resourceFilter || undefined,
+        eventId:eventFilter||undefined,
         q: debouncedSearch || undefined,
         category: categoryFilter || undefined,
         outcome:outcomeFilter||undefined,
@@ -90,8 +94,8 @@ function AuditWorkspace(){
   };
 
   useEffect(() => {
-    if(resourceFilter!==null) void fetchAudit();
-  }, [categoryFilter,outcomeFilter,page,resourceFilter,debouncedSearch]);
+    if(resourceFilter!==null&&eventFilter!==null) void fetchAudit();
+  }, [categoryFilter,outcomeFilter,page,resourceFilter,eventFilter,debouncedSearch]);
 
   // Server-side search is applied BEFORE pagination to the full permitted audit history.
   const filteredEntries = entries;
@@ -224,9 +228,13 @@ function AuditWorkspace(){
           {tr('Auditní historie účtu: ','Account audit history: ')}
           <strong>{entries.find(row=>row.resourceId===resourceFilter)?.resourceDisplayName??tr('Vybraný účet','Selected account')}</strong>
           <button type="button" className="btn btn-secondary"
-            onClick={()=>{setResourceFilter('');setPage(1);setSelectedEntry(null);
+            onClick={()=>{setResourceFilter('');setEventFilter('');setPage(1);setSelectedEntry(null);
               window.history.replaceState(null,'','/admin/audit');}}>
             {tr('Zobrazit všechny záznamy','Show all audit records')}</button>
+        </div>}
+        {eventFilter&&<div role="status" style={{padding:'10px 24px',borderBottom:'1px solid var(--border-default)',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <strong>{entries.find(row=>row.originalEventId===eventFilter)?.exerciseName??tr('Audit vybraného cvičení včetně zachované historie','Selected exercise audit including retained history')}</strong>
+          <button type="button" className="btn btn-secondary" onClick={()=>{setEventFilter('');setResourceFilter('');setPage(1);setSelectedEntry(null);window.history.replaceState(null,'','/admin/audit');}}>{tr('Zobrazit vše','Show all')}</button>
         </div>}
         {/* Filter Bar */}
         <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--color-border-subtle)' }}>
@@ -257,7 +265,7 @@ function AuditWorkspace(){
               setSearch('');setDebouncedSearch('');setSelectedEntry(null);
               setCategoryFilter('');setOutcomeFilter('');
               setPage(1);
-              if(resourceFilter){setResourceFilter('');window.history.replaceState(null,'','/admin/audit');}
+              if(resourceFilter||eventFilter){setResourceFilter('');setEventFilter('');window.history.replaceState(null,'','/admin/audit');}
             }}
             totalResults={total}
           />
@@ -379,6 +387,10 @@ function AuditWorkspace(){
                   </div>
                 </div>
 
+                {platformAdmin&&selectedEntry.originalEventId&&<div style={{marginBottom:12}}>
+                  {!selectedEntry.eventId&&<p>{tr('Cvičení již bylo odstraněno; audit zůstává zachován.','Exercise removed; audit history retained.')}</p>}
+                  <button type="button" className="btn btn-secondary" onClick={()=>{const id=selectedEntry.originalEventId!;setEventFilter(id);setResourceFilter('');setPage(1);setSelectedEntry(null);window.history.replaceState(null,'','/admin/audit?eventId='+encodeURIComponent(id));}}>{tr('Celý audit tohoto cvičení','All audit for this exercise')}</button>
+                </div>}
                 <details style={{marginBottom:12,overflowWrap:'anywhere'}}><summary>{tr('Technické identifikátory','Technical identifiers')}</summary><p>{tr('Akce','Action')}: <code>{selectedEntry.action}</code></p><p>{tr('Záznam','Record')}: <code>{selectedEntry.id}</code></p><p>{tr('Aktér','Actor')}: <code>{selectedEntry.actorUserId??'—'}</code></p><p>{tr('Cíl','Target')}: <code>{selectedEntry.resourceId??'—'}</code></p><p>{tr('Požadavek','Request')}: <code>{selectedEntry.requestId??'—'}</code></p></details>
                 <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '12px' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-dim)', marginBottom: '8px' }}>
