@@ -51,7 +51,9 @@ export default function ForensicAnalysisDetailPage() {
 function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:string}){
   const router=useRouter();
   const {viewAs}=useAuth();
-  const { formatTime } = usePreferences();
+  const { formatTime, locale } = usePreferences();
+  const cs=locale==='cs';
+  const tr=(cz:string,en:string)=>cs?cz:en;
 
   const [activeTab, setActiveTab] = useState<'overview' | 'evidence' | 'findings' | 'indicators' | 'acquisitions' | 'documents' | 'timeline' | 'relations'>('overview');
   const [loading, setLoading] = useState(true);
@@ -68,6 +70,13 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
   const [conclusion, setConclusion] = useState('');
   const [savingOverview, setSavingOverview] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [handoffOpen,setHandoffOpen]=useState(false);
+  const [handoffLoading,setHandoffLoading]=useState(false);
+  const [handoffSaving,setHandoffSaving]=useState(false);
+  const [handoffError,setHandoffError]=useState<string|null>(null);
+  const [handoffCandidates,setHandoffCandidates]=useState<Array<{id:string;displayName:string}>>([]);
+  const [handoffTarget,setHandoffTarget]=useState('');
+  const [handoffReason,setHandoffReason]=useState('');
 
   // Modal: Add Finding
   const [showFindingModal, setShowFindingModal] = useState(false);
@@ -113,6 +122,32 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
   const canWork=!viewAs&&!!analysis?.actions?.work&&['ACCEPTED','IN_PROGRESS'].includes(analysis?.status??'');
   const canComplete=!viewAs&&!!analysis?.actions?.complete;
   const canApprove=!viewAs&&!!analysis?.actions?.approve;
+  const canReassign=!viewAs&&!!analysis?.actions?.reassign;
+  const reportDirty=!!analysis&&canWork&&(methodology!==(analysis.methodology??'')||findingsText!==(analysis.findings??'')||conclusion!==(analysis.conclusion??''));
+  const handoffBlocked=reportDirty||savingOverview||actionLoading||findingSubmitting||acqSubmitting;
+
+  async function openHandoff(){
+    if(!canReassign||handoffBlocked||handoffLoading)return;
+    setHandoffOpen(true);setHandoffLoading(true);setHandoffError(null);setHandoffCandidates([]);setHandoffTarget('');setHandoffReason('');
+    try{
+      const res=await apiClient.listForensicReassignmentCandidates(eventId,analysisId);
+      if(!res.ok||!res.data)throw new Error(res.error||tr('Nelze načíst analytiky.','Unable to load examiners.'));
+      setHandoffCandidates(res.data);
+    }catch(err){setHandoffError(err instanceof Error?err.message:tr('Chyba připojení.','Connection error.'));}
+    finally{setHandoffLoading(false);}
+  }
+
+  async function submitHandoff(e:React.FormEvent){
+    e.preventDefault();
+    if(!analysis||!canReassign||handoffBlocked||handoffSaving||!handoffCandidates.some(c=>c.id===handoffTarget)||!handoffReason.trim())return;
+    setHandoffSaving(true);setHandoffError(null);
+    try{
+      const res=await apiClient.reassignForensicAnalysis(eventId,analysisId,{assignedToUserId:handoffTarget,expectedUpdatedAt:analysis.updatedAt,reason:handoffReason.trim()});
+      if(!res.ok||!res.data)throw new Error(res.error||tr('Předání se nezdařilo.','Handover failed.'));
+      setAnalysis(res.data);setMethodology(res.data.methodology??'');setFindingsText(res.data.findings??'');setConclusion(res.data.conclusion??'');setHandoffOpen(false);
+    }catch(err){setHandoffError(err instanceof Error?err.message:tr('Chyba připojení.','Connection error.'));}
+    finally{setHandoffSaving(false);}
+  }
 
   const fetchAnalysisDetails = async () => {
     setLoading(true);
@@ -204,6 +239,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
       });
       if (res.ok && res.data) {
         setAnalysis(res.data);
+        setMethodology(res.data.methodology??'');setFindingsText(res.data.findings??'');setConclusion(res.data.conclusion??'');
         alert('Analysis notes saved successfully');
       } else {
         alert(res.error || 'Failed to save notes');
@@ -361,7 +397,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                 <button
                   className="btn btn-primary"
                   onClick={() => handleUpdateStatus('ACCEPTED')}
-                  disabled={actionLoading}
+                  disabled={actionLoading||handoffSaving}
                 >
                   <Check size={14} style={{ marginRight: '6px' }} />
                   Accept Analysis Request
@@ -371,7 +407,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                 <button
                   className="btn btn-primary"
                   onClick={() => handleUpdateStatus('IN_PROGRESS')}
-                  disabled={actionLoading}
+                  disabled={actionLoading||handoffSaving}
                 >
                   <Play size={14} style={{ marginRight: '6px' }} />
                   Start Examination
@@ -381,7 +417,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                 <button
                   className="btn btn-primary"
                   onClick={() => handleUpdateStatus('COMPLETED')}
-                  disabled={actionLoading}
+                  disabled={actionLoading||handoffSaving}
                 >
                   <CheckCircle2 size={14} style={{ marginRight: '6px' }} />
                   Complete Analysis
@@ -391,7 +427,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                 <button
                   className="btn btn-primary"
                   onClick={() => handleUpdateStatus('APPROVED')}
-                  disabled={actionLoading}
+                  disabled={actionLoading||handoffSaving}
                   style={{ background: 'var(--color-success)', borderColor: 'var(--color-success)' }}
                 >
                   <Award size={14} style={{ marginRight: '6px' }} />
@@ -401,6 +437,31 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
             </div>
           }
         />
+
+        {canReassign&&<section className="card" style={{padding:16,marginBottom:16}} aria-label={tr('Předání analýzy','Analysis handover')}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+            <div><strong>{tr('Odpovědný analytik','Assigned examiner')}</strong><div style={{fontSize:13,color:'var(--color-text-dim)'}}>{analysis.analystName??tr('Nepřiděleno','Unassigned')} · {analysis.unitName??tr('Forenzní pracoviště','Forensic unit')}</div></div>
+            {!handoffOpen&&<button type="button" className="btn btn-secondary" disabled={handoffBlocked} onClick={openHandoff}>{tr('Předat analýzu','Hand over analysis')}</button>}
+          </div>
+          {reportDirty&&<p style={{fontSize:13}}>{tr('Před předáním nejprve uložte rozepsaný protokol.','Save your report draft before handing over the analysis.')}</p>}
+          {handoffOpen&&<form onSubmit={submitHandoff} style={{display:'grid',gap:12,marginTop:12}}>
+            <p style={{margin:0,fontSize:13}}>{tr('Předáním uvnitř týmu zůstávají zachovány stav, uložené nálezy a protokol. Nový analytik obdrží oznámení.','Handover within the team preserves status, saved findings and report. The new examiner receives a notification.')}</p>
+            {handoffLoading?<p role="status">{tr('Načítám dostupné analytiky…','Loading eligible examiners…')}</p>:<>
+              <label className="field-label" htmlFor="handoff-examiner">{tr('Nový analytik','New examiner')}</label>
+              <select id="handoff-examiner" className="field-input" value={handoffTarget} onChange={e=>setHandoffTarget(e.target.value)} required disabled={handoffSaving||!handoffCandidates.length}>
+                <option value="">{tr('Vyberte analytika','Select examiner')}</option>{handoffCandidates.map(c=><option key={c.id} value={c.id}>{c.displayName}</option>)}
+              </select>
+              {!handoffCandidates.length&&!handoffError&&<p>{tr('V týmu není jiný oprávněný analytik.','No other eligible examiner in this team.')}</p>}
+              <label className="field-label" htmlFor="handoff-reason">{tr('Důvod předání','Reason for handover')}</label>
+              <textarea id="handoff-reason" className="field-input" rows={2} maxLength={1000} required value={handoffReason} onChange={e=>setHandoffReason(e.target.value)} disabled={handoffSaving}/>
+            </>}
+            {handoffError&&<p role="alert" style={{color:'var(--color-danger)'}}>{handoffError}</p>}
+            <div style={{display:'flex',justifyContent:'flex-end',gap:8,flexWrap:'wrap'}}>
+              <button type="button" className="btn btn-secondary" disabled={handoffSaving||handoffLoading} onClick={()=>setHandoffOpen(false)}>{tr('Zrušit','Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={handoffLoading||handoffSaving||handoffBlocked||!handoffTarget||!handoffReason.trim()}>{handoffSaving?tr('Předávám…','Handing over…'):tr('Potvrdit předání','Confirm handover')}</button>
+            </div>
+          </form>}
+        </section>}
 
         {/* Record Tabs */}
         <RecordTabs
@@ -438,7 +499,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                           value={methodology}
                           onChange={(e) => setMethodology(e.target.value)}
                           placeholder="e.g. Write blocker acquisition, Volatility 3 memory triage, Autopsy keyword indexing..."
-                          disabled={!canWork}
+                          disabled={!canWork||handoffSaving}
                         />
                       </div>
 
@@ -450,7 +511,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                           value={findingsText}
                           onChange={(e) => setFindingsText(e.target.value)}
                           placeholder="Summary of detected user artifacts, deleted files, network beacons, or malware signatures..."
-                          disabled={!canWork}
+                          disabled={!canWork||handoffSaving}
                         />
                       </div>
 
@@ -462,13 +523,13 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                           value={conclusion}
                           onChange={(e) => setConclusion(e.target.value)}
                           placeholder="Final opinion of the forensic examiner regarding authenticity, intent, and timeline consistency..."
-                          disabled={!canWork}
+                          disabled={!canWork||handoffSaving}
                         />
                       </div>
 
                       {analysis.status !== 'APPROVED' && (
                         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                          <button type="submit" className="btn btn-secondary" disabled={savingOverview||!canWork}>
+                          <button type="submit" className="btn btn-secondary" disabled={savingOverview||!canWork||handoffSaving}>
                             {savingOverview ? 'Saving...' : 'Save Overview Notes'}
                           </button>
                         </div>
@@ -610,7 +671,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                   </p>
                 </div>
                 {analysis.status !== 'APPROVED' && (
-                  <button className="btn btn-primary" disabled={!canWork} onClick={() => setShowFindingModal(true)}>
+                  <button className="btn btn-primary" disabled={!canWork||handoffSaving} onClick={() => setShowFindingModal(true)}>
                     <Plus size={14} style={{ marginRight: '6px' }} />
                     Add Finding
                   </button>
@@ -660,7 +721,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                   description="Examiners can record granular findings, file correlations, and persistence mechanisms."
                   action={
                     analysis.status !== 'APPROVED' ? (
-                      <button className="btn btn-primary btn-sm" disabled={!canWork} onClick={() => setShowFindingModal(true)}>
+                      <button className="btn btn-primary btn-sm" disabled={!canWork||handoffSaving} onClick={() => setShowFindingModal(true)}>
                         <Plus size={14} style={{ marginRight: '6px' }} />
                         Add Finding
                       </button>
@@ -683,7 +744,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                     Cryptographic image verification, tool versions, and external storage pointers.
                   </p>
                 </div>
-                <button className="btn btn-primary" disabled={!canWork} onClick={() => setShowAcquisitionModal(true)}>
+                <button className="btn btn-primary" disabled={!canWork||handoffSaving} onClick={() => setShowAcquisitionModal(true)}>
                   <Plus size={14} style={{ marginRight: '6px' }} />
                   Record Acquisition
                 </button>
@@ -758,7 +819,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                   title="No Forensic Acquisitions Recorded"
                   description="Record physical or logical image hashes, external storage references, and acquisition tools."
                   action={
-                    <button className="btn btn-primary btn-sm" disabled={!canWork} onClick={() => setShowAcquisitionModal(true)}>
+                    <button className="btn btn-primary btn-sm" disabled={!canWork||handoffSaving} onClick={() => setShowAcquisitionModal(true)}>
                       <Plus size={14} style={{ marginRight: '6px' }} />
                       Record Acquisition
                     </button>

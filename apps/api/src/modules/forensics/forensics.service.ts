@@ -327,7 +327,7 @@ export class ForensicsService {
         await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.FORENSICS_WORK,tx);
       }
       if((dto.status==='COMPLETED'||dto.status==='APPROVED')&&!(dto.conclusion??existing.conclusion)?.trim())throw new BadRequestException('A conclusion is required');
-      const now=new Date(),update:Partial<typeof forensicAnalyses.$inferInsert>={status:dto.status,updatedAt:now};
+      const now=new Date(Math.max(Date.now(),existing.updatedAt.getTime()+1)),update:Partial<typeof forensicAnalyses.$inferInsert>={status:dto.status,updatedAt:now};
       if(dto.status==='ACCEPTED'){
         update.acceptedAt=now;
         if(!existing.assignedToUserId){
@@ -359,7 +359,7 @@ export class ForensicsService {
       await this.assertWritable(existing.eventId,user);
       await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.FORENSICS_WORK,tx);
       if(!canEditForensicReport(existing.status))throw new BadRequestException('Report is locked');
-      const update:Partial<typeof forensicAnalyses.$inferInsert>={updatedAt:new Date()};
+      const update:Partial<typeof forensicAnalyses.$inferInsert>={updatedAt:new Date(Math.max(Date.now(),existing.updatedAt.getTime()+1))};
       for(const key of ['methodology','findings','conclusion'] as const)if(dto[key]!==undefined)update[key]=dto[key];
       await tx.update(forensicAnalyses).set(update).where(eq(forensicAnalyses.id,analysisId));
       await this.auditService.record({action:'forensics.report.saved',category:'forensics',eventId:existing.eventId,resourceType:'forensic_analysis',resourceId:analysisId,actorUserId:user.id,metadata:{fields:Object.keys(dto)},txClient:tx});
