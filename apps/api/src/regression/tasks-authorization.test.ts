@@ -121,6 +121,10 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
     await db.insert(evidence).values({ id: evidenceId, evidenceNumber: 'EV-TEST', title: 'Fixture sample', evidenceType: 'sample', currentHolderId: requester.id });
 
     await t.test('forensic request and indicator creation require permission, event routes are scoped',async()=>{
+      await db.insert(unitCapabilities).values({unitId:unitA,capabilityKey:'digital_forensics'});
+      const forensicWorkerPermissions:Array<[PermissionKey,string]>=[Permissions.FORENSICS_READ,Permissions.FORENSICS_ACCEPT,Permissions.FORENSICS_WORK,Permissions.FORENSICS_COMPLETE].map(p=>[p,'ASSIGNED']);
+      for(const u of [worker,secondWorker,disabled,inactive])await addRole('forensics-'+u.id,u,forensicWorkerPermissions,unitA);
+      await addRole('forensic-approver',organizer,[[Permissions.FORENSICS_READ,'EVENT'],[Permissions.FORENSICS_APPROVE,'EVENT']]);
       const request={purpose:'Fixture review',analysisType:'FILE_ANALYSIS',priority:'MEDIUM',visibility:'EVENT',evidenceIds:[evidenceId] } as const;
       const dto={...request,evidenceIds:[...request.evidenceIds]};
       await assert.rejects(forensics.createAnalysis(eventA,dto,outsider),ForbiddenException);
@@ -137,6 +141,23 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         await assert.rejects(forensicController.getAnalysisDetail(eventB,created.id,requester),NotFoundException);
         await assert.rejects(forensicController.updateStatus(eventB,created.id,{status:'APPROVED'},requester),NotFoundException);
         await assert.rejects(forensics.updateStatus(created.id,{status:'APPROVED'},requester),ForbiddenException);
+        assert.equal(created.assignedUnitId,unitA);assert.ok([worker.id,secondWorker.id].includes(created.assignedToUserId!));
+        const examiner=created.assignedToUserId===worker.id?worker:secondWorker;
+        await assert.rejects(forensics.updateStatus(created.id,{status:'APPROVED'},organizer),BadRequestException);
+        await forensics.updateStatus(created.id,{status:'ACCEPTED'},examiner);
+        await forensics.updateStatus(created.id,{status:'IN_PROGRESS'},examiner);
+        await assert.rejects(forensics.updateStatus(created.id,{status:'COMPLETED'},examiner),BadRequestException);
+        await forensics.saveReport(created.id,{methodology:'Fixture method',findings:'Fixture findings',conclusion:'Fixture conclusion'},examiner);
+        await forensics.updateStatus(created.id,{status:'COMPLETED'},examiner);
+        assert.equal((await forensics.getAnalysisDetail(created.id,requester)).conclusion,null);
+        await forensics.updateStatus(created.id,{status:'APPROVED'},organizer);
+        const approved=await forensics.getAnalysisDetail(created.id,requester);
+        assert.equal(approved.reportAvailable,true);assert.equal(approved.conclusion,'Fixture conclusion');
+        await assert.rejects(forensics.saveReport(created.id,{conclusion:'Changed'},examiner),BadRequestException);
+        await assert.rejects(forensics.createFinding(created.id,{findingType:'ARTIFACT',title:'Late',description:'Late',confidence:'CONFIRMED'},examiner),BadRequestException);
+        const inbox=new NotificationsService(database,{} as never,{} as never,{} as never,auth);
+        const receipts=(await inbox.getNotifications(requester.id,eventA)).newItems.filter(x=>x.resourceId===created.id&&x.templateKey==='forensics.request.status');
+        assert.deepEqual(receipts.map(x=>x.templateParams.status).sort(),['ACCEPTED','APPROVED','COMPLETED','IN_PROGRESS','REQUESTED']);
       }finally{await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,role!.id),eq(rolePermissions.permissionKey,Permissions.FORENSICS_REQUEST)));}
     });
     await t.test('task creation denies an outsider and a member without TASK_CREATE before writes', async () => {

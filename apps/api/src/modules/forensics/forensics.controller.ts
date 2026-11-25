@@ -57,6 +57,9 @@ export class ForensicsController {
     return this.forensicsService.listAnalyses(eventId, filters, user);
   }
 
+  @Get('forensics/units')
+  async listUnits(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() user:AuthenticatedUser){return this.forensicsService.listDestinationUnits(eventId,user);}
+
   @Get('forensics/:analysisId')
   async getAnalysisDetail(
     @Param('eventId', ParseUUIDPipe) eventId: string,

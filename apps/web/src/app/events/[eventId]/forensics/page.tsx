@@ -25,7 +25,9 @@ export default function ForensicsListPage() {
 function ForensicsWorkspace({eventId}:{eventId:string}) {
   const router = useRouter();
   const { hasPermission,viewAs } = useAuth();
-  const { formatDate } = usePreferences();
+  const { formatDate,locale } = usePreferences();
+  const cs=locale==='cs';
+  const [units,setUnits]=useState<Array<{id:string;name:string}>>([]),[unitId,setUnitId]=useState(''),[unitsLoading,setUnitsLoading]=useState(false);
 
   const [analyses, setAnalyses] = useState<ForensicAnalysisListItemDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +63,7 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
   const alive=React.useRef(true);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
 
+  useEffect(()=>{if(!showCreateModal||!canRequest)return;let active=true;setUnitsLoading(true);setUnits([]);setUnitId('');void apiClient.getForensicUnits(eventId).then(r=>{if(active&&r.ok&&r.data){setUnits(r.data);if(r.data.length===1)setUnitId(r.data[0]!.id);}}).catch(()=>{}).finally(()=>{if(active)setUnitsLoading(false);});return()=>{active=false;};},[showCreateModal,canRequest,eventId]);
   const fetchAnalyses = async () => {
     setLoading(true);
     setError(null);
@@ -101,7 +104,7 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
 
   const handleCreateAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(!canRequest||submitting)return;
+    if(!canRequest||submitting||unitsLoading||!unitId)return;
     if (!formData.purpose.trim()) {
       setFormError('Purpose / description is required');
       return;
@@ -113,7 +116,7 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
       const payload: any = {
         analysisType: formData.analysisType,
         priority: formData.priority,
-        purpose: formData.purpose.trim(),
+        purpose: formData.purpose.trim(),assignedUnitId:unitId,
       };
       if (formData.methodology.trim()) payload.methodology = formData.methodology.trim();
       if (formData.evidenceId?.trim()) payload.evidenceIds = [formData.evidenceId.trim()];
@@ -334,6 +337,7 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
               </div>
 
               <form onSubmit={handleCreateAnalysis}>
+                <div style={{marginBottom:14}}><label>{cs?'Odpovědný tým':'Responsible team'}<select className="input-field" style={{display:'block',width:'100%'}} value={unitId} disabled={unitsLoading||submitting} required onChange={e=>setUnitId(e.target.value)}><option value="">{unitsLoading?(cs?'Načítám…':'Loading…'):(cs?'Vyberte tým':'Select team')}</option>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>{!unitsLoading&&!units.length&&<p role="alert">{cs?'Žádný dostupný tým s oprávněním pro digitální forenzní analýzu.':'No available digital forensics team configured.'}</p>}<p style={{fontSize:12}}>{cs?'Pracovník bude vybrán automaticky podle vytížení.':'An eligible examiner is assigned automatically based on workload.'}</p></div>
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   {formError && (
                     <div
@@ -427,7 +431,7 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
                   >
                     Cancel
                   </button>
-                  <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  <button type="submit" className="btn btn-primary" disabled={submitting||unitsLoading||!unitId}>
                     {submitting ? 'Submitting...' : 'Submit Request'}
                   </button>
                 </div>

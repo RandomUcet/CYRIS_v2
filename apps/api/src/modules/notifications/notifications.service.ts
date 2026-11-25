@@ -224,7 +224,7 @@ export class NotificationsService {
     const labGroups:NonNullable<ReturnType<typeof and>>[]=[];
     for(const group of groups){
       if(!await canShow(group.eventId,group.templateKey,group.resourceId))continue;
-      if(['lab.request.status','forensics.request.status'].includes(group.templateKey)&&group.resourceId&&group.eventId){
+      if(['lab.request.status','forensics.request.status','forensics.assigned'].includes(group.templateKey)&&group.resourceId&&group.eventId){
         labGroups.push(and(eq(notifications.eventId,group.eventId),eq(notifications.templateKey,group.templateKey),eq(notifications.resourceId,group.resourceId))!);continue;
       }
       const keys=allowed.get(group.eventId)??new Set<string>();
@@ -285,14 +285,14 @@ export class NotificationsService {
     const access=new ResourceAccessService(this.databaseService,this.authorization);
     const labVisibility=new Map<string,Promise<boolean>>();
     return async(eventId:string|null|undefined,templateKey:string,resourceId?:string|null):Promise<boolean>=>{
-      if(templateKey==='lab.request.status'||templateKey==='forensics.request.status'){
+      if(templateKey==='lab.request.status'||templateKey==='forensics.request.status'||templateKey==='forensics.assigned'){
         if(!eventId||!resourceId)return false;
         const key=templateKey+':'+eventId+':'+resourceId;let visible=labVisibility.get(key);
         if(!visible){visible=(async()=>{
-          const [record]=templateKey==='forensics.request.status'?await db.select({requester:forensicAnalyses.requestedByUserId}).from(forensicAnalyses).innerJoin(resources,eq(resources.id,forensicAnalyses.id)).where(and(eq(forensicAnalyses.id,resourceId),eq(resources.eventId,eventId),eq(forensicAnalyses.eventId,eventId))).limit(1):await db.select({requester:labAnalyses.requestedByUserId}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id)).where(and(eq(labAnalyses.id,resourceId),eq(resources.eventId,eventId))).limit(1);
+          const [record]=templateKey!=='lab.request.status'?await db.select({requester:templateKey==='forensics.assigned'?forensicAnalyses.assignedToUserId:forensicAnalyses.requestedByUserId}).from(forensicAnalyses).innerJoin(resources,eq(resources.id,forensicAnalyses.id)).where(and(eq(forensicAnalyses.id,resourceId),eq(resources.eventId,eventId),eq(forensicAnalyses.eventId,eventId))).limit(1):await db.select({requester:labAnalyses.requestedByUserId}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id)).where(and(eq(labAnalyses.id,resourceId),eq(resources.eventId,eventId))).limit(1);
           if(record?.requester!==userId)return false;
           const [user]=await db.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status}).from(users).where(eq(users.id,userId)).limit(1);
-          return Boolean(user&&await access.canAccessResource(user,resourceId,templateKey==='forensics.request.status'?Permissions.FORENSICS_READ:Permissions.LAB_READ));
+          return Boolean(user&&await access.canAccessResource(user,resourceId,templateKey!=='lab.request.status'?Permissions.FORENSICS_READ:Permissions.LAB_READ));
         })();labVisibility.set(key,visible);}
         return visible;
       }

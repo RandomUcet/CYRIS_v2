@@ -1026,6 +1026,7 @@ export class CyrisApiClient {
     return this.fetchJson<{ items: ForensicAnalysisItem[]; total: number; page: number; limit: number }>(`/events/${eventId}/forensics${qs}`);
   }
 
+  getForensicUnits(eventId:string){return this.fetchJson<Array<{id:string;name:string}>>(`/events/${eventId}/forensics/units`);}
   async getForensicAnalysis(eventId: string, analysisId: string): Promise<{ ok: boolean; data?: ForensicAnalysisDetail; error?: string }> {
     return this.fetchJson<ForensicAnalysisDetail>(`/events/${eventId}/forensics/${analysisId}`);
   }

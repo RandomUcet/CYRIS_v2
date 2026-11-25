@@ -5,7 +5,8 @@ import {
   BadRequestException,
   Logger,ConflictException,
 } from '@nestjs/common';
-import { eq, and, desc, isNull } from 'drizzle-orm';
+import { eq, and, desc, isNull, or, gt, sql, inArray, asc } from 'drizzle-orm';
+import {selectLowestWorkloadCandidate} from '../laboratory/laboratory-assignment.js';
 import {canTransitionForensic,canEditForensicReport} from './forensic-lifecycle.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { DatabaseService } from '../database/database.service.js';
@@ -21,7 +22,7 @@ import {
   forensicFindings,
   technicalIndicators,
   forensicAcquisitions,
-  resources, organizationalUnits, resourceAssignments, users, events, notifications,
+  resources, organizationalUnits, resourceAssignments, users, events, notifications,unitCapabilities,eventMemberships,membershipUnitAssignments,previewTeamAccounts,
   evidence,
   devices,
   outboxEvents,
@@ -82,6 +83,28 @@ export class ForensicsService {
     await tx.insert(notifications).values({id:generateId(),userId:row.requestedByUserId,eventId:row.eventId,type:'FORENSIC_STATUS',severity:['APPROVED','CANCELLED','REJECTED'].includes(row.status)?'ACTION':'INFO',templateKey:'forensics.request.status',templateParams:{analysisNumber:row.analysisNumber,status:row.status},resourceId:row.id,actionUrl:`/events/${row.eventId}/forensics/${row.id}`,sourceEventId:generateId()});
   }
 
+  async listDestinationUnits(eventId:string,user:AuthenticatedUser){
+    const rows=await this.db.select({id:organizationalUnits.id,name:organizationalUnits.name}).from(organizationalUnits).innerJoin(unitCapabilities,eq(unitCapabilities.unitId,organizationalUnits.id)).where(and(eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt),eq(unitCapabilities.capabilityKey,'digital_forensics'))).orderBy(asc(organizationalUnits.name),asc(organizationalUnits.id));
+    const visible:typeof rows=[];
+    for(const unit of rows)if(await this.authorizationService.authorize({user,permission:Permissions.FORENSICS_REQUEST,context:{eventId,unitId:unit.id,resourceOwnerId:user.id}}))visible.push(unit);
+    return visible;
+  }
+
+  private async selectAnalyst(eventId:string,unitId:string,tx:Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0],explicit?:string){
+    const members=await tx.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status}).from(eventMemberships).innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.membershipId,eventMemberships.id)).innerJoin(users,eq(users.id,eventMemberships.userId)).leftJoin(previewTeamAccounts,eq(previewTeamAccounts.userId,users.id)).where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.status,'ACTIVE'),eq(membershipUnitAssignments.unitId,unitId),eq(users.status,'ACTIVE'),or(isNull(users.testExpiresAt),gt(users.testExpiresAt,new Date())),isNull(previewTeamAccounts.userId)));
+    const eligible:string[]=[];
+    const required=[Permissions.FORENSICS_READ,Permissions.FORENSICS_ACCEPT,Permissions.FORENSICS_WORK,Permissions.FORENSICS_COMPLETE] as const;
+    for(const member of members){
+      const allowed=await this.authorizationService.eventCapabilities({user:member,permissions:required,eventId,unitId,resourceScopes:['ASSIGNED'],requireUnitMembership:true});
+      if(required.every(p=>allowed.has(p)))eligible.push(member.id);
+    }
+    if(explicit){if(!eligible.includes(explicit))throw new BadRequestException('Assignee is not an eligible digital forensic worker');return explicit;}
+    if(!eligible.length)return null;
+    const work=await tx.select({userId:forensicAnalyses.assignedToUserId,total:sql<number>`count(*)::int`}).from(forensicAnalyses).where(and(eq(forensicAnalyses.eventId,eventId),eq(forensicAnalyses.assignedUnitId,unitId),inArray(forensicAnalyses.status,['REQUESTED','ACCEPTED','IN_PROGRESS']))).groupBy(forensicAnalyses.assignedToUserId);
+    const workload=new Map(work.map(w=>[w.userId,w.total]));
+    return selectLowestWorkloadCandidate(eligible.map(userId=>({userId,workload:workload.get(userId)??0})))?.userId??null;
+  }
+
   /**
    * Creates a new Digital Forensics analysis.
    */
@@ -90,21 +113,21 @@ export class ForensicsService {
     dto: CreateForensicAnalysisRequest,
     user: AuthenticatedUser
   ): Promise<ForensicAnalysisDetail> {
-    await this.authorizationService.assertAuthorized({user,permission:Permissions.FORENSICS_REQUEST,context:{eventId,unitId:dto.requestedFromUnitId,resourceOwnerId:user.id}});
+    const destinations=await this.listDestinationUnits(eventId,user);
+    const requested=dto.assignedUnitId??dto.owningUnitId;
+    const unit=requested?destinations.find(u=>u.id===requested):destinations.length===1?destinations[0]:undefined;
+    if(!destinations.length){
+      await this.authorizationService.assertAuthorized({user,permission:Permissions.FORENSICS_REQUEST,context:{eventId,resourceOwnerId:user.id}});
+      throw new BadRequestException('No eligible digital forensics team configured');
+    }
+    if(!unit)throw new BadRequestException(destinations.length>1&&!requested?'Select a responsible digital forensics unit':'Invalid digital forensics destination');
     await this.assertWritable(eventId,user);
-    for(const unitId of new Set([dto.requestedFromUnitId,dto.assignedUnitId,dto.owningUnitId].filter((id):id is string=>!!id))){
-      const [unit]=await this.db.select({id:organizationalUnits.id}).from(organizationalUnits).where(and(eq(organizationalUnits.id,unitId),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt))).limit(1);
-      if(!unit)throw new BadRequestException('Unit is unavailable in this exercise');
+    if(dto.owningUnitId&&dto.owningUnitId!==unit.id)throw new BadRequestException('Owning unit must match destination');
+    if(dto.requestedFromUnitId){
+      const [origin]=await this.db.select({id:organizationalUnits.id}).from(organizationalUnits).innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.unitId,organizationalUnits.id)).innerJoin(eventMemberships,eq(eventMemberships.id,membershipUnitAssignments.membershipId)).where(and(eq(organizationalUnits.id,dto.requestedFromUnitId),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt),eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,user.id),eq(eventMemberships.status,'ACTIVE'))).limit(1);
+      if(!origin)throw new BadRequestException('Requesting unit must belong to requester');
     }
-    // Explicit assignment is a worker/organizer operation, not an authority granted by requesting work.
-    if(dto.assignedToUserId||dto.assignedUnitId||dto.owningUnitId){
-      await this.authorizationService.assertAuthorized({user,permission:Permissions.FORENSICS_WORK,context:{eventId,unitId:dto.assignedUnitId??dto.owningUnitId}});
-      if(dto.assignedToUserId){
-        if(!dto.assignedUnitId)throw new BadRequestException('An assigned unit is required');
-        const [target]=await this.db.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status}).from(users).where(eq(users.id,dto.assignedToUserId)).limit(1);
-        if(!target||!await this.authorizationService.hasEventCapability({user:target,permission:Permissions.FORENSICS_WORK,eventId,unitId:dto.assignedUnitId,resourceScopes:['ASSIGNED'],requireUnitMembership:true}))throw new BadRequestException('Assignee is not eligible in this exercise');
-      }
-    }
+    if(dto.assignedToUserId)await this.authorizationService.assertAuthorized({user,permission:Permissions.FORENSICS_WORK,context:{eventId,unitId:unit.id}});
     for(const [ids,type,permission] of [[dto.evidenceIds??[],'evidence',Permissions.EVIDENCE_READ],[dto.deviceIds??[],'device',Permissions.REGISTRY_READ]] as const){
       if(ids.length>30||new Set(ids).size!==ids.length)throw new BadRequestException('Invalid reference list');
       for(const id of ids){
@@ -117,18 +140,15 @@ export class ForensicsService {
     const analysisId = generateId();
     const now = new Date();
 
-    const analysisNumber = await this.identifierAllocator.allocate(
-      eventId,
-      'FORENSIC_ANALYSIS',
-      'FOR'
-    );
-
     await this.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${eventId+':forensics:'+unit.id}))`);
+      const assignedToUserId=await this.selectAnalyst(eventId,unit.id,tx,dto.assignedToUserId);
+      const analysisNumber=await this.identifierAllocator.allocate(eventId,'FORENSIC_ANALYSIS','FOR',tx);
       // 1. Register common resource
       await this.resourceService.registerResource(eventId, 'forensic_analysis', {
         id: analysisId,
         visibility: (dto.visibility as ResourceVisibilityValue) || ResourceVisibility.EVENT,
-        owningUnitId: dto.owningUnitId || dto.assignedUnitId || null,
+        owningUnitId: unit.id,
         ownerUserId: user.id,
         txClient: tx,
       });
@@ -143,8 +163,8 @@ export class ForensicsService {
         priority: dto.priority || 'MEDIUM',
         requestedByUserId: user.id,
         requestedFromUnitId: dto.requestedFromUnitId || null,
-        assignedToUserId: dto.assignedToUserId || null,
-        assignedUnitId: dto.assignedUnitId || null,
+        assignedToUserId,
+        assignedUnitId:unit.id,
         requestedAt: now,
         purpose: dto.purpose,
         methodology: dto.methodology || null,
@@ -153,7 +173,8 @@ export class ForensicsService {
       }).returning();
       await this.notifyRequester(tx,created!);
 
-      if(dto.assignedToUserId)await tx.insert(resourceAssignments).values({eventId,resourceId:analysisId,userId:dto.assignedToUserId,assignedByUserId:user.id});
+      await tx.insert(resourceAssignments).values({eventId,resourceId:analysisId,userId:assignedToUserId,unitId:assignedToUserId?null:unit.id,assignedByUserId:user.id});
+      if(assignedToUserId)await tx.insert(notifications).values({id:generateId(),userId:assignedToUserId,eventId,type:'FORENSIC_ASSIGNED',severity:'ACTION',templateKey:'forensics.assigned',templateParams:{analysisNumber},resourceId:analysisId,actionUrl:`/events/${eventId}/forensics/${analysisId}`,sourceEventId:generateId()});
 
       // 3. Link Evidence
       if (dto.evidenceIds && dto.evidenceIds.length > 0) {
@@ -208,8 +229,6 @@ export class ForensicsService {
           id: analysisId,
         },
       });
-    });
-
     // 6. Audit
     await this.auditService.record({
       action: 'forensics.requested',
@@ -221,8 +240,8 @@ export class ForensicsService {
       metadata: {
         analysisNumber,
         analysisType: dto.analysisType,
-        priority: dto.priority,
-      },
+        priority: dto.priority,assignedUnitId:unit.id,assignedToUserId,
+      },txClient:tx,
     });
 
     // 7. Activity
@@ -233,6 +252,7 @@ export class ForensicsService {
       actorUserId: user.id,
       title: `Forensic Analysis Requested: ${analysisNumber} (${dto.analysisType})`,
       visibility: dto.visibility,
+    },tx);
     });
 
     return this.getAnalysisDetail(analysisId, user);
@@ -260,7 +280,9 @@ export class ForensicsService {
       if(dto.status==='ACCEPTED'){
         update.acceptedAt=now;
         if(!existing.assignedToUserId){
+          if(existing.assignedUnitId&&await this.selectAnalyst(existing.eventId,existing.assignedUnitId,tx,user.id)!==user.id)throw new BadRequestException('Examiner is not eligible');
           update.assignedToUserId=user.id;
+          await tx.delete(resourceAssignments).where(eq(resourceAssignments.resourceId,analysisId));
           await tx.insert(resourceAssignments).values({eventId:existing.eventId,resourceId:analysisId,userId:user.id,assignedByUserId:user.id});
         }
       }
