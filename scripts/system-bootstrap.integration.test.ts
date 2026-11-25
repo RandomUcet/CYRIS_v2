@@ -47,7 +47,7 @@ test('additive bootstrap preserves accounts, audit, operations, lifecycle and ad
 
       const first = await bootstrapSystem(connection, { eventId: id });
       assert.equal(first.unitsCreated, 8);
-      assert.equal(first.rolesCreated, 11);
+      assert.equal(first.rolesCreated, 14);
       const [role] = await tx.execute(sql`SELECT id FROM roles WHERE event_id = ${id} AND slug = 'exercise-organizer';`);
       const [assignments] = await tx.execute(sql`SELECT count(*) AS count FROM role_assignments WHERE role_id = ${role!.id};`);
       assert.equal(Number(assignments!.count), 0, 'organizer authority must never be assigned automatically');

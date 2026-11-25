@@ -15,6 +15,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
   SaveForensicReportSchema,
+  ReassignForensicAnalysisSchema,
   CreateForensicAnalysisRequestSchema,
   UpdateForensicStatusRequestSchema,
   CreateForensicFindingRequestSchema,
@@ -74,6 +75,16 @@ export class ForensicsController {
   async saveReport(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('analysisId',ParseUUIDPipe) analysisId:string,@Body() body:unknown,@CurrentUser() user:AuthenticatedUser){
     await this.forensicsService.assertAnalysisEvent(eventId,analysisId);
     return this.forensicsService.saveReport(analysisId,SaveForensicReportSchema.parse(body),user);
+  }
+
+  @Get('forensics/:analysisId/reassignment-candidates')
+  async listReassignmentCandidates(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('analysisId',ParseUUIDPipe) analysisId:string,@CurrentUser() user:AuthenticatedUser){
+    return this.forensicsService.listReassignmentCandidates(eventId,analysisId,user);
+  }
+
+  @Patch('forensics/:analysisId/assignment')
+  async reassignAnalysis(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('analysisId',ParseUUIDPipe) analysisId:string,@Body() body:unknown,@CurrentUser() user:AuthenticatedUser){
+    return this.forensicsService.reassignAnalysis(eventId,analysisId,ReassignForensicAnalysisSchema.parse(body),user);
   }
 
   @Patch('forensics/:analysisId/status')

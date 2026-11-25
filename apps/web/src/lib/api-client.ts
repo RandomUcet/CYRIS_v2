@@ -1029,6 +1029,8 @@ export class CyrisApiClient {
   }
 
   getForensicUnits(eventId:string){return this.fetchJson<Array<{id:string;name:string}>>(`/events/${eventId}/forensics/units`);}
+  listForensicReassignmentCandidates(eventId:string,analysisId:string){return this.fetchJson<Array<{id:string;displayName:string}>>(`/events/${eventId}/forensics/${analysisId}/reassignment-candidates`);}
+  reassignForensicAnalysis(eventId:string,analysisId:string,payload:{assignedToUserId:string;expectedUpdatedAt:string;reason:string}){return this.patchJson<ForensicAnalysisDetail>(`/events/${eventId}/forensics/${analysisId}/assignment`,payload);}
   async getForensicAnalysis(eventId: string, analysisId: string): Promise<{ ok: boolean; data?: ForensicAnalysisDetail; error?: string }> {
     return this.fetchJson<ForensicAnalysisDetail>(`/events/${eventId}/forensics/${analysisId}`);
   }

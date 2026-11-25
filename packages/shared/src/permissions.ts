@@ -109,6 +109,7 @@ export const Permissions = {
   FORENSICS_WORK: 'forensics.work',
   FORENSICS_COMPLETE: 'forensics.complete',
   FORENSICS_APPROVE: 'forensics.approve',
+  FORENSICS_REASSIGN: 'forensics.reassign',
 
   // Technical Indicators
   INDICATOR_READ: 'indicator.read',

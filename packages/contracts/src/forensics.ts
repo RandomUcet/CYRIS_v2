@@ -170,7 +170,7 @@ export type ForensicAnalysisItem = z.infer<typeof ForensicAnalysisItemSchema>;
 
 export const ForensicAnalysisDetailSchema = ForensicAnalysisItemSchema.extend({
   reportAvailable:z.boolean().optional(),
-  actions:z.object({accept:z.boolean(),work:z.boolean(),complete:z.boolean(),approve:z.boolean()}).optional(),
+  actions:z.object({accept:z.boolean(),work:z.boolean(),complete:z.boolean(),approve:z.boolean(),reassign:z.boolean().optional()}).optional(),
   findingsList: z.array(ForensicFindingSchema).default([]),
   acquisitions: z.array(ForensicAcquisitionSchema).default([]),
   evidenceLinks: z.array(z.object({
@@ -224,6 +224,13 @@ export const UpdateForensicStatusRequestSchema = z.object({
 export type UpdateForensicStatusRequest = z.infer<typeof UpdateForensicStatusRequestSchema>;
 export const SaveForensicReportSchema=z.object({methodology:z.string().max(20000).optional(),findings:z.string().max(20000).optional(),conclusion:z.string().max(20000).optional()}).strict().refine(v=>Object.keys(v).length>0,'Provide report content');
 export type SaveForensicReport=z.infer<typeof SaveForensicReportSchema>;
+
+export const ReassignForensicAnalysisSchema=z.object({
+  assignedToUserId:z.string().uuid(),
+  expectedUpdatedAt:z.string().datetime(),
+  reason:z.string().trim().min(1).max(1000),
+}).strict();
+export type ReassignForensicAnalysis=z.infer<typeof ReassignForensicAnalysisSchema>;
 
 export const CreateForensicFindingRequestSchema = z.object({
   findingType: z.string().default('ARTIFACT'),

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { eq, and, desc, isNull, or, gt, sql, inArray, asc } from 'drizzle-orm';
 import {selectLowestWorkloadCandidate} from '../laboratory/laboratory-assignment.js';
-import {canTransitionForensic,canEditForensicReport} from './forensic-lifecycle.js';
+import {canTransitionForensic,canEditForensicReport,canReassignForensic} from './forensic-lifecycle.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { DatabaseService } from '../database/database.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -43,7 +43,7 @@ import type {
   CreateForensicFindingRequest,
   CreateTechnicalIndicatorRequest,
   CreateForensicAcquisitionRequest,
-  ForensicQueryFilters,SaveForensicReport,
+  ForensicQueryFilters,SaveForensicReport,ReassignForensicAnalysis,
 } from '@cyris/contracts';
 
 @Injectable()
@@ -90,19 +90,70 @@ export class ForensicsService {
     return visible;
   }
 
-  private async selectAnalyst(eventId:string,unitId:string,tx:Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0],explicit?:string){
+  private async eligibleAnalysts(eventId:string,unitId:string,tx:Pick<DatabaseService['client'],'select'>){
     const members=await tx.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status}).from(eventMemberships).innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.membershipId,eventMemberships.id)).innerJoin(users,eq(users.id,eventMemberships.userId)).leftJoin(previewTeamAccounts,eq(previewTeamAccounts.userId,users.id)).where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.status,'ACTIVE'),eq(membershipUnitAssignments.unitId,unitId),eq(users.status,'ACTIVE'),or(isNull(users.testExpiresAt),gt(users.testExpiresAt,new Date())),isNull(previewTeamAccounts.userId)));
-    const eligible:string[]=[];
+    const eligible:Array<{id:string;displayName:string}>=[];
     const required=[Permissions.FORENSICS_READ,Permissions.FORENSICS_ACCEPT,Permissions.FORENSICS_WORK,Permissions.FORENSICS_COMPLETE] as const;
     for(const member of members){
       const allowed=await this.authorizationService.eventCapabilities({user:member,permissions:required,eventId,unitId,resourceScopes:['ASSIGNED'],requireUnitMembership:true});
-      if(required.every(p=>allowed.has(p)))eligible.push(member.id);
+      if(required.every(p=>allowed.has(p)))eligible.push({id:member.id,displayName:member.displayName});
     }
+    return eligible.sort((a,b)=>a.displayName.localeCompare(b.displayName)||a.id.localeCompare(b.id));
+  }
+
+  private async selectAnalyst(eventId:string,unitId:string,tx:Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0],explicit?:string){
+    const eligible=(await this.eligibleAnalysts(eventId,unitId,tx)).map(member=>member.id);
     if(explicit){if(!eligible.includes(explicit))throw new BadRequestException('Assignee is not an eligible digital forensic worker');return explicit;}
     if(!eligible.length)return null;
     const work=await tx.select({userId:forensicAnalyses.assignedToUserId,total:sql<number>`count(*)::int`}).from(forensicAnalyses).where(and(eq(forensicAnalyses.eventId,eventId),eq(forensicAnalyses.assignedUnitId,unitId),inArray(forensicAnalyses.status,['REQUESTED','ACCEPTED','IN_PROGRESS']))).groupBy(forensicAnalyses.assignedToUserId);
     const workload=new Map(work.map(w=>[w.userId,w.total]));
     return selectLowestWorkloadCandidate(eligible.map(userId=>({userId,workload:workload.get(userId)??0})))?.userId??null;
+  }
+
+  private async assertCoordinationUnit(eventId:string,unitId:string|null,user:AuthenticatedUser,tx:Pick<DatabaseService['client'],'select'>){
+    if(!unitId)throw new BadRequestException('No responsible forensic unit');
+    await this.authorizationService.assertAuthorized({user,permission:Permissions.FORENSICS_REASSIGN,context:{eventId,unitId}});
+    const [unit]=await tx.select({id:organizationalUnits.id}).from(organizationalUnits).innerJoin(unitCapabilities,eq(unitCapabilities.unitId,organizationalUnits.id)).where(and(eq(organizationalUnits.id,unitId),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt),eq(unitCapabilities.capabilityKey,'digital_forensics'))).limit(1);
+    if(!unit)throw new BadRequestException('Responsible forensic unit is unavailable');
+    return unit.id;
+  }
+
+  async listReassignmentCandidates(eventId:string,analysisId:string,user:AuthenticatedUser){
+    await this.assertAnalysisEvent(eventId,analysisId);
+    await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.FORENSICS_READ);
+    await this.assertWritable(eventId,user);
+    const [row]=await this.db.select().from(forensicAnalyses).where(eq(forensicAnalyses.id,analysisId)).limit(1);
+    if(!row)throw new NotFoundException('Forensic analysis not found');
+    const unitId=await this.assertCoordinationUnit(eventId,row.assignedUnitId,user,this.db);
+    if(!canReassignForensic(row.status))throw new BadRequestException('Analysis is not open for reassignment');
+    return (await this.eligibleAnalysts(eventId,unitId,this.db)).filter(member=>member.id!==row.assignedToUserId);
+  }
+
+  async reassignAnalysis(eventId:string,analysisId:string,dto:ReassignForensicAnalysis,user:AuthenticatedUser):Promise<ForensicAnalysisDetail>{
+    await this.assertAnalysisEvent(eventId,analysisId);
+    await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.FORENSICS_READ);
+    await this.db.transaction(async tx=>{
+      const [row]=await tx.select().from(forensicAnalyses).where(and(eq(forensicAnalyses.id,analysisId),eq(forensicAnalyses.eventId,eventId))).for('update').limit(1);
+      if(!row)throw new NotFoundException('Forensic analysis not found');
+      await this.assertWritable(eventId,user);
+      await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.FORENSICS_READ,tx);
+      const unitId=await this.assertCoordinationUnit(eventId,row.assignedUnitId,user,tx);
+      if(!canReassignForensic(row.status))throw new BadRequestException('Analysis is not open for reassignment');
+      if(row.updatedAt.toISOString()!==dto.expectedUpdatedAt)throw new ConflictException('Analysis changed; reload before reassignment');
+      if(row.assignedToUserId===dto.assignedToUserId)throw new BadRequestException('Examiner is already assigned');
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${eventId+':forensics:'+unitId}))`);
+      await this.selectAnalyst(eventId,unitId,tx,dto.assignedToUserId);
+      const now=new Date(Math.max(Date.now(),row.updatedAt.getTime()+1));
+      await tx.update(forensicAnalyses).set({assignedToUserId:dto.assignedToUserId,updatedAt:now}).where(eq(forensicAnalyses.id,analysisId));
+      await tx.delete(resourceAssignments).where(eq(resourceAssignments.resourceId,analysisId));
+      await tx.insert(resourceAssignments).values({eventId,resourceId:analysisId,userId:dto.assignedToUserId,assignedByUserId:user.id});
+      await tx.insert(notifications).values({id:generateId(),userId:dto.assignedToUserId,eventId,type:'FORENSIC_ASSIGNED',severity:'ACTION',templateKey:'forensics.assigned',templateParams:{analysisNumber:row.analysisNumber},resourceId:analysisId,actionUrl:`/events/${eventId}/forensics/${analysisId}`,sourceEventId:generateId()});
+      const [resource]=await tx.select({visibility:resources.visibility}).from(resources).where(eq(resources.id,analysisId)).limit(1);
+      await this.auditService.record({action:'forensics.reassigned',category:'forensics',eventId,resourceType:'forensic_analysis',resourceId:analysisId,actorUserId:user.id,metadata:{previousAssignedToUserId:row.assignedToUserId,assignedToUserId:dto.assignedToUserId,assignedUnitId:unitId,reason:dto.reason},txClient:tx});
+      await this.activityService.recordActivity({eventId,resourceId:analysisId,activityType:'forensics.reassigned',actorUserId:user.id,title:'Forensic analysis reassigned: '+row.analysisNumber,visibility:resource?.visibility as ResourceVisibilityValue},tx);
+      await tx.insert(outboxEvents).values({id:generateId(),eventType:'search.upsert',status:OutboxStatus.PENDING,payload:{type:'forensic_analysis',id:analysisId}});
+    });
+    return this.getAnalysisDetail(analysisId,user);
   }
 
   /**
@@ -620,6 +671,7 @@ export class ForensicsService {
 
     const reportAvailable=row.status==='APPROVED'&&!!row.approvedAt;
     const [accept,work,complete,approve]=await Promise.all([Permissions.FORENSICS_ACCEPT,Permissions.FORENSICS_WORK,Permissions.FORENSICS_COMPLETE,Permissions.FORENSICS_APPROVE].map(p=>this.resourceAccessService.canAccessResource(user,analysisId,p)));
+    const reassign=Boolean(row.assignedUnitId&&canReassignForensic(row.status)&&await this.authorizationService.authorize({user,permission:Permissions.FORENSICS_REASSIGN,context:{eventId:row.eventId,unitId:row.assignedUnitId}}));
     const canSeeReport=reportAvailable||work||approve||complete;
     // Findings
     const findingsRows = await this.db
@@ -686,7 +738,7 @@ export class ForensicsService {
       conclusion: canSeeReport?row.conclusion:null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
-      reportAvailable,actions:{accept,work,complete,approve},
+      reportAvailable,actions:{accept,work,complete,approve,reassign},
       requesterName:row.requestedByUserId?(await this.db.select({name:users.displayName}).from(users).where(eq(users.id,row.requestedByUserId)).limit(1))[0]?.name??null:null,
       analystName:row.assignedToUserId?(await this.db.select({name:users.displayName}).from(users).where(eq(users.id,row.assignedToUserId)).limit(1))[0]?.name??null:null,
       unitName:row.assignedUnitId?(await this.db.select({name:organizationalUnits.name}).from(organizationalUnits).where(and(eq(organizationalUnits.id,row.assignedUnitId),eq(organizationalUnits.eventId,row.eventId))).limit(1))[0]?.name??null:null,
