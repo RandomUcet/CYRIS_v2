@@ -597,7 +597,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                 <div style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--color-text-dim)' }}>
                   Target physical or digital item submitted for this laboratory protocol.
                 </div>
-                {evidenceItems.length ? evidenceItems.map(item => (
+                {evidenceItems.length ? evidenceItems.map(item => item.canOpen===false?<div key={item.id} style={{padding:12,border:'1px solid var(--border-default)',marginBottom:6}}><strong>{item.evidenceNumber}</strong> · {item.title}<p style={{margin:'4px 0 0',fontSize:12}}>{cs?'Identifikace předaného vzorku; detail evidence vyžaduje samostatné oprávnění.':'Submitted sample identification; full evidence requires separate permission.'}</p></div>:(
                   <Link className="btn btn-secondary" key={item.id} href={`/events/${eventId}/evidence/${item.id}`}>
                     <FolderOpen size={15} /><strong>{item.evidenceNumber}</strong> {item.title} <ArrowRight size={12} />
                   </Link>

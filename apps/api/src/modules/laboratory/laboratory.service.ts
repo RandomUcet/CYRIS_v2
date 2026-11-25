@@ -437,7 +437,15 @@ export class LaboratoryService {
       record.assignedUnitId ? this.db.select({ name: organizationalUnits.name }).from(organizationalUnits)
         .where(and(eq(organizationalUnits.eventId, eventId), eq(organizationalUnits.id, record.assignedUnitId))) : [],
     ]);
-    return { ...record, evidenceIds: items.map(item => item.id), evidenceItems: items,
+    // Assigned laboratory personnel receive only a minimal sample manifest for EVENT-visible inputs.
+    // This is not a grant of EVIDENCE_READ or access to files, custody, relations or restricted inputs.
+    const manifest=items.map(item=>({...item,canOpen:true}));
+    if((accept||work||complete||approve)&&(await this.resourceAccessService.getModuleImpacts(eventId,user)).get('evidence')!=='UNAVAILABLE'){
+      const samples=await this.db.select({id:evidence.id,title:evidence.title,evidenceNumber:evidence.evidenceNumber,status:evidence.status}).from(labAnalysisEvidence).innerJoin(evidence,eq(evidence.id,labAnalysisEvidence.evidenceId)).innerJoin(resources,eq(resources.id,evidence.id)).where(and(eq(labAnalysisEvidence.analysisId,analysisId),eq(resources.eventId,eventId),eq(resources.visibility,'EVENT')));
+      const known=new Set(items.map(item=>item.id));
+      for(const item of samples)if(!known.has(item.id))manifest.push({...item,canOpen:false});
+    }
+    return { ...record, evidenceIds: items.map(item => item.id), evidenceItems: manifest,
       analystName: analysts[0]?.name ?? null, unitName: units[0]?.name ?? null,
       actions: { accept: !!accept, work: !!work, complete: !!complete, approve: !!approve } };
   }
@@ -447,13 +455,16 @@ export class LaboratoryService {
     data: CreateLabAnalysisRequest,
     user: AuthenticatedUser
   ): Promise<LabAnalysisResponse> {
-    // 1. Verify access to all evidence items
+    // A request never makes a nonpublic source globally visible.
+    let visibility=data.visibility as ResourceVisibilityValue;
     for (const evId of data.evidenceIds) {
       const evidenceResource = await this.resourceService.getResource(evId);
       if (!evidenceResource || evidenceResource.eventId !== eventId || evidenceResource.resourceType!=='evidence') {
         throw new BadRequestException('All evidence references must belong to this exercise');
       }
       await this.resourceAccessService.assertCanAccessResource(user, evId, Permissions.EVIDENCE_READ);
+      if(evidenceResource.visibility==='SCENARIO')throw new BadRequestException('Scenario-private evidence must be released before operational laboratory submission');
+      if(evidenceResource.visibility!=='EVENT'&&visibility==='EVENT')visibility='UNIT';
     }
 
     const resolved = await this.resolveLaboratoryUnit(eventId, data.requestedFromUnitId);
@@ -489,7 +500,7 @@ export class LaboratoryService {
       // 3. Register base resource
       await this.resourceService.registerResource(eventId, 'lab_analysis', {
         id: analysisId,
-        visibility: data.visibility as ResourceVisibilityValue,
+        visibility,
         owningUnitId: resolved.unitId,
         ownerUserId: user.id,
         txClient: tx,
@@ -559,7 +570,7 @@ export class LaboratoryService {
           summary: data.purpose ?? undefined,
           causationId: data.causationId,
           relatedResourceIds: data.evidenceIds,
-          visibility: data.visibility,
+          visibility,
         },
         tx
       );
@@ -603,7 +614,7 @@ export class LaboratoryService {
         method: created!.method,
         findings: created!.findings,
         conclusion: created!.conclusion,
-        visibility: data.visibility || 'EVENT',
+        visibility,
         createdAt: created!.createdAt.toISOString(),
         updatedAt: created!.updatedAt.toISOString(),
         evidenceIds: data.evidenceIds,
@@ -796,6 +807,7 @@ export class LaboratoryService {
     user: AuthenticatedUser
   ): Promise<LabAnalysisResponse> {
     const existing = await this.getAnalysis(eventId, analysisId, user);
+    if(['APPROVED','CANCELLED','REJECTED'].includes(existing.status))throw new BadRequestException('Reopen the request before reassignment');
     const destinationUnitId = data.assignedUnitId ?? existing.assignedUnitId ?? existing.requestedFromUnitId;
     if (!destinationUnitId) {
       throw new BadRequestException('A destination laboratory unit is required');
@@ -820,6 +832,9 @@ export class LaboratoryService {
 
     const now = new Date();
     const updated = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${eventId}:${analysisId}`}))`);
+      const [locked]=await tx.select().from(labAnalyses).where(eq(labAnalyses.id,analysisId)).for('update').limit(1);
+      if(!locked||locked.updatedAt.toISOString()!==existing.updatedAt)throw new ConflictException('Laboratory analysis changed; reload before reassignment');
       const [row] = await tx.update(labAnalyses)
         .set({ assignedUnitId: destinationUnitId, assignedToUserId: data.assignedToUserId ?? null, updatedAt: now })
         .where(eq(labAnalyses.id, analysisId))
@@ -848,7 +863,7 @@ export class LaboratoryService {
       await this.activityService.recordActivity({
         eventId, resourceId: analysisId, activityType: 'lab.reassigned',
         actorUserId: user.id, title: `Lab analysis reassigned: ${existing.analysisNumber}`,
-        summary: data.reason, relatedResourceIds: existing.evidenceIds,
+        visibility:existing.visibility as ResourceVisibilityValue,relatedResourceIds: existing.evidenceIds,
       }, tx);
       await this.searchIndexerService.emitSearchUpsert('lab_analysis', analysisId, tx);
       return row;
@@ -960,7 +975,7 @@ export class LaboratoryService {
       });
       await this.activityService.recordActivity({
         eventId, resourceId: analysisId, activityType: 'lab.corrected', actorUserId: user.id,
-        title: `Lab analysis corrected: ${existing.analysisNumber}`, summary: data.reason,
+        title: `Lab analysis corrected: ${existing.analysisNumber}`,visibility:existing.visibility as ResourceVisibilityValue,
         relatedResourceIds: existing.evidenceIds,
       }, tx);
       await this.searchIndexerService.emitSearchUpsert('lab_analysis', analysisId, tx);

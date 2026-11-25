@@ -214,6 +214,10 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       const [requesterRole]=await db.select({id:roles.id}).from(roles).where(and(eq(roles.eventId,eventA),eq(roles.slug,'laboratory-requester')));
       await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,requesterRole!.id),eq(rolePermissions.permissionKey,Permissions.LAB_READ)));
       try{
+        const assigned=await lab.getAnalysisDetail(eventA,row.id,analyst);
+        assert.equal(assigned.evidenceItems.find(x=>x.id===evidenceId)?.canOpen,false);
+        assert.equal(await access.canAccessResource(analyst,evidenceId,Permissions.EVIDENCE_READ),false);
+        assert.deepEqual(assigned.evidenceIds,[]);
         const initial=await lab.getAnalysisDetail(eventA,row.id,requester);
         assert.equal(initial.status,'REQUESTED');assert.equal(initial.reportAvailable,false);
         assert.ok(Object.values(initial.actions).every(v=>!v));

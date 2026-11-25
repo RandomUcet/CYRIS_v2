@@ -417,7 +417,9 @@ function LabWorkspace({eventId}:{eventId:string}){
                   <input
                     type="text"
                     required
-                    placeholder="e.g. DIGITAL_FORENSIC or CHEMICAL"
+                    placeholder={cs?'Např. daktyloskopie, DNA, toxikologie…':'E.g. fingerprints, DNA, toxicology…'}
+                    maxLength={64}
+                    list="laboratory-analysis-types"
                     value={formData.analysisType}
                     onChange={(e) => setFormData({ ...formData, analysisType: e.target.value })}
                     className="input-field"
@@ -426,7 +428,8 @@ function LabWorkspace({eventId}:{eventId:string}){
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                <datalist id="laboratory-analysis-types">{(cs?['Daktyloskopie','DNA analýza','Toxikologie','Chemický rozbor','Biologický rozbor','Balistický rozbor','Analýza stop']:['Fingerprint comparison','DNA analysis','Toxicology','Chemical analysis','Biological analysis','Ballistics','Trace evidence analysis']).map(type=><option key={type} value={type}/>)}</datalist>
+                <div style={{ marginBottom: '14px' }}>
                   {evidenceLabel ? (
                     <div>
                       <strong>{evidenceLabel}</strong>
@@ -450,7 +453,8 @@ function LabWorkspace({eventId}:{eventId:string}){
                   </label>
                   <textarea
                     rows={4}
-                    placeholder="Specific questions for the analyst, target indicators of compromise, requested artifacts..."
+                    placeholder={cs?'Např. porovnat otisky ze vzorku s referenčním vzorkem.':'E.g. compare the submitted prints with a reference sample.'}
+                    maxLength={10000}
                     value={formData.purpose}
                     onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
                     className="input-field"

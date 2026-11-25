@@ -13,11 +13,11 @@ export const LabAnalysisStatusSchema = z.enum([
 export type LabAnalysisStatus = z.infer<typeof LabAnalysisStatusSchema>;
 
 export const CreateLabAnalysisRequestSchema = z.object({
-  analysisType: z.string().min(1),
-  evidenceIds: z.array(z.string().uuid()).min(1),
+  analysisType: z.string().trim().min(1).max(64),
+  evidenceIds: z.array(z.string().uuid()).min(1).max(30).refine(ids=>new Set(ids).size===ids.length,'Duplicate evidence references'),
   requestedFromUnitId: z.string().uuid().optional(),
-  purpose: z.string().optional(),
-  method: z.string().optional(),
+  purpose: z.string().max(10000).optional(),
+  method: z.string().max(10000).optional(),
   visibility: ResourceVisibilitySchema.default('EVENT'),
   causationId: z.string().uuid().optional(),
 });
@@ -72,7 +72,7 @@ export const LabAnalysisDetailSchema = LabAnalysisResponseSchema.extend({
   analystName: z.string().nullable(),
   unitName: z.string().nullable(),
   evidenceItems: z.array(z.object({
-    id: z.string().uuid(), title: z.string(), evidenceNumber: z.string(), status: z.string(),
+    id: z.string().uuid(), title: z.string(), evidenceNumber: z.string(), status: z.string(), canOpen:z.boolean().optional(),
   })),
   actions: z.object({
     accept: z.boolean(), work: z.boolean(), complete: z.boolean(), approve: z.boolean(),

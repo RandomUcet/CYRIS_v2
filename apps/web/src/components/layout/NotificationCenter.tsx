@@ -131,7 +131,11 @@ export function NotificationCenter(){
       case 'briefing.requiresAcknowledgement':return t('notification.briefingAck');
       case 'evidence.transfer':return t('notification.evidenceTransfer');
       case 'lab.ready':return t('notification.labReady');
-      case 'lab.request.status':return String(p.analysisNumber??'LAB')+' · '+t('notification.labStatus.'+String(p.status??'REQUESTED') as any);
+      case 'lab.request.status':{
+        const status=p.status;
+        const label=status==='ACCEPTED'?t('notification.labStatus.ACCEPTED'):status==='IN_PROGRESS'?t('notification.labStatus.IN_PROGRESS'):status==='COMPLETED'?t('notification.labStatus.COMPLETED'):status==='APPROVED'?t('notification.labStatus.APPROVED'):status==='REJECTED'?t('notification.labStatus.REJECTED'):status==='CANCELLED'?t('notification.labStatus.CANCELLED'):t('notification.labStatus.REQUESTED');
+        return String(p.analysisNumber??'LAB')+' · '+label;
+      }
       case 'lab.assigned':return String(p.analysisNumber??'LAB')+' · '+t('notification.labAssigned');
       case 'medical.assignment':return t('notification.medicalAssign');
       case 'court.request.created':return t('notification.courtRequestCreated');
