@@ -19,7 +19,8 @@ const url=requireVerifiedIsolatedDatabase();
 const s3url=process.env.CYRIS_TEST_S3_ENDPOINT,searchUrl=process.env.CYRIS_TEST_TYPESENSE_ENDPOINT,redisUrl=process.env.CYRIS_TEST_REDIS_URL;
 const loopback=(v:string|undefined)=>Boolean(v&&/^http:\/\/127\.0\.0\.1:\d+$/.test(v));
 const enabled=Boolean(process.env.CYRIS_TEST_RETENTION_COMMITTED==='true'&&url&&new URL(url).pathname==='/cyris_retention_committed'&&loopback(s3url)&&loopback(searchUrl)&&redisUrl&&/^redis:\/\/127\.0\.0\.1:\d+$/.test(redisUrl));
-test('committed cross-service reset resumes after interrupted object deletion and preserves unrelated exercise',{skip:!enabled},async()=>{
+if(process.env.CYRIS_TEST_RETENTION_COMMITTED==='true'&&!enabled)throw Error('Mandatory committed retention test isolation is not configured');
+test('committed cross-service reset and full removal resume after interruption and preserve unrelated exercise',{skip:!enabled},async()=>{
   const db=getDbClient({url:url!,max:1});
   const redis=new Redis(redisUrl!,{db:14,maxRetriesPerRequest:1,commandTimeout:3000});
   const search=new TypesenseClient({nodes:[{host:'127.0.0.1',port:Number(new URL(searchUrl!).port),protocol:'http'}],apiKey:'cyris-test-search-only',connectionTimeoutSeconds:5,numRetries:0});
@@ -56,6 +57,12 @@ test('committed cross-service reset resumes after interrupted object deletion an
     const committed=await db.transaction(tx=>executeCombinedRehearsal(tx,context));
     assert.equal(committed.outboxRemoved,1);
     assert.equal(await db.transaction(tx=>readRetentionCommit(tx,context)),true);
+    // Reuse by another exercise must block before the first external mutation.
+    await db.execute(sql`UPDATE documents SET object_key=${keys[0]!} WHERE id=${foreignDoc}`);
+    await assert.rejects(finishCommittedRetention(args),/referenced again/);
+    assert.equal(await redis.exists(cacheA),1);
+    await source.send(new GetObjectCommand({Bucket:context.sourceBucket,Key:keys[0]!}));
+    await db.execute(sql`UPDATE documents SET object_key=${foreignKey} WHERE id=${foreignDoc}`);
     // Simulated interruption after the real PostgreSQL commit and first S3 delete.
     await source.send(new DeleteObjectCommand({Bucket:context.sourceBucket,Key:keys[0]!}));
     const result=await finishCommittedRetention(args);
@@ -72,5 +79,41 @@ test('committed cross-service reset resumes after interrupted object deletion an
     assert.equal((await db.execute(sql`SELECT id FROM documents WHERE id=${doc}`)).length,0);
     await search.collections(GLOBAL_SEARCH_COLLECTION).documents('document:'+foreignDoc).retrieve();
     await assert.rejects(search.collections(GLOBAL_SEARCH_COLLECTION).documents('document:'+doc).retrieve());
+    // Create another real record after reset; stale reset resume must refuse it.
+    const newDoc=randomUUID(),role=randomUUID(),user=randomUUID(),membership=randomUUID();
+    const newKey='documents/'+a+'/new-report',newBody='new report';
+    await db.transaction(async tx=>{
+      await tx.execute(sql`INSERT INTO users(id,email,display_name) VALUES(${user},${user+'@example.invalid'},'Shared user')`);
+      await tx.execute(sql`INSERT INTO event_memberships(id,event_id,user_id) VALUES(${membership},${a},${user}),(gen_random_uuid(),${b},${user})`);
+      await tx.execute(sql`INSERT INTO roles(id,event_id,name,slug) VALUES(${role},${a},'Team role','role')`);
+      await tx.execute(sql`INSERT INTO role_assignments(id,role_id,membership_id,unit_id) VALUES(gen_random_uuid(),${role},${membership},${unit})`);
+      await tx.execute(sql`INSERT INTO resources(id,event_id,resource_type) VALUES(${newDoc},${a},'document')`);
+      await tx.execute(sql`INSERT INTO documents(id,event_id,title,original_filename,mime_type,byte_size,object_key,sha256) VALUES(${newDoc},${a},'New report','report.txt','text/plain',${Buffer.byteLength(newBody)},${newKey},${createHash('sha256').update(newBody).digest('hex')})`);
+    });
+    await source.send(new PutObjectCommand({Bucket:context.sourceBucket,Key:newKey,Body:newBody,ContentType:'text/plain'}));
+    await assert.rejects(finishCommittedRetention(args),/data changed/);
+    for(const projection of await defaultSearchProjectionRegistry.listAllDocuments(db,a))await search.collections(GLOBAL_SEARCH_COLLECTION).documents().upsert(projection);
+    const removal:RecoveryContext={...context,operationId:randomUUID(),profile:'remove',planDigest:'b'.repeat(64)};
+    await persistRecoveryManifest(root,removal,[newKey],await stageRecoveryObjects(source,source,removal.sourceBucket,removal.recoveryBucket,removal.operationId,[newKey]),secret);
+    await redis.set(cacheA,sample(a));
+    const removed=await db.transaction(tx=>executeCombinedRehearsal(tx,removal));
+    assert.ok(removed.removed>0);
+    assert.equal(await db.transaction(tx=>readRetentionCommit(tx,removal)),true);
+    const finished=await finishCommittedRetention({...args,context:removal});
+    assert.equal(finished.objects.removedNow,1);
+    assert.equal(finished.index.rebuilt,0);
+    assert.equal((await finishCommittedRetention({...args,context:removal})).objects.removedNow,0);
+    assert.equal((await db.execute(sql`SELECT id FROM events WHERE id=${a}`)).length,0);
+    assert.equal((await db.execute(sql`SELECT id FROM organizational_units WHERE id=${unit}`)).length,0);
+    assert.equal((await db.execute(sql`SELECT id FROM roles WHERE id=${role}`)).length,0);
+    assert.equal((await db.execute(sql`SELECT id FROM users WHERE id=${user}`)).length,1);
+    assert.equal((await db.execute(sql`SELECT id FROM event_memberships WHERE event_id=${b} AND user_id=${user}`)).length,1);
+    assert.equal((await db.execute(sql`SELECT id FROM audit_events WHERE event_id=${a}`)).length,2);
+    assert.equal(await redis.get(session),'fixture');assert.equal(await redis.exists(cacheB),1);
+    assert.equal(await redis.exists(cacheA),0);
+    await assert.rejects(source.send(new GetObjectCommand({Bucket:context.sourceBucket,Key:newKey})));
+    await assert.rejects(search.collections(GLOBAL_SEARCH_COLLECTION).documents('event:'+a).retrieve());
+    await search.collections(GLOBAL_SEARCH_COLLECTION).documents('document:'+foreignDoc).retrieve();
+    await assert.rejects(finishCommittedRetention(args),/not archived/);
   }finally{if(redisOwned)await redis.del(cacheA,cacheB,session);redis.disconnect();source.destroy();await rm(root,{recursive:true,force:true});await closeDatabaseConnection();}
 });

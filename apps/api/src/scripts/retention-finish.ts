@@ -4,6 +4,7 @@ import type {Redis} from 'ioredis';
 import type {Client as TypesenseClient} from 'typesense';
 import {loadRecoveryManifest,type RecoveryContext} from './retention-recovery-manifest.js';
 import {resumeStagedRemoval} from './retention-object-recovery.js';
+import {inspectRelationalRetention} from './retention-relational-plan.js';
 import {readRetentionCommit} from './retention-commit-witness.js';
 import {inspectRetentionRedis,removeRetentionRedisCache} from './retention-redis.js';
 import {reconcileRetentionSearch,validateRetentionSearchProjection} from './retention-search.js';
@@ -27,6 +28,24 @@ export async function finishCommittedRetention(input:{
     if(context.profile==='remove'){
       const [receipt]=await tx.execute<{id:string}>(sql`SELECT event_id AS id FROM removed_exercise_receipts WHERE event_id=${context.eventId}::uuid`);
       if(!receipt)throw Error('Removed exercise receipt missing');
+    }
+    if(context.profile==='reset'){
+      const plan=await inspectRelationalRetention(tx,context.eventId);
+      if(plan.resetRows||plan.conflicts.length||plan.unknownTables.length||plan.missingTables.length||plan.unsupportedTables.length)throw Error('Exercise data changed after relational commit');
+    }
+    // Known object references must remain absent globally, including references
+    // created by another exercise after the original plan was approved.
+    if(manifest.keys.length){
+      const keys=sql.join(manifest.keys.map(k=>sql`${k}`),sql`,`);
+      const [refs]=await tx.execute<{count:number}>(sql`
+        SELECT count(*)::integer AS count FROM (
+          SELECT object_key FROM documents
+          UNION ALL SELECT object_key FROM document_versions
+          UNION ALL SELECT object_key FROM registry_media WHERE bucket=${context.sourceBucket}
+          UNION ALL SELECT object_key FROM scenario_draft_media WHERE bucket=${context.sourceBucket}
+        ) refs WHERE object_key IN (${keys})
+      `);
+      if(!refs||refs.count!==0)throw Error('Recovery object is referenced again');
     }
     const docs=await defaultSearchProjectionRegistry.listAllDocuments(tx,context.eventId);
     validateRetentionSearchProjection(context.eventId,context.profile,docs);
