@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import {EvidenceForensicRequests} from './EvidenceForensicRequests';
 import { EvidenceLabRequests } from './EvidenceLabRequests';
 import { CustodyRecipientPicker } from './CustodyRecipientPicker';
 import { ResourcePicker } from '@/components/common/ResourcePicker';
@@ -47,7 +48,7 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
   const { currentEvent } = useEvent();
   const { formatTime, locale } = usePreferences();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'custody' | 'timeline' | 'relations' | 'lab'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'custody' | 'timeline' | 'relations' | 'lab' | 'forensics'>('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -263,6 +264,7 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
             { id: 'custody', label: 'Chain of Custody', count: custodyHistory.length, icon: <ShieldCheck size={14} /> },
             { id: 'timeline', label: 'Timeline', count: timelineItems.length, icon: <Clock size={14} /> },
             { id: 'relations', label: 'Relations', count: relationships.length, icon: <Share2 size={14} /> },
+            ...(hasPermission('forensics.request',eventId)||hasPermission('forensics.read',eventId)?[{id:'forensics',label:locale==='cs'?'Digitální forenzní analýzy':'Digital forensic requests'}]:[]),
             ...(hasPermission('lab.request',eventId)||hasPermission('lab.read',eventId)?[{id:'lab',label:locale==='cs'?'Laboratorní rozbory':'Lab requests'}]:[]),
           ]}
           activeTab={activeTab}
@@ -381,6 +383,7 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
               </div>
             )}
 
+            {activeTab==='forensics'&&(hasPermission('forensics.request',eventId)||hasPermission('forensics.read',eventId))&&<EvidenceForensicRequests eventId={eventId} evidenceId={evidenceId} cs={locale==='cs'} canRequest={!viewAs&&hasPermission('forensics.request',eventId)}/>}
             {activeTab==='lab'&&(hasPermission('lab.request',eventId)||hasPermission('lab.read',eventId))&&<EvidenceLabRequests eventId={eventId} evidenceId={evidenceId} cs={locale==='cs'} canRequest={!viewAs&&hasPermission('lab.request',eventId)}/>}
             {/* CHAIN OF CUSTODY TAB */}
             {activeTab === 'custody' && (

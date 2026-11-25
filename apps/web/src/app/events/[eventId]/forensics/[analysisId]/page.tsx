@@ -341,8 +341,8 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
           title={analysis.purpose || `${analysis.analysisType.replace(/_/g, ' ')} Analysis`}
           status={analysis.status}
           priority={analysis.priority}
-          owningUnit={analysis.assignedUnitId ? 'Assigned Specialist Unit' : 'Digital Forensics Group'}
-          lead={analysis.assignedToUserId ? 'Assigned Examiner' : 'Unassigned'}
+          owningUnit={analysis.unitName??'Digital Forensics'}
+          lead={analysis.analystName??'Unassigned'}
           leadLabel="Examiner"
           dates={[
             { label: 'Requested', value: formatTime(analysis.requestedAt) },
@@ -610,7 +610,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                   </p>
                 </div>
                 {analysis.status !== 'APPROVED' && (
-                  <button className="btn btn-primary" onClick={() => setShowFindingModal(true)}>
+                  <button className="btn btn-primary" disabled={!canWork} onClick={() => setShowFindingModal(true)}>
                     <Plus size={14} style={{ marginRight: '6px' }} />
                     Add Finding
                   </button>
@@ -660,7 +660,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                   description="Examiners can record granular findings, file correlations, and persistence mechanisms."
                   action={
                     analysis.status !== 'APPROVED' ? (
-                      <button className="btn btn-primary btn-sm" onClick={() => setShowFindingModal(true)}>
+                      <button className="btn btn-primary btn-sm" disabled={!canWork} onClick={() => setShowFindingModal(true)}>
                         <Plus size={14} style={{ marginRight: '6px' }} />
                         Add Finding
                       </button>
@@ -683,7 +683,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                     Cryptographic image verification, tool versions, and external storage pointers.
                   </p>
                 </div>
-                <button className="btn btn-primary" onClick={() => setShowAcquisitionModal(true)}>
+                <button className="btn btn-primary" disabled={!canWork} onClick={() => setShowAcquisitionModal(true)}>
                   <Plus size={14} style={{ marginRight: '6px' }} />
                   Record Acquisition
                 </button>
@@ -758,7 +758,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                   title="No Forensic Acquisitions Recorded"
                   description="Record physical or logical image hashes, external storage references, and acquisition tools."
                   action={
-                    <button className="btn btn-primary btn-sm" onClick={() => setShowAcquisitionModal(true)}>
+                    <button className="btn btn-primary btn-sm" disabled={!canWork} onClick={() => setShowAcquisitionModal(true)}>
                       <Plus size={14} style={{ marginRight: '6px' }} />
                       Record Acquisition
                     </button>

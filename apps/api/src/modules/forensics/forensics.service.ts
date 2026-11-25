@@ -687,6 +687,9 @@ export class ForensicsService {
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       reportAvailable,actions:{accept,work,complete,approve},
+      requesterName:row.requestedByUserId?(await this.db.select({name:users.displayName}).from(users).where(eq(users.id,row.requestedByUserId)).limit(1))[0]?.name??null:null,
+      analystName:row.assignedToUserId?(await this.db.select({name:users.displayName}).from(users).where(eq(users.id,row.assignedToUserId)).limit(1))[0]?.name??null:null,
+      unitName:row.assignedUnitId?(await this.db.select({name:organizationalUnits.name}).from(organizationalUnits).where(and(eq(organizationalUnits.id,row.assignedUnitId),eq(organizationalUnits.eventId,row.eventId))).limit(1))[0]?.name??null:null,
       findingsList: (canSeeReport?findingsRows:[]).map((f) => ({
         id: f.id,
         analysisId: f.analysisId,
@@ -700,8 +703,8 @@ export class ForensicsService {
       acquisitions: (canSeeReport?acquisitionsRows:[]).map((a) => ({
         id: a.id,
         analysisId: a.analysisId,
-        evidenceId: a.evidenceId,
-        deviceId: a.deviceId,
+        evidenceId:visibleEvidence.some(e=>e.id===a.evidenceId)?a.evidenceId:null,
+        deviceId:visibleDevices.some(d=>d.id===a.deviceId)?a.deviceId:null,
         acquisitionType: a.acquisitionType,
         startedAt: a.startedAt.toISOString(),
         completedAt: a.completedAt ? a.completedAt.toISOString() : null,
@@ -711,8 +714,8 @@ export class ForensicsService {
         hashAlgorithm: a.hashAlgorithm,
         sourceHash: a.sourceHash,
         imageHash: a.imageHash,
-        storageReference: a.storageReference,
-        notes: a.notes,
+        storageReference: work||approve?a.storageReference:null,
+        notes: work||approve?a.notes:null,
         createdAt: a.createdAt.toISOString(),
       })),
       evidenceLinks: visibleEvidence.map((e) => ({
@@ -738,6 +741,16 @@ export class ForensicsService {
     const offset = (page - 1) * limit;
 
     const conditions = [eq(forensicAnalyses.eventId, eventId)];
+    if(filters.evidenceId){
+      const source=await this.resourceService.getResource(filters.evidenceId);
+      if(!source||source.eventId!==eventId||source.resourceType!=='evidence')throw new NotFoundException('Evidence not found');
+      await this.resourceAccessService.assertCanAccessResource(user,filters.evidenceId,Permissions.EVIDENCE_READ);
+      conditions.push(inArray(forensicAnalyses.id,this.db.select({id:forensicAnalysisEvidence.analysisId}).from(forensicAnalysisEvidence).where(eq(forensicAnalysisEvidence.evidenceId,filters.evidenceId))));
+    }
+    if(filters.mine==='requested')conditions.push(eq(forensicAnalyses.requestedByUserId,user.id));
+    if(filters.mine==='assigned')conditions.push(eq(forensicAnalyses.assignedToUserId,user.id));
+    if(filters.assignedToUserId)conditions.push(eq(forensicAnalyses.assignedToUserId,filters.assignedToUserId));
+    if(filters.assignedUnitId)conditions.push(eq(forensicAnalyses.assignedUnitId,filters.assignedUnitId));
     if (filters.status) conditions.push(eq(forensicAnalyses.status, filters.status));
     if (filters.analysisType) conditions.push(eq(forensicAnalyses.analysisType, filters.analysisType));
     if (filters.priority) conditions.push(eq(forensicAnalyses.priority, filters.priority));
@@ -746,7 +759,7 @@ export class ForensicsService {
       .select()
       .from(forensicAnalyses)
       .where(and(...conditions))
-      .orderBy(desc(forensicAnalyses.createdAt))
+      .orderBy(desc(forensicAnalyses.createdAt),desc(forensicAnalyses.id))
       .limit(limit)
       .offset(offset);
 
@@ -775,6 +788,7 @@ export class ForensicsService {
           startedAt: r.startedAt ? r.startedAt.toISOString() : null,
           completedAt: r.completedAt ? r.completedAt.toISOString() : null,
           approvedAt: r.approvedAt ? r.approvedAt.toISOString() : null,
+          reportAvailable:r.status==='APPROVED'&&!!r.approvedAt,
           purpose: r.purpose,
           methodology: canSeeReport?r.methodology:null,
           findings: canSeeReport?r.findings:null,

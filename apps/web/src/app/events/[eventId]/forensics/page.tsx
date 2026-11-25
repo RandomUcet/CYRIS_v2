@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter,useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { ResourcePicker } from '@/components/common/ResourcePicker';
@@ -27,6 +27,8 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
   const { hasPermission,viewAs } = useAuth();
   const { formatDate,locale } = usePreferences();
   const cs=locale==='cs';
+  const sourceEvidence=useSearchParams().get('fromEvidence');
+  const [scope,setScope]=useState<'all'|'requested'|'assigned'>('all');
   const [units,setUnits]=useState<Array<{id:string;name:string}>>([]),[unitId,setUnitId]=useState(''),[unitsLoading,setUnitsLoading]=useState(false);
 
   const [analyses, setAnalyses] = useState<ForensicAnalysisListItemDto[]>([]);
@@ -64,14 +66,15 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
 
   useEffect(()=>{if(!showCreateModal||!canRequest)return;let active=true;setUnitsLoading(true);setUnits([]);setUnitId('');void apiClient.getForensicUnits(eventId).then(r=>{if(active&&r.ok&&r.data){setUnits(r.data);if(r.data.length===1)setUnitId(r.data[0]!.id);}}).catch(()=>{}).finally(()=>{if(active)setUnitsLoading(false);});return()=>{active=false;};},[showCreateModal,canRequest,eventId]);
+  useEffect(()=>{if(!sourceEvidence||!canRequest)return;let active=true;void apiClient.getEvidenceItem(eventId,encodeURIComponent(sourceEvidence)).then(r=>{if(!active)return;const record=r.data?.evidence??r.data;if(r.ok&&record?.id===sourceEvidence){setFormData(old=>({...old,evidenceId:record.id}));setShowCreateModal(true);}else setError(cs?'Důkaz se nepodařilo načíst.':'Evidence unavailable.');router.replace(`/events/${eventId}/forensics`,{scroll:false});});return()=>{active=false;};},[sourceEvidence,canRequest,eventId,router,cs]);
   const fetchAnalyses = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.getForensicAnalyses(eventId);
+      const res = await apiClient.listForensicAnalyses(eventId,{mine:scope==='all'?undefined:scope,limit:100});
       if(!alive.current)return;
       if (res.ok && res.data) {
-        setAnalyses(res.data);
+        setAnalyses(res.data.items);
       } else {
         setError(res.error || 'Failed to load forensic analysis queue');
       }
@@ -86,7 +89,7 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
     if (eventId) {
       fetchAnalyses();
     }
-  }, [eventId]);
+  }, [eventId,scope]);
 
   const filteredAnalyses = useMemo(() => {
     return analyses.filter((a) => {
@@ -246,6 +249,7 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
           </div>
         </div>
 
+        <div style={{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}}>{(['all','requested','assigned'] as const).map(value=><button key={value} className={scope===value?'btn btn-primary':'btn btn-secondary'} aria-pressed={scope===value} onClick={()=>setScope(value)}>{value==='all'?(cs?'Vše dostupné':'All accessible'):value==='requested'?(cs?'Moje žádanky':'My requests'):(cs?'Přidělená práce':'Assigned work')}</button>)}</div>
         <FilterBar
           searchValue={search}
           onSearchChange={setSearch}
