@@ -5,7 +5,8 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, isNull } from 'drizzle-orm';
+import { AuthorizationService } from '../authorization/authorization.service.js';
 import { DatabaseService } from '../database/database.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { ActivityService } from '../resources/activity.service.js';
@@ -19,7 +20,7 @@ import {
   forensicFindings,
   technicalIndicators,
   forensicAcquisitions,
-  resources,
+  resources, organizationalUnits, resourceAssignments, users, events,
   evidence,
   devices,
   outboxEvents,
@@ -53,11 +54,26 @@ export class ForensicsService {
     private readonly activityService: ActivityService,
     private readonly resourceService: ResourceService,
     private readonly resourceAccessService: ResourceAccessService,
-    private readonly identifierAllocator: IdentifierAllocatorService
+    private readonly identifierAllocator: IdentifierAllocatorService,
+    private readonly authorizationService:AuthorizationService,
   ) {}
 
   private get db() {
     return this.databaseService.client;
+  }
+
+  async assertAnalysisEvent(eventId:string,analysisId:string):Promise<void>{
+    const [row]=await this.db.select({id:forensicAnalyses.id}).from(forensicAnalyses)
+      .innerJoin(resources,eq(resources.id,forensicAnalyses.id))
+      .where(and(eq(forensicAnalyses.id,analysisId),eq(forensicAnalyses.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'forensic_analysis'))).limit(1);
+    if(!row)throw new NotFoundException('Forensic analysis not found');
+  }
+
+  private async assertWritable(eventId:string,user:AuthenticatedUser){
+    const [event]=await this.db.select({status:events.status}).from(events).where(eq(events.id,eventId)).limit(1);
+    if(!event)throw new NotFoundException('Exercise not found');
+    if(['CLOSED','ARCHIVED'].includes(event.status))throw new BadRequestException('Exercise is read-only');
+    if((await this.resourceAccessService.getModuleImpacts(eventId,user)).has('forensics'))throw new ForbiddenException('Forensics is currently read-only or unavailable');
   }
 
   /**
@@ -68,6 +84,30 @@ export class ForensicsService {
     dto: CreateForensicAnalysisRequest,
     user: AuthenticatedUser
   ): Promise<ForensicAnalysisDetail> {
+    await this.authorizationService.assertAuthorized({user,permission:Permissions.FORENSICS_REQUEST,context:{eventId,unitId:dto.requestedFromUnitId,resourceOwnerId:user.id}});
+    await this.assertWritable(eventId,user);
+    for(const unitId of new Set([dto.requestedFromUnitId,dto.assignedUnitId,dto.owningUnitId].filter((id):id is string=>!!id))){
+      const [unit]=await this.db.select({id:organizationalUnits.id}).from(organizationalUnits).where(and(eq(organizationalUnits.id,unitId),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt))).limit(1);
+      if(!unit)throw new BadRequestException('Unit is unavailable in this exercise');
+    }
+    // Explicit assignment is a worker/organizer operation, not an authority granted by requesting work.
+    if(dto.assignedToUserId||dto.assignedUnitId||dto.owningUnitId){
+      await this.authorizationService.assertAuthorized({user,permission:Permissions.FORENSICS_WORK,context:{eventId,unitId:dto.assignedUnitId??dto.owningUnitId}});
+      if(dto.assignedToUserId){
+        if(!dto.assignedUnitId)throw new BadRequestException('An assigned unit is required');
+        const [target]=await this.db.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status}).from(users).where(eq(users.id,dto.assignedToUserId)).limit(1);
+        if(!target||!await this.authorizationService.hasEventCapability({user:target,permission:Permissions.FORENSICS_WORK,eventId,unitId:dto.assignedUnitId,resourceScopes:['ASSIGNED'],requireUnitMembership:true}))throw new BadRequestException('Assignee is not eligible in this exercise');
+      }
+    }
+    for(const [ids,type,permission] of [[dto.evidenceIds??[],'evidence',Permissions.EVIDENCE_READ],[dto.deviceIds??[],'device',Permissions.REGISTRY_READ]] as const){
+      if(ids.length>30||new Set(ids).size!==ids.length)throw new BadRequestException('Invalid reference list');
+      for(const id of ids){
+        const source=await this.resourceService.getResource(id);
+        if(!source||source.eventId!==eventId||source.resourceType!==type)throw new BadRequestException('Reference does not belong to this exercise');
+        await this.resourceAccessService.assertCanAccessResource(user,id,permission);
+        if(source.visibility!=='EVENT')throw new BadRequestException('Nonpublic evidence or devices require explicit controlled disclosure before forensic submission');
+      }
+    }
     const analysisId = generateId();
     const now = new Date();
 
@@ -105,6 +145,8 @@ export class ForensicsService {
         createdAt: now,
         updatedAt: now,
       });
+
+      if(dto.assignedToUserId)await tx.insert(resourceAssignments).values({eventId,resourceId:analysisId,userId:dto.assignedToUserId,assignedByUserId:user.id});
 
       // 3. Link Evidence
       if (dto.evidenceIds && dto.evidenceIds.length > 0) {
@@ -183,7 +225,7 @@ export class ForensicsService {
       activityType: 'forensics.requested',
       actorUserId: user.id,
       title: `Forensic Analysis Requested: ${analysisNumber} (${dto.analysisType})`,
-      summary: dto.purpose,
+      visibility: dto.visibility,
     });
 
     return this.getAnalysisDetail(analysisId, user);
@@ -224,6 +266,7 @@ export class ForensicsService {
       throw new NotFoundException(`Forensic analysis '${analysisId}' not found`);
     }
 
+    await this.assertWritable(existing.eventId,user);
     const now = new Date();
     const updateData: Partial<typeof forensicAnalyses.$inferInsert> = {
       status: dto.status,
@@ -275,7 +318,7 @@ export class ForensicsService {
       activityType: `forensics.${dto.status.toLowerCase()}`,
       actorUserId: user.id,
       title: `Forensic Analysis ${dto.status}: ${existing.analysisNumber}`,
-      summary: dto.notes || `Transitioned from ${existing.status} to ${dto.status}`,
+      summary: `Transitioned from ${existing.status} to ${dto.status}`,
     });
 
     // Update search index
@@ -316,6 +359,7 @@ export class ForensicsService {
       throw new NotFoundException(`Forensic analysis '${analysisId}' not found`);
     }
 
+    await this.assertWritable(analysis.eventId,user);
     const findingId = generateId();
     const now = new Date();
 
@@ -354,8 +398,7 @@ export class ForensicsService {
       resourceId: analysisId,
       activityType: 'forensics.finding.created',
       actorUserId: user.id,
-      title: `Finding Added (${dto.findingType}): ${dto.title}`,
-      summary: dto.description.slice(0, 150),
+      title: `Forensic finding recorded: ${analysis.analysisNumber}`,
     });
 
     // Reindex analysis
@@ -405,6 +448,13 @@ export class ForensicsService {
       throw new NotFoundException(`Forensic analysis '${analysisId}' not found`);
     }
 
+    await this.assertWritable(analysis.eventId,user);
+    for(const [id,table] of [[dto.evidenceId,forensicAnalysisEvidence],[dto.deviceId,forensicAnalysisDevices]] as const){
+      if(!id)continue;
+      // Check the exact input against the analysis, not an arbitrary UUID supplied by the caller.
+      const link=table===forensicAnalysisEvidence?await this.db.select({id:forensicAnalysisEvidence.id}).from(forensicAnalysisEvidence).where(and(eq(forensicAnalysisEvidence.analysisId,analysisId),eq(forensicAnalysisEvidence.evidenceId,id))).limit(1):await this.db.select({id:forensicAnalysisDevices.id}).from(forensicAnalysisDevices).where(and(eq(forensicAnalysisDevices.analysisId,analysisId),eq(forensicAnalysisDevices.deviceId,id))).limit(1);
+      if(!link.length)throw new BadRequestException('Acquisition source is not linked to this analysis');
+    }
     const acquisitionId = generateId();
     const now = new Date();
 
@@ -474,6 +524,8 @@ export class ForensicsService {
     dto: CreateTechnicalIndicatorRequest,
     user: AuthenticatedUser
   ): Promise<TechnicalIndicator> {
+    await this.authorizationService.assertAuthorized({user,permission:Permissions.INDICATOR_CREATE,context:{eventId,resourceOwnerId:user.id}});
+    await this.assertWritable(eventId,user);
     const indicatorId = generateId();
     const now = new Date();
     const trimmed = dto.value.trim();
@@ -575,6 +627,7 @@ export class ForensicsService {
       throw new NotFoundException(`Forensic analysis '${analysisId}' not found`);
     }
 
+    const canSeeReport=row.status==='APPROVED'&&!!row.approvedAt||await this.resourceAccessService.canAccessResource(user,analysisId,Permissions.FORENSICS_WORK)||await this.resourceAccessService.canAccessResource(user,analysisId,Permissions.FORENSICS_APPROVE);
     // Findings
     const findingsRows = await this.db
       .select()
@@ -599,7 +652,8 @@ export class ForensicsService {
       })
       .from(forensicAnalysisEvidence)
       .innerJoin(evidence, eq(forensicAnalysisEvidence.evidenceId, evidence.id))
-      .where(eq(forensicAnalysisEvidence.analysisId, analysisId));
+      .innerJoin(resources,eq(resources.id,evidence.id))
+      .where(and(eq(forensicAnalysisEvidence.analysisId, analysisId),eq(resources.eventId,row.eventId)));
 
     // Device links
     const deviceRows = await this.db
@@ -610,8 +664,13 @@ export class ForensicsService {
       })
       .from(forensicAnalysisDevices)
       .innerJoin(devices, eq(forensicAnalysisDevices.deviceId, devices.id))
-      .where(eq(forensicAnalysisDevices.analysisId, analysisId));
+      .innerJoin(resources,eq(resources.id,devices.id))
+      .where(and(eq(forensicAnalysisDevices.analysisId, analysisId),eq(resources.eventId,row.eventId)));
 
+    const visibleEvidence=[] as typeof evidenceRows;
+    for(const item of evidenceRows)if(await this.resourceAccessService.canAccessResource(user,item.id,Permissions.EVIDENCE_READ))visibleEvidence.push(item);
+    const visibleDevices=[] as typeof deviceRows;
+    for(const item of deviceRows)if(await this.resourceAccessService.canAccessResource(user,item.id,Permissions.REGISTRY_READ))visibleDevices.push(item);
     return {
       id: row.id,
       analysisNumber: row.analysisNumber,
@@ -629,12 +688,12 @@ export class ForensicsService {
       completedAt: row.completedAt ? row.completedAt.toISOString() : null,
       approvedAt: row.approvedAt ? row.approvedAt.toISOString() : null,
       purpose: row.purpose,
-      methodology: row.methodology,
-      findings: row.findings,
-      conclusion: row.conclusion,
+      methodology: canSeeReport?row.methodology:null,
+      findings: canSeeReport?row.findings:null,
+      conclusion: canSeeReport?row.conclusion:null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
-      findingsList: findingsRows.map((f) => ({
+      findingsList: (canSeeReport?findingsRows:[]).map((f) => ({
         id: f.id,
         analysisId: f.analysisId,
         findingType: f.findingType,
@@ -644,7 +703,7 @@ export class ForensicsService {
         createdByUserId: f.createdByUserId,
         createdAt: f.createdAt.toISOString(),
       })),
-      acquisitions: acquisitionsRows.map((a) => ({
+      acquisitions: (canSeeReport?acquisitionsRows:[]).map((a) => ({
         id: a.id,
         analysisId: a.analysisId,
         evidenceId: a.evidenceId,
@@ -662,13 +721,13 @@ export class ForensicsService {
         notes: a.notes,
         createdAt: a.createdAt.toISOString(),
       })),
-      evidenceLinks: evidenceRows.map((e) => ({
+      evidenceLinks: visibleEvidence.map((e) => ({
         id: e.id,
         evidenceNumber: e.evidenceNumber,
         description: e.description || '',
         status: e.status,
       })),
-      deviceLinks: deviceRows,
+      deviceLinks: visibleDevices,
     };
   }
 
@@ -705,6 +764,7 @@ export class ForensicsService {
         Permissions.FORENSICS_READ
       );
       if (canAccess) {
+        const canSeeReport=r.status==='APPROVED'&&!!r.approvedAt||await this.resourceAccessService.canAccessResource(user,r.id,Permissions.FORENSICS_WORK)||await this.resourceAccessService.canAccessResource(user,r.id,Permissions.FORENSICS_APPROVE);
         accessible.push({
           id: r.id,
           analysisNumber: r.analysisNumber,
@@ -722,9 +782,9 @@ export class ForensicsService {
           completedAt: r.completedAt ? r.completedAt.toISOString() : null,
           approvedAt: r.approvedAt ? r.approvedAt.toISOString() : null,
           purpose: r.purpose,
-          methodology: r.methodology,
-          findings: r.findings,
-          conclusion: r.conclusion,
+          methodology: canSeeReport?r.methodology:null,
+          findings: canSeeReport?r.findings:null,
+          conclusion: canSeeReport?r.conclusion:null,
           createdAt: r.createdAt.toISOString(),
           updatedAt: r.updatedAt.toISOString(),
         });

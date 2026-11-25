@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
+import { ResourcePicker } from '@/components/common/ResourcePicker';
 import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { DataTable, Column } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
@@ -30,7 +31,7 @@ export default function RegistryPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
-  const { hasPermission, viewAs } = useAuth();
+  const { hasPermission, viewAs,currentUser } = useAuth();
   const { formatDate, t } = usePreferences();
 
   const [activeTab, setActiveTab] = useState<RegistryTab>('persons');
@@ -52,24 +53,9 @@ export default function RegistryPage() {
   const [formData, setFormData] = useState<Record<string, any>>({});
 
   const canManage = !viewAs && hasPermission('registry.create', eventId) && (activeTab !== 'licences' || hasPermission('registry.relationship.manage', eventId));
-  const [licenceParties,setLicenceParties] = useState<{persons:any[];organisations:any[]}>({persons:[],organisations:[]});
-  const [partiesError,setPartiesError] = useState('');
-  useEffect(() => {
-    if (!showCreateModal || activeTab !== 'licences') return;
-    let cancelled = false;
-    setLicenceParties({persons:[],organisations:[]});
-    setPartiesError('');
-    Promise.all([apiClient.getPersons(eventId),apiClient.getOrganisations(eventId)]).then(([p,o]) => {
-      if (cancelled) return;
-      if (!p.ok || !o.ok) setPartiesError('Unable to load eligible registry records');
-      else setLicenceParties({persons:p.data || [],organisations:o.data || []});
-    }).catch(() => {if (!cancelled) setPartiesError('Unable to load registry records');});
-    return () => {cancelled = true;};
-  },[showCreateModal,activeTab,eventId]);
-
   const requestId = React.useRef(0);
   const [loadedScope,setLoadedScope] = useState('');
-  const scope = eventId + ':' + activeTab;
+  const scope = JSON.stringify([eventId,activeTab,currentUser?.user.id,viewAs?.targetUserId,hasPermission('registry.read',eventId),canManage]);
   const currentScope = React.useRef(scope);
   currentScope.current = scope;
   const fetchData = async () => {
@@ -102,11 +88,12 @@ export default function RegistryPage() {
   };
 
   useEffect(() => {
+    setShowCreateModal(false);setFormData({});setSubmitting(false);setFormError(null);
     if (eventId) {
       fetchData();
     }
     return () => {++requestId.current;};
-  }, [eventId, activeTab]);
+  }, [scope]);
 
   const filteredData = useMemo(() => {
     if (loadedScope !== scope) return [];
@@ -140,6 +127,7 @@ export default function RegistryPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if(!canManage||submitting||scope!==currentScope.current)return;
+    if(activeTab==='licences'&&(!formData.holderId||!formData.issuerId||formData.holderId===formData.issuerId)){setFormError('Choose a holder and a different issuing authority from the search results.');return;}
     setSubmitting(true);
     setFormError(null);
     try {
@@ -220,6 +208,7 @@ export default function RegistryPage() {
         });
       }
 
+      if(scope!==currentScope.current)return;
       if (res?.ok) {
         setShowCreateModal(false);
         setFormData({});
@@ -228,9 +217,9 @@ export default function RegistryPage() {
         setFormError(res?.error || 'Registration failed');
       }
     } catch (err: any) {
-      setFormError(err.message || 'Error occurred');
+      if(scope===currentScope.current)setFormError(err.message || 'Error occurred');
     } finally {
-      setSubmitting(false);
+      if(scope===currentScope.current)setSubmitting(false);
     }
   };
 
@@ -313,6 +302,7 @@ export default function RegistryPage() {
         {header:'Number',accessor:item=>item.licenceNumber || '—'},
         {header:'Valid from',accessor:item=>item.validFrom},
         {header:'Valid until',accessor:item=>item.validUntil || '—'},
+        {header:'Exercise validity',accessor:item=><span title={item.asOfDate||''}>{item.effectiveStatus??'—'}</span>},
         {header:'Status',accessor:item=>item.status},
       ];
     }
@@ -1048,11 +1038,10 @@ export default function RegistryPage() {
 
                 {activeTab === 'licences' && (
                   <div style={{display:'grid',gap:12,marginBottom:16}}>
-                    {partiesError && <p role="alert">{partiesError}</p>}
                     <label className="form-label">Licence title<input required maxLength={200} className="input-field" style={{width:'100%'}} value={formData.title || ''} onChange={e=>setFormData({...formData,title:e.target.value})}/></label>
                     <label className="form-label">Category<select className="input-field" style={{width:'100%'}} value={formData.category || 'OTHER'} onChange={e=>setFormData({...formData,category:e.target.value})}>{['DRIVING','FIREARMS','PROFESSIONAL','BUSINESS','SECURITY','OTHER'].map(v=><option key={v}>{v}</option>)}</select></label>
-                    <label className="form-label">Holder<select required className="input-field" style={{width:'100%'}} value={formData.holderId || ''} onChange={e=>setFormData({...formData,holderId:e.target.value})}><option value="">Select holder</option><optgroup label="Persons">{licenceParties.persons.map(p=><option key={p.id} value={p.id}>{p.displayName} · {p.identifier}</option>)}</optgroup><optgroup label="Organisations">{licenceParties.organisations.map(o=><option key={o.id} value={o.id}>{o.name} · {o.identifier}</option>)}</optgroup></select></label>
-                    <label className="form-label">Issuing authority<select required className="input-field" style={{width:'100%'}} value={formData.issuerId || ''} onChange={e=>setFormData({...formData,issuerId:e.target.value})}><option value="">Select organisation</option>{licenceParties.organisations.filter(o=>o.id!==formData.holderId).map(o=><option key={o.id} value={o.id}>{o.name} · {o.identifier}</option>)}</select></label>
+                    <ResourcePicker eventId={eventId} label="Holder" types="person,organisation" required disabled={submitting} value={formData.holderId||''} onChange={id=>setFormData(old=>({...old,holderId:id,issuerId:old.issuerId===id?'':old.issuerId}))}/>
+                    <ResourcePicker eventId={eventId} label="Issuing authority" types="organisation" required disabled={submitting} value={formData.issuerId||''} onChange={id=>setFormData(old=>({...old,issuerId:id}))}/>
                     <label className="form-label">Licence number<input maxLength={100} className="input-field" style={{width:'100%'}} value={formData.licenceNumber || ''} onChange={e=>setFormData({...formData,licenceNumber:e.target.value})}/></label>
                     <label className="form-label">Valid from<input required type="date" className="input-field" style={{width:'100%'}} value={formData.validFrom || ''} onChange={e=>setFormData({...formData,validFrom:e.target.value})}/></label>
                     <label className="form-label">Valid until (optional)<input type="date" min={formData.validFrom || undefined} className="input-field" style={{width:'100%'}} value={formData.validUntil || ''} onChange={e=>setFormData({...formData,validUntil:e.target.value})}/></label>

@@ -1,7 +1,7 @@
 import { Injectable, Controller, UseGuards, Get, Post, Patch, Param, Body, ParseUUIDPipe, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { and, eq, desc } from 'drizzle-orm';
-import { licences, resources } from '@cyris/db';
-import { CreateLicenceRequestSchema, UpdateLicenceRequestSchema, licenceDatesOrdered, type CreateLicenceRequest, type UpdateLicenceRequest } from '@cyris/contracts';
+import { licences, resources, events, scenarioClocks, calculateScenarioTime } from '@cyris/db';
+import { CreateLicenceRequestSchema, UpdateLicenceRequestSchema, licenceDatesOrdered, licenceExerciseDate, effectiveLicenceStatus, LicenceStatusSchema, type CreateLicenceRequest, type UpdateLicenceRequest } from '@cyris/contracts';
 import { generateId, Permissions } from '@cyris/shared';
 import { DatabaseService } from '../database/database.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
@@ -26,20 +26,26 @@ export class LicencesService {
     private readonly search: SearchIndexerService,
   ) {}
   private get db() { return this.database.client; }
-  private response(item: typeof licences.$inferSelect, resource: {eventId:string; visibility:string}) {
+  private async exerciseDate(eventId:string):Promise<string|null>{
+    const [row]=await this.db.select({timezone:events.defaultTimezone,clock:scenarioClocks}).from(events).leftJoin(scenarioClocks,eq(scenarioClocks.eventId,events.id)).where(eq(events.id,eventId)).limit(1);
+    if(!row)return null;
+    return licenceExerciseDate(calculateScenarioTime(row.clock),row.timezone);
+  }
+  private response(item: typeof licences.$inferSelect, resource: {eventId:string; visibility:string},asOfDate:string|null=null) {
+    const status=LicenceStatusSchema.safeParse(item.status);
     return {...item, eventId:resource.eventId, visibility:resource.visibility,
+      asOfDate,effectiveStatus:asOfDate&&status.success?effectiveLicenceStatus(status.data,item.validFrom,item.validUntil,asOfDate):null,
       createdAt:item.createdAt.toISOString(), updatedAt:item.updatedAt.toISOString()};
   }
   async list(eventId:string,user:AuthenticatedUser) {
     const rows = await this.db.select({item:licences,resource:resources}).from(licences)
       .innerJoin(resources,eq(licences.id,resources.id))
       .where(eq(resources.eventId,eventId)).orderBy(desc(licences.createdAt));
-    const result = [];
-    for (const row of rows) {
-      if (await this.access.canAccessResource(user,row.item.id,Permissions.REGISTRY_READ))
-        result.push(this.response(row.item,row.resource));
-    }
-    return result;
+    const allowed=[];
+    for(const row of rows)if(await this.access.canAccessResource(user,row.item.id,Permissions.REGISTRY_READ))allowed.push(row);
+    if(!allowed.length)return [];
+    const asOfDate=await this.exerciseDate(eventId);
+    return allowed.map(row=>this.response(row.item,row.resource,asOfDate));
   }
   async get(eventId:string,id:string,user:AuthenticatedUser) {
     const [row] = await this.db.select({item:licences,resource:resources}).from(licences)
@@ -47,7 +53,7 @@ export class LicencesService {
       .where(and(eq(resources.eventId,eventId),eq(licences.id,id))).limit(1);
     if (!row) throw new NotFoundException('Licence not found in this exercise');
     await this.access.assertCanAccessResource(user,id,Permissions.REGISTRY_READ);
-    return this.response(row.item,row.resource);
+    return this.response(row.item,row.resource,await this.exerciseDate(eventId));
   }
   async create(eventId:string,data:CreateLicenceRequest,user:AuthenticatedUser) {
     const context = {eventId, resourceOwnerId:user.id};
@@ -59,7 +65,7 @@ export class LicencesService {
     if ((await this.access.getModuleImpacts(eventId,user)).get('registry') === 'UNAVAILABLE')
       throw new ForbiddenException('Registry is unavailable');
     const id = generateId();
-    return this.db.transaction(async tx => {
+    const createdItem=await this.db.transaction(async tx => {
       for (const [targetId,types] of [[data.holderId,['person','organisation']], [data.issuerId,['organisation']]] as const) {
         const target = await this.registry.getResource(targetId,tx);
         if (!target || target.eventId !== eventId || !(types as readonly string[]).includes(target.resourceType))
@@ -80,13 +86,14 @@ export class LicencesService {
           createdByUserId:user.id,txClient:tx});
       }
       await this.search.emitSearchUpsert('licence',id,tx);
-      return this.response(created!,{eventId,visibility:data.visibility});
+      if(!created)throw new BadRequestException('Licence was not created');return created;
     });
+    return this.response(createdItem,{eventId,visibility:data.visibility},await this.exerciseDate(eventId));
   }
   async update(eventId:string,id:string,data:UpdateLicenceRequest,user:AuthenticatedUser) {
     await this.get(eventId,id,user);
     await this.access.assertCanAccessResource(user,id,Permissions.REGISTRY_UPDATE);
-    return this.db.transaction(async tx => {
+    await this.db.transaction(async tx => {
       const [current] = await tx.select().from(licences).where(eq(licences.id,id)).for('update').limit(1);
       if (!current) throw new NotFoundException('Licence not found');
       if (!licenceDatesOrdered(data.validFrom ?? current.validFrom,data.validUntil === undefined ? current.validUntil : data.validUntil))
@@ -95,9 +102,9 @@ export class LicencesService {
       await this.audit.record({action:'registry.licence.updated',category:'registry',eventId,
         resourceType:'licence',resourceId:id,actorUserId:user.id,metadata:{fields:Object.keys(data)},txClient:tx});
       await this.search.emitSearchUpsert('licence',id,tx);
-      const [resource] = await tx.select().from(resources).where(eq(resources.id,id)).limit(1);
-      return this.response(updated!,resource!);
+      if(!updated)throw new NotFoundException('Licence not found');
     });
+    return this.get(eventId,id,user);
   }
 }
 

@@ -497,7 +497,8 @@ export default function RegistryEntityDetailPage() {
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
                     {entityType==='licences'&&<div style={{gridColumn:'1 / -1',padding:'12px 0'}}>
-                      <label className="form-label">{tr('Ověřit platnost k datu','Check validity on date')}<input type="date" className="input-field" value={checkDate} onChange={e=>setCheckDate(e.target.value)}/></label>
+                      <p role="status">{tr('Platnost ve scénáři','Exercise validity')}: <strong>{entityData.effectiveStatus??'—'}</strong>{entityData.asOfDate&&' · '+entityData.asOfDate}</p>
+                      <label className="form-label">{tr('Ověřit platnost k jinému datu','Check validity on another date')}<input type="date" className="input-field" value={checkDate} onChange={e=>setCheckDate(e.target.value)}/></label>
                       {checkDate&&LicenceStatusSchema.safeParse(entityData.status).success&&<p role="status">{tr('Stav k vybranému datu: ','Status on selected date: ')}{effectiveLicenceStatus(entityData.status,entityData.validFrom,entityData.validUntil,checkDate)}</p>}
                       <p style={{fontSize:12,color:'var(--color-text-dim)'}}>{tr('Pouze scénářový záznam. Vyberte datum cvičení; nejde o právní ověření skutečného oprávnění.','Fictional exercise record only. Select the exercise date; this is not a real legal verification.')}</p>
                     </div>}

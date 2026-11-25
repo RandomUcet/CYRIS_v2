@@ -264,3 +264,64 @@ class ComposeRefreshPolicy(unittest.TestCase):
         del new["services"]["worker"]
         with self.assertRaisesRegex(ValueError,"topology"):
             ctl.validate_compose_refresh(old,new)
+
+
+class DiagnosticSummary(unittest.TestCase):
+    def test_only_fixed_categories_are_exported(self):
+        sample="ERROR password=super-secret person=John Example\nETIMEDOUT token=private-token\nnormal message\nAUTH_FAILED user=secret"
+        report=ctl.classify_diagnostic_logs(sample)
+        self.assertEqual(report,{"sampledLines":4,"categories":{"ERROR":1,"TIMEOUT":1,"PROVIDER_AUTH":1}})
+        self.assertNotIn("secret",json.dumps(report))
+        self.assertNotIn("John",json.dumps(report))
+
+    def test_window_and_unavailable_services(self):
+        with patch.object(ctl,"get_installed_version",return_value="2.5.1"), patch.object(ctl.subprocess,"run") as run:
+            run.side_effect=[Mock(returncode=0,stdout="ERROR private-password"),Mock(returncode=1,stdout="sensitive"),*[Mock(returncode=0,stdout="") for _ in range(5)]]
+            report=ctl.diagnostic_summary(60)
+            self.assertEqual(report["services"]["api"]["categories"],{"ERROR":1})
+            self.assertEqual(report["services"]["worker"],{"status":"unavailable"})
+            self.assertNotIn("private-password",json.dumps(report))
+            self.assertEqual(run.call_count,7)
+            self.assertIn("--tail",run.call_args_list[0].args[0])
+            self.assertIn("500",run.call_args_list[0].args[0])
+        with self.assertRaises(ValueError):
+            ctl.diagnostic_summary(1441)
+
+
+class DiagnosticTransport(unittest.TestCase):
+    def test_login_analysis_and_logout(self):
+        source={"schema":"test"}
+        report={"report":{"summary":"Test"},"source":source}
+        token="a"*64
+        with patch.object(ctl,"load_env",return_value={"CYRIS_API_PORT":"4001"}), patch.object(ctl.sys.stdin,"isatty",return_value=True), patch.object(ctl.sys.stderr,"isatty",return_value=True), patch.object(ctl.getpass,"getpass",side_effect=["admin","secret"]), patch.object(ctl,"diagnostic_api_request",side_effect=[({},[("Set-Cookie","cyris_session="+token+"; HttpOnly")]),(report,[]),({},[])]) as req:
+            self.assertEqual(ctl.analyze_diagnostic_summary(source,"cs"),report)
+            self.assertEqual(req.call_args_list[1].args,(4001,"/admin/diagnostics/analyze",{"summary":source,"locale":"cs"},token))
+            self.assertEqual(req.call_args_list[2].args,(4001,"/auth/logout",{},token))
+            self.assertNotIn("secret",str(report))
+
+    def test_failed_analysis_still_revokes_session(self):
+        token="b"*64
+        with patch.object(ctl,"load_env",return_value={}), patch.object(ctl.sys.stdin,"isatty",return_value=True), patch.object(ctl.sys.stderr,"isatty",return_value=True), patch.object(ctl.getpass,"getpass",side_effect=["admin","secret"]), patch.object(ctl,"diagnostic_api_request",side_effect=[({},[("Set-Cookie","cyris_session="+token)]),ValueError("unavailable"),({},[])]) as req:
+            with self.assertRaisesRegex(ValueError,"unavailable"):
+                ctl.analyze_diagnostic_summary({},"en")
+            self.assertEqual(req.call_args_list[-1].args[1],"/auth/logout")
+
+
+class StorageReporting(unittest.TestCase):
+    def test_docker_decimal_sizes_and_unknown_format(self):
+        self.assertEqual(ctl.docker_size_bytes("36.25GB"),36250000000)
+        self.assertEqual(ctl.docker_size_bytes("9.569GB (26%)"),9569000000)
+        self.assertEqual(ctl.docker_size_bytes("500kB"),500000)
+        with self.assertRaises(ValueError):
+            ctl.docker_size_bytes("unknown secret")
+    def test_bounded_report_never_exports_raw_rows(self):
+        row={"Type":"Images","Total":"51","Active":"9","Size":"36.25GB","Reclaimable":"9.569GB (26%)","extra":"SECRET"}
+        with patch.object(ctl,"storage_du",return_value=10),patch.object(ctl,"storage_filesystem",return_value={"totalBytes":100,"usedBytes":51,"availableBytes":49}),patch.object(ctl,"get_installed_version",return_value="2.5.1"),patch.object(ctl.subprocess,"run",return_value=Mock(returncode=0,stdout=json.dumps(row))) as run:
+            report=ctl.storage_report()
+            self.assertEqual(report["docker"]["Images"]["active"],9)
+            self.assertIsNone(report["docker"]["Build Cache"])
+            self.assertNotIn("SECRET",json.dumps(report))
+            self.assertEqual(run.call_args.args[0][2],"unix:///var/run/docker.sock")
+    def test_du_timeout_is_unavailable(self):
+        with patch.object(ctl.Path,"is_dir",return_value=True),patch.object(ctl.subprocess,"run",side_effect=subprocess.TimeoutExpired("du",20)):
+            self.assertIsNone(ctl.storage_du("/example"))

@@ -4,8 +4,9 @@ import { DatabaseService } from '../database/database.service.js';
 import { PreferencesService } from '../preferences/preferences.service.js';
 import { InAppNotificationProvider } from './providers/in-app-notification.provider.js';
 import { EmailNotificationProvider } from './providers/email-notification.provider.js';
-import { notifications, users } from '@cyris/db';
+import { notifications, users, labAnalyses, resources } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
+import { ResourceAccessService } from '../resources/resource-access.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { readModuleImpacts } from '../disruptions/read-module-impacts.js';
 import { serviceModuleForAction } from '../disruptions/module-resources.js';
@@ -104,7 +105,7 @@ export class NotificationsService {
 
     // Save the in-app row so it reappears after restoration. Do not mail details
     // to a recipient while the originating module is unavailable to them.
-    if (canDeliverEmail && await this.canShowModule(input.eventId, input.templateKey, input.userId)) {
+    if (canDeliverEmail && await this.canShowModule(input.eventId, input.templateKey, input.userId,input.resourceId)) {
       this.emailProvider
         .deliver(notificationItem, {
           userEmail: recipient.email,
@@ -131,7 +132,7 @@ export class NotificationsService {
     ];
 
     if (eventId) {
-      conditions.push(eq(notifications.eventId, eventId));
+      conditions.push(or(eq(notifications.eventId,eventId),and(isNull(notifications.eventId),eq(notifications.templateKey,'platform.health.degraded')))!)
     }
 
     const rows = await db
@@ -146,7 +147,7 @@ export class NotificationsService {
 
     const canShow=this.moduleVisibility(userId);
     for(const row of rows){
-      if(!await canShow(row.eventId,row.templateKey))continue;
+      if(!await canShow(row.eventId,row.templateKey,row.resourceId))continue;
       const item = this.mapToItem(row);
       if (!row.readAt) {
         newItems.push(item);
@@ -182,7 +183,7 @@ export class NotificationsService {
       throw new ForbiddenException('Cannot modify notifications of other users');
     }
 
-    if (!await this.canShowModule(existing.eventId, existing.templateKey, userId)) {
+    if (!await this.canShowModule(existing.eventId, existing.templateKey, userId,existing.resourceId)) {
       throw new NotFoundException('Notification not found');
     }
 
@@ -209,27 +210,31 @@ export class NotificationsService {
     ];
 
     if (eventId) {
-      conditions.push(eq(notifications.eventId, eventId));
+      conditions.push(or(eq(notifications.eventId,eventId),and(isNull(notifications.eventId),eq(notifications.templateKey,'platform.health.degraded')))!)
     }
 
     // Only acknowledge groups that the recipient could actually see. Grouping
     // in SQL avoids transferring unread notification bodies and UUID lists.
     const readAt=new Date();
     conditions.push(lte(notifications.createdAt,readAt));
-    const groups=await db.selectDistinct({eventId:notifications.eventId,templateKey:notifications.templateKey})
+    const groups=await db.selectDistinct({eventId:notifications.eventId,templateKey:notifications.templateKey,resourceId:notifications.resourceId})
       .from(notifications).where(and(...conditions));
     const canShow=this.moduleVisibility(userId);
-    const allowed=new Map<string|null,string[]>();
+    const allowed=new Map<string|null,Set<string>>();
+    const labGroups:NonNullable<ReturnType<typeof and>>[]=[];
     for(const group of groups){
-      if(!await canShow(group.eventId,group.templateKey))continue;
-      const keys=allowed.get(group.eventId)??[];
-      keys.push(group.templateKey);allowed.set(group.eventId,keys);
+      if(!await canShow(group.eventId,group.templateKey,group.resourceId))continue;
+      if(group.templateKey==='lab.request.status'&&group.resourceId&&group.eventId){
+        labGroups.push(and(eq(notifications.eventId,group.eventId),eq(notifications.templateKey,group.templateKey),eq(notifications.resourceId,group.resourceId))!);continue;
+      }
+      const keys=allowed.get(group.eventId)??new Set<string>();
+      keys.add(group.templateKey);allowed.set(group.eventId,keys);
     }
-    if(!allowed.size)return {updatedCount:0};
+    if(!allowed.size&&!labGroups.length)return {updatedCount:0};
     const visible=or(...[...allowed].map(([id,keys])=>and(
       id===null?isNull(notifications.eventId):eq(notifications.eventId,id),
-      inArray(notifications.templateKey,keys),
-    )));
+      inArray(notifications.templateKey,[...keys]),
+    )),...labGroups);
     const res=await db.update(notifications).set({readAt})
       .where(and(...conditions,visible)).returning({id:notifications.id});
 
@@ -255,7 +260,7 @@ export class NotificationsService {
       throw new ForbiddenException('Cannot dismiss notifications of other users');
     }
 
-    if(!await this.canShowModule(existing.eventId,existing.templateKey,userId)){
+    if(!await this.canShowModule(existing.eventId,existing.templateKey,userId,existing.resourceId)){
       throw new NotFoundException('Notification not found');
     }
     await db
@@ -277,7 +282,21 @@ export class NotificationsService {
         .from(users).where(eq(users.id,userId)).limit(1);
       return Boolean(user&&await this.authorization.authorize({user,permission:Permissions.PLATFORM_MANAGE}));
     })();
-    return async(eventId:string|null|undefined,templateKey:string):Promise<boolean>=>{
+    const access=new ResourceAccessService(this.databaseService,this.authorization);
+    const labVisibility=new Map<string,Promise<boolean>>();
+    return async(eventId:string|null|undefined,templateKey:string,resourceId?:string|null):Promise<boolean>=>{
+      if(templateKey==='lab.request.status'){
+        if(!eventId||!resourceId)return false;
+        const key=eventId+':'+resourceId;let visible=labVisibility.get(key);
+        if(!visible){visible=(async()=>{
+          const [record]=await db.select({requester:labAnalyses.requestedByUserId}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id)).where(and(eq(labAnalyses.id,resourceId),eq(resources.eventId,eventId))).limit(1);
+          if(record?.requester!==userId)return false;
+          const [user]=await db.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status}).from(users).where(eq(users.id,userId)).limit(1);
+          return Boolean(user&&await access.canAccessResource(user,resourceId,Permissions.LAB_READ));
+        })();labVisibility.set(key,visible);}
+        return visible;
+      }
+      if(templateKey==='platform.health.degraded')return isAdmin();
       const module=serviceModuleForAction(templateKey);
       if(!eventId||!module)return true;
       let pending=impacts.get(eventId);
@@ -286,8 +305,8 @@ export class NotificationsService {
     };
   }
 
-  private canShowModule(eventId:string|null|undefined,templateKey:string,userId:string):Promise<boolean>{
-    return this.moduleVisibility(userId)(eventId,templateKey);
+  private canShowModule(eventId:string|null|undefined,templateKey:string,userId:string,resourceId?:string|null):Promise<boolean>{
+    return this.moduleVisibility(userId)(eventId,templateKey,resourceId);
   }
 
   private mapToItem(row: typeof notifications.$inferSelect): NotificationItem {

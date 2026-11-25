@@ -16,6 +16,7 @@ import { CatchMeUpService } from './services/catch-me-up.service.js';
 import { TimelineExplainService } from './services/timeline-explain.service.js';
 
 import { AIAdminController } from './ai-admin.controller.js';
+import { OperationalDiagnosticsController } from './operational-diagnostics.controller.js';
 import { IntelligenceController } from './intelligence.controller.js';
 
 @Module({
@@ -37,7 +38,7 @@ import { IntelligenceController } from './intelligence.controller.js';
     CatchMeUpService,
     TimelineExplainService,
   ],
-  controllers: [AIAdminController, IntelligenceController],
+  controllers: [AIAdminController, IntelligenceController, OperationalDiagnosticsController],
   exports: [
     AIGatewayService,
     AIContextService,

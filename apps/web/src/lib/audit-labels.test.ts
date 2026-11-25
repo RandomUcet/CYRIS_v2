@@ -1,0 +1,2 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {auditActionLabel,auditOutcomeLabel} from './audit-labels';
+test('operator labels retain unknown exact action codes',()=>{assert.equal(auditActionLabel('evidence.transferred',true),'Předání důkazu');assert.equal(auditActionLabel('task.completed',false),'Task completed');assert.equal(auditActionLabel('future.action',true),'future.action');assert.equal(auditActionLabel('constructor',true),'constructor');assert.equal(auditOutcomeLabel('DENIED',true),'Zamítnuto');});

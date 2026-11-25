@@ -1,7 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import type { SearchDocument } from '@cyris/contracts';
 import { normalizeSearchText, Permissions } from '@cyris/shared';
-import { forensicAnalyses, resources } from '../../schema/index.js';
+import { forensicAnalyses, forensicAnalysisEvidence, forensicAnalysisDevices, resources } from '../../schema/index.js';
 import type { CyrisDb, SearchProjectionProvider } from '../projection.interface.js';
 
 export class ForensicAnalysisSearchProjectionProvider implements SearchProjectionProvider {
@@ -18,19 +18,13 @@ export class ForensicAnalysisSearchProjectionProvider implements SearchProjectio
       .limit(1);
 
     if (!row) return null;
-    if (row.resource.visibility === 'RESTRICTED' || row.resource.visibility === 'SCENARIO') {
-      return null;
-    }
+    if(row.resource.visibility!=='EVENT'||row.resource.eventId!==row.analysis.eventId)return null;
+    const [privateEvidence]=await db.select({id:resources.id}).from(forensicAnalysisEvidence).innerJoin(resources,eq(resources.id,forensicAnalysisEvidence.evidenceId)).where(and(eq(forensicAnalysisEvidence.analysisId,id),ne(resources.visibility,'EVENT'))).limit(1);
+    const [privateDevice]=await db.select({id:resources.id}).from(forensicAnalysisDevices).innerJoin(resources,eq(resources.id,forensicAnalysisDevices.deviceId)).where(and(eq(forensicAnalysisDevices.analysisId,id),ne(resources.visibility,'EVENT'))).limit(1);
+    if(privateEvidence||privateDevice)return null;
 
     const assignedUserIds = row.analysis.assignedToUserId ? [row.analysis.assignedToUserId] : [];
-    const content = [
-      row.analysis.purpose,
-      row.analysis.methodology,
-      row.analysis.findings,
-      row.analysis.conclusion,
-    ]
-      .filter(Boolean)
-      .join(' ');
+    const content = ''; // Search never distributes report text.
 
     const searchable = `${row.analysis.analysisNumber} ${row.analysis.analysisType} ${row.analysis.status} ${content}`;
 
@@ -44,10 +38,10 @@ export class ForensicAnalysisSearchProjectionProvider implements SearchProjectio
       content,
       normalizedContent: normalizeSearchText(searchable),
       identifiers: [row.analysis.id, row.analysis.analysisNumber],
-      tags: ['forensics', 'digital', row.analysis.analysisType.toLowerCase(), row.analysis.status.toLowerCase()],
+      tags: ['forensics', 'digital', row.analysis.analysisType.toLowerCase(), row.analysis.status.toLowerCase(),'forensics-safe-v1'],
       status: row.analysis.status,
       requiredPermission: Permissions.FORENSICS_READ,
-      visibility: row.resource.visibility === 'UNIT' ? 'UNIT' : 'EVENT',
+      visibility: 'EVENT',
       unitIds: row.analysis.assignedUnitId
         ? [row.analysis.assignedUnitId]
         : row.analysis.requestedFromUnitId
@@ -73,7 +67,7 @@ export class ForensicAnalysisSearchProjectionProvider implements SearchProjectio
 
     const docs: SearchDocument[] = [];
     for (const r of rows) {
-      if (r.resource.visibility === 'RESTRICTED' || r.resource.visibility === 'SCENARIO') continue;
+      if(r.resource.visibility!=='EVENT')continue;
       const doc = await this.buildDocument(db, 'forensic_analysis', r.analysis.id);
       if (doc) docs.push(doc);
     }

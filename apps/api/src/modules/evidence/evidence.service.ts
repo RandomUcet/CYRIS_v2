@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, or, isNull, gt, asc, sql, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
@@ -11,7 +11,7 @@ import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
   evidence,
   evidenceCustodyTransfers,
-  resources,
+  resources,users,eventMemberships,organizationalUnits,previewTeamAccounts,events,
   type ResourceVisibilityValue,
   type EvidenceStatusValue,
   type CustodyHolderTypeValue,
@@ -22,7 +22,7 @@ import type {
   UpdateEvidenceRequest,
   TransferEvidenceRequest,
   EvidenceResponse,
-  EvidenceCustodyTransferResponse,
+  EvidenceCustodyTransferResponse,CustodyRecipientQuery,CustodyRecipient,
 } from '@cyris/contracts';
 
 @Injectable()
@@ -212,6 +212,7 @@ export class EvidenceService {
     }
 
     const custodyRows = await this.getCustodyHistory(eventId, evidenceId, user);
+    const holderNames=await this.holderNames(eventId,[{type:row.ev.currentHolderType,id:row.ev.currentHolderId}]);
 
     return {
       id: row.ev.id,
@@ -227,6 +228,7 @@ export class EvidenceService {
       owningUnitId: row.ev.owningUnitId,
       currentHolderType: row.ev.currentHolderType,
       currentHolderId: row.ev.currentHolderId,
+      currentHolderName:holderNames.get(row.ev.currentHolderType+':'+row.ev.currentHolderId)??null,
       visibility: row.resource.visibility,
       createdAt: row.ev.createdAt.toISOString(),
       updatedAt: row.ev.updatedAt.toISOString(),
@@ -300,6 +302,24 @@ export class EvidenceService {
    * 6. Requests search reindex
    * 7. Commits
    */
+  async searchRecipients(eventId:string,evidenceId:string,query:CustodyRecipientQuery,user:AuthenticatedUser):Promise<CustodyRecipient[]>{
+    await this.resourceAccessService.assertCanAccessResource(user,evidenceId,Permissions.EVIDENCE_TRANSFER);
+    const [record]=await this.db.select({id:resources.id}).from(resources).innerJoin(evidence,eq(evidence.id,resources.id)).where(and(eq(resources.id,evidenceId),eq(resources.eventId,eventId))).limit(1);
+    if(!record)throw new NotFoundException('Evidence not found');
+    if(query.type==='UNIT')return this.db.select({id:organizationalUnits.id,name:organizationalUnits.name}).from(organizationalUnits).where(and(eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt),sql`strpos(lower(${organizationalUnits.name}),lower(${query.q}))>0`)).orderBy(asc(organizationalUnits.name),asc(organizationalUnits.id)).limit(20);
+    return this.db.select({id:users.id,name:users.displayName}).from(eventMemberships).innerJoin(users,eq(users.id,eventMemberships.userId)).leftJoin(previewTeamAccounts,eq(previewTeamAccounts.userId,users.id)).where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.status,'ACTIVE'),eq(users.status,'ACTIVE'),or(isNull(users.testExpiresAt),gt(users.testExpiresAt,new Date())),isNull(previewTeamAccounts.userId),sql`strpos(lower(${users.displayName}),lower(${query.q}))>0`)).orderBy(asc(users.displayName),asc(users.id)).limit(20);
+  }
+
+  private async holderNames(eventId:string,holders:{type:string;id:string}[],db=this.db):Promise<Map<string,string>>{
+    const names=new Map<string,string>();const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const ids=(type:string)=>[...new Set(holders.filter(h=>h.type===type&&uuid.test(h.id)).map(h=>h.id))];
+    const userIds=ids('USER'),unitIds=ids('UNIT');
+    if(userIds.length){const rows=await db.select({id:users.id,name:users.displayName}).from(eventMemberships).innerJoin(users,eq(users.id,eventMemberships.userId)).where(and(eq(eventMemberships.eventId,eventId),inArray(users.id,userIds)));for(const row of rows)names.set('USER:'+row.id,row.name);}
+    if(unitIds.length){const rows=await db.select({id:organizationalUnits.id,name:organizationalUnits.name}).from(organizationalUnits).where(and(eq(organizationalUnits.eventId,eventId),inArray(organizationalUnits.id,unitIds)));for(const row of rows)names.set('UNIT:'+row.id,row.name);}
+    for(const h of holders)if(h.type==='STORAGE')names.set('STORAGE:'+h.id,h.id==='SCENE_ORIGIN'?'Scene origin':h.id);
+    return names;
+  }
+
   async transferCustody(
     eventId: string,
     evidenceId: string,
@@ -309,17 +329,28 @@ export class EvidenceService {
     await this.resourceAccessService.assertCanAccessResource(user, evidenceId, Permissions.EVIDENCE_TRANSFER);
 
     return this.db.transaction(async (tx) => {
-      const [current] = await tx
-        .select()
-        .from(evidence)
-        .where(eq(evidence.id, evidenceId))
-        .limit(1);
-
+      const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).for('update').limit(1);
+      if(!event||['CLOSED','ARCHIVED'].includes(event.status))throw new BadRequestException('Exercise is read-only');
+      const [record] = await tx.select({current:evidence,visibility:resources.visibility}).from(evidence).innerJoin(resources,eq(resources.id,evidence.id)).where(and(eq(evidence.id,evidenceId),eq(resources.eventId,eventId))).for('update').limit(1);
+      const current=record?.current;
       if (!current) {
         throw new NotFoundException(`Evidence '${evidenceId}' not found`);
       }
 
+      await this.resourceAccessService.assertCanAccessResource(user,evidenceId,Permissions.EVIDENCE_TRANSFER,tx);
       const occurredAt = new Date();
+      if(!data.reason?.trim())throw new BadRequestException('Transfer reason is required');
+      if(current.currentHolderType===data.toHolderType&&current.currentHolderId===data.toHolderId)throw new BadRequestException('Evidence already has this holder');
+      if(data.toHolderType==='USER'){
+        const [recipient]=await tx.select({id:users.id}).from(eventMemberships).innerJoin(users,eq(users.id,eventMemberships.userId)).where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.status,'ACTIVE'),eq(users.id,data.toHolderId),eq(users.status,'ACTIVE'),or(isNull(users.testExpiresAt),gt(users.testExpiresAt,occurredAt)))).for('share').limit(1);
+        const [preview]=await tx.select({id:previewTeamAccounts.userId}).from(previewTeamAccounts).where(eq(previewTeamAccounts.userId,data.toHolderId)).limit(1);
+        if(!recipient||preview)throw new BadRequestException('Recipient is unavailable in this exercise');
+      }else if(data.toHolderType==='UNIT'){
+        const [recipient]=await tx.select({id:organizationalUnits.id}).from(organizationalUnits).where(and(eq(organizationalUnits.eventId,eventId),eq(organizationalUnits.id,data.toHolderId),isNull(organizationalUnits.archivedAt))).for('share').limit(1);
+        if(!recipient)throw new BadRequestException('Recipient unit is unavailable in this exercise');
+      }
+      const names=await this.holderNames(eventId,[{type:data.toHolderType,id:data.toHolderId}],tx as unknown as typeof this.db);
+      const holderName=names.get(data.toHolderType+':'+data.toHolderId)??null;
       const fromHolderType = current.currentHolderType;
       const fromHolderId = current.currentHolderId;
 
@@ -352,6 +383,7 @@ export class EvidenceService {
 
       // 3. Audit
       await this.auditService.record({
+        txClient:tx,
         action: 'evidence.transferred',
         category: 'evidence',
         eventId,
@@ -374,7 +406,7 @@ export class EvidenceService {
           resourceId: evidenceId,
           activityType: 'evidence.transferred',
           actorUserId: user.id,
-          title: `Evidence ${current.evidenceNumber} transferred to ${data.toHolderType}: ${data.toHolderId}`,
+          title: `Evidence ${current.evidenceNumber} transferred to ${holderName??data.toHolderType}`,
           summary: data.reason ?? undefined,
           reason: data.reason ?? undefined,
           causationId: data.causationId ?? undefined,
@@ -407,7 +439,8 @@ export class EvidenceService {
         owningUnitId: updated!.owningUnitId,
         currentHolderType: updated!.currentHolderType,
         currentHolderId: updated!.currentHolderId,
-        visibility: 'EVENT',
+        currentHolderName:holderName,
+        visibility: record!.visibility,
         createdAt: updated!.createdAt.toISOString(),
         updatedAt: updated!.updatedAt.toISOString(),
         custodyHistory,
@@ -425,12 +458,15 @@ export class EvidenceService {
     await this.resourceAccessService.assertCanAccessResource(user, evidenceId, Permissions.EVIDENCE_READ, txClient);
 
     const db = txClient || this.db;
+    const [record]=await db.select({id:resources.id}).from(resources).where(and(eq(resources.id,evidenceId),eq(resources.eventId,eventId))).limit(1);
+    if(!record)throw new NotFoundException('Evidence not found');
     const rows = await db
       .select()
       .from(evidenceCustodyTransfers)
       .where(eq(evidenceCustodyTransfers.evidenceId, evidenceId))
       .orderBy(desc(evidenceCustodyTransfers.occurredAt));
 
+    const names=await this.holderNames(eventId,rows.flatMap((r:typeof evidenceCustodyTransfers.$inferSelect)=>[{type:r.fromHolderType,id:r.fromHolderId},{type:r.toHolderType,id:r.toHolderId}]),db);
     return rows.map((r: typeof evidenceCustodyTransfers.$inferSelect) => ({
       id: r.id,
       evidenceId: r.evidenceId,
@@ -438,6 +474,8 @@ export class EvidenceService {
       transferredByUserId: r.transferredByUserId,
       fromHolderType: r.fromHolderType,
       fromHolderId: r.fromHolderId,
+      fromHolderName:names.get(r.fromHolderType+':'+r.fromHolderId)??null,
+      toHolderName:names.get(r.toHolderType+':'+r.toHolderId)??null,
       toHolderType: r.toHolderType,
       toHolderId: r.toHolderId,
       reason: r.reason,

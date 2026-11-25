@@ -14,7 +14,7 @@ import {
   roleAssignments,
   roles,
   rolePermissions,
-  operationalTasks,
+  operationalTasks,labAnalyses,labAnalysisEvidence,forensicAnalyses,
   MembershipStatus,
   ResourceVisibility,
 } from '@cyris/db';
@@ -215,6 +215,25 @@ export class ResourceAccessService {
           return false;
         }
       }
+    }
+
+    // Legacy EVENT-visible reports linked to nonpublic inputs must not bypass unit boundaries.
+    if(resource.resourceType==='lab_analysis'){
+      const inputs=await db.select({visibility:resources.visibility,eventId:resources.eventId}).from(labAnalysisEvidence).innerJoin(resources,eq(resources.id,labAnalysisEvidence.evidenceId)).where(eq(labAnalysisEvidence.analysisId,resource.id));
+      if(inputs.some((input:{visibility:string;eventId:string})=>input.eventId!==resource.eventId||input.visibility==='SCENARIO'))return false;
+      if(inputs.some((input:{visibility:string})=>input.visibility!=='EVENT')&&resource.ownerUserId!==user.id&&!isAssigned&&!canCorrectLaboratory&&!(resource.owningUnitId&&userUnitIds.includes(resource.owningUnitId)))return false;
+    }
+
+    // A requester may follow their own laboratory request, not browse the lab queue.
+    // Membership, module availability and private visibility checks above still apply.
+    if(resource.resourceType==='lab_analysis'&&permission===Permissions.LAB_READ&&resource.ownerUserId===user.id){
+      const [request]=await db.select({requester:labAnalyses.requestedByUserId,unit:labAnalyses.requestedFromUnitId}).from(labAnalyses).where(eq(labAnalyses.id,resource.id)).limit(1);
+      if(request?.requester===user.id&&await this.authzService.authorize({user,permission:Permissions.LAB_REQUEST,context:{eventId:resource.eventId,unitId:request.unit??undefined,resourceOwnerId:user.id}}))return true;
+    }
+
+    if(resource.resourceType==='forensic_analysis'&&permission===Permissions.FORENSICS_READ&&resource.ownerUserId===user.id){
+      const [request]=await db.select({requester:forensicAnalyses.requestedByUserId,unit:forensicAnalyses.requestedFromUnitId}).from(forensicAnalyses).where(and(eq(forensicAnalyses.id,resource.id),eq(forensicAnalyses.eventId,resource.eventId))).limit(1);
+      if(request?.requester===user.id&&await this.authzService.authorize({user,permission:Permissions.FORENSICS_REQUEST,context:{eventId:resource.eventId,unitId:request.unit??undefined,resourceOwnerId:user.id}}))return true;
     }
 
     // Check if operator has the required permission under an applicable scope

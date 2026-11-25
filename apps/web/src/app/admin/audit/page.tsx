@@ -7,6 +7,7 @@ import { FilterBar } from '@/components/common/FilterBar';
 import { RecordInspector } from '@/components/common/RecordInspector';
 import { RecordIdentifier } from '@/components/common/Badges';
 import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateViews';
+import { auditActionLabel,auditOutcomeLabel } from '@/lib/audit-labels';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
@@ -15,15 +16,24 @@ import { ShieldAlert, RefreshCw, Layers, FileCode, CheckCircle, AlertOctagon } f
 import type { AuditEventItem as AuditEntry } from '@cyris/contracts';
 
 export default function AdminAuditPage() {
-  const { hasPermission } = useAuth();
+  const {currentUser,viewAs,loading}=useAuth();
+  if(loading)return <AppShell><LoadingState message="Loading audit workspace…"/></AppShell>;
+  const permissions=currentUser?.platformPermissions??[];
+  if(!currentUser||viewAs||!permissions.some(p=>p==='audit.read'||p==='platform.manage'))return <AppShell><ErrorState message="Audit access required"/></AppShell>;
+  return <AuditWorkspace key={JSON.stringify([currentUser.user.id,permissions])}/>;
+}
+function AuditWorkspace(){
   const { formatTime, formatDate, locale } = usePreferences();
   const cs=locale==='cs';
   const tr=(cz:string,en:string)=>cs?cz:en;
-  const displayDate=(stamp:string)=>stamp?formatDate(stamp)+' · '+formatTime(stamp):'—';
+  const displayDate=(stamp:string)=>stamp?formatTime(stamp):'—';
+  const actorLabel=(item:AuditEntry)=>item.actorDisplayName||(item.actorUserId?tr('Neznámý účet','Unavailable account'):item.actorType==='SYSTEM'?tr('Systém','System'):item.actorType);
+  const resourceLabel=(item:AuditEntry)=>item.resourceDisplayName||(item.resourceType?item.resourceType.replaceAll('_',' '):'—');
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const auditRequest = useRef(0);
+  useEffect(()=>()=>{++auditRequest.current;},[]);
   const [error, setError] = useState<string | null>(null);
 
   // Filters
@@ -34,6 +44,7 @@ export default function AdminAuditPage() {
     return ()=>window.clearTimeout(timer);
   },[search]);
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [outcomeFilter,setOutcomeFilter]=useState('');
   const [page, setPage] = useState(1);
   // null until the browser URL has been read, to avoid fetching an
   // unscoped audit list before applying a deep-linked account filter.
@@ -48,6 +59,7 @@ export default function AdminAuditPage() {
     if (resourceFilter===null) return;
     const request = ++auditRequest.current;
     setLoading(true);
+    setSelectedEntry(null);
     setError(null);
     try {
       const res = await apiClient.getAudit({
@@ -56,6 +68,7 @@ export default function AdminAuditPage() {
         resourceId: resourceFilter || undefined,
         q: debouncedSearch || undefined,
         category: categoryFilter || undefined,
+        outcome:outcomeFilter||undefined,
       });
 
       if (request !== auditRequest.current) return;
@@ -78,7 +91,7 @@ export default function AdminAuditPage() {
 
   useEffect(() => {
     if(resourceFilter!==null) void fetchAudit();
-  }, [categoryFilter,page,resourceFilter,debouncedSearch]);
+  }, [categoryFilter,outcomeFilter,page,resourceFilter,debouncedSearch]);
 
   // Server-side search is applied BEFORE pagination to the full permitted audit history.
   const filteredEntries = entries;
@@ -119,7 +132,7 @@ export default function AdminAuditPage() {
       header: tr('Provedená akce','Action Executed'),
       accessor: (item) => (
         <span style={{ fontWeight: 600, color: 'var(--color-text-main)', fontSize: '12px' }}>
-          {item.action}
+          {auditActionLabel(item.action,cs)}
         </span>
       ),
       sortKey: 'action',
@@ -128,16 +141,16 @@ export default function AdminAuditPage() {
       header: tr('Uživatel / aktér','Actor User'),
       accessor: (item) => (
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-dim)' }}>
-          {item.actorUserId ? item.actorUserId.slice(0, 8) : tr('Systém','System')}
+          {actorLabel(item)}
         </span>
       ),
-      width: '130px',
+      width: '180px',
     },
     {
       header: tr('Cílový záznam','Target Resource'),
       accessor: (item) => (
         item.resourceId ? (
-          <RecordIdentifier id={item.resourceId} prefix="" />
+          <span style={{overflowWrap:'anywhere'}}>{resourceLabel(item)}</span>
         ) : (
           <span style={{ color: 'var(--color-text-dim)', fontSize: '11px' }}>—</span>
         )
@@ -145,10 +158,10 @@ export default function AdminAuditPage() {
       width: '130px',
     },
     {
-      header: tr('IP adresa původu','Origin IP'),
+      header: tr('Výsledek','Outcome'),
       accessor: (item) => (
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-dim)' }}>
-          {item.ipAddress || '—'}
+          {auditOutcomeLabel(item.outcome,cs)}
         </span>
       ),
       width: '110px',
@@ -190,7 +203,7 @@ export default function AdminAuditPage() {
               {tr('Bezpečnostní audit a historie změn','Security & audit history')}
             </h1>
             <p style={{ margin: '3px 0 0 0', fontSize: '11px', color: 'var(--color-text-dim)' }}>
-              {tr('Neměnné auditní záznamy provozu. Detail každé události obsahuje uložené metainformace.','Immutable operational audit history with stored event metadata.')}
+              {tr('Neměnné události. Jména a názvy odpovídají aktuálním záznamům; technické identifikátory zůstávají v detailu.','Immutable events. Displayed names reflect current records; technical identifiers remain in the inspector.')}
             </p>
           </div>
 
@@ -209,7 +222,7 @@ export default function AdminAuditPage() {
         {resourceFilter&&<div role="status" style={{padding:'10px 24px',background:'var(--bg-surface)',
           borderBottom:'1px solid var(--border-default)',fontSize:'12px',display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
           {tr('Auditní historie účtu: ','Account audit history: ')}
-          <code>{resourceFilter}</code>
+          <strong>{entries.find(row=>row.resourceId===resourceFilter)?.resourceDisplayName??tr('Vybraný účet','Selected account')}</strong>
           <button type="button" className="btn btn-secondary"
             onClick={()=>{setResourceFilter('');setPage(1);setSelectedEntry(null);
               window.history.replaceState(null,'','/admin/audit');}}>
@@ -234,13 +247,15 @@ export default function AdminAuditPage() {
                   { label: tr('Scénáře a EXCON','Scenario and EXCON'), value: 'scenario' },
                   { label: tr('Zdravotnická agenda','Medical'), value: 'medical' },
                   { label: tr('Podpora účastníků','Support'), value: 'support' },
+                  { label: tr('Provoz systému','System operations'),value:'system' },
                 ],
                 onChange: value => {setCategoryFilter(value);setPage(1);setSelectedEntry(null);},
               },
+              {label:tr('Výsledek','Outcome'),value:outcomeFilter,options:[{label:tr('Všechny výsledky','All outcomes'),value:''},...['SUCCESS','DENIED','FAILURE'].map(value=>({value,label:auditOutcomeLabel(value,cs)}))],onChange:value=>{setOutcomeFilter(value);setPage(1);setSelectedEntry(null);}},
             ]}
             onReset={() => {
               setSearch('');setDebouncedSearch('');setSelectedEntry(null);
-              setCategoryFilter('');
+              setCategoryFilter('');setOutcomeFilter('');
               setPage(1);
               if(resourceFilter){setResourceFilter('');window.history.replaceState(null,'','/admin/audit');}
             }}
@@ -337,26 +352,26 @@ export default function AdminAuditPage() {
                     {selectedEntry.category}
                   </span>
                   <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)', marginTop: '6px' }}>
-                    {selectedEntry.action}
+                    {auditActionLabel(selectedEntry.action,cs)}
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px', marginBottom: '16px' }}>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('ID záznamu','Record ID')}: </span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.id}</span>
+                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('Výsledek','Outcome')}: </span>
+                    <strong>{auditOutcomeLabel(selectedEntry.outcome,cs)}</strong>
                   </div>
                   <div>
                     <span style={{ color: 'var(--color-text-dim)' }}>{tr('Datum a čas','Timestamp')}: </span>
                     <span>{displayDate(selectedEntry.occurredAt)}</span>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('ID aktéra','Actor user ID')}: </span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.actorUserId || 'SYSTEM'}</span>
+                    <span style={{ color: 'var(--color-text-dim)' }}>{tr('Aktér','Actor')}: </span>
+                    <span style={{ fontFamily: 'var(--font-mono)' }}>{actorLabel(selectedEntry)}</span>
                   </div>
                   <div>
                     <span style={{ color: 'var(--color-text-dim)' }}>{tr('Cílový záznam','Target resource')}: </span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{selectedEntry.resourceId || 'N/A'}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)' }}>{resourceLabel(selectedEntry)}</span>
                   </div>
                   <div>
                     <span style={{ color: 'var(--color-text-dim)' }}>{tr('IP klienta','Client IP')}: </span>
@@ -364,6 +379,7 @@ export default function AdminAuditPage() {
                   </div>
                 </div>
 
+                <details style={{marginBottom:12,overflowWrap:'anywhere'}}><summary>{tr('Technické identifikátory','Technical identifiers')}</summary><p>{tr('Akce','Action')}: <code>{selectedEntry.action}</code></p><p>{tr('Záznam','Record')}: <code>{selectedEntry.id}</code></p><p>{tr('Aktér','Actor')}: <code>{selectedEntry.actorUserId??'—'}</code></p><p>{tr('Cíl','Target')}: <code>{selectedEntry.resourceId??'—'}</code></p><p>{tr('Požadavek','Request')}: <code>{selectedEntry.requestId??'—'}</code></p></details>
                 <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '12px' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-dim)', marginBottom: '8px' }}>
                     {tr('Metainformace události','Audit payload and diff')}
@@ -382,7 +398,7 @@ export default function AdminAuditPage() {
                       overflow: 'auto',
                     }}
                   >
-                    {JSON.stringify(selectedEntry.metadata || {}, null, 2)}
+                    {JSON.stringify({metadata:selectedEntry.metadata||{},changes:selectedEntry.changes??null}, null, 2)}
                   </pre>
                 </div>
               </div>

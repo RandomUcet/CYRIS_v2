@@ -306,8 +306,10 @@ export type WeaponResponse = z.infer<typeof WeaponResponseSchema>;
 export const RegistryPickerQuerySchema = z.object({
   q: z.string().trim().min(2).max(80),
   limit: z.coerce.number().int().min(1).max(30).default(20),
+  types:z.enum(['persons','organisations','persons,organisations','devices','locations','vehicles','weapons','licences']).optional(),
 });
 export type RegistryPickerQuery = z.infer<typeof RegistryPickerQuerySchema>;
+export type RegistryPickerTypes=NonNullable<RegistryPickerQuery['types']>;
 export const RegistryPickerResultSchema = z.object({
   id: z.string().uuid(),
   eventId: z.string().uuid(),
@@ -351,3 +353,16 @@ export function effectiveLicenceStatus(status: z.infer<typeof LicenceStatusSchem
   if (until && exerciseDate > until) return 'EXPIRED';
   return 'VALID';
 }
+
+/** Date of the exercise instant in its configured time zone, not the viewer/host date. */
+export function licenceExerciseDate(instant:Date,timeZone:string):string|null{
+  if(!Number.isFinite(instant.getTime()))return null;
+  try{
+    const parts=new Intl.DateTimeFormat('en-GB',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',calendar:'gregory',numberingSystem:'latn'}).formatToParts(instant);
+    const part=(name:string)=>parts.find(p=>p.type===name)?.value;
+    const date=[part('year')?.padStart(4,'0'),part('month'),part('day')].join('-');
+    return LicenceDateSchema.safeParse(date).success?date:null;
+  }catch{return null;}
+}
+export const LicenceEffectiveStatusSchema=z.enum(['VALID','NOT_YET_VALID','EXPIRED','SUSPENDED','REVOKED','ARCHIVED']);
+export type LicenceEffectiveStatus=z.infer<typeof LicenceEffectiveStatusSchema>;

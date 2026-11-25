@@ -1,3 +1,4 @@
+import type {DiagnosticAnalysisInput,DiagnosticAnalysisResult} from '@cyris/contracts';
 import type {CreateLocalTestAccount,LocalTestAccount,LocalTestAccountCreated} from '@cyris/contracts';
 import type {ExerciseTeamSetupInput,ExerciseInjectSetupInput} from '@cyris/contracts';
 import type {ExercisePhaseSetupInput} from '@cyris/contracts';
@@ -254,6 +255,8 @@ export class CyrisApiClient {
     }
   }
 
+  analyzeOperationalDiagnostics(input:DiagnosticAnalysisInput){return this.postJson<DiagnosticAnalysisResult>('/admin/diagnostics/analyze',input);}
+  runMaintenanceCheck(action:'API_STATUS'|'DEPENDENCY_CHECK'){return this.postJson<Record<string,unknown>>('/admin/maintenance/check',{action});}
   async getReadiness(): Promise<{ ok: boolean; data?: ReadinessResponse; error?: string }> {
     try {
       const res = await this.request(`${this.baseUrl}/health/ready`, {
@@ -410,11 +413,12 @@ export class CyrisApiClient {
   }
 
   /** Canonical, event-scoped relationship picker. No Typesense dependency. */
-  async searchRegistryRecords(eventId:string,query:string,signal?:AbortSignal){
+  async searchRegistryRecords(eventId:string,query:string,signal?:AbortSignal,types?:import('@cyris/contracts').RegistryPickerTypes){
     return this.fetchJson<RegistryPickerResult[]>(
-      `/events/${eventId}/registry/search?q=${encodeURIComponent(query)}&limit=20`,signal);
+      `/events/${eventId}/registry/search?q=${encodeURIComponent(query)}&limit=20${types?'&types='+encodeURIComponent(types):''}`,signal);
   }
 
+  resolveRegistryPicker(eventId:string,id:string,signal?:AbortSignal){return this.fetchJson<RegistryPickerResult>(`/events/${eventId}/registry/picker/${id}`,signal);}
   async getPersons(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/registry/persons`);
   }
@@ -493,13 +497,14 @@ export class CyrisApiClient {
   async createEvidence(eventId: string, data: any) {
     return this.postJson<any>(`/events/${eventId}/evidence`, data);
   }
-  async transferEvidence(eventId: string, evidenceId: string, data: any) {
+  searchCustodyRecipients(eventId:string,evidenceId:string,type:'USER'|'UNIT',q:string,signal?:AbortSignal){return this.fetchJson<import('@cyris/contracts').CustodyRecipient[]>(`/events/${eventId}/evidence/${evidenceId}/recipients?type=${type}&q=${encodeURIComponent(q)}`,signal);}
+  async transferEvidence(eventId: string, evidenceId: string, data: import('@cyris/contracts').TransferEvidenceRequest) {
     return this.postJson<any>(`/events/${eventId}/evidence/${evidenceId}/transfers`, data);
   }
 
   // Laboratory
-  async getLabAnalyses(eventId: string) {
-    return this.fetchJson<any[]>(`/events/${eventId}/lab`);
+  async getLabAnalyses(eventId: string,evidenceId?:string,signal?:AbortSignal) {
+    return this.fetchJson<import('@cyris/contracts').LabAnalysisResponse[]>(`/events/${eventId}/lab${evidenceId?'?evidenceId='+encodeURIComponent(evidenceId):''}`,signal);
   }
   async getLabUnits(eventId: string) {
     return this.fetchJson<Array<{ id: string; name: string }>>(`/events/${eventId}/lab/units`);
@@ -659,7 +664,7 @@ export class CyrisApiClient {
   }
 
   // Administration
-  async getAudit(filters?: { limit?: number; page?: number; offset?: number; eventId?: string; action?: string; category?: string; resourceId?: string; q?: string }) {
+  async getAudit(filters?: { limit?: number; page?: number; offset?: number; eventId?: string; action?: string; category?: string; resourceId?: string; q?: string; outcome?:string }) {
     const params = new URLSearchParams();
     if (filters?.limit) params.set('limit', String(filters.limit));
     // API paging is 1-based; keep legacy offset callers mapped to a page.
@@ -670,6 +675,7 @@ export class CyrisApiClient {
     if (filters?.eventId) params.set('eventId', filters.eventId);
     if (filters?.action) params.set('action', filters.action);
     if (filters?.category) params.set('category', filters.category);
+    if (filters?.outcome) params.set('outcome',filters.outcome);
     const q = params.toString() ? `?${params.toString()}` : '';
     return this.fetchJson<{ items: any[]; total: number }>(`/audit${q}`);
   }

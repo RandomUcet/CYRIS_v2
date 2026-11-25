@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
-import { eq, desc, inArray, and, ne, sql } from 'drizzle-orm';
+import { eq, desc, inArray, and, ne, sql, isNull } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
@@ -13,7 +13,7 @@ import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
   evidence,
   labAnalyses,
-  labAnalysisEvidence,
+  labAnalysisEvidence,notifications,
   resources,
   organizationalUnits,
   unitCapabilities,
@@ -107,7 +107,7 @@ export class LaboratoryService {
         .where(
           and(
             eq(organizationalUnits.id, requestedUnitId),
-            eq(organizationalUnits.eventId, eventId)
+            eq(organizationalUnits.eventId, eventId),isNull(organizationalUnits.archivedAt)
           )
         )
         .limit(1);
@@ -138,7 +138,7 @@ export class LaboratoryService {
       )
       .where(
         and(
-          eq(organizationalUnits.eventId, eventId),
+          eq(organizationalUnits.eventId, eventId),isNull(organizationalUnits.archivedAt),
           eq(unitCapabilities.capabilityKey, 'chemical_analysis')
         )
       );
@@ -154,7 +154,7 @@ export class LaboratoryService {
       .innerJoin(unitCapabilities, eq(unitCapabilities.unitId, organizationalUnits.id))
       .where(and(
         eq(organizationalUnits.id, unitId),
-        eq(organizationalUnits.eventId, eventId),
+        eq(organizationalUnits.eventId, eventId),isNull(organizationalUnits.archivedAt),
         eq(unitCapabilities.capabilityKey, 'chemical_analysis')
       ))
       .limit(1);
@@ -228,7 +228,7 @@ export class LaboratoryService {
       .innerJoin(unitCapabilities, eq(unitCapabilities.unitId, organizationalUnits.id))
       .where(
         and(
-          eq(organizationalUnits.eventId, eventId),
+          eq(organizationalUnits.eventId, eventId),isNull(organizationalUnits.archivedAt),
           eq(unitCapabilities.capabilityKey, 'chemical_analysis')
         )
       )
@@ -306,12 +306,17 @@ export class LaboratoryService {
     return selected?.userId ?? null;
   }
 
-  async listAnalyses(eventId: string, user: AuthenticatedUser): Promise<LabAnalysisResponse[]> {
+  async listAnalyses(eventId: string, user: AuthenticatedUser,evidenceId?:string): Promise<LabAnalysisResponse[]> {
+    if(evidenceId){
+      const [item]=await this.db.select({id:evidence.id}).from(evidence).innerJoin(resources,eq(resources.id,evidence.id)).where(and(eq(evidence.id,evidenceId),eq(resources.eventId,eventId))).limit(1);
+      if(!item)throw new NotFoundException('Evidence not found');
+      await this.resourceAccessService.assertCanAccessResource(user,evidenceId,Permissions.EVIDENCE_READ);
+    }
     const rows = await this.db
       .select({ analysis: labAnalyses, resource: resources })
       .from(labAnalyses)
       .innerJoin(resources, eq(labAnalyses.id, resources.id))
-      .where(eq(resources.eventId, eventId))
+      .where(and(eq(resources.eventId, eventId),evidenceId?inArray(labAnalyses.id,this.db.select({id:labAnalysisEvidence.analysisId}).from(labAnalysisEvidence).where(eq(labAnalysisEvidence.evidenceId,evidenceId))):undefined))
       .orderBy(desc(labAnalyses.createdAt));
 
     const accessible: LabAnalysisResponse[] = [];
@@ -322,7 +327,7 @@ export class LaboratoryService {
           .from(labAnalysisEvidence)
           .where(eq(labAnalysisEvidence.analysisId, r.analysis.id));
 
-        accessible.push({
+        accessible.push(await this.viewerReport({
           id: r.analysis.id,
           eventId: r.resource.eventId,
           analysisNumber: r.analysis.analysisNumber,
@@ -345,7 +350,7 @@ export class LaboratoryService {
           createdAt: r.analysis.createdAt.toISOString(),
           updatedAt: r.analysis.updatedAt.toISOString(),
           evidenceIds: evidenceLinks.map((l) => l.evidenceId),
-        });
+        },user));
       }
     }
 
@@ -375,7 +380,7 @@ export class LaboratoryService {
       .from(labAnalysisEvidence)
       .where(eq(labAnalysisEvidence.analysisId, analysisId));
 
-    return {
+    return this.viewerReport({
       id: row.analysis.id,
       eventId: row.resource.eventId,
       analysisNumber: row.analysis.analysisNumber,
@@ -398,7 +403,22 @@ export class LaboratoryService {
       createdAt: row.analysis.createdAt.toISOString(),
       updatedAt: row.analysis.updatedAt.toISOString(),
       evidenceIds: evidenceLinks.map((l) => l.evidenceId),
-    };
+    },user);
+  }
+
+  private async viewerReport(record:LabAnalysisResponse,user:AuthenticatedUser):Promise<LabAnalysisResponse>{
+    const reportAvailable=record.status==='APPROVED'&&!!record.approvedAt;
+    const internal=reportAvailable||(await Promise.all([Permissions.LAB_WORK,Permissions.LAB_COMPLETE,Permissions.LAB_APPROVE,Permissions.LAB_CORRECT].map(p=>this.resourceAccessService.canAccessResource(user,record.id,p)))).some(Boolean);
+    const evidenceIds:string[]=[];
+    for(const id of record.evidenceIds??[])if(await this.resourceAccessService.canAccessResource(user,id,Permissions.EVIDENCE_READ))evidenceIds.push(id);
+    const [requester]=await this.db.select({name:users.displayName}).from(users).where(eq(users.id,record.requestedByUserId)).limit(1);
+    const [unit]=record.assignedUnitId?await this.db.select({name:organizationalUnits.name}).from(organizationalUnits).where(and(eq(organizationalUnits.id,record.assignedUnitId),eq(organizationalUnits.eventId,record.eventId))).limit(1):[];
+    return {...record,evidenceIds,reportAvailable,requesterName:requester?.name??null,unitName:unit?.name??null,...(!internal&&{method:null,findings:null,conclusion:null})};
+  }
+
+  private async notifyRequester(tx:any,eventId:string,row:typeof labAnalyses.$inferSelect){
+    // Mandatory, transactionally persisted in-app lifecycle receipt. No draft content or findings.
+    await tx.insert(notifications).values({id:generateId(),userId:row.requestedByUserId,eventId,type:'LAB_STATUS',severity:row.status==='APPROVED'||row.status==='REJECTED'||row.status==='CANCELLED'?'ACTION':'INFO',templateKey:'lab.request.status',templateParams:{analysisNumber:row.analysisNumber,status:row.status},resourceId:row.id,actionUrl:`/events/${eventId}/lab/${row.id}`,sourceEventId:generateId()});
   }
 
   async getAnalysisDetail(eventId: string, analysisId: string, user: AuthenticatedUser): Promise<LabAnalysisDetail> {
@@ -417,7 +437,15 @@ export class LaboratoryService {
       record.assignedUnitId ? this.db.select({ name: organizationalUnits.name }).from(organizationalUnits)
         .where(and(eq(organizationalUnits.eventId, eventId), eq(organizationalUnits.id, record.assignedUnitId))) : [],
     ]);
-    return { ...record, evidenceIds: items.map(item => item.id), evidenceItems: items,
+    // Assigned laboratory personnel receive only a minimal sample manifest for EVENT-visible inputs.
+    // This is not a grant of EVIDENCE_READ or access to files, custody, relations or restricted inputs.
+    const manifest=items.map(item=>({...item,canOpen:true}));
+    if((accept||work||complete||approve)&&(await this.resourceAccessService.getModuleImpacts(eventId,user)).get('evidence')!=='UNAVAILABLE'){
+      const samples=await this.db.select({id:evidence.id,title:evidence.title,evidenceNumber:evidence.evidenceNumber,status:evidence.status}).from(labAnalysisEvidence).innerJoin(evidence,eq(evidence.id,labAnalysisEvidence.evidenceId)).innerJoin(resources,eq(resources.id,evidence.id)).where(and(eq(labAnalysisEvidence.analysisId,analysisId),eq(resources.eventId,eventId),eq(resources.visibility,'EVENT')));
+      const known=new Set(items.map(item=>item.id));
+      for(const item of samples)if(!known.has(item.id))manifest.push({...item,canOpen:false});
+    }
+    return { ...record, evidenceIds: items.map(item => item.id), evidenceItems: manifest,
       analystName: analysts[0]?.name ?? null, unitName: units[0]?.name ?? null,
       actions: { accept: !!accept, work: !!work, complete: !!complete, approve: !!approve } };
   }
@@ -427,13 +455,16 @@ export class LaboratoryService {
     data: CreateLabAnalysisRequest,
     user: AuthenticatedUser
   ): Promise<LabAnalysisResponse> {
-    // 1. Verify access to all evidence items
+    // A request never makes a nonpublic source globally visible.
+    let visibility=data.visibility as ResourceVisibilityValue;
     for (const evId of data.evidenceIds) {
       const evidenceResource = await this.resourceService.getResource(evId);
-      if (!evidenceResource || evidenceResource.eventId !== eventId) {
+      if (!evidenceResource || evidenceResource.eventId !== eventId || evidenceResource.resourceType!=='evidence') {
         throw new BadRequestException('All evidence references must belong to this exercise');
       }
       await this.resourceAccessService.assertCanAccessResource(user, evId, Permissions.EVIDENCE_READ);
+      if(evidenceResource.visibility==='SCENARIO')throw new BadRequestException('Scenario-private evidence must be released before operational laboratory submission');
+      if(evidenceResource.visibility!=='EVENT'&&visibility==='EVENT')visibility='UNIT';
     }
 
     const resolved = await this.resolveLaboratoryUnit(eventId, data.requestedFromUnitId);
@@ -469,7 +500,7 @@ export class LaboratoryService {
       // 3. Register base resource
       await this.resourceService.registerResource(eventId, 'lab_analysis', {
         id: analysisId,
-        visibility: data.visibility as ResourceVisibilityValue,
+        visibility,
         owningUnitId: resolved.unitId,
         ownerUserId: user.id,
         txClient: tx,
@@ -539,12 +570,13 @@ export class LaboratoryService {
           summary: data.purpose ?? undefined,
           causationId: data.causationId,
           relatedResourceIds: data.evidenceIds,
-          visibility: data.visibility,
+          visibility,
         },
         tx
       );
 
-      // 8. Search outbox
+      // 8. Search outbox and receipt to requester.
+      await this.notifyRequester(tx,eventId,created!);
       await this.searchIndexerService.emitSearchUpsert('lab_analysis', analysisId, tx);
 
       await this.auditService.record({
@@ -563,6 +595,7 @@ export class LaboratoryService {
       });
 
       return {
+        reportAvailable:false,
         id: created!.id,
         eventId,
         analysisNumber: created!.analysisNumber,
@@ -581,7 +614,7 @@ export class LaboratoryService {
         method: created!.method,
         findings: created!.findings,
         conclusion: created!.conclusion,
-        visibility: data.visibility || 'EVENT',
+        visibility,
         createdAt: created!.createdAt.toISOString(),
         updatedAt: created!.updatedAt.toISOString(),
         evidenceIds: data.evidenceIds,
@@ -619,6 +652,13 @@ export class LaboratoryService {
     }
     const existing = await this.getAnalysis(eventId, analysisId, user);
     const currentStatus = existing.status as LabAnalysisStatusValue;
+    const writesReport=data.method!==undefined||data.findings!==undefined||data.conclusion!==undefined;
+    if(writesReport){
+      if(!['REQUESTED','ACCEPTED','IN_PROGRESS'].includes(currentStatus))throw new BadRequestException('Report is locked; reopen for revision first');
+      await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_WORK);
+    }
+    if(data.status==='COMPLETED'&&!(data.conclusion??existing.conclusion)?.trim())throw new BadRequestException('A conclusion is required before completion');
+    if(data.status==='APPROVED'&&!existing.conclusion?.trim())throw new BadRequestException('A completed report must contain a conclusion');
 
     // Validate required permission based on status change or content update
     if (data.status && data.status !== currentStatus) {
@@ -663,12 +703,18 @@ export class LaboratoryService {
       updatePayload.status = data.status;
       if (data.status === 'ACCEPTED') updatePayload.acceptedAt = now;
       if (data.status === 'IN_PROGRESS' && !existing.startedAt) updatePayload.startedAt = now;
+      if(data.status==='IN_PROGRESS'&&currentStatus==='COMPLETED'){updatePayload.completedAt=null;updatePayload.approvedAt=null;}
       if (data.status === 'COMPLETED') updatePayload.completedAt = now;
       if (data.status === 'APPROVED') updatePayload.approvedAt = now;
     }
 
     const updated = await this.db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${eventId}:${analysisId}`}))`);
+      const [locked]=await tx.select().from(labAnalyses).where(eq(labAnalyses.id,analysisId)).for('update').limit(1);
+      if(!locked||locked.status!==currentStatus||locked.updatedAt.toISOString()!==existing.updatedAt)throw new ConflictException('Laboratory analysis changed while this update was being processed');
+      if(writesReport)await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_WORK,tx);
+      const permission=data.status&&data.status!==currentStatus?data.status==='ACCEPTED'||data.status==='REJECTED'?Permissions.LAB_ACCEPT:data.status==='COMPLETED'?Permissions.LAB_COMPLETE:data.status==='APPROVED'?Permissions.LAB_APPROVE:Permissions.LAB_WORK:Permissions.LAB_WORK;
+      await this.resourceAccessService.assertCanAccessResource(user,analysisId,permission,tx);
       const [row] = await tx
         .update(labAnalyses)
         .set(updatePayload)
@@ -713,7 +759,7 @@ export class LaboratoryService {
           title = `Work started on lab analysis ${row.analysisNumber}`;
         } else if (data.status === 'COMPLETED') {
           activityType = 'lab.completed';
-          title = `Lab analysis ${row.analysisNumber} completed: ${data.conclusion ?? 'Findings documented'}`;
+          title = `Lab analysis ${row.analysisNumber} completed; awaiting approval`;
         } else if (data.status === 'APPROVED') {
           activityType = 'lab.approved';
           title = `Lab analysis ${row.analysisNumber} approved`;
@@ -728,18 +774,20 @@ export class LaboratoryService {
           activityType,
           actorUserId: user.id,
           title,
-          summary: data.conclusion ?? data.notes ?? undefined,
+          visibility:existing.visibility as ResourceVisibilityValue,
+          summary:undefined,
           causationId: data.causationId,
           relatedResourceIds: existing.evidenceIds,
           metadata: { from: currentStatus, to: data.status },
         }, tx);
       }
 
+      if(data.status&&data.status!==currentStatus)await this.notifyRequester(tx,eventId,row);
       await this.searchIndexerService.emitSearchUpsert('lab_analysis', analysisId, tx);
       return row;
     });
 
-    return {
+    return this.viewerReport({
       ...existing,
       ...updated,
       requestedAt: updated.requestedAt.toISOString(),
@@ -749,7 +797,7 @@ export class LaboratoryService {
       approvedAt: updated.approvedAt ? updated.approvedAt.toISOString() : null,
       createdAt: updated.createdAt.toISOString(),
       updatedAt: updated.updatedAt.toISOString(),
-    };
+    },user);
   }
 
   async reassignAnalysis(
@@ -759,6 +807,7 @@ export class LaboratoryService {
     user: AuthenticatedUser
   ): Promise<LabAnalysisResponse> {
     const existing = await this.getAnalysis(eventId, analysisId, user);
+    if(['APPROVED','CANCELLED','REJECTED'].includes(existing.status))throw new BadRequestException('Reopen the request before reassignment');
     const destinationUnitId = data.assignedUnitId ?? existing.assignedUnitId ?? existing.requestedFromUnitId;
     if (!destinationUnitId) {
       throw new BadRequestException('A destination laboratory unit is required');
@@ -783,6 +832,9 @@ export class LaboratoryService {
 
     const now = new Date();
     const updated = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${eventId}:${analysisId}`}))`);
+      const [locked]=await tx.select().from(labAnalyses).where(eq(labAnalyses.id,analysisId)).for('update').limit(1);
+      if(!locked||locked.updatedAt.toISOString()!==existing.updatedAt)throw new ConflictException('Laboratory analysis changed; reload before reassignment');
       const [row] = await tx.update(labAnalyses)
         .set({ assignedUnitId: destinationUnitId, assignedToUserId: data.assignedToUserId ?? null, updatedAt: now })
         .where(eq(labAnalyses.id, analysisId))
@@ -811,7 +863,7 @@ export class LaboratoryService {
       await this.activityService.recordActivity({
         eventId, resourceId: analysisId, activityType: 'lab.reassigned',
         actorUserId: user.id, title: `Lab analysis reassigned: ${existing.analysisNumber}`,
-        summary: data.reason, relatedResourceIds: existing.evidenceIds,
+        visibility:existing.visibility as ResourceVisibilityValue,relatedResourceIds: existing.evidenceIds,
       }, tx);
       await this.searchIndexerService.emitSearchUpsert('lab_analysis', analysisId, tx);
       return row;
@@ -849,7 +901,7 @@ export class LaboratoryService {
 
     const existing = await this.getAnalysis(eventId, analysisId, user);
     if (data.status) {
-      if (data.status === 'APPROVED' && existing.status !== 'COMPLETED') {
+      if (data.status === 'APPROVED' && (existing.status !== 'COMPLETED'||!existing.conclusion?.trim())) {
         throw new BadRequestException('Organizer correction cannot approve an analysis that is not completed');
       }
     }
@@ -888,7 +940,10 @@ export class LaboratoryService {
     }
 
     await this.db.transaction(async (tx) => {
-      await tx.update(labAnalyses).set(updates).where(eq(labAnalyses.id, analysisId));
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${eventId}:${analysisId}`}))`);
+      const [row]=await tx.update(labAnalyses).set(updates).where(and(eq(labAnalyses.id, analysisId),eq(labAnalyses.status,existing.status))).returning();
+      if(!row)throw new ConflictException('Laboratory analysis changed');
+      if(data.status&&data.status!==existing.status)await this.notifyRequester(tx,eventId,row);
       await tx.update(resources).set({
         owningUnitId: effectiveUnitId,
         updatedAt: now,
@@ -920,7 +975,7 @@ export class LaboratoryService {
       });
       await this.activityService.recordActivity({
         eventId, resourceId: analysisId, activityType: 'lab.corrected', actorUserId: user.id,
-        title: `Lab analysis corrected: ${existing.analysisNumber}`, summary: data.reason,
+        title: `Lab analysis corrected: ${existing.analysisNumber}`,visibility:existing.visibility as ResourceVisibilityValue,
         relatedResourceIds: existing.evidenceIds,
       }, tx);
       await this.searchIndexerService.emitSearchUpsert('lab_analysis', analysisId, tx);

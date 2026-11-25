@@ -58,43 +58,47 @@ export class ForensicsController {
 
   @Get('forensics/:analysisId')
   async getAnalysisDetail(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('analysisId', ParseUUIDPipe) analysisId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<ForensicAnalysisDetail> {
+    await this.forensicsService.assertAnalysisEvent(eventId,analysisId);
     return this.forensicsService.getAnalysisDetail(analysisId, user);
   }
 
   @Patch('forensics/:analysisId/status')
   async updateStatus(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('analysisId', ParseUUIDPipe) analysisId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<ForensicAnalysisDetail> {
     const dto = UpdateForensicStatusRequestSchema.parse(body);
+    await this.forensicsService.assertAnalysisEvent(eventId,analysisId);
     return this.forensicsService.updateStatus(analysisId, dto, user);
   }
 
   @Post('forensics/:analysisId/findings')
   async createFinding(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('analysisId', ParseUUIDPipe) analysisId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<ForensicFinding> {
     const dto = CreateForensicFindingRequestSchema.parse(body);
+    await this.forensicsService.assertAnalysisEvent(eventId,analysisId);
     return this.forensicsService.createFinding(analysisId, dto, user);
   }
 
   @Post('forensics/:analysisId/acquisitions')
   async createAcquisition(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('analysisId', ParseUUIDPipe) analysisId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<ForensicAcquisition> {
     const dto = CreateForensicAcquisitionRequestSchema.parse(body);
+    await this.forensicsService.assertAnalysisEvent(eventId,analysisId);
     return this.forensicsService.createAcquisition(analysisId, dto, user);
   }
 

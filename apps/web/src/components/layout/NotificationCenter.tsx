@@ -125,11 +125,18 @@ export function NotificationCenter(){
     const p=item.templateParams||{};
     const ref=p.taskNumber==null?'TASK':String(p.taskNumber);
     switch(item.templateKey){
+      case 'platform.health.degraded':return (typeof p.service==='string'?p.service+' · ':'')+'CYRIS — '+t('notification.platformHealth');
       case 'task.assigned':return t('notification.taskAssigned',{taskNumber:ref});
       case 'briefing.new':return t('notification.briefingNew');
       case 'briefing.requiresAcknowledgement':return t('notification.briefingAck');
       case 'evidence.transfer':return t('notification.evidenceTransfer');
       case 'lab.ready':return t('notification.labReady');
+      case 'lab.request.status':{
+        const status=p.status;
+        const label=status==='ACCEPTED'?t('notification.labStatus.ACCEPTED'):status==='IN_PROGRESS'?t('notification.labStatus.IN_PROGRESS'):status==='COMPLETED'?t('notification.labStatus.COMPLETED'):status==='APPROVED'?t('notification.labStatus.APPROVED'):status==='REJECTED'?t('notification.labStatus.REJECTED'):status==='CANCELLED'?t('notification.labStatus.CANCELLED'):t('notification.labStatus.REQUESTED');
+        return String(p.analysisNumber??'LAB')+' · '+label;
+      }
+      case 'lab.assigned':return String(p.analysisNumber??'LAB')+' · '+t('notification.labAssigned');
       case 'medical.assignment':return t('notification.medicalAssign');
       case 'court.request.created':return t('notification.courtRequestCreated');
       case 'court.request.responded':return t('notification.courtRequestResponded');

@@ -58,6 +58,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
   const query = useSearchParams();
   const adminMode = pathname === '/admin' || pathname.startsWith('/admin/');
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [moduleQuery,setModuleQuery]=useState('');
 
   const renderIcon = (iconKey?: string) => {
     switch (iconKey) {
@@ -182,13 +183,15 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
       seen.add(exconHref);
     }
   }
+  const needle=moduleQuery.trim().toLocaleLowerCase();
+  const visibleSections=needle?sectionsToRender.map(section=>({...section,items:section.items.filter(item=>[workspaceLabel(locale,section.title),workspaceItemLabel(locale,item)].some(label=>label.toLocaleLowerCase().includes(needle)))})).filter(section=>section.items.length):sectionsToRender;
   const activeHref = activeWorkspaceHref(sectionsToRender.flatMap(section => section.items.map(item => item.href)), pathname, query.toString());
   const getSectionTitle = (title: string) => workspaceLabel(locale, title);
 
   const renderSection = (section: WorkspaceNavSection) => {
     if (!section.items || section.items.length === 0) return null;
     const sectionHasActiveRoute = section.items.some((item) => item.href === activeHref);
-    const mode = navigationSectionMode(section.items.length, collapsed, sectionHasActiveRoute, collapsedSections[section.id]);
+    const mode = navigationSectionMode(section.items.length, collapsed, sectionHasActiveRoute||!!needle, collapsedSections[section.id]);
     const isSectionCollapsed = mode === 'closed';
 
     return (
@@ -232,7 +235,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
                 href={item.href}
                 prefetch={false}
                 aria-current={isActive ? 'page' : undefined}
-                title={collapsed ? labelText : undefined}
+                title={labelText}
                 aria-label={collapsed ? labelText : undefined}
                 style={{
                   display: 'flex',
@@ -332,7 +335,9 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
         {/* Dynamic Navigation Sections from Resolver */}
         <div className="workspace-nav-scroll">
           {canOpenAdministration && <div className="workspace-mode-switch"><Link prefetch={false} href={adminMode ? (selectedEventId ? `/events/${selectedEventId}/my-work` : '/') : isPlatformAdmin ? '/admin' : (baseSections.flatMap((section) => section.items).find((item) => item.href.startsWith('/admin'))?.href ?? '/admin/events')} title={workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}><ShieldAlert size={15}/>{!collapsed && workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}</Link></div>}
-          {sectionsToRender.map((section) => renderSection(section))}
+          {!collapsed&&<div className="workspace-module-filter"><input aria-label={locale==='cs'?'Filtrovat moduly':'Filter modules'} placeholder={locale==='cs'?'Najít modul…':'Find a module…'} value={moduleQuery} onChange={e=>setModuleQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Escape')setModuleQuery('');}}/>{moduleQuery&&<button type="button" aria-label={locale==='cs'?'Zrušit filtr':'Clear filter'} onClick={()=>setModuleQuery('')}>×</button>}</div>}
+          {(collapsed?sectionsToRender:visibleSections).map((section) => renderSection(section))}
+          {!collapsed&&needle&&!visibleSections.length&&<p className="workspace-module-empty">{locale==='cs'?'Žádný odpovídající modul.':'No matching modules.'}</p>}
 
           {!selectedEventId && !isPlatformAdmin && !collapsed && (
             <div style={{ padding: '16px 14px', fontSize: '11px', color: 'var(--text-dim)' }}>

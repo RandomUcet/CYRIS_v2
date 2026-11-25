@@ -17,6 +17,8 @@ import subprocess
 import json
 import urllib.request
 import urllib.error
+import http.client
+from http.cookies import SimpleCookie
 import shutil
 import time
 import hashlib
@@ -1300,8 +1302,220 @@ WantedBy=timers.target
         run_command(["systemctl", "disable", "--now", "cyris-backup.timer"], capture=False)
 
 
+# Only fixed classifications leave the process. Raw logs can contain scenario
+# answers, personal data and credentials, so do not export snippets or hashes.
+DIAGNOSTIC_LOG_PATTERNS = (
+    ("OUT_OF_MEMORY", r"\b(?:oomkilled|out of memory|heap out of memory)\b"),
+    ("DATABASE_CONNECTION", r"\b(?:database connection|connection terminated|too many connections|password authentication failed)\b"),
+    ("MIGRATION", r"\b(?:migration failed|relation .{1,100} does not exist|undefined_table)\b"),
+    ("PROVIDER_AUTH", r"\b(?:AUTH_FAILED|unauthorized|forbidden)\b"),
+    ("TIMEOUT", r"\b(?:timeout|timed out|ETIMEDOUT|TIMEOUT)\b"),
+    ("CAPACITY", r"\b(?:capacity rejected|rate limit|too many requests|CAPACITY)\b"),
+    ("CONNECTION_REFUSED", r"\b(?:ECONNREFUSED|ENOTFOUND|connection refused|connection reset|EHOSTUNREACH)\b"),
+    ("INVALID_OUTPUT", r"\b(?:INVALID_OUTPUT|EMPTY_OUTPUT|TRUNCATED|invalid json)\b"),
+    ("HTTP_5XX", r"\b(?:HTTP[/ ](?:[0-9.]+ )?5[0-9]{2}|status(?:Code)?[=: ]+5[0-9]{2})\b"),
+    ("ERROR", r"\b(?:error|exception|fatal|panic|traceback)\b"),
+)
+DIAGNOSTIC_SERVICES=("api","worker","web","postgres","redis","typesense","minio")
+
+def classify_diagnostic_logs(raw):
+    """Count matching lines, not incidents; one fixed category per line."""
+    counts = {}
+    lines = raw.splitlines()
+    for line in lines:
+        for category, pattern in DIAGNOSTIC_LOG_PATTERNS:
+            if re.search(pattern, line, re.IGNORECASE):
+                counts[category] = counts.get(category, 0) + 1
+                break
+    return {"sampledLines": len(lines), "categories":counts}
+
+def diagnostic_summary(minutes):
+    if not 1 <= minutes <= 1440:
+        raise ValueError("Choose a log window between 1 and 1440 minutes")
+    report={"schema":"cyris.diagnostic-summary.v1","collectedAt":datetime.now(timezone.utc).isoformat(),
+            "version":get_installed_version(),"windowMinutes":minutes,"maxLinesPerService":500,"services":{}}
+    # Do not export arbitrary values from Compose, stderr, host info or logs.
+    cmd=["docker","compose","-f",CYRIS_COMPOSE_FILE]
+    if os.path.exists(CYRIS_ENV_FILE):
+        cmd.extend(["--env-file",CYRIS_ENV_FILE])
+    for name in DIAGNOSTIC_SERVICES:
+        try:
+            result=subprocess.run(cmd+["logs","--no-color","--no-log-prefix","--since",f"{minutes}m","--tail","500",name],
+                capture_output=True,timeout=20,check=False,text=True,errors="replace")
+            if result.returncode:
+                report["services"][name]={"status":"unavailable"}
+                continue
+            # Never include raw log lines in the report, even when classification fails.
+            report["services"][name]={"status":"sampled",**classify_diagnostic_logs(result.stdout)}
+        except (OSError,subprocess.TimeoutExpired):
+            report["services"][name]={"status":"unavailable"}
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-(?:rc|alpha|beta)\.[0-9]+)?",str(report["version"])):
+        report["version"]="unknown"
+    return report
+
+def diagnostic_api_request(port, path, body, token=None, timeout=10):
+    """Use only the loopback API published by Compose; no proxies or redirects."""
+    conn=http.client.HTTPConnection("127.0.0.1",port,timeout=timeout)
+    headers={"Content-Type":"application/json","Accept":"application/json"}
+    if token:
+        headers["Authorization"]="Bearer "+token
+    try:
+        conn.request("POST",path,body=json.dumps(body).encode("utf-8"),headers=headers)
+        res=conn.getresponse()
+        raw=res.read(65537)
+        if len(raw)>65536:
+            raise ValueError("Diagnostic API response exceeds the allowed size")
+        if not 200<=res.status<300:
+            raise ValueError(f"Diagnostic API request failed (HTTP {res.status})")
+        cookies=res.getheaders()
+        return json.loads(raw),cookies
+    except (OSError,http.client.HTTPException,json.JSONDecodeError):
+        raise ValueError("Local diagnostic API unavailable or invalid response") from None
+    finally:
+        conn.close()
+
+def analyze_diagnostic_summary(summary, locale):
+    # Local admin authentication through the existing API, no direct Spark secrets.
+    # Password/token never enter command-line arguments, disk, logs or report.
+    port=int(load_env().get("CYRIS_API_PORT","4000"))
+    if not 1<=port<=65535:
+        raise ValueError("Invalid local API port")
+    if not sys.stdin.isatty() or not sys.stderr.isatty():
+        raise ValueError("Interactive terminal required for local administrator authentication")
+    identifier=getpass.getpass("CYRIS local administrator identifier: ")
+    password=getpass.getpass("CYRIS administrator password: ")
+    if not identifier or not password:
+        raise ValueError("Administrator credentials required")
+    token=None
+    try:
+        try:
+            _,headers=diagnostic_api_request(port,"/auth/login",{"identifier":identifier,"password":password})
+        finally:
+            del password
+        for key,value in headers:
+            if key.lower()=="set-cookie":
+                cookie=SimpleCookie()
+                cookie.load(value)
+                if "cyris_session" in cookie:
+                    candidate=cookie["cyris_session"].value
+                    if re.fullmatch(r"[0-9a-f]{64}",candidate):
+                        token=candidate
+        if not token:
+            raise ValueError("Local API did not issue a valid session")
+        result,_=diagnostic_api_request(port,"/admin/diagnostics/analyze",{"summary":summary,"locale":locale},token,timeout=125)
+        if not isinstance(result,dict) or not isinstance(result.get("report"),dict) or result.get("source")!=summary:
+            raise ValueError("Invalid diagnostic report from local API")
+        return result
+    finally:
+        if token:
+            try:
+                diagnostic_api_request(port,"/auth/logout",{},token)
+            except (ValueError,OSError):
+                print("Warning: temporary session logout was not confirmed. Revoke the session if necessary.",file=sys.stderr)
+
+# Fixed read-only host measurements. Do not expose arbitrary filesystem paths,
+# Docker inspect payloads, container IDs, or privileged command execution to web.
+STORAGE_COMPONENTS=("postgres","redis","typesense","minio","caddy")
+DOCKER_STORAGE_TYPES=("Images","Containers","Local Volumes","Build Cache")
+
+def docker_size_bytes(value):
+    # Docker reports rounded decimal units. Reclaimable includes a percentage.
+    match=re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*(B|kB|KB|MB|GB|TB|PB)(?:\s+\([0-9]+%\))?",str(value).strip())
+    if not match:
+        raise ValueError("Unknown Docker size format")
+    units={"B":1,"kB":1000,"KB":1000,"MB":1000**2,"GB":1000**3,"TB":1000**4,"PB":1000**5}
+    result=round(float(match.group(1))*units[match.group(2)])
+    if not 0<=result<=9007199254740991:
+        raise ValueError("Docker size outside report bounds")
+    return result
+
+def storage_du(path):
+    try:
+        if not Path(path).is_dir():
+            return None
+        result=subprocess.run(["/usr/bin/du","-s","-x","-B1","--",str(path)],capture_output=True,text=True,timeout=20,check=False)
+        if result.returncode:
+            return None
+        value=int(result.stdout.split("\t",1)[0])
+        return value if 0<=value<=9007199254740991 else None
+    except (OSError,ValueError,subprocess.TimeoutExpired):
+        return None
+
+def storage_filesystem(path):
+    try:
+        usage=shutil.disk_usage(path)
+        return {"totalBytes":usage.total,"usedBytes":usage.used,"availableBytes":usage.free}
+    except OSError:
+        return None
+
+def storage_report():
+    components={name:storage_du(Path(CYRIS_VAR)/name) for name in STORAGE_COMPONENTS}
+    directories={"installation":storage_du(CYRIS_OPT),"data":storage_du(CYRIS_VAR),"backups":storage_du(CYRIS_BACKUPS),"docker":storage_du("/var/lib/docker"),"containerd":storage_du("/var/lib/containerd")}
+    docker={name:None for name in DOCKER_STORAGE_TYPES}
+    try:
+        # Explicit local socket, not an environment-selected remote daemon.
+        result=subprocess.run(["/usr/bin/docker","--host","unix:///var/run/docker.sock","system","df","--format","{{json .}}"],capture_output=True,text=True,check=False,timeout=30)
+        if result.returncode==0:
+            for line in result.stdout.splitlines():
+                try:
+                    row=json.loads(line)
+                    name=row.get("Type")
+                    if name not in docker:
+                        continue
+                    total,active=int(row["Total"]),int(row["Active"])
+                    if not 0<=active<=total<=1000000:
+                        continue
+                    docker[name]={"total":total,"active":active,"sizeBytes":docker_size_bytes(row["Size"]),"reclaimableBytes":docker_size_bytes(row["Reclaimable"])}
+                except (KeyError,TypeError,ValueError,AttributeError):
+                    continue
+    except (OSError,subprocess.TimeoutExpired):
+        pass
+    version=str(get_installed_version())
+    if not re.fullmatch(r"\d{1,5}\.\d{1,5}\.\d{1,5}(?:-(?:rc|beta|alpha)\.\d{1,5})?",version):
+        version="unknown"
+    return {"schema":"cyris.storage.v1","collectedAt":datetime.now(timezone.utc).isoformat(),"version":version,
+            "filesystems":{"root":storage_filesystem("/"),"data":storage_filesystem(CYRIS_VAR),"backups":storage_filesystem(CYRIS_BACKUPS)},
+            "components":components,"directories":directories,"docker":docker}
+
+def cmd_storage(args):
+    report=storage_report()
+    if args.json:
+        print(json.dumps(report,indent=2,ensure_ascii=True))
+        return
+    def readable(value):
+        return "unavailable" if value is None else f"{value/1024**3:.3f} GiB"
+    print("CYRIS host storage — read-only, no cleanup performed")
+    for name,value in report["filesystems"].items():
+        if value:
+            percent=100*(value["totalBytes"]-value["availableBytes"])/max(1,value["totalBytes"])
+            print(f"{name}: {readable(value['availableBytes'])} available / {readable(value['totalBytes'])} total ({percent:.1f}% unavailable)")
+        else:
+            print(f"{name}: unavailable")
+    print("Persistent components (allocated bytes):")
+    for name,value in report["components"].items():
+        print(f"  {name}: {readable(value)}")
+    print("Directories (may overlap; do not sum):")
+    for name,value in report["directories"].items():
+        print(f"  {name}: {readable(value)}")
+    print("Docker logical accounting (rounded, shared layers may overlap):")
+    for name,value in report["docker"].items():
+        print(f"  {name}: {readable(value['sizeBytes'])}, potentially reclaimable {readable(value['reclaimableBytes'])}, active {value['active']}/{value['total']}" if value else f"  {name}: unavailable")
+    print("Reclaimable is not permission to delete. Preserve rollback images and backups.")
+
 def cmd_diagnostics(args):
     """Collect non-secret operational diagnostics for troubleshooting."""
+    if getattr(args,'analyze',False):
+        summary=diagnostic_summary(args.minutes)
+        try:
+            report=analyze_diagnostic_summary(summary,args.locale)
+        except ValueError as error:
+            print(json.dumps({"status":"analysis_unavailable","source":summary},indent=2,ensure_ascii=True))
+            raise error
+        print(json.dumps(report,indent=2,ensure_ascii=True))
+        return
+    if getattr(args,'summary',False):
+        print(json.dumps(diagnostic_summary(args.minutes),indent=2,ensure_ascii=True))
+        return
     print("Collecting non-sensitive system diagnostics...")
     os.makedirs(CYRIS_BACKUPS, mode=0o700, exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -1544,8 +1758,17 @@ def main():
     for action in ("status", "enable", "disable", "recover"):
         watchdog_sub.add_parser(action).set_defaults(func=cmd_watchdog)
 
+    p_storage=subparsers.add_parser('storage',help='Read-only host disk, CYRIS data and Docker storage accounting')
+    p_storage.add_argument('--json',action='store_true',help='Export a bounded storage snapshot for System Health')
+    p_storage.set_defaults(func=cmd_storage)
+
     # diagnostics
     p_diag = subparsers.add_parser("diagnostics", help="Generate non-secret diagnostics archive")
+    diag_mode=p_diag.add_mutually_exclusive_group()
+    diag_mode.add_argument('--summary',action='store_true',help='Print only fixed-category log counts as JSON; never exports raw log messages')
+    diag_mode.add_argument('--analyze',action='store_true',help='Analyze the classified summary via local API and managed Spark (interactive local admin login)')
+    p_diag.add_argument('--locale',choices=('cs','en'),default='cs',help='Report language for --analyze')
+    p_diag.add_argument('--minutes',type=int,default=60,help='Log sampling window for --summary (1–1440 minutes)')
     p_diag.set_defaults(func=cmd_diagnostics)
 
     args = parser.parse_args()

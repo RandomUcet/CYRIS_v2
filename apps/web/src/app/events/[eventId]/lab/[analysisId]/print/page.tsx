@@ -2,17 +2,24 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import type { LabAnalysisDetail } from '@cyris/contracts';
+import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api-client';
 import { PrintField, PrintSection, PrintSheet } from '@/components/print/PrintSheet';
 const at=(value:string|null|undefined)=>value?new Date(value).toLocaleString('cs-CZ'):'—';
 export default function PrintableLabReport() {
   const p=useParams(),eventId=p.eventId as string,id=p.analysisId as string;
+  const {currentUser,viewAs,loading}=useAuth();
+  if(loading)return <p>Načítám…</p>;
+  return <ApprovedReport key={JSON.stringify([eventId,id,currentUser?.user.id,viewAs?.id,currentUser?.memberships.find(m=>m.eventId===eventId)?.permissions])} eventId={eventId} id={id}/>;
+}
+function ApprovedReport({eventId,id}:{eventId:string;id:string}){
   const [data,setData]=useState<LabAnalysisDetail|null>(null),[error,setError]=useState('');
   useEffect(()=>{
     let active=true;
     void apiClient.getLabAnalysis(eventId,id).then(res=>{
       if(!active)return;
       if(!res.ok||!res.data)throw new Error(res.error||'Access denied');
+      if(!res.data.reportAvailable)throw Error('Protokol zatím nebyl schválen / Report not approved');
       setData(res.data);
     }).catch(e=>{if(active)setError(e instanceof Error?e.message:'Error')});
     return()=>{active=false};
@@ -24,6 +31,8 @@ export default function PrintableLabReport() {
       <PrintField label="Stav" value={data.status}/>
       <PrintField label="Typ analýzy" value={data.analysisType}/>
       <PrintField label="Požadováno" value={at(data.requestedAt)}/>
+      <PrintField label="Žadatel" value={data.requesterName}/>
+      <PrintField label="Schváleno" value={at(data.approvedAt)}/>
       <PrintField label="Zpracovatel" value={data.analystName}/>
       <PrintField label="Jednotka" value={data.unitName}/>
       <PrintField label="Účel" value={data.purpose}/>

@@ -188,7 +188,7 @@ test('audit search is server-wide with debouncing, proper counts and stable requ
   const client=readFileSync(new URL('./api-client.ts',import.meta.url),'utf8');
   assert.ok(page.includes('setDebouncedSearch(search.trim()),300'),'text input should be debounced');
   assert.ok(page.includes('q: debouncedSearch || undefined'),'send query to the backend');
-  assert.ok(page.includes('}, [categoryFilter,page,resourceFilter,debouncedSearch])'));
+  assert.ok(page.includes('}, [categoryFilter,outcomeFilter,page,resourceFilter,debouncedSearch])'));
   assert.ok(page.includes('const filteredEntries = entries;'),'avoid second local-only search');
   assert.ok(page.includes('totalResults={total}'),'show the total server-matched count');
   assert.ok(page.includes('const searchPending=search.trim()!==debouncedSearch'));

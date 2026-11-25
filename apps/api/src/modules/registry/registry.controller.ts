@@ -76,6 +76,11 @@ export class RegistryController {
     return this.registryService.searchPicker(eventId, parsed.data, user);
   }
 
+  @Get('picker/:id')
+  resolvePicker(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('id',ParseUUIDPipe) id:string,@CurrentUser() user:AuthenticatedUser){
+    return this.registryService.resolvePicker(eventId,id,user);
+  }
+
   /** UI affordances are derived from the same resource policy as mutations. */
   @Get('records/:id/actions')
   async recordActions(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('id',ParseUUIDPipe) id:string,@CurrentUser() user:AuthenticatedUser) {

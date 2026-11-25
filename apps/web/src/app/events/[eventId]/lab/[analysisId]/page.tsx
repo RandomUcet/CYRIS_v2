@@ -32,10 +32,13 @@ import {
 const STAGES = ['REQUESTED', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'APPROVED'] as const;
 
 export default function LabAnalysisDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const eventId = params.eventId as string;
-  const analysisId = params.analysisId as string;
+  const {eventId,analysisId}=useParams<{eventId:string;analysisId:string}>();
+  const {currentUser,viewAs,loading}=useAuth();
+  if(loading)return <AppShell><LoadingState/></AppShell>;
+  return <LabDetailWorkspace key={JSON.stringify([eventId,analysisId,currentUser?.user.id,viewAs?.id,currentUser?.memberships.find(m=>m.eventId===eventId)?.permissions])} eventId={eventId} analysisId={analysisId}/>;
+}
+function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:string}){
+  const router=useRouter();
   const { hasPermission, user, viewAs } = useAuth();
   const { formatTime, locale } = usePreferences();
 
@@ -128,9 +131,7 @@ export default function LabAnalysisDetailPage() {
     try {
       const res = await apiClient.updateLabAnalysis(eventId, analysisId, {
         status: nextStatus,
-        method: method || undefined,
-        findings: findings || undefined,
-        conclusion: conclusion || undefined,
+        ...(nextStatus==='COMPLETED'?{method,findings,conclusion}:{}),
       });
 
       if (res.ok) {
@@ -252,7 +253,7 @@ export default function LabAnalysisDetailPage() {
   const currentStageIndex = STAGES.findIndex(stage => stage === analysisData.status);
   const evidenceItems: LabAnalysisDetail['evidenceItems'] = analysisData.evidenceItems ?? [];
   const actions: LabAnalysisDetail['actions'] = analysisData.actions;
-  const canEdit = !viewAs && actions?.work && analysisData.status !== 'APPROVED';
+  const canEdit = !viewAs && actions?.work && ['REQUESTED','ACCEPTED','IN_PROGRESS'].includes(analysisData.status);
 
   return (
     <AppShell
@@ -274,8 +275,8 @@ export default function LabAnalysisDetailPage() {
           lead={analysisData.analystName || '—'}
           actions={
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <Link className="btn btn-secondary" href={'/events/'+eventId+'/lab/'+analysisId+'/print'}
-                target="_blank" rel="noopener noreferrer">Vytisknout laboratorní zprávu</Link>
+              {analysisData.reportAvailable&&<Link className="btn btn-secondary" href={'/events/'+eventId+'/lab/'+analysisId+'/print'}
+                target="_blank" rel="noopener noreferrer">Vytisknout laboratorní zprávu</Link>}
               <button
                 onClick={() => setInspectorOpen(!inspectorOpen)}
                 className={`btn ${inspectorOpen ? 'btn-secondary' : 'btn-ghost'}`}
@@ -596,7 +597,7 @@ export default function LabAnalysisDetailPage() {
                 <div style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--color-text-dim)' }}>
                   Target physical or digital item submitted for this laboratory protocol.
                 </div>
-                {evidenceItems.length ? evidenceItems.map(item => (
+                {evidenceItems.length ? evidenceItems.map(item => item.canOpen===false?<div key={item.id} style={{padding:12,border:'1px solid var(--border-default)',marginBottom:6}}><strong>{item.evidenceNumber}</strong> · {item.title}<p style={{margin:'4px 0 0',fontSize:12}}>{cs?'Identifikace předaného vzorku; detail evidence vyžaduje samostatné oprávnění.':'Submitted sample identification; full evidence requires separate permission.'}</p></div>:(
                   <Link className="btn btn-secondary" key={item.id} href={`/events/${eventId}/evidence/${item.id}`}>
                     <FolderOpen size={15} /><strong>{item.evidenceNumber}</strong> {item.title} <ArrowRight size={12} />
                   </Link>
@@ -628,7 +629,7 @@ export default function LabAnalysisDetailPage() {
             onClose={() => setInspectorOpen(false)}
             rows={[
               { label: 'Analysis Number', value: analysisData.analysisNumber || analysisData.id, copyable: true },
-              { label: 'Resource UUID', value: analysisData.id, copyable: true },
+              { label: cs?'Žadatel':'Requester', value: analysisData.requesterName||'—' },
               { label: 'Lifecycle Stage', value: <StatusBadge status={analysisData.status} /> },
               { label: 'Assigned Lab Unit', value: analysisData.unitName || '—' },
               { label: 'Analyst', value: analysisData.analystName || '—' },
