@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto';
 import {getDbClient,closeDatabaseConnection,sql,type CyrisDatabase} from '@cyris/db';
 import {inspectRelationalRetention,retentionOwnershipPredicate,childFirstRetentionOrder} from './retention-relational-plan.js';
 import {recordRemovedExerciseReceipt} from './retention-audit-receipt.js';
+import {inspectRetentionOutbox,removeRetentionOutbox} from './retention-outbox.js';
 import {requireVerifiedIsolatedDatabase} from '../regression/isolated-postgres-harness.js';
 
 type Tx=Parameters<Parameters<CyrisDatabase['transaction']>[0]>[0];
@@ -40,6 +41,17 @@ async function executeRehearsal(tx:Tx,eventId:string,profile:'reset'|'remove'){
   assert.equal(removed,profile==='reset'?plan.resetRows:plan.removeRows);
   return {removed,order};
 }
+/** Test-only combined transaction; never remove canonical rows before resolving
+ * pending outbox ownership. A failed relational phase rolls back the outbox
+ * phase too. The host must eventually provide independent writer isolation. */
+async function executeCombinedRehearsal(tx:Tx,eventId:string,profile:'reset'|'remove'){
+  return tx.transaction(async sub=>{
+    const plan=await inspectRetentionOutbox(sub,eventId,profile);
+    const outbox=await removeRetentionOutbox(sub,eventId,profile,plan.digest);
+    const relational=await executeRehearsal(sub,eventId,profile);
+    return {...relational,outboxRemoved:outbox.removed};
+  });
+}
 test('child-first order blocks cycles and does not duplicate self-references',()=>{
   assert.deepEqual(childFirstRetentionOrder(['events','resources','documents'],[{child:'resources',parent:'events'},{child:'documents',parent:'resources'},{child:'resources',parent:'resources'}]),['documents','resources','events']);
   assert.throws(()=>childFirstRetentionOrder(['a','b'],[{child:'a',parent:'b'},{child:'b',parent:'a'}]),/cyclic/);
@@ -66,17 +78,32 @@ test('real relational reset and full removal execute in disposable PostgreSQL an
       await tx.execute(sql`INSERT INTO operational_tasks(id,event_id,task_number,title,status,source_type,created_by_user_id) VALUES(${task},${a},'TASK-RESET','Fixture','COMPLETED','MANUAL',${user}),(${taskB},${b},'TASK-OTHER','Other','OPEN','MANUAL',${user})`);
       await tx.execute(sql`INSERT INTO notifications(id,event_id,user_id,type,template_key) VALUES(${note},${a},${user},'TEST','test')`);
       await tx.execute(sql`INSERT INTO audit_events(id,event_id,action,category) VALUES(${audit},${a},'fixture.a','fixture'),(${foreignAudit},${b},'fixture.b','fixture')`);
+      // Only inside this always-rolled-back isolated fixture: prevent prior
+      // regression suites' unresolved outbox work from obscuring this test.
+      await tx.execute(sql`LOCK TABLE outbox_events IN SHARE ROW EXCLUSIVE MODE`);
+      await tx.execute(sql`DELETE FROM outbox_events`);
+      const pendingA=randomUUID(),pendingB=randomUUID(),pendingUnit=randomUUID(),archiveA=randomUUID();
+      await tx.execute(sql`INSERT INTO outbox_events(id,event_type,status,payload) VALUES
+        (${pendingA},'search.upsert','PENDING',${JSON.stringify({type:'operational_task',id:task})}::jsonb),
+        (${pendingB},'search.upsert','PENDING',${JSON.stringify({type:'operational_task',id:taskB})}::jsonb),
+        (${pendingUnit},'search.upsert','PENDING',${JSON.stringify({type:'unit',id:unit})}::jsonb),
+        (${archiveA},'audit.archival','PENDING',${JSON.stringify({eventId:a,id:audit})}::jsonb)`);
+      const outboxIds=async()=> (await tx.execute<{id:string}>(sql`SELECT id FROM outbox_events ORDER BY id`)).map(x=>x.id);
+      const initialOutbox=await outboxIds();
       const beforeB=await inspectRelationalRetention(tx,b);
       const auditBefore=await tx.execute<{body:unknown}>(sql`SELECT to_jsonb(a) AS body FROM audit_events a WHERE id=${audit}`);
       // Cross-event reference must refuse the entire operation before mutation.
       await tx.execute(sql`INSERT INTO resource_relationships(id,event_id,source_resource_id,target_resource_id,relationship_type) VALUES(${link},${b},${taskB},${task},'RELATED')`);
-      await assert.rejects(executeRehearsal(tx,a,'reset'),/Unsafe relational inventory/);
+      await assert.rejects(executeCombinedRehearsal(tx,a,'reset'),/Unsafe relational inventory/);
+      assert.deepEqual(await outboxIds(),initialOutbox,'relational rejection must roll back outbox deletion');
       assert.equal((await tx.execute(sql`SELECT id FROM resources WHERE id=${task}`)).length,1);
       await tx.execute(sql`DELETE FROM resource_relationships WHERE id=${link}`);
       await tx.execute(sql`UPDATE events SET status='ACTIVE' WHERE id=${a}`);
       await assert.rejects(executeRehearsal(tx,a,'reset'),/archived/);
       await tx.execute(sql`UPDATE events SET status='ARCHIVED' WHERE id=${a}`);
-      const reset=await executeRehearsal(tx,a,'reset');
+      const reset=await executeCombinedRehearsal(tx,a,'reset');
+      assert.equal(reset.outboxRemoved,1);
+      assert.deepEqual(await outboxIds(),[pendingB,pendingUnit,archiveA].sort());
       assert.ok(reset.removed>=3);
       const afterReset=await inspectRelationalRetention(tx,a);
       assert.equal(afterReset.resetRows,0);
@@ -96,7 +123,9 @@ test('real relational reset and full removal execute in disposable PostgreSQL an
       await assert.rejects(tx.transaction(async sub=>{
         await sub.execute(sql`INSERT INTO removed_exercise_receipts(event_id,slug,name,audit_count) VALUES(${a},${a},'Reset fixture',999)`);
       }),/audit count does not match/);
-      const removal=await executeRehearsal(tx,a,'remove');
+      const removal=await executeCombinedRehearsal(tx,a,'remove');
+      assert.equal(removal.outboxRemoved,1);
+      assert.deepEqual(await outboxIds(),[pendingB,archiveA].sort());
       assert.ok(removal.removed>=7);
       assert.equal(removal.order.at(-1),'events');
       assert.equal((await tx.execute(sql`SELECT id FROM events WHERE id=${a}`)).length,0);
