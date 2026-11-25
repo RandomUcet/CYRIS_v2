@@ -250,7 +250,7 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       assert.ok(personal.items.some((item) => item.id === taskId));
       assert.ok(personal.items.some((item) => item.kind === 'LAB_ANALYSIS'));
       assert.ok(personal.items.every((item) => item.assignedToUserId === worker.id));
-      assert.deepEqual(personal.availableViews, ['personal']);
+      assert.deepEqual(personal.availableViews, ['personal','requested']);
       assert.deepEqual(personal.availableUnits, []);
       const leaderWork = await tasks.listMyWork(eventA, MyWorkQuerySchema.parse({}), leader);
       assert.deepEqual(leaderWork.availableViews, ['personal', 'unit','requested']);

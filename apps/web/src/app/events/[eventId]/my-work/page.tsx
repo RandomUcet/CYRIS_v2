@@ -111,7 +111,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
         )}
         <details className="work-guide" open={guideOpen} onToggle={e=>setGuideOpen(e.currentTarget.open)}>
           <summary>{cs?'Jak začít pracovat':'How to get started'}</summary>
-          <div><p>{cs?'Zde najdete úkoly a požadavky, které jsou vám přiděleny. Otevřete záznam, přečtěte si zadání a pracujte podle jeho dostupných akcí. Nové pokyny najdete v části Briefingy.':'Open your assigned tasks and requests, read their instructions and use the actions available on each record. Open Briefings for new instructions.'}</p>
+          <div><p>{cs?'Zde najdete přidělenou práci i vlastní odeslané žádanky a výsledky. Otevřete záznam a pracujte podle jeho dostupných akcí. Nové pokyny najdete v části Briefingy.':'Find assigned work, outgoing requests and results here. Open the record and use its available actions. Open Briefings for new instructions.'}</p>
           <Link href={`/events/${eventId}/support`}>{cs?'Potřebujete pomoc? Obraťte se na podporu.':'Need help? Contact support.'}</Link></div>
         </details>
         <div className="my-work-toolbar">
@@ -119,6 +119,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
             <button
               key={option}
               type="button"
+              aria-pressed={view===option}
               onClick={() => selectView(option)}
               style={{
                 padding: '8px 12px',
