@@ -144,6 +144,11 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         await assert.rejects(forensics.updateStatus(created.id,{status:'APPROVED'},requester),ForbiddenException);
         const outgoing=await tasks.listMyWork(eventA,MyWorkQuerySchema.parse({view:'requested'}),requester);
         assert.ok(outgoing.items.some(x=>x.id===created.id&&x.kind==='FORENSIC_ANALYSIS'&&!x.reportAvailable));
+        const filtered=await tasks.listMyWork(eventA,MyWorkQuerySchema.parse({view:'requested',kind:'FORENSIC_ANALYSIS',limit:1}),requester);
+        assert.ok(filtered.availableKinds?.includes('FORENSIC_ANALYSIS'));
+        assert.equal(filtered.total,1);assert.equal(filtered.items[0]?.id,created.id);
+        const deniedKind=await tasks.listMyWork(eventA,MyWorkQuerySchema.parse({view:'requested',kind:'MEDICAL_ENCOUNTER'}),requester);
+        assert.equal(deniedKind.total,0);assert.ok(!deniedKind.availableKinds?.includes('MEDICAL_ENCOUNTER'));
         assert.equal(created.assignedUnitId,unitA);assert.ok([worker.id,secondWorker.id].includes(created.assignedToUserId!));
         let examiner=created.assignedToUserId===worker.id?worker:secondWorker;
         await assert.rejects(forensics.updateStatus(created.id,{status:'APPROVED'},organizer),BadRequestException);

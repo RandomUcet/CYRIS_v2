@@ -79,7 +79,7 @@ import type {
   CreateCourtDecisionRequest,
   OperationalTaskItem,
   OperationalTaskDetail,
-  MyWorkResponse,
+  MyWorkResponse, MyWorkKind,
   CreateOperationalTaskRequest,
   UpdateOperationalTaskRequest,
   AssignOperationalTaskRequest,
@@ -1288,10 +1288,11 @@ export class CyrisApiClient {
 
   async listMyWork(
     eventId: string,
-    query?: { view?: 'personal' | 'unit' | 'event' | 'requested' | 'approval'; unitId?: string; page?: number; limit?: number }
+    query?: { view?: 'personal' | 'unit' | 'event' | 'requested' | 'approval'; unitId?: string; kind?:MyWorkKind; page?: number; limit?: number }
   ): Promise<{ ok: boolean; data?: MyWorkResponse; error?: string }> {
     const params = new URLSearchParams();
     if (query?.view) params.set('view', query.view);
+    if (query?.kind) params.set('kind',query.kind);
     if (query?.unitId) params.set('unitId', query.unitId);
     if (query?.page) params.set('page', String(query.page));
     if (query?.limit) params.set('limit', String(query.limit));

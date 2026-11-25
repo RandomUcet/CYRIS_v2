@@ -585,14 +585,23 @@ export class TasksService {
     if(!isMyWorkViewAllowed(query.view,access.some(d=>d.unitWide)&&availableUnits.some(u=>u.id===query.unitId),canViewEvent,Boolean(query.unitId),canApprove))throw new ForbiddenException('Work queue scope is not authorized');
     const impacts=await this.disruptionsService.getModuleImpacts(eventId,user);
     const show=(d:typeof access[number])=>impacts.get(d.module)!=='UNAVAILABLE'&&(query.view==='approval'?(!impacts.has(d.module)&&(d.module==='lab'?canApproveLab:d.module==='forensics'?canApproveForensics:false)):query.view==='event'?d.eventWide:query.view==='unit'?d.unitWide:query.view==='requested'?d.readable||d.requestable:d.readable);
+    const legalVisible=canReadCourtRequests&&impacts.get('court')!=='UNAVAILABLE'&&(query.view==='requested'||(query.view==='personal'&&await this.authorizationService.authorize({user,permission:Permissions.COURT_REQUEST_RESPOND,context:{eventId}})));
+    const medicalVisible=show(access[3]!)&&['personal','unit','event'].includes(query.view);
+    const availableKinds:MyWorkItem['kind'][]=[];
+    if(show(access[0]!))availableKinds.push('TASK');
+    if(show(access[1]!))availableKinds.push('LAB_ANALYSIS');
+    if(show(access[2]!))availableKinds.push('FORENSIC_ANALYSIS');
+    if(legalVisible)availableKinds.push('COURT_REQUEST');
+    if(medicalVisible)availableKinds.push('MEDICAL_ENCOUNTER');
+    const includesKind=(kind:MyWorkItem['kind'])=>availableKinds.includes(kind)&&(!query.kind||query.kind===kind);
     const [taskRows,labRows,forensicRows]=await Promise.all([
-      show(access[0]!)?this.db.select({row:operationalTasks}).from(operationalTasks).innerJoin(resources,eq(resources.id,operationalTasks.id)).where(and(eq(operationalTasks.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'operational_task'),query.view==='personal'?eq(operationalTasks.assignedUserId,user.id):query.view==='requested'?eq(operationalTasks.createdByUserId,user.id):query.view==='unit'?eq(operationalTasks.assignedUnitId,query.unitId!):undefined)):[],
-      show(access[1]!)?this.db.select({row:labAnalyses}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id)).where(and(eq(resources.eventId,eventId),eq(resources.resourceType,'lab_analysis'),query.view==='approval'?eq(labAnalyses.status,'COMPLETED'):query.view==='personal'?eq(labAnalyses.assignedToUserId,user.id):query.view==='requested'?eq(labAnalyses.requestedByUserId,user.id):query.view==='unit'?eq(labAnalyses.assignedUnitId,query.unitId!):undefined)):[],
-      show(access[2]!)?this.db.select({row:forensicAnalyses}).from(forensicAnalyses).innerJoin(resources,eq(resources.id,forensicAnalyses.id)).where(and(eq(forensicAnalyses.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'forensic_analysis'),query.view==='approval'?eq(forensicAnalyses.status,'COMPLETED'):query.view==='personal'?eq(forensicAnalyses.assignedToUserId,user.id):query.view==='requested'?eq(forensicAnalyses.requestedByUserId,user.id):query.view==='unit'?eq(forensicAnalyses.assignedUnitId,query.unitId!):undefined)):[],
+      includesKind('TASK')?this.db.select({row:operationalTasks}).from(operationalTasks).innerJoin(resources,eq(resources.id,operationalTasks.id)).where(and(eq(operationalTasks.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'operational_task'),query.view==='personal'?eq(operationalTasks.assignedUserId,user.id):query.view==='requested'?eq(operationalTasks.createdByUserId,user.id):query.view==='unit'?eq(operationalTasks.assignedUnitId,query.unitId!):undefined)):[],
+      includesKind('LAB_ANALYSIS')?this.db.select({row:labAnalyses}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id)).where(and(eq(resources.eventId,eventId),eq(resources.resourceType,'lab_analysis'),query.view==='approval'?eq(labAnalyses.status,'COMPLETED'):query.view==='personal'?eq(labAnalyses.assignedToUserId,user.id):query.view==='requested'?eq(labAnalyses.requestedByUserId,user.id):query.view==='unit'?eq(labAnalyses.assignedUnitId,query.unitId!):undefined)):[],
+      includesKind('FORENSIC_ANALYSIS')?this.db.select({row:forensicAnalyses}).from(forensicAnalyses).innerJoin(resources,eq(resources.id,forensicAnalyses.id)).where(and(eq(forensicAnalyses.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'forensic_analysis'),query.view==='approval'?eq(forensicAnalyses.status,'COMPLETED'):query.view==='personal'?eq(forensicAnalyses.assignedToUserId,user.id):query.view==='requested'?eq(forensicAnalyses.requestedByUserId,user.id):query.view==='unit'?eq(forensicAnalyses.assignedUnitId,query.unitId!):undefined)):[],
     ]);
     const items:MyWorkItem[]=[];
     // Medical records are not outgoing requests. Never expose clinical prose or patient identities in this mixed queue.
-    if(show(access[3]!)&&['personal','unit','event'].includes(query.view)){
+    if(includesKind('MEDICAL_ENCOUNTER')){
       const memberUnits=query.view==='personal'?await this.db.select({unitId:membershipUnitAssignments.unitId}).from(eventMemberships)
         .innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.membershipId,eventMemberships.id))
         .innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId))
@@ -619,12 +628,12 @@ export class TasksService {
     for(const {row:r} of taskRows)await append({id:r.id,eventId,kind:'TASK',identifier:r.taskNumber,title:r.title,status:r.status,assignedToUserId:r.assignedUserId,assignedUnitId:r.assignedUnitId,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/tasks/${r.id}`},Permissions.TASK_READ,this.resourceAccessService);
     for(const {row:r} of labRows)await append({id:r.id,eventId,kind:'LAB_ANALYSIS',identifier:r.analysisNumber,title:r.analysisType,status:r.status,assignedToUserId:r.assignedToUserId,assignedUnitId:r.assignedUnitId,reportAvailable:r.status==='APPROVED'&&!!r.approvedAt,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/lab/${r.id}`},Permissions.LAB_READ,this.resourceAccessService);
     for(const {row:r} of forensicRows)await append({id:r.id,eventId,kind:'FORENSIC_ANALYSIS',identifier:r.analysisNumber,title:r.analysisType,status:r.status,assignedToUserId:r.assignedToUserId,assignedUnitId:r.assignedUnitId,reportAvailable:r.status==='APPROVED'&&!!r.approvedAt,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/forensics/${r.id}`},Permissions.FORENSICS_READ,this.resourceAccessService);
-    if(canReadCourtRequests&&impacts.get('court')!=='UNAVAILABLE'){
+    if(includesKind('COURT_REQUEST')){
       const legalItems=await listCourtWork(this.db,this.authorizationService,this.resourceAccessService,eventId,user,query.view);
       items.push(...legalItems.map(item=>({...item,assignedUnitName:item.assignedUnitId?names.get(item.assignedUnitId):undefined})));
     }
     const paged=sortAndPaginateMyWork(items,query.page,query.limit);
-    return {items:paged.items,total:paged.total,page:query.page,limit:query.limit,view:query.view,availableViews:['personal',...(availableUnits.length?['unit' as const]:[]),...(canViewEvent?['event' as const]:[]),'requested',...(canApprove?['approval' as const]:[])],availableUnits};
+    return {items:paged.items,total:paged.total,page:query.page,limit:query.limit,view:query.view,availableKinds,availableViews:['personal',...(availableUnits.length?['unit' as const]:[]),...(canViewEvent?['event' as const]:[]),'requested',...(canApprove?['approval' as const]:[])],availableUnits};
   }
 
   private async validateAssignmentTargets(
