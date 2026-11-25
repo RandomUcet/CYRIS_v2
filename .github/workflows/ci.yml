@@ -121,6 +121,29 @@ jobs:
           curl -fsS http://127.0.0.1:18108/health >/dev/null
           CYRIS_TEST_TYPESENSE_ISOLATED=true CYRIS_TEST_TYPESENSE_ENDPOINT=http://127.0.0.1:18108 pnpm exec tsx --test apps/api/src/scripts/retention-search.test.ts
 
+      - name: Rehearse committed cross-service exercise reset
+        run: |
+          set -euo pipefail
+          storage="cyris-committed-s3-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          search="cyris-committed-search-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'docker rm -f "$storage" "$search" >/dev/null 2>&1 || true' EXIT
+          docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test cyris_retention_committed
+          export DATABASE_URL=postgresql://cyris_test:local-ci-only@127.0.0.1:5432/cyris_retention_committed
+          export CYRIS_TEST_DATABASE_URL="$DATABASE_URL"
+          pnpm db:migrate
+          storage_image="$(docker compose -f deploy/compose.prod.yml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["minio"]["image"])')"
+          search_image="$(docker compose -f deploy/compose.prod.yml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["typesense"]["image"])')"
+          [[ "$storage_image" =~ @sha256:[a-f0-9]{64}$ ]]
+          docker run -d --name "$storage" -p 127.0.0.1:19001:9000 -e MINIO_ROOT_USER=cyris-test-only -e MINIO_ROOT_PASSWORD=local-ci-storage-only "$storage_image" server /data
+          docker run -d --name "$search" -p 127.0.0.1:18109:8108 "$search_image" --data-dir=/tmp --api-key=cyris-test-search-only
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:19001/minio/health/ready >/dev/null && curl -fsS http://127.0.0.1:18109/health >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:19001/minio/health/ready >/dev/null
+          curl -fsS http://127.0.0.1:18109/health >/dev/null
+          CYRIS_TEST_RETENTION_COMMITTED=true CYRIS_TEST_S3_ENDPOINT=http://127.0.0.1:19001 CYRIS_TEST_TYPESENSE_ENDPOINT=http://127.0.0.1:18109 pnpm exec tsx --test apps/api/src/scripts/retention-finish.test.ts
+
       - name: Check diff
         run: git diff --check
 
