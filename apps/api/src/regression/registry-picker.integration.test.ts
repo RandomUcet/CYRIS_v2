@@ -37,7 +37,7 @@ skipWithoutVerifiedDatabase('canonical picker filters types and hides inaccessib
   ]);
   await tx.insert(persons).values([{id:person,displayName:'Fixture shared person'},{id:wildcard,displayName:'Fixture literal %_'}]);
   await tx.insert(organisations).values({id:org,name:'Fixture shared organisation'});
-  await tx.insert(devices).values([{id:device,label:'Fixture shared device'},{id:hidden,label:'Fixture shared hidden'},{id:foreign,label:'Fixture shared foreign'}]);
+  await tx.insert(devices).values([{id:device,deviceType:'LAPTOP',label:'Fixture shared device'},{id:hidden,deviceType:'LAPTOP',label:'Fixture shared hidden'},{id:foreign,deviceType:'LAPTOP',label:'Fixture shared foreign'}]);
   const find=(types:'devices'|'persons'|'persons,organisations',q='Fixture shared')=>registry.searchPicker(a,{q,types,limit:20},user);
   assert.deepEqual((await find('devices')).map(x=>x.id),[device]);
   assert.deepEqual((await find('persons,organisations')).map(x=>x.id).sort(),[person,org].sort());
