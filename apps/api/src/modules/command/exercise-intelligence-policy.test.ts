@@ -17,3 +17,13 @@ test('invalid, unknown-source and unexpected command outputs are rejected',()=>{
 test('structured phase plans are restricted to one architect scenario action',()=>{const action={module:'SCENARIO',title:'Stages',proposal:'Draft timeline',reason:'Planning',signalIds:[],phasePlan:[{title:'Initial assessment',purpose:'Review inputs'}]};const draft={summary:'Plan',actions:[action],reviewNotes:[]};assert.deepEqual(validateExerciseDraft(JSON.stringify(draft),[],true),draft);assert.throws(()=>validateExerciseDraft(JSON.stringify(draft),[]));assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[{...action,module:'LEGAL'}]}),[],true));assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[action,action]}),[],true));});
 
 test('team plans are limited to a single architect COMMAND action',()=>{const action={module:'COMMAND',title:'Teams',proposal:'Draft teams',reason:'Planning',signalIds:[],teamPlan:[{name:'Investigation',slug:'investigation',purpose:'Private planning'}]};const draft={summary:'Plan',actions:[action],reviewNotes:[]};assert.deepEqual(validateExerciseDraft(JSON.stringify(draft),[],true),draft);assert.throws(()=>validateExerciseDraft(JSON.stringify(draft),[]));assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[{...action,module:'SCENARIO'}]}),[],true));assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[action,action]}),[],true));assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[{...action,teamPlan:[{...action.teamPlan[0],roles:['admin']}]}]}),[],true));});
+
+test('inject plans are private, separate, and only allowed with a saved architect blueprint',()=>{
+ const a={module:'SCENARIO',title:'Injects',proposal:'Plan',reason:'Planning',signalIds:[],injectPlan:[{title:'Initial incident',purpose:'Observe team process'}]};
+ const draft={summary:'Plan',actions:[a],reviewNotes:[]};
+ assert.deepEqual(validateExerciseDraft(JSON.stringify(draft),[],true),draft);
+ assert.throws(()=>validateExerciseDraft(JSON.stringify(draft),[]));
+ assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[a,a]}),[],true));
+ assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[{...a,phasePlan:[{title:'Phase',purpose:'Private'}]}]}),[],true));
+ assert.throws(()=>validateExerciseDraft(JSON.stringify({...draft,actions:[{...a,injectPlan:[{...a.injectPlan[0],participantContent:'secret'}]}]}),[],true));
+});

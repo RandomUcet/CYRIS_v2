@@ -1,5 +1,5 @@
 import type {CreateLocalTestAccount,LocalTestAccount,LocalTestAccountCreated} from '@cyris/contracts';
-import type {ExerciseTeamSetupInput} from '@cyris/contracts';
+import type {ExerciseTeamSetupInput,ExerciseInjectSetupInput} from '@cyris/contracts';
 import type {ExercisePhaseSetupInput} from '@cyris/contracts';
 import type {ExerciseObserverHistory} from '@cyris/contracts';
 import type {ExerciseJob,ExerciseJobSubmit} from '@cyris/contracts';
@@ -1650,6 +1650,7 @@ export class CyrisApiClient {
   listExerciseJobs(eventId:string,signal?:AbortSignal){return this.fetchJson<ExerciseJob[]>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/jobs',signal);}
   submitExerciseJob(eventId:string,input:ExerciseJobSubmit){return this.postJson<ExerciseJob>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/jobs',input);}
   cancelExerciseJob(eventId:string,jobId:string){return this.postJson<ExerciseJob>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/jobs/'+encodeURIComponent(jobId)+'/cancel',{});}
+  setupExerciseInjects(eventId:string,runId:string,input:ExerciseInjectSetupInput){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/setup-injects',input);}
   setupExerciseTeams(eventId:string,runId:string,input:ExerciseTeamSetupInput){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/setup-teams',input);}
   setupExercisePhases(eventId:string,runId:string,input:ExercisePhaseSetupInput){return this.postJson<StoredExerciseAdvice>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history/'+encodeURIComponent(runId)+'/setup-phases',input);}
   getExerciseAdviceHistory(eventId:string,signal?:AbortSignal){return this.fetchJson<StoredExerciseAdvice[]>('/events/'+encodeURIComponent(eventId)+'/command/excon/intelligence/history',signal);}

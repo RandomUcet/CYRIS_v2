@@ -288,6 +288,13 @@
       "when": 1792642000000,
       "tag": "0040_registry_licences",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792643000000,
+      "tag": "0041_exercise_inject_setup",
+      "breakpoints": true
     }
   ]
 }

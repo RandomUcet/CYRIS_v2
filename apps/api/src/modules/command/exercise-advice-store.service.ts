@@ -1,8 +1,9 @@
 import {Injectable,ConflictException,NotFoundException,BadRequestException} from '@nestjs/common';
 import {and,eq,desc,isNull,gt} from 'drizzle-orm';
-import {events,exerciseAdvice,exerciseBlueprints,exerciseBroadcastPlans,organizationalUnits,exerciseJobs,users,scenarioPhases,outboxEvents,OutboxStatus} from '@cyris/db';
+import {events,exerciseAdvice,exerciseBlueprints,exerciseBroadcastPlans,organizationalUnits,exerciseJobs,users,scenarioPhases,scenarioInjects,outboxEvents,OutboxStatus} from '@cyris/db';
 import {Permissions,generateId} from '@cyris/shared';
-import {ExerciseAdviceDraftSchema,ExerciseSignalSchema,ExerciseAdviceReviewSchema,ExerciseAdviceHandoffSchema,ExerciseAdviceHandoffInputSchema,ExerciseObserverSnapshotSchema,ExercisePhaseSetupInputSchema,ExercisePhaseSetupReceiptSchema,ExerciseTeamSetupInputSchema,ExerciseTeamSetupReceiptSchema,type ExerciseTeamSetupInput,type ExercisePhaseSetupInput,type ExerciseObserverSnapshot,type ExerciseAdviceHandoffInput,type ExerciseAdviceResult,type ExerciseAdviceDecision,type ExerciseAdviceReview,type StoredExerciseAdvice,type ExerciseSignal} from '@cyris/contracts';
+import {IdentifierAllocatorService} from '../resources/identifier-allocator.service.js';
+import {ExerciseInjectSetupInputSchema,ExerciseInjectSetupReceiptSchema,type ExerciseInjectSetupInput,ExerciseAdviceDraftSchema,ExerciseSignalSchema,ExerciseAdviceReviewSchema,ExerciseAdviceHandoffSchema,ExerciseAdviceHandoffInputSchema,ExerciseObserverSnapshotSchema,ExercisePhaseSetupInputSchema,ExercisePhaseSetupReceiptSchema,ExerciseTeamSetupInputSchema,ExerciseTeamSetupReceiptSchema,type ExerciseTeamSetupInput,type ExercisePhaseSetupInput,type ExerciseObserverSnapshot,type ExerciseAdviceHandoffInput,type ExerciseAdviceResult,type ExerciseAdviceDecision,type ExerciseAdviceReview,type StoredExerciseAdvice,type ExerciseSignal} from '@cyris/contracts';
 import type {AuthenticatedUser} from '../auth/session.service.js';
 import {DatabaseService} from '../database/database.service.js';
 import {AuthorizationService} from '../authorization/authorization.service.js';
@@ -16,10 +17,10 @@ export function applyAdviceReview(current:readonly ExerciseAdviceReview[],action
 export type ExerciseJobFence={id:string;claimToken:string};
 @Injectable()
 export class ExerciseAdviceStore{
- constructor(private readonly db:DatabaseService,private readonly auth:AuthorizationService,private readonly audit:AuditService){}
+ constructor(private readonly db:DatabaseService,private readonly auth:AuthorizationService,private readonly audit:AuditService,private readonly identifiers:IdentifierAllocatorService=new IdentifierAllocatorService(db)){}
  private authorize(eventId:string,actor:AuthenticatedUser){return this.auth.assertAuthorized({user:actor,permission:Permissions.SCENARIO_MANAGE,context:{eventId}});}
  private map(row:typeof exerciseAdvice.$inferSelect):StoredExerciseAdvice{
-  return {...ExerciseAdviceDraftSchema.parse(row.draft),eventId:row.eventId,runId:row.runId,model:row.model,durationMs:row.durationMs,generatedAt:row.generatedAt.toISOString(),observedAt:row.observedAt.toISOString(),blueprintRevision:row.blueprintRevision,mode:row.mode,status:'DRAFT',revision:row.revision,signals:ExerciseSignalSchema.array().parse(row.signals),observations:ExerciseObserverSnapshotSchema.array().max(24).parse(row.observations),reviews:ExerciseAdviceReviewSchema.array().parse(row.reviews),handoffs:ExerciseAdviceHandoffSchema.array().parse(row.handoffs),setupReceipts:ExercisePhaseSetupReceiptSchema.array().parse(row.setupReceipts),teamReceipts:ExerciseTeamSetupReceiptSchema.array().parse(row.teamReceipts),createdBy:row.createdBy};
+  return {...ExerciseAdviceDraftSchema.parse(row.draft),eventId:row.eventId,runId:row.runId,model:row.model,durationMs:row.durationMs,generatedAt:row.generatedAt.toISOString(),observedAt:row.observedAt.toISOString(),blueprintRevision:row.blueprintRevision,mode:row.mode,status:'DRAFT',revision:row.revision,signals:ExerciseSignalSchema.array().parse(row.signals),observations:ExerciseObserverSnapshotSchema.array().max(24).parse(row.observations),reviews:ExerciseAdviceReviewSchema.array().parse(row.reviews),handoffs:ExerciseAdviceHandoffSchema.array().parse(row.handoffs),setupReceipts:ExercisePhaseSetupReceiptSchema.array().parse(row.setupReceipts),teamReceipts:ExerciseTeamSetupReceiptSchema.array().parse(row.teamReceipts),injectReceipts:ExerciseInjectSetupReceiptSchema.array().parse(row.injectReceipts),createdBy:row.createdBy};
  }
  async list(eventId:string,actor:AuthenticatedUser):Promise<StoredExerciseAdvice[]>{
   await this.authorize(eventId,actor);
@@ -60,7 +61,7 @@ export class ExerciseAdviceStore{
     const [latest]=await tx.select({revision:exerciseBlueprints.revision}).from(exerciseBlueprints).where(eq(exerciseBlueprints.eventId,eventId)).orderBy(desc(exerciseBlueprints.revision)).limit(1);
     if(latest?.revision!==row.blueprintRevision)throw new ConflictException('Advice uses an outdated blueprint; generate a new draft');
    }
-   if(row.handoffs.some(h=>h.actionIndex===input.actionIndex)||row.setupReceipts.some(h=>h.actionIndex===input.actionIndex)||row.teamReceipts.some(h=>h.actionIndex===input.actionIndex))throw new ConflictException('This action has been handed off; manage the broadcast plan separately');
+   if(row.handoffs.some(h=>h.actionIndex===input.actionIndex)||row.setupReceipts.some(h=>h.actionIndex===input.actionIndex)||row.teamReceipts.some(h=>h.actionIndex===input.actionIndex)||row.injectReceipts.some(h=>h.actionIndex===input.actionIndex))throw new ConflictException('This action has been handed off; manage the broadcast plan separately');
    const reviews=applyAdviceReview(row.reviews,row.draft.actions.length,input,row.revision,actor.id,new Date().toISOString());
    const [updated]=await tx.update(exerciseAdvice).set({reviews,revision:row.revision+1}).where(and(eq(exerciseAdvice.eventId,eventId),eq(exerciseAdvice.runId,runId),eq(exerciseAdvice.revision,row.revision))).returning();
    if(!updated)throw new ConflictException('Advice changed');
@@ -179,4 +180,42 @@ export class ExerciseAdviceStore{
    return this.map(updated);
   });
  }
+ /** Materialize reviewed controller-only inject drafts, never schedule or release them. */
+ async setupInjects(eventId:string,runId:string,actor:AuthenticatedUser,input:ExerciseInjectSetupInput):Promise<StoredExerciseAdvice>{
+  await this.authorize(eventId,actor);
+  const parsed=ExerciseInjectSetupInputSchema.safeParse(input);
+  if(!parsed.success)throw new BadRequestException('Invalid inject setup');
+  const request=parsed.data;
+  return this.db.client.transaction(async tx=>{
+   const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).for('update').limit(1);
+   if(!event)throw new NotFoundException('Exercise not found');
+   if(!['DRAFT','PREPARATION'].includes(event.status))throw new ConflictException('Inject setup requires preparation stage');
+   await this.authorize(eventId,actor);
+   const [row]=await tx.select().from(exerciseAdvice).where(and(eq(exerciseAdvice.eventId,eventId),eq(exerciseAdvice.runId,runId))).for('update').limit(1);
+   if(!row)throw new NotFoundException('Advice not found');
+   if(row.mode!=='ARCHITECT'||row.blueprintRevision===null||row.revision!==request.expectedRevision)throw new ConflictException('Current saved architect draft required');
+   const action=row.draft.actions[request.actionIndex];
+   if(action?.module!=='SCENARIO'||!action.injectPlan||row.reviews.find(r=>r.actionIndex===request.actionIndex)?.decision!=='ACCEPTED')throw new ConflictException('Accept a structured inject plan first');
+   if(request.injects.length!==action.injectPlan.length)throw new BadRequestException('Review every proposed inject');
+   if(row.injectReceipts.some(r=>r.actionIndex===request.actionIndex))throw new ConflictException('Inject setup already applied');
+   const [latest]=await tx.select({revision:exerciseBlueprints.revision}).from(exerciseBlueprints).where(eq(exerciseBlueprints.eventId,eventId)).orderBy(desc(exerciseBlueprints.revision)).limit(1);
+   if(latest?.revision!==row.blueprintRevision)throw new ConflictException('Blueprint changed');
+   const existing=await tx.select({title:scenarioInjects.title}).from(scenarioInjects).where(eq(scenarioInjects.eventId,eventId));
+   const names=new Set(existing.map(i=>i.title.trim().toLowerCase()));
+   if(request.injects.some(i=>names.has(i.title.toLowerCase())))throw new ConflictException('An inject with this title already exists');
+   const ids:string[]=[];
+   for(const inject of request.injects){
+    const id=generateId(),injectNumber=await this.identifiers.allocate(eventId,'scenario_inject','INJ',tx);
+    await tx.insert(scenarioInjects).values({id,eventId,injectNumber,title:inject.title,controllerSummary:inject.controllerSummary,status:'DRAFT',triggerType:'MANUAL',releasePolicy:'MANUAL_CONFIRMATION',priority:'NORMAL',phaseId:null,participantTitle:null,participantContent:null,scheduledAt:null,createdByUserId:actor.id});
+    ids.push(id);
+    await this.audit.record({txClient:tx,eventId,actorUserId:actor.id,action:'scenario.inject.created',category:'scenario',resourceType:'scenario_inject',resourceId:id,metadata:{injectNumber,status:'DRAFT',source:'AI_SETUP',runId}});
+   }
+   const receipt=ExerciseInjectSetupReceiptSchema.parse({actionIndex:request.actionIndex,injectIds:ids,createdAt:new Date().toISOString(),createdBy:actor.id});
+   const [updated]=await tx.update(exerciseAdvice).set({injectReceipts:[...row.injectReceipts,receipt],revision:row.revision+1}).where(and(eq(exerciseAdvice.eventId,eventId),eq(exerciseAdvice.runId,runId),eq(exerciseAdvice.revision,row.revision))).returning();
+   if(!updated)throw new ConflictException('Advice changed');
+   await this.audit.record({txClient:tx,eventId,actorUserId:actor.id,action:'exercise.advice.inject_setup',category:'scenario',resourceType:'exercise_advice',resourceId:runId,metadata:{actionIndex:request.actionIndex,injectIds:ids,revision:updated.revision}});
+   return this.map(updated);
+  });
+ }
+
 }

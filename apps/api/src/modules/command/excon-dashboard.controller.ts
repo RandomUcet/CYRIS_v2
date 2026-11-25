@@ -4,7 +4,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { ExconDashboardService } from './excon-dashboard.service.js';
 import { ExerciseIntelligenceService } from './exercise-intelligence.service.js';
-import { ExerciseAdviceInputSchema, ExerciseBlueprintInputSchema, ExerciseAdviceDecisionSchema, ExerciseAdviceHandoffInputSchema, ExerciseJobSubmitSchema, ExercisePhaseSetupInputSchema, ExerciseTeamSetupInputSchema } from '@cyris/contracts';
+import { ExerciseAdviceInputSchema, ExerciseBlueprintInputSchema, ExerciseAdviceDecisionSchema, ExerciseAdviceHandoffInputSchema, ExerciseJobSubmitSchema, ExercisePhaseSetupInputSchema, ExerciseTeamSetupInputSchema,ExerciseInjectSetupInputSchema } from '@cyris/contracts';
 import { ExerciseJobService } from './exercise-job.service.js';
 import { ExerciseAdviceStore } from './exercise-advice-store.service.js';
 import { ExerciseBlueprintService } from './exercise-blueprint.service.js';
@@ -64,6 +64,8 @@ export class ExconDashboardController {
     return this.intelligence.overview(eventId,actor);
   }
 
+  @Post('intelligence/history/:runId/setup-injects')
+  setupInjects(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('runId',ParseUUIDPipe) runId:string,@CurrentUser() actor:AuthenticatedUser,@Body() body:unknown){const p=ExerciseInjectSetupInputSchema.safeParse(body);if(!p.success)throw new BadRequestException('Invalid inject setup');return this.adviceStore.setupInjects(eventId,runId,actor,p.data);}
   @Post('intelligence/advice')
   advice(@Param('eventId',ParseUUIDPipe) eventId:string,@CurrentUser() actor:AuthenticatedUser,@Body() body:unknown){
     const input=ExerciseAdviceInputSchema.safeParse(body);

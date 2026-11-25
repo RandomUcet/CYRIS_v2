@@ -16,6 +16,8 @@ export function validateExerciseDraft(text:string,signals:readonly ExerciseSigna
  if(draft.actions.some(a=>a.phasePlan&&(!allowPhasePlan||a.module!=='SCENARIO')))throw Error('Phase plans require architect scenario actions and a saved blueprint');
  if(draft.actions.filter(a=>a.phasePlan).length>1)throw Error('Only one phase plan per draft');
  if(draft.actions.some(a=>a.teamPlan&&(!allowPhasePlan||a.module!=='COMMAND'||a.phasePlan)))throw Error('Team plans require architect command actions and a saved blueprint');
+ if(draft.actions.some(a=>a.injectPlan&&(!allowPhasePlan||a.module!=='SCENARIO'||a.phasePlan||a.teamPlan)))throw Error('Inject plans require a separate architect scenario action and saved blueprint');
+ if(draft.actions.filter(a=>a.injectPlan).length>1)throw Error('Only one inject plan per draft');
  if(draft.actions.filter(a=>a.teamPlan).length>1)throw Error('Only one team plan per draft');
  return draft;
 }
