@@ -131,10 +131,11 @@ export function NotificationCenter(){
       case 'briefing.requiresAcknowledgement':return t('notification.briefingAck');
       case 'evidence.transfer':return t('notification.evidenceTransfer');
       case 'lab.ready':return t('notification.labReady');
+      case 'forensics.request.status':
       case 'lab.request.status':{
         const status=p.status;
         const label=status==='ACCEPTED'?t('notification.labStatus.ACCEPTED'):status==='IN_PROGRESS'?t('notification.labStatus.IN_PROGRESS'):status==='COMPLETED'?t('notification.labStatus.COMPLETED'):status==='APPROVED'?t('notification.labStatus.APPROVED'):status==='REJECTED'?t('notification.labStatus.REJECTED'):status==='CANCELLED'?t('notification.labStatus.CANCELLED'):t('notification.labStatus.REQUESTED');
-        return String(p.analysisNumber??'LAB')+' · '+label;
+        return String(p.analysisNumber??'—')+' · '+label;
       }
       case 'lab.assigned':return String(p.analysisNumber??'LAB')+' · '+t('notification.labAssigned');
       case 'medical.assignment':return t('notification.medicalAssign');

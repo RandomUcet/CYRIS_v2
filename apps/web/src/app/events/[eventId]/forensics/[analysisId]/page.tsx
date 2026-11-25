@@ -43,11 +43,14 @@ import type {
 } from '@cyris/contracts';
 
 export default function ForensicAnalysisDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const eventId = params.eventId as string;
-  const analysisId = params.analysisId as string;
-  const { hasPermission } = useAuth();
+  const {eventId,analysisId}=useParams<{eventId:string;analysisId:string}>();
+  const {currentUser,viewAs,loading}=useAuth();
+  if(loading)return <AppShell><LoadingState/></AppShell>;
+  return <ForensicWorkspace key={JSON.stringify([eventId,analysisId,currentUser?.user.id,viewAs?.id,currentUser?.memberships.find(m=>m.eventId===eventId)?.permissions])} eventId={eventId} analysisId={analysisId}/>;
+}
+function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:string}){
+  const router=useRouter();
+  const {viewAs}=useAuth();
   const { formatTime } = usePreferences();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'evidence' | 'findings' | 'indicators' | 'acquisitions' | 'documents' | 'timeline' | 'relations'>('overview');
@@ -94,22 +97,22 @@ export default function ForensicAnalysisDetailPage() {
     notes: string;
   }>({
     acquisitionType: 'PHYSICAL',
-    toolName: 'FTK Imager CLI',
-    toolVersion: '4.7.1',
+    toolName: '',
+    toolVersion: '',
     hashAlgorithm: 'SHA256',
     sourceHash: '',
     imageHash: '',
-    storageReference: 'NAS-VOL2:/evidence/disk_images/raw_forensic.raw',
+    storageReference: '',
     notes: '',
   });
   const [acqSubmitting, setAcqSubmitting] = useState(false);
   useDialogAccessibility(showFindingModal || showAcquisitionModal, () => { if (!findingSubmitting && !acqSubmitting) { setShowFindingModal(false); setShowAcquisitionModal(false); } });
 
   // Permissions
-  const canAccept = hasPermission('forensics.accept');
-  const canWork = hasPermission('forensics.work');
-  const canComplete = hasPermission('forensics.complete');
-  const canApprove = hasPermission('forensics.approve');
+  const canAccept=!viewAs&&!!analysis?.actions?.accept;
+  const canWork=!viewAs&&!!analysis?.actions?.work&&['ACCEPTED','IN_PROGRESS'].includes(analysis?.status??'');
+  const canComplete=!viewAs&&!!analysis?.actions?.complete;
+  const canApprove=!viewAs&&!!analysis?.actions?.approve;
 
   const fetchAnalysisDetails = async () => {
     setLoading(true);
@@ -175,9 +178,7 @@ export default function ForensicAnalysisDetailPage() {
     try {
       const res = await apiClient.updateForensicStatus(eventId, analysisId, {
         status: status as any,
-        methodology: methodology.trim() || undefined,
-        findings: findingsText.trim() || undefined,
-        conclusion: conclusion.trim() || undefined,
+        ...(status==='COMPLETED'&&canWork?{methodology,findings:findingsText,conclusion}:{}),
       });
       if (res.ok && res.data) {
         setAnalysis(res.data);
@@ -193,6 +194,7 @@ export default function ForensicAnalysisDetailPage() {
 
   const handleSaveOverview = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(!canWork||savingOverview)return;
     setSavingOverview(true);
     try {
       const res = await apiClient.updateForensicAnalysis(eventId, analysisId, {
@@ -353,8 +355,8 @@ export default function ForensicAnalysisDetailPage() {
           ]}
           actions={
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <Link className="btn btn-secondary" href={'/events/'+eventId+'/forensics/'+analysisId+'/print'}
-                target="_blank" rel="noopener noreferrer">Vytisknout forenzní zprávu</Link>
+              {analysis.reportAvailable&&<Link className="btn btn-secondary" href={'/events/'+eventId+'/forensics/'+analysisId+'/print'}
+                target="_blank" rel="noopener noreferrer">Vytisknout forenzní zprávu</Link>}
               {analysis.status === 'REQUESTED' && canAccept && (
                 <button
                   className="btn btn-primary"
@@ -436,7 +438,7 @@ export default function ForensicAnalysisDetailPage() {
                           value={methodology}
                           onChange={(e) => setMethodology(e.target.value)}
                           placeholder="e.g. Write blocker acquisition, Volatility 3 memory triage, Autopsy keyword indexing..."
-                          disabled={analysis.status === 'APPROVED'}
+                          disabled={!canWork}
                         />
                       </div>
 
@@ -448,7 +450,7 @@ export default function ForensicAnalysisDetailPage() {
                           value={findingsText}
                           onChange={(e) => setFindingsText(e.target.value)}
                           placeholder="Summary of detected user artifacts, deleted files, network beacons, or malware signatures..."
-                          disabled={analysis.status === 'APPROVED'}
+                          disabled={!canWork}
                         />
                       </div>
 
@@ -460,13 +462,13 @@ export default function ForensicAnalysisDetailPage() {
                           value={conclusion}
                           onChange={(e) => setConclusion(e.target.value)}
                           placeholder="Final opinion of the forensic examiner regarding authenticity, intent, and timeline consistency..."
-                          disabled={analysis.status === 'APPROVED'}
+                          disabled={!canWork}
                         />
                       </div>
 
                       {analysis.status !== 'APPROVED' && (
                         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                          <button type="submit" className="btn btn-secondary" disabled={savingOverview}>
+                          <button type="submit" className="btn btn-secondary" disabled={savingOverview||!canWork}>
                             {savingOverview ? 'Saving...' : 'Save Overview Notes'}
                           </button>
                         </div>

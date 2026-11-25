@@ -14,6 +14,7 @@ import { ForensicsService } from './forensics.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
+  SaveForensicReportSchema,
   CreateForensicAnalysisRequestSchema,
   UpdateForensicStatusRequestSchema,
   CreateForensicFindingRequestSchema,
@@ -64,6 +65,12 @@ export class ForensicsController {
   ): Promise<ForensicAnalysisDetail> {
     await this.forensicsService.assertAnalysisEvent(eventId,analysisId);
     return this.forensicsService.getAnalysisDetail(analysisId, user);
+  }
+
+  @Patch('forensics/:analysisId')
+  async saveReport(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('analysisId',ParseUUIDPipe) analysisId:string,@Body() body:unknown,@CurrentUser() user:AuthenticatedUser){
+    await this.forensicsService.assertAnalysisEvent(eventId,analysisId);
+    return this.forensicsService.saveReport(analysisId,SaveForensicReportSchema.parse(body),user);
   }
 
   @Patch('forensics/:analysisId/status')

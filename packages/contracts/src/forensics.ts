@@ -165,6 +165,8 @@ export const ForensicAnalysisItemSchema = z.object({
 export type ForensicAnalysisItem = z.infer<typeof ForensicAnalysisItemSchema>;
 
 export const ForensicAnalysisDetailSchema = ForensicAnalysisItemSchema.extend({
+  reportAvailable:z.boolean().optional(),
+  actions:z.object({accept:z.boolean(),work:z.boolean(),complete:z.boolean(),approve:z.boolean()}).optional(),
   findingsList: z.array(ForensicFindingSchema).default([]),
   acquisitions: z.array(ForensicAcquisitionSchema).default([]),
   evidenceLinks: z.array(z.object({
@@ -216,6 +218,8 @@ export const UpdateForensicStatusRequestSchema = z.object({
   methodology: z.string().optional(),
 });
 export type UpdateForensicStatusRequest = z.infer<typeof UpdateForensicStatusRequestSchema>;
+export const SaveForensicReportSchema=z.object({methodology:z.string().max(20000).optional(),findings:z.string().max(20000).optional(),conclusion:z.string().max(20000).optional()}).strict().refine(v=>Object.keys(v).length>0,'Provide report content');
+export type SaveForensicReport=z.infer<typeof SaveForensicReportSchema>;
 
 export const CreateForensicFindingRequestSchema = z.object({
   findingType: z.string().default('ARTIFACT'),

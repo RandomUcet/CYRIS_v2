@@ -3,9 +3,10 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
-  Logger,
+  Logger,ConflictException,
 } from '@nestjs/common';
 import { eq, and, desc, isNull } from 'drizzle-orm';
+import {canTransitionForensic,canEditForensicReport} from './forensic-lifecycle.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { DatabaseService } from '../database/database.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -20,7 +21,7 @@ import {
   forensicFindings,
   technicalIndicators,
   forensicAcquisitions,
-  resources, organizationalUnits, resourceAssignments, users, events,
+  resources, organizationalUnits, resourceAssignments, users, events, notifications,
   evidence,
   devices,
   outboxEvents,
@@ -41,7 +42,7 @@ import type {
   CreateForensicFindingRequest,
   CreateTechnicalIndicatorRequest,
   CreateForensicAcquisitionRequest,
-  ForensicQueryFilters,
+  ForensicQueryFilters,SaveForensicReport,
 } from '@cyris/contracts';
 
 @Injectable()
@@ -74,6 +75,11 @@ export class ForensicsService {
     if(!event)throw new NotFoundException('Exercise not found');
     if(['CLOSED','ARCHIVED'].includes(event.status))throw new BadRequestException('Exercise is read-only');
     if((await this.resourceAccessService.getModuleImpacts(eventId,user)).has('forensics'))throw new ForbiddenException('Forensics is currently read-only or unavailable');
+  }
+
+  private async notifyRequester(tx:Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0],row:typeof forensicAnalyses.$inferSelect){
+    if(!row.requestedByUserId)return;
+    await tx.insert(notifications).values({id:generateId(),userId:row.requestedByUserId,eventId:row.eventId,type:'FORENSIC_STATUS',severity:['APPROVED','CANCELLED','REJECTED'].includes(row.status)?'ACTION':'INFO',templateKey:'forensics.request.status',templateParams:{analysisNumber:row.analysisNumber,status:row.status},resourceId:row.id,actionUrl:`/events/${row.eventId}/forensics/${row.id}`,sourceEventId:generateId()});
   }
 
   /**
@@ -128,7 +134,7 @@ export class ForensicsService {
       });
 
       // 2. Insert analysis row
-      await tx.insert(forensicAnalyses).values({
+      const [created]=await tx.insert(forensicAnalyses).values({
         id: analysisId,
         analysisNumber,
         eventId,
@@ -144,7 +150,8 @@ export class ForensicsService {
         methodology: dto.methodology || null,
         createdAt: now,
         updatedAt: now,
-      });
+      }).returning();
+      await this.notifyRequester(tx,created!);
 
       if(dto.assignedToUserId)await tx.insert(resourceAssignments).values({eventId,resourceId:analysisId,userId:dto.assignedToUserId,assignedByUserId:user.id});
 
@@ -234,105 +241,57 @@ export class ForensicsService {
   /**
    * Updates analysis workflow status.
    */
-  async updateStatus(
-    analysisId: string,
-    dto: UpdateForensicStatusRequest,
-    user: AuthenticatedUser
-  ): Promise<ForensicAnalysisDetail> {
-    const requiredPermission =
-      dto.status === 'ACCEPTED'
-        ? Permissions.FORENSICS_ACCEPT
-        : dto.status === 'IN_PROGRESS'
-        ? Permissions.FORENSICS_WORK
-        : dto.status === 'COMPLETED'
-        ? Permissions.FORENSICS_COMPLETE
-        : dto.status === 'APPROVED'
-        ? Permissions.FORENSICS_APPROVE
-        : Permissions.FORENSICS_WORK;
-
-    await this.resourceAccessService.assertCanAccessResource(
-      user,
-      analysisId,
-      requiredPermission
-    );
-
-    const [existing] = await this.db
-      .select()
-      .from(forensicAnalyses)
-      .where(eq(forensicAnalyses.id, analysisId))
-      .limit(1);
-
-    if (!existing) {
-      throw new NotFoundException(`Forensic analysis '${analysisId}' not found`);
-    }
-
-    await this.assertWritable(existing.eventId,user);
-    const now = new Date();
-    const updateData: Partial<typeof forensicAnalyses.$inferInsert> = {
-      status: dto.status,
-      updatedAt: now,
-    };
-
-    if (dto.status === 'ACCEPTED' && !existing.acceptedAt) {
-      updateData.acceptedAt = now;
-      if (!existing.assignedToUserId) {
-        updateData.assignedToUserId = user.id;
+  async updateStatus(analysisId:string,dto:UpdateForensicStatusRequest,user:AuthenticatedUser):Promise<ForensicAnalysisDetail>{
+    const requiredPermission=dto.status==='ACCEPTED'||dto.status==='REJECTED'?Permissions.FORENSICS_ACCEPT:dto.status==='COMPLETED'?Permissions.FORENSICS_COMPLETE:dto.status==='APPROVED'?Permissions.FORENSICS_APPROVE:Permissions.FORENSICS_WORK;
+    await this.resourceAccessService.assertCanAccessResource(user,analysisId,requiredPermission);
+    await this.db.transaction(async tx=>{
+      const [existing]=await tx.select().from(forensicAnalyses).where(eq(forensicAnalyses.id,analysisId)).for('update').limit(1);
+      if(!existing)throw new NotFoundException('Forensic analysis not found');
+      await this.assertWritable(existing.eventId,user);
+      await this.resourceAccessService.assertCanAccessResource(user,analysisId,requiredPermission,tx);
+      if(!canTransitionForensic(existing.status,dto.status))throw new BadRequestException('Invalid forensic workflow transition');
+      const edits=dto.methodology!==undefined||dto.findings!==undefined||dto.conclusion!==undefined;
+      if(edits){
+        if(!canEditForensicReport(existing.status)||dto.status==='APPROVED')throw new BadRequestException('Report locked; save before approval');
+        await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.FORENSICS_WORK,tx);
       }
-    } else if (dto.status === 'IN_PROGRESS' && !existing.startedAt) {
-      updateData.startedAt = now;
-    } else if (dto.status === 'COMPLETED' && !existing.completedAt) {
-      updateData.completedAt = now;
-    } else if (dto.status === 'APPROVED' && !existing.approvedAt) {
-      updateData.approvedAt = now;
-    }
-
-    if (dto.findings !== undefined) updateData.findings = dto.findings;
-    if (dto.conclusion !== undefined) updateData.conclusion = dto.conclusion;
-    if (dto.methodology !== undefined) updateData.methodology = dto.methodology;
-
-    await this.db
-      .update(forensicAnalyses)
-      .set(updateData)
-      .where(eq(forensicAnalyses.id, analysisId));
-
-    // Audit
-    await this.auditService.record({
-      action: `forensics.${dto.status.toLowerCase()}`,
-      category: 'forensics',
-      eventId: existing.eventId,
-      resourceType: 'forensic_analysis',
-      resourceId: analysisId,
-      actorUserId: user.id,
-      metadata: {
-        analysisNumber: existing.analysisNumber,
-        previousStatus: existing.status,
-        newStatus: dto.status,
-        notes: dto.notes,
-      },
+      if((dto.status==='COMPLETED'||dto.status==='APPROVED')&&!(dto.conclusion??existing.conclusion)?.trim())throw new BadRequestException('A conclusion is required');
+      const now=new Date(),update:Partial<typeof forensicAnalyses.$inferInsert>={status:dto.status,updatedAt:now};
+      if(dto.status==='ACCEPTED'){
+        update.acceptedAt=now;
+        if(!existing.assignedToUserId){
+          update.assignedToUserId=user.id;
+          await tx.insert(resourceAssignments).values({eventId:existing.eventId,resourceId:analysisId,userId:user.id,assignedByUserId:user.id});
+        }
+      }
+      if(dto.status==='IN_PROGRESS'){update.startedAt=existing.startedAt??now;update.completedAt=null;update.approvedAt=null;}
+      if(dto.status==='COMPLETED')update.completedAt=now;
+      if(dto.status==='APPROVED')update.approvedAt=now;
+      for(const key of ['methodology','findings','conclusion'] as const)if(dto[key]!==undefined)update[key]=dto[key];
+      const [row]=await tx.update(forensicAnalyses).set(update).where(eq(forensicAnalyses.id,analysisId)).returning();
+      const [resource]=await tx.select({visibility:resources.visibility}).from(resources).where(eq(resources.id,analysisId)).limit(1);
+      await this.auditService.record({action:'forensics.'+dto.status.toLowerCase(),category:'forensics',eventId:existing.eventId,resourceType:'forensic_analysis',resourceId:analysisId,actorUserId:user.id,metadata:{analysisNumber:existing.analysisNumber,previousStatus:existing.status,newStatus:dto.status,notes:dto.notes},txClient:tx});
+      await this.activityService.recordActivity({eventId:existing.eventId,resourceId:analysisId,activityType:'forensics.'+dto.status.toLowerCase(),actorUserId:user.id,title:'Forensic analysis '+existing.analysisNumber+': '+dto.status,visibility:resource?.visibility as ResourceVisibilityValue},tx);
+      await this.notifyRequester(tx,row!);
+      await tx.insert(outboxEvents).values({id:generateId(),eventType:'search.upsert',status:OutboxStatus.PENDING,payload:{type:'forensic_analysis',id:analysisId}});
     });
+    return this.getAnalysisDetail(analysisId,user);
+  }
 
-    // Activity
-    await this.activityService.recordActivity({
-      eventId: existing.eventId,
-      resourceId: analysisId,
-      activityType: `forensics.${dto.status.toLowerCase()}`,
-      actorUserId: user.id,
-      title: `Forensic Analysis ${dto.status}: ${existing.analysisNumber}`,
-      summary: `Transitioned from ${existing.status} to ${dto.status}`,
+  async saveReport(analysisId:string,dto:SaveForensicReport,user:AuthenticatedUser):Promise<ForensicAnalysisDetail>{
+    await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.FORENSICS_WORK);
+    await this.db.transaction(async tx=>{
+      const [existing]=await tx.select().from(forensicAnalyses).where(eq(forensicAnalyses.id,analysisId)).for('update').limit(1);
+      if(!existing)throw new NotFoundException('Forensic analysis not found');
+      await this.assertWritable(existing.eventId,user);
+      await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.FORENSICS_WORK,tx);
+      if(!canEditForensicReport(existing.status))throw new BadRequestException('Report is locked');
+      const update:Partial<typeof forensicAnalyses.$inferInsert>={updatedAt:new Date()};
+      for(const key of ['methodology','findings','conclusion'] as const)if(dto[key]!==undefined)update[key]=dto[key];
+      await tx.update(forensicAnalyses).set(update).where(eq(forensicAnalyses.id,analysisId));
+      await this.auditService.record({action:'forensics.report.saved',category:'forensics',eventId:existing.eventId,resourceType:'forensic_analysis',resourceId:analysisId,actorUserId:user.id,metadata:{fields:Object.keys(dto)},txClient:tx});
     });
-
-    // Update search index
-    await this.db.insert(outboxEvents).values({
-      id: generateId(),
-      eventType: 'search.upsert',
-      status: OutboxStatus.PENDING,
-      payload: {
-        type: 'forensic_analysis',
-        id: analysisId,
-      },
-    });
-
-    return this.getAnalysisDetail(analysisId, user);
+    return this.getAnalysisDetail(analysisId,user);
   }
 
   /**
@@ -349,10 +308,11 @@ export class ForensicsService {
       Permissions.FORENSICS_WORK
     );
 
-    const [analysis] = await this.db
-      .select({ eventId: forensicAnalyses.eventId, analysisNumber: forensicAnalyses.analysisNumber })
+    return this.db.transaction(async tx=>{
+    const [analysis] = await tx
+      .select({ eventId: forensicAnalyses.eventId, analysisNumber: forensicAnalyses.analysisNumber,status:forensicAnalyses.status })
       .from(forensicAnalyses)
-      .where(eq(forensicAnalyses.id, analysisId))
+      .where(eq(forensicAnalyses.id, analysisId)).for('update')
       .limit(1);
 
     if (!analysis) {
@@ -360,10 +320,12 @@ export class ForensicsService {
     }
 
     await this.assertWritable(analysis.eventId,user);
+    await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.FORENSICS_WORK,tx);
+    if(!canEditForensicReport(analysis.status))throw new BadRequestException('Report is locked');
     const findingId = generateId();
     const now = new Date();
 
-    const [created] = await this.db
+    const [created] = await tx
       .insert(forensicFindings)
       .values({
         id: findingId,
@@ -385,6 +347,7 @@ export class ForensicsService {
       resourceType: 'forensic_finding',
       resourceId: findingId,
       actorUserId: user.id,
+      txClient:tx,
       metadata: {
         analysisNumber: analysis.analysisNumber,
         findingType: dto.findingType,
@@ -399,10 +362,10 @@ export class ForensicsService {
       activityType: 'forensics.finding.created',
       actorUserId: user.id,
       title: `Forensic finding recorded: ${analysis.analysisNumber}`,
-    });
+    },tx);
 
     // Reindex analysis
-    await this.db.insert(outboxEvents).values({
+    await tx.insert(outboxEvents).values({
       id: generateId(),
       eventType: 'search.upsert',
       status: OutboxStatus.PENDING,
@@ -422,6 +385,7 @@ export class ForensicsService {
       createdByUserId: created!.createdByUserId,
       createdAt: created!.createdAt.toISOString(),
     };
+    });
   }
 
   /**
@@ -438,10 +402,11 @@ export class ForensicsService {
       Permissions.FORENSICS_WORK
     );
 
-    const [analysis] = await this.db
-      .select({ eventId: forensicAnalyses.eventId, analysisNumber: forensicAnalyses.analysisNumber })
+    return this.db.transaction(async tx=>{
+    const [analysis] = await tx
+      .select({ eventId: forensicAnalyses.eventId, analysisNumber: forensicAnalyses.analysisNumber,status:forensicAnalyses.status })
       .from(forensicAnalyses)
-      .where(eq(forensicAnalyses.id, analysisId))
+      .where(eq(forensicAnalyses.id, analysisId)).for('update')
       .limit(1);
 
     if (!analysis) {
@@ -449,16 +414,18 @@ export class ForensicsService {
     }
 
     await this.assertWritable(analysis.eventId,user);
+    await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.FORENSICS_WORK,tx);
+    if(!canEditForensicReport(analysis.status))throw new BadRequestException('Report is locked');
     for(const [id,table] of [[dto.evidenceId,forensicAnalysisEvidence],[dto.deviceId,forensicAnalysisDevices]] as const){
       if(!id)continue;
       // Check the exact input against the analysis, not an arbitrary UUID supplied by the caller.
-      const link=table===forensicAnalysisEvidence?await this.db.select({id:forensicAnalysisEvidence.id}).from(forensicAnalysisEvidence).where(and(eq(forensicAnalysisEvidence.analysisId,analysisId),eq(forensicAnalysisEvidence.evidenceId,id))).limit(1):await this.db.select({id:forensicAnalysisDevices.id}).from(forensicAnalysisDevices).where(and(eq(forensicAnalysisDevices.analysisId,analysisId),eq(forensicAnalysisDevices.deviceId,id))).limit(1);
+      const link=table===forensicAnalysisEvidence?await tx.select({id:forensicAnalysisEvidence.id}).from(forensicAnalysisEvidence).where(and(eq(forensicAnalysisEvidence.analysisId,analysisId),eq(forensicAnalysisEvidence.evidenceId,id))).limit(1):await tx.select({id:forensicAnalysisDevices.id}).from(forensicAnalysisDevices).where(and(eq(forensicAnalysisDevices.analysisId,analysisId),eq(forensicAnalysisDevices.deviceId,id))).limit(1);
       if(!link.length)throw new BadRequestException('Acquisition source is not linked to this analysis');
     }
     const acquisitionId = generateId();
     const now = new Date();
 
-    const [created] = await this.db
+    const [created] = await tx
       .insert(forensicAcquisitions)
       .values({
         id: acquisitionId,
@@ -488,6 +455,7 @@ export class ForensicsService {
       resourceType: 'forensic_acquisition',
       resourceId: acquisitionId,
       actorUserId: user.id,
+      txClient:tx,
       metadata: {
         analysisNumber: analysis.analysisNumber,
         acquisitionType: dto.acquisitionType,
@@ -514,6 +482,7 @@ export class ForensicsService {
       notes: created!.notes,
       createdAt: created!.createdAt.toISOString(),
     };
+    });
   }
 
   /**
@@ -627,7 +596,9 @@ export class ForensicsService {
       throw new NotFoundException(`Forensic analysis '${analysisId}' not found`);
     }
 
-    const canSeeReport=row.status==='APPROVED'&&!!row.approvedAt||await this.resourceAccessService.canAccessResource(user,analysisId,Permissions.FORENSICS_WORK)||await this.resourceAccessService.canAccessResource(user,analysisId,Permissions.FORENSICS_APPROVE);
+    const reportAvailable=row.status==='APPROVED'&&!!row.approvedAt;
+    const [accept,work,complete,approve]=await Promise.all([Permissions.FORENSICS_ACCEPT,Permissions.FORENSICS_WORK,Permissions.FORENSICS_COMPLETE,Permissions.FORENSICS_APPROVE].map(p=>this.resourceAccessService.canAccessResource(user,analysisId,p)));
+    const canSeeReport=reportAvailable||work||approve||complete;
     // Findings
     const findingsRows = await this.db
       .select()
@@ -693,6 +664,7 @@ export class ForensicsService {
       conclusion: canSeeReport?row.conclusion:null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+      reportAvailable,actions:{accept,work,complete,approve},
       findingsList: (canSeeReport?findingsRows:[]).map((f) => ({
         id: f.id,
         analysisId: f.analysisId,
