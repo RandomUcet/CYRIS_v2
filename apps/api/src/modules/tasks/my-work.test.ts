@@ -65,3 +65,9 @@ test('My Work controller route is declared before the dynamic task route', () =>
 });
 
 // Real role, assignment and event-scope checks live in regression/tasks-authorization.test.ts.
+
+test('medical and legal terminal records are not actionable work',()=>{
+  for(const status of ['RECEIVED','TRIAGED','UNDER_CARE','STABILIZED','TRANSFERRED'])assert.equal(isActionableMyWorkItem({kind:'MEDICAL_ENCOUNTER',status}),true);
+  for(const status of ['CLOSED','DECEASED','UNKNOWN'])assert.equal(isActionableMyWorkItem({kind:'MEDICAL_ENCOUNTER',status}),false);
+  assert.equal(isActionableMyWorkItem({kind:'COURT_REQUEST',status:'FULFILLED'}),false);
+});

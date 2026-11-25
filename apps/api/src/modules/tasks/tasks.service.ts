@@ -4,7 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { eq, and, desc, inArray, sql, isNull } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql, isNull, or } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
@@ -21,7 +21,7 @@ import {
   organizationalUnits,
   eventMemberships,
   resourceRelationships,
-  labAnalyses,forensicAnalyses,
+  labAnalyses,forensicAnalyses,medicalEncounters,
   membershipUnitAssignments,
   MembershipStatus,
   UserStatus,
@@ -562,7 +562,7 @@ export class TasksService {
   }
 
   async listMyWork(eventId:string,query:MyWorkQuery,user:AuthenticatedUser):Promise<MyWorkResponse>{
-    const domains=[{read:Permissions.TASK_READ,request:Permissions.TASK_CREATE,module:'tasks'},{read:Permissions.LAB_READ,request:Permissions.LAB_REQUEST,module:'lab'},{read:Permissions.FORENSICS_READ,request:Permissions.FORENSICS_REQUEST,module:'forensics'}] as const;
+    const domains=[{read:Permissions.TASK_READ,request:Permissions.TASK_CREATE,module:'tasks'},{read:Permissions.LAB_READ,request:Permissions.LAB_REQUEST,module:'lab'},{read:Permissions.FORENSICS_READ,request:Permissions.FORENSICS_REQUEST,module:'forensics'},{read:Permissions.MEDICAL_READ,request:Permissions.MEDICAL_READ,module:'medical'}] as const;
     const access=await Promise.all(domains.map(async d=>({
       ...d,readable:await this.canUseModule(eventId,user,d.read),requestable:await this.canUseModule(eventId,user,d.request),
       eventWide:await this.authorizationService.authorize({user,permission:d.read,context:{eventId}}),
@@ -591,6 +591,21 @@ export class TasksService {
       show(access[2]!)?this.db.select({row:forensicAnalyses}).from(forensicAnalyses).innerJoin(resources,eq(resources.id,forensicAnalyses.id)).where(and(eq(forensicAnalyses.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'forensic_analysis'),query.view==='approval'?eq(forensicAnalyses.status,'COMPLETED'):query.view==='personal'?eq(forensicAnalyses.assignedToUserId,user.id):query.view==='requested'?eq(forensicAnalyses.requestedByUserId,user.id):query.view==='unit'?eq(forensicAnalyses.assignedUnitId,query.unitId!):undefined)):[],
     ]);
     const items:MyWorkItem[]=[];
+    // Medical records are not outgoing requests. Never expose clinical prose or patient identities in this mixed queue.
+    if(show(access[3]!)&&['personal','unit','event'].includes(query.view)){
+      const memberUnits=query.view==='personal'?await this.db.select({unitId:membershipUnitAssignments.unitId}).from(eventMemberships)
+        .innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.membershipId,eventMemberships.id))
+        .innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId))
+        .where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,user.id),eq(eventMemberships.status,MembershipStatus.ACTIVE),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt))):[];
+      const ownUnits=memberUnits.map(u=>u.unitId);
+      const target=query.view==='personal'?or(eq(medicalEncounters.assignedUserId,user.id),ownUnits.length?and(isNull(medicalEncounters.assignedUserId),inArray(medicalEncounters.assignedUnitId,ownUnits)):undefined):query.view==='unit'?eq(medicalEncounters.assignedUnitId,query.unitId!):undefined;
+      const medicalRows=await this.db.select({id:medicalEncounters.id,number:medicalEncounters.medicalNumber,status:medicalEncounters.status,assignedUserId:medicalEncounters.assignedUserId,assignedUnitId:medicalEncounters.assignedUnitId,updatedAt:medicalEncounters.updatedAt}).from(medicalEncounters).innerJoin(resources,eq(resources.id,medicalEncounters.id))
+        .where(and(eq(medicalEncounters.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'medical_encounter'),inArray(medicalEncounters.status,['RECEIVED','TRIAGED','UNDER_CARE','STABILIZED','TRANSFERRED']),target));
+      for(const row of medicalRows){
+        if(!await this.resourceAccessService.canAccessResource(user,row.id,Permissions.MEDICAL_READ))continue;
+        items.push({id:row.id,eventId,kind:'MEDICAL_ENCOUNTER',identifier:row.number,title:row.number,status:row.status,assignedToUserId:row.assignedUserId,assignedUnitId:row.assignedUnitId,assignedUnitName:units.find(u=>u.id===row.assignedUnitId)?.name,updatedAt:row.updatedAt.toISOString(),href:`/events/${eventId}/medical/${row.id}`});
+      }
+    }
     const names=new Map(units.map(u=>[u.id,u.name]));
     async function append(item:MyWorkItem,permission:PermissionKey,service:ResourceAccessService){
       if(query.view!=='requested'&&!isActionableMyWorkItem(item))return;

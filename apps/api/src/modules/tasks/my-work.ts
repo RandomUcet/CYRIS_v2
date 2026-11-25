@@ -1,6 +1,7 @@
 import type { MyWorkItem } from '@cyris/contracts';
 
 export function isActionableMyWorkItem(item: Pick<MyWorkItem, 'kind' | 'status'>): boolean {
+  if(item.kind==='MEDICAL_ENCOUNTER')return ['RECEIVED','TRIAGED','UNDER_CARE','STABILIZED','TRANSFERRED'].includes(item.status);
   if(item.kind==='COURT_REQUEST')return item.status==='OPEN'||item.status==='IN_PROGRESS';
   return item.kind === 'TASK'
     ? !['COMPLETED', 'CANCELLED'].includes(item.status)
