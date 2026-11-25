@@ -413,11 +413,12 @@ export class CyrisApiClient {
   }
 
   /** Canonical, event-scoped relationship picker. No Typesense dependency. */
-  async searchRegistryRecords(eventId:string,query:string,signal?:AbortSignal,types?:'persons'|'organisations'|'persons,organisations'){
+  async searchRegistryRecords(eventId:string,query:string,signal?:AbortSignal,types?:import('@cyris/contracts').RegistryPickerTypes){
     return this.fetchJson<RegistryPickerResult[]>(
       `/events/${eventId}/registry/search?q=${encodeURIComponent(query)}&limit=20${types?'&types='+encodeURIComponent(types):''}`,signal);
   }
 
+  resolveRegistryPicker(eventId:string,id:string,signal?:AbortSignal){return this.fetchJson<RegistryPickerResult>(`/events/${eventId}/registry/picker/${id}`,signal);}
   async getPersons(eventId: string) {
     return this.fetchJson<any[]>(`/events/${eventId}/registry/persons`);
   }

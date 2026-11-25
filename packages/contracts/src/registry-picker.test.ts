@@ -17,3 +17,8 @@ test('registry picker response requires event scope and canonical identifiers',(
     id:'not-uuid',eventId:'x',entityType:'persons',identifier:null,label:'x',
   }).success,false);
 });
+
+test('canonical picker supports bounded device and party filters',()=>{
+ for(const types of ['persons','organisations','persons,organisations','devices','locations','vehicles','weapons','licences'])assert.equal(RegistryPickerQuerySchema.safeParse({q:'Record',types}).success,true);
+ for(const types of ['person','*','devices,persons','persons,persons','unknown'])assert.equal(RegistryPickerQuerySchema.safeParse({q:'Record',types}).success,false);
+});

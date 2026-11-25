@@ -4,8 +4,12 @@ import React, { useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
-import type { SearchResultItem } from '@cyris/contracts';
+import type { SearchResultItem,RegistryPickerTypes,RegistryPickerResult } from '@cyris/contracts';
 
+const canonicalTypes:Record<string,RegistryPickerTypes>={person:'persons',organisation:'organisations','person,organisation':'persons,organisations',device:'devices',location:'locations',vehicle:'vehicles',weapon:'weapons',licence:'licences'};
+function canonicalItem(item:RegistryPickerResult):SearchResultItem{
+ return {id:item.id,canonicalId:item.id,type:item.entityType.slice(0,-1),title:item.label,subtitle:item.identifier??undefined,eventId:item.eventId,highlights:[],tags:[]};
+}
 interface ResourcePickerProps {
   eventId?: string;
   value: string;
@@ -31,6 +35,7 @@ function PickerWorkspace({
   required,
   disabled,
 }: ResourcePickerProps) {
+  const registryTypes=types?canonicalTypes[types]:undefined;
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [selected, setSelected] = useState<SearchResultItem | null>(null);
@@ -55,10 +60,15 @@ function PickerWorkspace({
           const person=response.data;
           setSelected({id:value,canonicalId:value,type:'person',
             title:String(person.displayName||person.name||'Selected person'),subtitle:person.identifier||undefined,eventId,highlights:[],tags:[]});
+        }else if(eventId&&registryTypes){
+          const response=await apiClient.resolveRegistryPicker(eventId,value,controller.signal);
+          if(controller.signal.aborted)return;
+          const item=response.ok?response.data:undefined;
+          if(item&&item.id===value&&item.eventId===eventId&&registryTypes.split(',').includes(item.entityType))setSelected(canonicalItem(item));else setResolveError(true);
         }else{
           const response=await apiClient.search(value,{eventId,types,limit:5,signal:controller.signal});
           if(controller.signal.aborted)return;
-          const match=response.ok?response.data?.results.find(item=>item.canonicalId===value):undefined;
+          const match=response.ok?response.data?.results.find(item=>item.canonicalId===value&&(!eventId||item.eventId===eventId)&&(!types||types.split(',').includes(item.type))):undefined;
           if(match)setSelected(match);else setResolveError(true);
         }
       }catch{if(!controller.signal.aborted)setResolveError(true);}
@@ -74,13 +84,10 @@ function PickerWorkspace({
     const controller=new AbortController();
     const timer=window.setTimeout(async()=>{
       try{
-        if(eventId && (types==='person'||types==='organisation'||types==='person,organisation')){
-          const registryTypes=types==='person'?'persons':types==='organisation'?'organisations':'persons,organisations';
+        if(eventId && registryTypes){
           const response=await apiClient.searchRegistryRecords(eventId, query.trim(), controller.signal,registryTypes);
           if(controller.signal.aborted)return;
-          setResults(response.ok&&response.data?response.data.filter(item=>item.eventId===eventId&&registryTypes.split(',').includes(item.entityType)).map(item=>({
-            id:item.id,canonicalId:item.id,type:item.entityType==='persons'?'person':'organisation',title:item.label,subtitle:item.identifier??undefined,eventId:item.eventId,highlights:[],tags:[],
-          })):[]);
+          setResults(response.ok&&response.data?response.data.filter(item=>item.eventId===eventId&&registryTypes.split(',').includes(item.entityType)).map(canonicalItem):[]);
           if(!response.ok)setSearchError(response.error||'Search is unavailable');
         }else{
           const response=await apiClient.search(query.trim(),{eventId,types,limit:8,signal:controller.signal});
@@ -147,6 +154,7 @@ function PickerWorkspace({
               onChange={(event) => setQuery(event.target.value)}
               placeholder={placeholder}
               required={required}
+              ref={node=>{if(node)node.setCustomValidity(required&&!value?'Select a record from the search results.':'');}}
               disabled={disabled}
               autoComplete="off"
             />
@@ -177,7 +185,7 @@ function PickerWorkspace({
                 <button
                   key={item.canonicalId}
                   type="button"
-                  role="option"
+                  role="option" aria-selected={false}
                   onClick={() => choose(item)}
                   style={{
                     display: 'block',

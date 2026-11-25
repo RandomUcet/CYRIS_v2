@@ -70,40 +70,41 @@ export class RegistryService {
    * No unfiltered counts, owner metadata or hidden record titles are emitted.
    */
   async searchPicker(eventId:string, query:RegistryPickerQuery, user:AuthenticatedUser):Promise<RegistryPickerResult[]>{
-    const pattern='%'+query.q+'%';
+    // Escape SQL LIKE metacharacters so the search is literal, not a wildcard scan.
+    const pattern='%'+query.q.replace(/[\\%_]/g,ch=>'\\'+ch)+'%';
     const allowed=query.types?.split(',');
     // Limit the candidate work per entity type; never scan unrestricted whole-table results into JS.
     const cap=Math.min(90,Math.max(20,query.limit*3));
     const [personRows,organisationRows,locationRows,vehicleRows,deviceRows,weaponRows,licenceRows]=await Promise.all([
-      this.db.select({id:persons.id,identifier:persons.identifier,label:persons.displayName})
+      (!allowed||allowed.includes('persons'))?this.db.select({id:persons.id,identifier:persons.identifier,label:persons.displayName})
         .from(persons).innerJoin(resources,eq(persons.id,resources.id))
         .where(and(eq(resources.eventId,eventId),or(ilike(persons.displayName,pattern),ilike(persons.identifier,pattern))))
-        .orderBy(asc(persons.displayName)).limit(cap),
-      this.db.select({id:organisations.id,identifier:organisations.identifier,label:organisations.name})
+        .orderBy(asc(persons.displayName)).limit(cap):Promise.resolve([]),
+      (!allowed||allowed.includes('organisations'))?this.db.select({id:organisations.id,identifier:organisations.identifier,label:organisations.name})
         .from(organisations).innerJoin(resources,eq(organisations.id,resources.id))
         .where(and(eq(resources.eventId,eventId),or(ilike(organisations.name,pattern),ilike(organisations.identifier,pattern))))
-        .orderBy(asc(organisations.name)).limit(cap),
-      this.db.select({id:locations.id,identifier:locations.identifier,label:locations.name})
+        .orderBy(asc(organisations.name)).limit(cap):Promise.resolve([]),
+      (!allowed||allowed.includes('locations'))?this.db.select({id:locations.id,identifier:locations.identifier,label:locations.name})
         .from(locations).innerJoin(resources,eq(locations.id,resources.id))
         .where(and(eq(resources.eventId,eventId),or(ilike(locations.name,pattern),ilike(locations.city,pattern),ilike(locations.identifier,pattern))))
-        .orderBy(asc(locations.name)).limit(cap),
-      this.db.select({id:vehicles.id,identifier:vehicles.identifier,label:vehicles.label})
+        .orderBy(asc(locations.name)).limit(cap):Promise.resolve([]),
+      (!allowed||allowed.includes('vehicles'))?this.db.select({id:vehicles.id,identifier:vehicles.identifier,label:vehicles.label})
         .from(vehicles).innerJoin(resources,eq(vehicles.id,resources.id))
         .where(and(eq(resources.eventId,eventId),or(ilike(vehicles.label,pattern),ilike(vehicles.registrationPlate,pattern),ilike(vehicles.identifier,pattern))))
-        .orderBy(asc(vehicles.label)).limit(cap),
-      this.db.select({id:devices.id,identifier:devices.identifier,label:devices.label})
+        .orderBy(asc(vehicles.label)).limit(cap):Promise.resolve([]),
+      (!allowed||allowed.includes('devices'))?this.db.select({id:devices.id,identifier:devices.identifier,label:devices.label})
         .from(devices).innerJoin(resources,eq(devices.id,resources.id))
         .where(and(eq(resources.eventId,eventId),or(ilike(devices.label,pattern),ilike(devices.hostname,pattern),ilike(devices.identifier,pattern))))
-        .orderBy(asc(devices.label)).limit(cap),
-      this.db.select({id:weapons.id,identifier:weapons.identifier,
+        .orderBy(asc(devices.label)).limit(cap):Promise.resolve([]),
+      (!allowed||allowed.includes('weapons'))?this.db.select({id:weapons.id,identifier:weapons.identifier,
         label:sql<string>`trim(concat_ws(' ', ${weapons.category}, ${weapons.manufacturer}, ${weapons.model}))`})
         .from(weapons).innerJoin(resources,eq(weapons.id,resources.id))
         .where(and(eq(resources.eventId,eventId),or(ilike(weapons.category,pattern),ilike(weapons.manufacturer,pattern),ilike(weapons.model,pattern),ilike(weapons.identifier,pattern))))
-        .orderBy(asc(weapons.category)).limit(cap),
-      this.db.select({id:licences.id,identifier:licences.identifier,label:licences.title})
+        .orderBy(asc(weapons.category)).limit(cap):Promise.resolve([]),
+      (!allowed||allowed.includes('licences'))?this.db.select({id:licences.id,identifier:licences.identifier,label:licences.title})
         .from(licences).innerJoin(resources,eq(licences.id,resources.id))
         .where(and(eq(resources.eventId,eventId),or(ilike(licences.title,pattern),ilike(licences.identifier,pattern),ilike(licences.licenceNumber,pattern))))
-        .orderBy(asc(licences.title)).limit(cap),
+        .orderBy(asc(licences.title)).limit(cap):Promise.resolve([]),
     ]);
     const candidates=[
       ...personRows.map(row=>({...row,entityType:'persons' as const})),
@@ -123,6 +124,27 @@ export class RegistryService {
       }
     }
     return visible;
+  }
+
+  /** Exact canonical label lookup, independent of Typesense indexing and scope-safe. */
+  async resolvePicker(eventId:string,id:string,user:AuthenticatedUser):Promise<RegistryPickerResult>{
+    const [resource]=await this.db.select({type:resources.resourceType}).from(resources).where(and(eq(resources.id,id),eq(resources.eventId,eventId))).limit(1);
+    if(!resource||!['person','organisation','location','vehicle','device','weapon','licence'].includes(resource.type))throw new NotFoundException('Registry record not found');
+    if(!await this.resourceAccessService.canAccessResource(user,id,Permissions.REGISTRY_READ))throw new NotFoundException('Registry record not found');
+    let row:{id:string;identifier:string|null;label:string}|undefined;
+    let entityType:RegistryPickerResult['entityType'];
+    switch(resource.type){
+      case 'person':entityType='persons';[row]=await this.db.select({id:persons.id,identifier:persons.identifier,label:persons.displayName}).from(persons).where(eq(persons.id,id)).limit(1);break;
+      case 'organisation':entityType='organisations';[row]=await this.db.select({id:organisations.id,identifier:organisations.identifier,label:organisations.name}).from(organisations).where(eq(organisations.id,id)).limit(1);break;
+      case 'location':entityType='locations';[row]=await this.db.select({id:locations.id,identifier:locations.identifier,label:locations.name}).from(locations).where(eq(locations.id,id)).limit(1);break;
+      case 'vehicle':entityType='vehicles';[row]=await this.db.select({id:vehicles.id,identifier:vehicles.identifier,label:vehicles.label}).from(vehicles).where(eq(vehicles.id,id)).limit(1);break;
+      case 'device':entityType='devices';[row]=await this.db.select({id:devices.id,identifier:devices.identifier,label:devices.label}).from(devices).where(eq(devices.id,id)).limit(1);break;
+      case 'weapon':entityType='weapons';[row]=await this.db.select({id:weapons.id,identifier:weapons.identifier,label:sql<string>`trim(concat_ws(' ', ${weapons.category}, ${weapons.manufacturer}, ${weapons.model}))`}).from(weapons).where(eq(weapons.id,id)).limit(1);break;
+      case 'licence':entityType='licences';[row]=await this.db.select({id:licences.id,identifier:licences.identifier,label:licences.title}).from(licences).where(eq(licences.id,id)).limit(1);break;
+      default:throw new NotFoundException('Registry record not found');
+    }
+    if(!row)throw new NotFoundException('Registry record not found');
+    return {...row,eventId,entityType};
   }
 
   private async assertMediaEvent(eventId:string,resourceId:string) {
