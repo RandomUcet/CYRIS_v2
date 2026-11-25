@@ -151,6 +151,7 @@ function PickerWorkspace({
             />
           </div>
           {searchError && <div role="alert" style={{ fontSize: 12, color: 'var(--status-danger)', marginTop: 6 }}>{searchError}</div>}
+          {!loading&&!searchError&&query.trim().length>=2&&resultQuery===query.trim()&&!visibleResults.length&&<p role="status" style={{fontSize:12,color:'var(--text-muted)'}}>No matching records</p>}
           {loading && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Searching…</div>}
           {visibleResults.length > 0 && (
             <div

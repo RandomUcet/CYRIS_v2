@@ -51,9 +51,9 @@ export function ExerciseAdviceHistory({eventId,cs,refreshKey,blueprintRevision}:
  {error&&<p role="alert">{error}</p>}{loading&&<p role="status">{tr('Načítám historii…','Loading history…')}</p>}
  {!loading&&!error&&!rows.length&&<p>{tr('Zatím nebyl uložen žádný návrh.','No stored drafts yet.')}</p>}
  {!loading&&draft&&<>
- <p className="intel-muted">{draft.model} · {draft.runId} · {draft.blueprintRevision===null?tr('Bez blueprintu','No blueprint'):'Blueprint r'+draft.blueprintRevision} · {tr('Revize rozhodnutí','Review revision')} {draft.revision}</p>
+ <p className="intel-muted">{draft.model} · {draft.blueprintRevision===null?tr('Bez blueprintu','No blueprint'):'Blueprint r'+draft.blueprintRevision} · {tr('Revize rozhodnutí','Review revision')} {draft.revision}</p>
  {stale&&<p role="status">{tr('Návrh vychází ze starší revize blueprintu. Před využitím jej znovu posuďte.','Draft uses an older blueprint revision. Reassess before use.')}</p>}
- <p>{draft.summary}</p>
+ <p>{draft.summary}</p><details><summary>{tr('Technický detail návrhu','Technical draft detail')}</summary><code style={{overflowWrap:'anywhere'}}>{draft.runId}</code></details>
  <details><summary>{tr('Původní pozorování','Original observations')} · {new Date(draft.observedAt).toLocaleString()}</summary><ul className="intel-list">{draft.signals.map(s=><li key={s.id}>{s.count} · {cs?s.labelCs:s.label}<p className="intel-muted">{s.source}</p><Link href={'/events/'+eventId+s.href}>{tr('Otevřít agendu','Open workspace')}</Link></li>)}</ul></details>
  {!!draft.observations.length&&<details><summary>{tr('Historický kontext předaný Sparku','Historical context supplied to Spark')} · {draft.observations.length}</summary><ul className="intel-list">{draft.observations.map(s=><li key={s.observedAt}>{new Date(s.observedAt).toLocaleString(cs?'cs-CZ':'en-GB')} · {tr('Otevřené','Pending')}: {s.pending} · {tr('Beze změny','Unchanged')}: {s.unchanged} ({s.reviewAfterHours} h) · {tr('Blokované','Blocked')}: {s.blocked}</li>)}</ul></details>}
  <div className="intel-review-grid">{draft.actions.map((action,i)=>{

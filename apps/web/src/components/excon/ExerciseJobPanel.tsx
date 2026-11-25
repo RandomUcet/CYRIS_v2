@@ -40,7 +40,7 @@ export function ExerciseJobPanel({eventId,cs,refreshKey,onComplete}:{eventId:str
  <strong>{job.mode==='ARCHITECT'?tr('Návrh cvičení','Exercise architect'):tr('Návrh intervence','Intervention advisor')} · {status[job.status]}</strong>
  <small>{new Date(job.createdAt).toLocaleString(cs?'cs-CZ':'en-GB')} · {tr('Pokus','Attempt')} {job.attempts}/3 · {job.blueprintRevision===null?tr('Bez blueprintu','No blueprint'):'Blueprint r'+job.blueprintRevision}</small>
  {job.errorCode&&<p className="intel-muted">{errors[job.errorCode]??tr('Úloha nedokončena','Job incomplete')}</p>}
- {job.resultRunId&&<small>{tr('Výsledek uložen do historie','Result saved to history')} · {job.resultRunId}</small>}
+ {job.resultRunId&&<small>{tr('Výsledek uložen do historie','Result saved to history')}</small>}
  {job.status==='QUEUED'&&<button type="button" className="btn btn-secondary" disabled={busy!==null} onClick={()=>void cancel(job.id)}>{tr('Zrušit čekající úlohu','Cancel queued job')}</button>}
  </li>)}</ul>
  </section>;
