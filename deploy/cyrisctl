@@ -1033,6 +1033,13 @@ def recovery_copy(archive, directory):
     cmd_backup_verify(argparse.Namespace(backup=str(target)))
     return digest
 
+def cmd_cleanup_inventory(args):
+    """Aggregate read-only observations from the deployed API runtime."""
+    import uuid
+    event_id=str(uuid.UUID(args.event))
+    result=docker_compose_cmd("exec","-T","api","node","dist/scripts/retention-inventory.js",event_id)
+    print(result.stdout.strip())
+
 def cmd_cleanup(args):
     plan=read_cleanup_plan(args.event,args.scope)
     print(json.dumps(plan,indent=2,ensure_ascii=False),flush=True)
@@ -1911,6 +1918,10 @@ def main():
 
     p_backups = subparsers.add_parser("backups", help="List available backup snapshots")
     p_backups.set_defaults(func=cmd_backups)
+
+    p_inventory=subparsers.add_parser("cleanup-inventory",help="Read-only exercise storage, search and background inventory")
+    p_inventory.add_argument("--event",required=True,help="Exact exercise UUID")
+    p_inventory.set_defaults(func=cmd_cleanup_inventory)
 
     p_cleanup=subparsers.add_parser("cleanup",help="Preview or execute bounded archived-exercise retention")
     p_cleanup.add_argument("--event",required=True,help="Exact exercise UUID")

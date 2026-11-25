@@ -9,7 +9,7 @@ import {StatusBadge} from '@/components/common/Badges';
 import {apiClient} from '@/lib/api-client';
 import {useAuth} from '@/contexts/AuthContext';
 import {usePreferences} from '@/contexts/PreferencesContext';
-import type {EventPurgePreview} from '@cyris/contracts';
+import {RetentionInventoryReportSchema,type EventPurgePreview,type RetentionInventoryReport} from '@cyris/contracts';
 import styles from './data.module.css';
 
 type Scope='read-notifications'|'terminal-tasks';
@@ -42,12 +42,15 @@ function DataWorkspace({id}:{id:string}){
   const [mode,setMode]=useState<'all'|'selected'>('all'),[selected,setSelected]=useState<string[]>([]);
   const [loading,setLoading]=useState(true),[working,setWorking]=useState(false),[error,setError]=useState(''),[scope,setScope]=useState<Scope>('terminal-tasks');
   const [refresh,setRefresh]=useState(0),[copied,setCopied]=useState(false);
+  const [hostInventory,setHostInventory]=useState<RetentionInventoryReport|null>(null),[importError,setImportError]=useState('');
+  const importSequence=useRef(0);
   const requestSequence=useRef(0);
   const selectionKey=JSON.stringify([mode,[...selected].sort()]);
   const selectionKeyRef=useRef(selectionKey);
   selectionKeyRef.current=selectionKey;
   useEffect(()=>{
     const sequence=++requestSequence.current;
+    importSequence.current++;setHostInventory(null);setImportError('');
     setLoading(true);setError('');setBase(null);setPreview(null);setWorking(false);setSelected([]);
     void apiClient.getEventPurgePreview(id).then(res=>{
       if(sequence!==requestSequence.current)return;
@@ -55,7 +58,7 @@ function DataWorkspace({id}:{id:string}){
       setBase(res.data);
     }).catch(err=>{if(sequence===requestSequence.current)setError(String(err instanceof Error?err.message:err));})
       .finally(()=>{if(sequence===requestSequence.current)setLoading(false)});
-    return()=>{requestSequence.current++};
+    return()=>{requestSequence.current++;importSequence.current++};
   },[id,refresh]);
   function changeSelection(nextMode:'all'|'selected',next:string[]){
     requestSequence.current++;setMode(nextMode);setSelected(next);setPreview(null);setWorking(false);setError('');
@@ -78,6 +81,17 @@ function DataWorkspace({id}:{id:string}){
     const a=document.createElement('a');a.href=url;a.download='cyris-data-inventory-'+id+'.json';a.click();URL.revokeObjectURL(url);
   }
   const hostCommand='sudo cyrisctl cleanup --event '+id+' --scope '+scope;
+  const inventoryCommand='sudo cyrisctl cleanup-inventory --event '+id;
+  async function importInventory(file:File|undefined){
+    const sequence=++importSequence.current;setImportError('');setHostInventory(null);
+    if(!file)return;
+    try{
+      if(file.size>128*1024)throw new Error(tr('Soubor je příliš velký.','File is too large.'));
+      const parsed=RetentionInventoryReportSchema.safeParse(JSON.parse(await file.text()));
+      if(!parsed.success||parsed.data.eventId!==id)throw new Error(tr('Neplatný inventář nebo jiné cvičení.','Invalid inventory or different exercise.'));
+      if(sequence===importSequence.current)setHostInventory(parsed.data);
+    }catch(err){if(sequence===importSequence.current)setImportError(err instanceof Error?err.message:tr('Neplatný soubor.','Invalid file.'));}
+  }
   async function copyCommand(){
     setCopied(false);
     try{await navigator.clipboard.writeText(hostCommand);setCopied(true);}catch{setError(tr('Příkaz zkopírujte ručně.','Copy the command manually.'));}
@@ -136,7 +150,37 @@ function DataWorkspace({id}:{id:string}){
           </section>
         </div>
         <section className={styles.panel}>
-          <h2><ShieldCheck size={19}/>{tr('3 · Co zůstává zachováno','3 · What is retained')}</h2>
+          <h2><Database size={19}/>{tr('3 · Ověření úložiště a front','3 · Storage and queue inspection')}</h2>
+          <p>{tr('Serverový inventář porovná známé odkazy se skutečnými objekty a vyhledávacím indexem. Nikdy nemaže.','Host inventory compares known references with actual objects and the search index. It never deletes.')}</p>
+          <div className={styles.command}><code>{inventoryCommand}</code><small>{tr('Výstup uložte jako JSON a načtěte níže.','Save the output as JSON and load it below.')}</small></div>
+          <label>{tr('Načíst JSON ze serveru','Load host JSON')} <input type="file" accept=".json,application/json" onChange={e=>{const f=e.target.files?.[0];e.target.value='';void importInventory(f)}}/></label>
+          {importError&&<p role="alert">{importError}</p>}
+          {hostInventory&&<div className={styles.result}>
+            <strong>{tr('Importovaný snímek (nikoli živé ověření)','Imported snapshot (not live verification)')} · {formatTime(hostInventory.generatedAt)}</strong>
+            <p>{hostInventory.listingComplete?tr('Omezený průchod jmennými prostory dokončen.','Bounded namespace scan completed.'):tr('Průchod úložištěm neúplný.','Object listing incomplete.')}</p>
+            <div className={styles.metrics}>{[
+              [tr('Unikátní objekty','Unique objects'),hostInventory.storage.uniqueObjects],
+              [tr('Existující','Present'),hostInventory.storage.presentObjects],
+              [tr('Chybějící','Missing'),hostInventory.storage.missingObjects],
+              [tr('Neověřené','Unverified'),hostInventory.storage.unverifiedObjects],
+              [tr('Sdílené','Shared'),hostInventory.storage.sharedObjects],
+              [tr('Mimo namespace','Outside namespace'),hostInventory.storage.outsideNamespace],
+              [tr('Chráněné buckety','Protected buckets'),hostInventory.storage.protectedBucket],
+              [tr('Bez známého odkazu','Unreferenced'),hostInventory.storage.unreferencedNamespaceObjects],
+              [tr('Odkazy jiných cvičení','Foreign references'),hostInventory.storage.foreignOwnedNamespaceObjects],
+              [tr('Indexované záznamy','Indexed records'),hostInventory.indexedDocuments??'—'],
+              [tr('Úlohy cvičení','Exercise jobs'),hostInventory.background.exerciseJobs],
+              [tr('Generování scénáře','Scenario generation'),hostInventory.background.scenarioBatches],
+              [tr('Neuzavřený outbox cvičení','Event outbox'),hostInventory.background.eventOutbox],
+              [tr('Nezařazený outbox','Unclassified outbox'),hostInventory.background.unclassifiedOutbox],
+              [tr('Forenzní externí odkazy','External forensic refs'),hostInventory.background.forensicReferences]
+            ].map(([label,count])=><div key={String(label)}><span>{label}</span><strong>{count}</strong></div>)}</div>
+            <div className={styles.warning}><AlertTriangle size={17}/><div><strong>{tr('Blokace úplného mazání','Full deletion blockers')}</strong><ul>{hostInventory.blockers.map(key=><li key={key}>{key.replaceAll('_',' ')}</li>)}</ul></div></div>
+            <p>{tr('Import není potvrzením oprávnění k mazání. Redis, externí forenzní úložiště a obnova stále vyžadují samostatnou kontrolu.','Import is not deletion authorization. Redis, external forensic storage and recovery require separate checks.')}</p>
+          </div>}
+        </section>
+        <section className={styles.panel}>
+          <h2><ShieldCheck size={19}/>{tr('4 · Co zůstává zachováno','4 · What is retained')}</h2>
           <p>{tr('Uživatelé, role, členství, auditní stopa a operační historie. Samotné cvičení zůstává archivované.','Users, roles, memberships, audit and operational history. The exercise itself remains archived.')}</p>
           <div className={styles.warning}><AlertTriangle size={19}/><div><strong>{tr('Úplné odstranění cvičení zatím není k dispozici','Complete exercise deletion is not yet available')}</strong><p>{tr('Důkazy, zprávy, soubory, externí integrace a závislosti musí projít samostatnou akceptací. Náhled neznamená oprávnění odstranit všechna data.','Evidence, reports, files, external integrations and dependencies require separate acceptance. Preview is not permission to delete all data.')}</p></div></div>
         </section>

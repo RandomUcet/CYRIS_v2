@@ -42,6 +42,16 @@ class Operations(unittest.TestCase):
         self.docker.return_value.stdout = "api\npostgres\n"
         self.args = argparse.Namespace(backup=None, force=True, version=None)
 
+    def test_cleanup_inventory_validates_uuid_and_only_executes_fixed_reader(self):
+        event="00000000-0000-4000-8000-000000000001"
+        self.docker.return_value.stdout='{"mode":"READ_ONLY"}'
+        ctl.cmd_cleanup_inventory(argparse.Namespace(event=event))
+        self.docker.assert_called_once_with("exec","-T","api","node","dist/scripts/retention-inventory.js",event)
+        self.docker.reset_mock()
+        with self.assertRaises(ValueError):
+            ctl.cmd_cleanup_inventory(argparse.Namespace(event="invalid"))
+        self.docker.assert_not_called()
+
     def test_cleanup_sql_is_fixed_scoped_and_preview_rolls_back(self):
         event="00000000-0000-4000-8000-000000000001"
         preview=ctl.cleanup_sql(event,"terminal-tasks")

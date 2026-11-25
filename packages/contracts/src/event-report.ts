@@ -50,3 +50,19 @@ export const EventPurgePreviewSchema = z.object({
   blockers: z.array(z.string()),
 });
 export type EventPurgePreview = z.infer<typeof EventPurgePreviewSchema>;
+
+/** Host inspection contains aggregate evidence only; it is never execution authority. */
+const retentionCount=z.number().int().nonnegative();
+export const RetentionInventoryReportSchema=z.object({
+  eventId:z.string().uuid(),status:z.string(),generatedAt:z.string().datetime(),mode:z.literal('READ_ONLY'),listingComplete:z.boolean(),
+  storage:z.object({references:retentionCount,uniqueObjects:retentionCount,sharedObjects:retentionCount,
+    outsideNamespace:retentionCount,protectedBucket:retentionCount,presentObjects:retentionCount,missingObjects:retentionCount,
+    unverifiedObjects:retentionCount,unreferencedNamespaceObjects:retentionCount,foreignOwnedNamespaceObjects:retentionCount}).strict(),
+  indexedDocuments:retentionCount.nullable(),
+  background:z.object({exerciseJobs:retentionCount,scenarioBatches:retentionCount,forensicReferences:retentionCount,
+    eventOutbox:retentionCount,unclassifiedOutbox:retentionCount}).strict(),
+  blockers:z.array(z.enum(['OBJECT_LIST_INCOMPLETE','SHARED_OR_FOREIGN_OBJECTS','UNMANAGED_OBJECT_REFERENCES','MISSING_OR_UNVERIFIED_OBJECTS',
+    'UNREFERENCED_OBJECTS_REQUIRE_REVIEW','FORENSIC_EXTERNAL_REFERENCES','BACKGROUND_WORK_REQUIRES_RECONCILIATION','SEARCH_INDEX_UNAVAILABLE',
+    'REDIS_AND_EXTERNAL_RECONCILIATION_PENDING'])),
+}).strict();
+export type RetentionInventoryReport=z.infer<typeof RetentionInventoryReportSchema>;
