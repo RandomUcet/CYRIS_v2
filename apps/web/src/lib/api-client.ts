@@ -397,6 +397,8 @@ export class CyrisApiClient {
   async startScenarioDraft(eventId:string, payload:SparkDraftRequest) {
     return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/spark-drafts`,payload);
   }
+  queueScenarioDraft(eventId:string,id:string){return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/batches/${id}/queue`,{});}
+  pauseScenarioDraft(eventId:string,id:string){return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/batches/${id}/pause`,{});}
   async advanceScenarioDraft(eventId:string,id:string,prepared:number) {
     return this.postJson<ScenarioDataBatchResponse>(`/events/${eventId}/scenario-data/batches/${id}/advance`,{prepared});
   }

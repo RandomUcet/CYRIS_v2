@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import type { ScenarioDataRequest, ScenarioDataPreview, ScenarioDataCounts, ScenarioDataBatchResponse, ScenarioQualityReport } from '@cyris/contracts';
 import { AppShell } from '@/components/layout/AppShell';
 import { apiClient } from '@/lib/api-client';
-import { draftProgress, assertDraftAdvance, formatElapsed, plannedInferenceCalls } from '@/lib/scenario-draft-progress';
+import { draftProgress, formatElapsed, plannedInferenceCalls } from '@/lib/scenario-draft-progress';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import styles from './scenario-data.module.css';
 import { ScenarioBatchMediaManager } from './ScenarioBatchMediaManager';
@@ -154,23 +154,6 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
     }
   }
   const payload: ScenarioDataRequest = { preset, seed: seed ?? 0, ...(preset === 'CUSTOM' && { counts }) };
-  async function prepare(current: Batch) {
-    while (alive.current && scope.current === eventId && !paused.current && current.status === 'DRAFT' && (current.prepared ?? 0) < total(current.configuration)) {
-      setDraft(current);
-      const expected = current.prepared ?? 0;
-      const r = await apiClient.advanceScenarioDraft(eventId, current.id, expected);
-      if (!alive.current || scope.current !== eventId) return;
-      if (!r.ok || !r.data) throw Error(r.error ?? tr('Spark nedokončil tuto část. Pokračujte v konceptu pro další pokus.','Spark could not complete this page. Resume to retry.'));
-      if (!assertDraftAdvance(current, r.data)) throw Error(tr('Spark neposunul koncept nebo se změnil jeho stav. Koncept je uložený; otevřete jej z historie.','Spark did not advance the draft or its status changed. The draft is saved; reopen it from history.'));
-      current = r.data;
-      setDraft(current);
-    }
-    if (alive.current && scope.current === eventId) {
-      setDraft(current);
-      if (paused.current && (current.prepared ?? 0) < total(current.configuration)) setMessage(tr('Pozastaveno. Uložený koncept lze kdykoli znovu otevřít.','Paused. You can reopen the saved draft at any time.'));
-      else if (current.prepared === total(current.configuration)) setMessage(tr('Generování dokončeno. Zkontrolujte data před publikací.','Generation complete. Review the data before publishing.'));
-    }
-  }
   async function generateDraft(existing?: Batch) {
     paused.current = false;
     setPauseRequested(false);
@@ -189,7 +172,11 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
         if (current.eventId !== eventId || current.status !== 'DRAFT') throw Error(tr('Koncept není dostupný','Draft unavailable'));
         setDraft(current);
       }
-      await prepare(current);
+      const queued=await apiClient.queueScenarioDraft(eventId,current.id);
+      if(!alive.current||scope.current!==eventId)return;
+      if(!queued.ok||!queued.data)throw Error(queued.error||tr('Úlohu se nepodařilo zařadit.','Unable to queue job.'));
+      setDraft(queued.data);
+      setMessage(tr('Úloha je uložená na serveru. Stránku můžete zavřít.','Job saved on server. You may close this page.'));
     } finally {
       if (alive.current) {
         setElapsed(Math.floor((Date.now() - startedAt.current) / 1000));
@@ -232,7 +219,14 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
   const progress = draft ? draftProgress(draft.prepared ?? 0, total(draft.configuration)) : null;
   const history = batches.filter(batch => (historyFilter === 'ALL' || batch.status === historyFilter) &&
     [batch.identifier, batch.brief, batch.source, batch.seed].join(' ').toLowerCase().includes(historyQuery.trim().toLowerCase()));
-  const complete = draft?.status === 'DRAFT' && draft.prepared === total(draft.configuration);
+  const activeJob=draft?.generation?.state==='QUEUED'||draft?.generation?.state==='RUNNING';
+  const complete = draft?.status === 'DRAFT' && draft.prepared === total(draft.configuration)&&!activeJob;
+  useEffect(()=>{
+    if(!draft||!activeJob)return;
+    const id=draft.id;let cancelled=false,flight=false;
+    const poll=async()=>{if(cancelled||flight)return;flight=true;try{const r=await apiClient.getScenarioDataBatch(eventId,id);if(!cancelled&&r.ok&&r.data?.eventId===eventId){const next=r.data;setDraft(old=>old?.id===id?next:old);if(!['QUEUED','RUNNING'].includes(next.generation?.state??''))void load();}}catch{/* persisted job is not affected by polling failure */}finally{flight=false;}};
+    void poll();const timer=window.setInterval(()=>void poll(),4000);return()=>{cancelled=true;window.clearInterval(timer);};
+  },[eventId,draft?.id,activeJob]);
   const planCounts = preset === 'CUSTOM' ? counts : presets[preset as keyof typeof presets];
   const inferenceCalls = plannedInferenceCalls(Object.values(planCounts), sparkStrategy);
   const countsValid=keys.every(k=>Number.isInteger(counts[k])&&counts[k]>=0&&counts[k]<=limitByKind[k])&&total(counts)<=12000&&total(counts)>0;
@@ -303,12 +297,9 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
           {view?.personDetails?.map(p => <article key={p.name}><strong>{p.name}</strong><small>{tr('Narození','Born')} {p.dateOfBirth}</small><p>{p.description}</p></article>)}
           {view?.samples && keys.filter(k => k !== 'persons' && view.samples?.[k]?.length).map(k => <p key={k}><b>{kindName(k)}</b> · {view.samples?.[k]?.join(' · ')}</p>)}
           {preview && !draft && <small>{total(preview.counts)} {tr('záznamů','records')} · {preview.estimatedRelationships} {tr('vazeb','relationships')}</small>}
-          {generating && !complete && <button disabled={pauseRequested} onClick={() => {
-            paused.current = true;
-            setPauseRequested(true);
-            setMessage(tr('Pozastavení po dokončení aktuální části.','Pausing after this page.'));
-          }}>{pauseRequested ? tr('Pozastavuji…','Pausing…') : tr('Pozastavit po této části','Pause after this page')}</button>}
-          {!busy && draft?.status === 'DRAFT' && !complete && <button disabled={qualityBusy} onClick={() => void action(() => generateDraft(draft))}>{tr('Pokračovat v konceptu','Resume draft')}</button>}
+          {draft?.generation&&<p role="status">{({QUEUED:tr('Ve frontě','Queued'),RUNNING:tr('Spark generuje','Spark generating'),PAUSED:tr('Pozastaveno','Paused'),FAILED:tr('Chyba generování','Generation failed'),INTERRUPTED:tr('Přerušeno','Interrupted'),COMPLETED:tr('Připraveno','Ready')})[draft.generation.state]}{draft.generation.error&&' · '+draft.generation.error}{draft.generation.pauseRequested&&tr(' · pozastavení vyžádáno',' · pause requested')}</p>}
+          {activeJob&&draft&&<button disabled={busy||draft.generation?.pauseRequested} onClick={()=>void action(async()=>{const r=await apiClient.pauseScenarioDraft(eventId,draft.id);if(!r.ok||!r.data)throw Error(r.error||'Pause failed');if(alive.current)setDraft(r.data);})}>{tr('Pozastavit po aktuální dávce','Pause after current page')}</button>}
+          {!busy && !activeJob && draft?.status === 'DRAFT' && !complete && <button disabled={qualityBusy} onClick={() => void action(() => generateDraft(draft))}>{tr('Pokračovat v konceptu','Resume draft')}</button>}
           {(complete || (preview && !draft)) && <button disabled={busy || qualityBusy} className={styles.primary} onClick={() => void action(publish)}>{tr('Zveřejnit v registru','Add to registry')}</button>}
         </section>
       </div>
@@ -344,7 +335,7 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
         {historyLoading && <p role="status">{tr('Načítám historii…','Loading history…')}</p>}
         {!historyLoading && !historyError && history.length === 0 && <p>{batches.length ? tr('Žádné sady neodpovídají filtru.','No datasets match the filter.') : tr('Zatím nebyla vytvořena žádná sada.','No datasets yet.')}</p>}
         {history.map(b => <div className={styles.batch} key={b.id}>
-          <span><button type="button" onClick={() => setDetail(detail?.id === b.id ? null : b)}>{b.identifier}</button> · {b.source === 'SPARK' ? 'Spark' : 'Local'} · {statusName(b.status)}{b.status==='DRAFT' && ' · '+(b.prepared ?? 0)+' / '+total(b.configuration)}<small>{total(b.configuration)} {tr('záznamů','records')} · seed {b.seed}{b.brief && ` · ${b.brief}`}</small></span>
+          <span><button type="button" onClick={() => setDetail(detail?.id === b.id ? null : b)}>{b.identifier}</button> · {b.source === 'SPARK' ? 'Spark' : 'Local'} · {statusName(b.status)}{b.status==='DRAFT' && ' · '+(b.prepared ?? 0)+' / '+total(b.configuration)}{b.generation&&' · '+b.generation.state}<small>{total(b.configuration)} {tr('záznamů','records')} · seed {b.seed}{b.brief && ` · ${b.brief}`}</small></span>
           {b.status === 'COMPLETED' && <button type="button" disabled={busy} aria-expanded={mediaBatch?.id===b.id} onClick={() => {
             setMediaBatch(current=>current?.id===b.id?null:b);
           }}>{mediaBatch?.id === b.id ? tr('Zavřít obrázky','Close image manager') : tr('Spravovat obrázky','Manage record images')}</button>}
@@ -362,7 +353,7 @@ function ScenarioDataWorkspace({ eventId }: { eventId: string }) {
             setSeed(r.data.seed);
             setDraft(r.data);
           })}>{tr('Otevřít koncept','Open draft')}</button>}
-          {['DRAFT', 'COMPLETED'].includes(b.status) && <button disabled={busy || qualityBusy} onClick={() => void action(async () => {
+          {['DRAFT', 'COMPLETED'].includes(b.status) && <button disabled={busy || qualityBusy || ['QUEUED','RUNNING'].includes(b.generation?.state??'')} onClick={() => void action(async () => {
             if (!confirm(tr(`Opravdu odstranit ${b.identifier} z tohoto cvičení?`,`Remove ${b.identifier} from this event?`))) return;
             const r = await apiClient.cleanupScenarioData(eventId, b.id);
             if (!r.ok) throw Error(r.error ?? tr('Odstranění selhalo','Removal failed'));

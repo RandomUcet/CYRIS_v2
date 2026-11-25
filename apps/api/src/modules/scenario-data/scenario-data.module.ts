@@ -1,6 +1,7 @@
 import { AIModule } from '../ai/ai.module.js';
 import { Module } from '@nestjs/common';
 import { ScenarioDataController } from './scenario-data.controller.js';
+import { ScenarioGenerationService } from './scenario-generation.service.js';
 import { ScenarioDataService } from './scenario-data.service.js';
 import { ScenarioDraftMediaService } from './scenario-draft-media.service.js';
 import { DatabaseModule } from '../database/database.module.js';
@@ -12,6 +13,6 @@ import { AuthorizationModule } from '../authorization/authorization.module.js';
 @Module({
   imports: [AIModule, DatabaseModule, ResourcesModule, SearchModule, AuditModule, AuthorizationModule],
   controllers: [ScenarioDataController],
-  providers: [ScenarioDataService, ScenarioDraftMediaService],
+  providers: [ScenarioDataService, ScenarioDraftMediaService,ScenarioGenerationService],
 })
 export class ScenarioDataModule {}

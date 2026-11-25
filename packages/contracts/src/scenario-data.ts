@@ -39,6 +39,7 @@ export const ScenarioDataBatchResponseSchema = z.object({
   failureMessage: z.string().nullable(),
   source: z.enum(['LOCAL', 'SPARK']).optional(),
   prepared: z.number().int().optional(),
+  generation:z.object({state:z.enum(['QUEUED','RUNNING','PAUSED','FAILED','COMPLETED','INTERRUPTED']),attempts:z.number().int().nonnegative(),updatedAt:z.string().datetime(),pauseRequested:z.boolean(),error:z.string().optional()}).optional(),
   brief: z.string().optional(),
   strategy: z.enum(['FAST', 'DETAILED']).optional(),
   samples: z.record(z.array(z.string())).optional(),

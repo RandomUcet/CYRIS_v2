@@ -3,6 +3,7 @@ import { AuthGuard } from '../auth/guards/auth.guard.js';
 import type { FastifyReply } from 'fastify';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
+import { ScenarioGenerationService } from './scenario-generation.service.js';
 import { ScenarioDataService } from './scenario-data.service.js';
 import { ScenarioDraftMediaService } from './scenario-draft-media.service.js';
 import { ScenarioDraftPosition, ScenarioDataRequestSchema, SparkDraftRequestSchema, ScenarioBatchMediaQuerySchema,
@@ -11,7 +12,7 @@ import { ScenarioDraftPosition, ScenarioDataRequestSchema, SparkDraftRequestSche
 @Controller('events/:eventId/scenario-data')
 @UseGuards(AuthGuard)
 export class ScenarioDataController {
-  constructor(private readonly service: ScenarioDataService, private readonly draftMedia: ScenarioDraftMediaService) { }
+  constructor(private readonly service: ScenarioDataService, private readonly draftMedia: ScenarioDraftMediaService,private readonly generation:ScenarioGenerationService) { }
 
   @Post('preview')
   preview(@Param('eventId') eventId: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -101,6 +102,15 @@ export class ScenarioDataController {
     const request = SparkDraftRequestSchema.safeParse(body);
     if (!request.success) throw new BadRequestException('Enter a scenario brief and valid counts.');
     return this.service.startDraft(eventId, request.data, user);
+  }
+
+  @Post('batches/:batchId/queue')
+  queue(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('batchId',ParseUUIDPipe) batchId:string,@CurrentUser() user:AuthenticatedUser){
+    return this.generation.enqueue(eventId,batchId,user);
+  }
+  @Post('batches/:batchId/pause')
+  pause(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('batchId',ParseUUIDPipe) batchId:string,@CurrentUser() user:AuthenticatedUser){
+    return this.generation.pause(eventId,batchId,user);
   }
 
   @Post('batches/:batchId/advance')

@@ -1,3 +1,4 @@
+import { generationView,isLive,type GenerationJob } from './scenario-generation-state.js';
 import { writeChunks } from '../database/write-chunks.js';
 import { InferenceError, parseModelJson } from '../ai/structured-output.js';
 import { createHash } from 'node:crypto';
@@ -45,7 +46,7 @@ type Tx = Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0]
 
 type Kind = keyof World;
 type DraftLink = { source: Kind; index: number; target: Kind; targetIndex: number; relation: string };
-type Settings = ScenarioDataCounts & { brief?: string; strategy?: 'FAST' | 'DETAILED'; prepared?: number; rows?: World; draftLinks?: DraftLink[] };
+type Settings = ScenarioDataCounts & { brief?: string; strategy?: 'FAST' | 'DETAILED'; prepared?: number; rows?: World; draftLinks?: DraftLink[]; generationJob?:GenerationJob };
 const draftOrder: Kind[] = ['locations', 'organisations', 'vehicles', 'devices', 'persons', 'weapons'];
 const relatedKinds: Record<Kind, Partial<Record<Kind, string>>> = {
   locations: {}, organisations: { locations: 'LOCATED_AT' }, vehicles: { locations: 'LOCATED_AT' },
@@ -109,6 +110,7 @@ export class ScenarioDataService {
   private response(row: typeof scenarioDataBatches.$inferSelect): ScenarioDataBatchResponse {
     const settings = row.configuration as Settings;
     return {
+      ...(settings.generationJob&&{generation:generationView(settings.generationJob)}),
       source: settings.brief ? 'SPARK' : 'LOCAL', prepared: settings.prepared, brief: settings.brief, strategy: settings.strategy,
       ...(settings.rows && { samples: samples(settings.rows), personDetails: personDetails(settings.rows) }),
       id: row.id, eventId: row.eventId, identifier: row.identifier, generatorVersion: row.generatorVersion,
@@ -284,7 +286,7 @@ export class ScenarioDataService {
     });
   }
 
-  async advance(eventId: string, batchId: string, expected: number, user: AuthenticatedUser) {
+  async advance(eventId: string, batchId: string, expected: number, user: AuthenticatedUser, claimToken?:string) {
     await this.assertManage(eventId, user);
     const db = this.databaseService.client;
     const scope = and(eq(scenarioDataBatches.id, batchId), eq(scenarioDataBatches.eventId, eventId));
@@ -292,6 +294,8 @@ export class ScenarioDataService {
     if (!batch) throw new BadRequestException('Draft unavailable');
     const conf = batch.configuration as Settings;
     if (!conf.rows || !conf.brief || batch.status !== 'DRAFT') throw new ConflictException('Draft closed');
+    if(claimToken?(conf.generationJob?.state!=='RUNNING'||conf.generationJob.token!==claimToken):isLive(conf.generationJob))throw new ConflictException('Draft has an active generation job');
+    const fence=claimToken?sql`(${scenarioDataBatches.configuration}->'generationJob'->>'token') = ${claimToken} and (${scenarioDataBatches.configuration}->'generationJob'->>'leaseUntil')::bigint > extract(epoch from clock_timestamp())*1000`:sql`coalesce(${scenarioDataBatches.configuration}->'generationJob'->>'state','') not in ('QUEUED','RUNNING')`;
     if (expected !== conf.prepared || conf.prepared === total(cleanCounts(conf))) return this.response(batch);
     if (conf.strategy === 'FAST') {
       // One concise request replaces up to hundreds of sequential 12-record AI calls.
@@ -326,9 +330,9 @@ export class ScenarioDataService {
       const world = applyScenarioBlueprint(localWorld(batch.seed, cleanCounts(conf), existing), blueprint, event.locale);
       const links = fastDraftLinks(world);
       const [saved] = await db.update(scenarioDataBatches).set({
-        configuration: { ...conf, rows: world, draftLinks: links, prepared: total(cleanCounts(conf)) },
+        configuration: sql`${scenarioDataBatches.configuration} || ${JSON.stringify({rows:world,draftLinks:links,prepared:total(cleanCounts(conf))})}::jsonb`,
       }).where(and(scope, eq(scenarioDataBatches.status, 'DRAFT'),
-        sql`(${scenarioDataBatches.configuration}->>'prepared')::int = ${expected}`)).returning();
+        sql`(${scenarioDataBatches.configuration}->>'prepared')::int = ${expected}`,fence)).returning();
       if (!saved) return this.get(eventId, batchId, user);
       return this.response(saved);
     }
@@ -379,8 +383,8 @@ export class ScenarioDataService {
       taken.add(key);
     }
     await this.assertManage(eventId,user);
-    const [saved] = await db.update(scenarioDataBatches).set({ configuration: { ...conf, rows: updated, draftLinks, prepared: expected + count } })
-      .where(and(scope, eq(scenarioDataBatches.status, 'DRAFT'), sql`(${scenarioDataBatches.configuration}->>'prepared')::int = ${expected}`)).returning();
+    const [saved] = await db.update(scenarioDataBatches).set({ configuration: sql`${scenarioDataBatches.configuration} || ${JSON.stringify({rows:updated,draftLinks,prepared:expected+count})}::jsonb` })
+      .where(and(scope, eq(scenarioDataBatches.status, 'DRAFT'), sql`(${scenarioDataBatches.configuration}->>'prepared')::int = ${expected}`,fence)).returning();
     if (!saved) return this.get(eventId, batchId, user);
     return this.response(saved);
   }
@@ -512,6 +516,7 @@ export class ScenarioDataService {
       const [batch] = await tx.select().from(scenarioDataBatches).where(and(eq(scenarioDataBatches.id, batchId), eq(scenarioDataBatches.eventId, eventId))).limit(1);
       if (!batch) throw new BadRequestException('Generation batch not found');
       if (batch.status === ScenarioDataBatchStatus.CLEANED) return this.response(batch);
+      if(isLive((batch.configuration as Settings).generationJob))throw new ConflictException('Pause generation before removing this draft');
       const db = tx;
       const entityTables = [
         ['person', persons],

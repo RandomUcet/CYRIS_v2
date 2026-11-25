@@ -1,7 +1,7 @@
 import {InferenceError} from '../ai/structured-output.js';
 import {Injectable,Logger,ConflictException,ForbiddenException,NotFoundException,HttpException,type OnModuleInit,type OnModuleDestroy} from '@nestjs/common';
 import {and,asc,desc,eq,inArray,lte,sql,count} from 'drizzle-orm';
-import {exerciseJobs,events,users,previewTeamAccounts,exerciseBlueprints} from '@cyris/db';
+import {exerciseJobs,events,users,previewTeamAccounts,exerciseBlueprints,scenarioDataBatches} from '@cyris/db';
 import {ExerciseAdviceInputSchema,type ExerciseJob,type ExerciseJobSubmit} from '@cyris/contracts';
 import {Permissions,generateId} from '@cyris/shared';
 import {DatabaseService} from '../database/database.service.js';
@@ -61,6 +61,8 @@ export class ExerciseJobService implements OnModuleInit,OnModuleDestroy{
    await tx.update(exerciseJobs).set({status:'FAILED',input:null,errorCode:'QUEUE_EXPIRED',updatedAt:now}).where(and(eq(exerciseJobs.status,'QUEUED'),lte(exerciseJobs.createdAt,new Date(now.getTime()-queueLifetime))));
    const [active]=await tx.select({id:exerciseJobs.id}).from(exerciseJobs).where(eq(exerciseJobs.status,'RUNNING')).limit(1);
    if(active)return null;
+   const [dataset]=await tx.select({id:scenarioDataBatches.id}).from(scenarioDataBatches).where(and(eq(scenarioDataBatches.status,'DRAFT'),sql`${scenarioDataBatches.configuration}->'generationJob'->>'state' = 'RUNNING'`,sql`(${scenarioDataBatches.configuration}->'generationJob'->>'leaseUntil')::bigint > ${now.getTime()}`)).limit(1);
+   if(dataset)return null;
    const [next]=await tx.select().from(exerciseJobs).where(and(eq(exerciseJobs.status,'QUEUED'),lte(exerciseJobs.availableAt,now))).orderBy(asc(exerciseJobs.availableAt),asc(exerciseJobs.createdAt),asc(exerciseJobs.id)).limit(1).for('update',{skipLocked:true});
    if(!next)return null;
    const [row]=await tx.update(exerciseJobs).set({status:'RUNNING',attempts:next.attempts+1,claimToken:generateId(),leaseUntil:new Date(now.getTime()+leaseMs),updatedAt:now,errorCode:null}).where(and(eq(exerciseJobs.id,next.id),eq(exerciseJobs.status,'QUEUED'))).returning();
