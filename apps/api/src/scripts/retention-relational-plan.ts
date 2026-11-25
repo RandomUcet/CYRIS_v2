@@ -25,6 +25,20 @@ function owned(table:string,alias:string,eventId:string,depth=0):string{
   const p='owner_'+depth;
   return 'EXISTS(SELECT 1 FROM '+relation('public',rule.parent)+' '+p+' WHERE '+p+'.id='+alias+'.'+ident(rule.column)+' AND '+owned(rule.parent,p,eventId,depth+1)+')';
 }
+/** Fixed ownership predicate for internal relational rehearsal; never accept an arbitrary alias or table name. */
+export function retentionOwnershipPredicate(table:string,eventId:string):string{
+  return owned(table,'r',eventId);
+}
+export function childFirstRetentionOrder(tables:readonly string[],edges:readonly {child:string;parent:string}[]):string[]{
+  const remaining=new Set(tables),order:string[]=[];
+  if(remaining.size!==tables.length)throw new Error('Duplicate deletion table');
+  while(remaining.size){
+    const ready=[...remaining].filter(t=>!edges.some(e=>e.parent===t&&e.child!==t&&remaining.has(e.child))).sort();
+    if(!ready.length)throw new Error('Unsupported cyclic table dependencies');
+    for(const t of ready){remaining.delete(t);order.push(t);}
+  }
+  return order;
+}
 type Table={name:string;kind:string;columns:string[]};
 type Edge={name:string;cs:string;ct:string;ps:string;pt:string;cc:string[];pc:string[]};
 export async function inspectRelationalRetention(tx:Tx,eventId:string){
