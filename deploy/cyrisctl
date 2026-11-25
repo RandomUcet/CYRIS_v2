@@ -862,6 +862,211 @@ def cmd_backup_verify(args):
     print("Integrity and snapshot contents verified: " + ", ".join(roots))
 
 
+
+# ------------------------------------------------------------------------------
+# Archived exercise retention (local, root-only; never a generic SQL web endpoint).
+# ------------------------------------------------------------------------------
+CLEANUP_SCOPES = ("read-notifications", "terminal-tasks")
+
+def cleanup_sql(event_id, scope, expected=None, backup_sha=None):
+    """Fixed, allowlisted SQL. Preview and apply use the same candidate set and fingerprint.
+    Only an archived event may be mutated. Unrecognized FK dependencies fail closed.
+    """
+    import uuid
+    event_id = str(uuid.UUID(event_id))
+    if scope not in CLEANUP_SCOPES:
+        raise ValueError("Unknown cleanup scope")
+    applying = expected is not None
+    if applying and (not re.fullmatch(r"[0-9a-f]{64}", expected) or
+                     not re.fullmatch(r"[0-9a-f]{64}", backup_sha or "")):
+        raise ValueError("Invalid cleanup plan or recovery checksum")
+    target = "notifications" if scope == "read-notifications" else "resources"
+    selection = (
+        f"SELECT id, concat_ws('|',created_at,read_at,dismissed_at) FROM public.notifications "
+        f"WHERE event_id='{event_id}'::uuid AND (read_at IS NOT NULL OR dismissed_at IS NOT NULL)"
+        if scope == "read-notifications" else
+        f"SELECT r.id, concat_ws('|',r.updated_at,t.updated_at,t.status) "
+        f"FROM public.resources r JOIN public.operational_tasks t ON t.id=r.id "
+        f"WHERE r.event_id='{event_id}'::uuid AND t.event_id=r.event_id "
+        f"AND r.resource_type='operational_task' AND t.status IN ('COMPLETED','CANCELLED') "
+        f"AND t.source_type='MANUAL' AND t.source_resource_id IS NULL "
+        f"AND NOT EXISTS (SELECT 1 FROM public.resource_relationships x WHERE x.source_resource_id=r.id OR x.target_resource_id=r.id) "
+        f"AND NOT EXISTS (SELECT 1 FROM public.operational_tasks x WHERE x.source_resource_id=r.id)"
+    )
+    # Resource assignments, ACLs and the task itself are expected children.
+    # Historical notices/activity survive, with a null resource reference.
+    # For these event-scoped children, reject inconsistent foreign-event rows.
+    guards = "" if target == "notifications" else f"""
+      INSERT INTO cleanup_blockers
+        SELECT 'foreign resource assignment' FROM public.resource_assignments a JOIN cleanup_targets t ON t.id=a.resource_id
+        WHERE a.event_id <> '{event_id}'::uuid LIMIT 1;
+      INSERT INTO cleanup_blockers
+        SELECT 'foreign activity' FROM public.activity_events a JOIN cleanup_targets t ON t.id=a.resource_id
+        WHERE a.event_id <> '{event_id}'::uuid LIMIT 1;
+      INSERT INTO cleanup_blockers
+        SELECT 'foreign notification' FROM public.notifications a JOIN cleanup_targets t ON t.id=a.resource_id
+        WHERE a.event_id IS DISTINCT FROM '{event_id}'::uuid LIMIT 1;
+    """
+    allowed = "" if target == "notifications" else """
+      IF fk.parent='public.resources'::regclass AND
+         ((fk.child='public.operational_tasks'::regclass AND fk.child_col='id' AND fk.action='c')
+          OR (fk.child='public.resource_assignments'::regclass AND fk.child_col='resource_id' AND fk.action='c')
+          OR (fk.child='public.resource_access_control'::regclass AND fk.child_col='resource_id' AND fk.action='c')
+          OR (fk.child='public.activity_events'::regclass AND fk.child_col='resource_id' AND fk.action='n')
+          OR (fk.child='public.notifications'::regclass AND fk.child_col='resource_id' AND fk.action='n'))
+      THEN CONTINUE; END IF;
+    """
+    parents = "'public.notifications'::regclass" if target == "notifications" else "'public.resources'::regclass,'public.operational_tasks'::regclass"
+    lock = "LOCK TABLE public.events,public.resources,public.operational_tasks,public.notifications,public.resource_relationships,public.resource_assignments,public.activity_events,public.resource_access_control IN SHARE ROW EXCLUSIVE MODE;" if applying else ""
+    dynamic_lock = "EXECUTE format('LOCK TABLE %I.%I IN SHARE ROW EXCLUSIVE MODE',fk.schema_name,fk.table_name);" if applying else ""
+    sql = f"""
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+SET LOCAL statement_timeout='120s';
+SET LOCAL lock_timeout='10s';
+SET LOCAL TIME ZONE 'UTC';
+{lock}
+CREATE TEMP TABLE cleanup_targets(id uuid PRIMARY KEY,stamp text) ON COMMIT DROP;
+CREATE TEMP TABLE cleanup_blockers(reason text) ON COMMIT DROP;
+INSERT INTO cleanup_targets {selection};
+{guards}
+DO $guard$
+DECLARE fk record; hit boolean;
+BEGIN
+  FOR fk IN
+    SELECT c.confrelid parent,c.conrelid child,c.confdeltype action,
+      n.nspname schema_name,t.relname table_name,a.attname child_col,p.attname parent_col,
+      cardinality(c.conkey) key_count
+    FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
+      JOIN pg_namespace n ON n.oid=t.relnamespace
+      LEFT JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=c.conkey[1]
+      LEFT JOIN pg_attribute p ON p.attrelid=c.confrelid AND p.attnum=c.confkey[1]
+    WHERE c.contype='f' AND c.confrelid IN ({parents})
+    ORDER BY n.nspname,t.relname,c.conname
+  LOOP
+    {dynamic_lock}
+    IF fk.key_count<>1 OR fk.parent_col<>'id' OR fk.child_col IS NULL THEN
+      INSERT INTO cleanup_blockers VALUES ('Unsupported dependency: '||fk.schema_name||'.'||fk.table_name);
+      CONTINUE;
+    END IF;
+    {allowed}
+    EXECUTE format('SELECT EXISTS(SELECT 1 FROM %I.%I c JOIN cleanup_targets t ON c.%I=t.id)',
+      fk.schema_name,fk.table_name,fk.child_col) INTO hit;
+    IF hit THEN INSERT INTO cleanup_blockers VALUES ('Dependent records: '||fk.schema_name||'.'||fk.table_name||'.'||fk.child_col); END IF;
+  END LOOP;
+END $guard$;
+CREATE TEMP TABLE cleanup_plan ON COMMIT DROP AS
+SELECT e.id AS event_id,e.slug,e.status,
+  (SELECT count(*)::integer FROM cleanup_targets) AS count,
+  (SELECT COALESCE(jsonb_agg(DISTINCT reason ORDER BY reason),'[]'::jsonb) FROM cleanup_blockers) AS blockers,
+  encode(sha256(convert_to(concat_ws('|',e.id,e.slug,e.status,'{scope}',
+    COALESCE((SELECT string_agg(id::text||':'||stamp,',' ORDER BY id) FROM cleanup_targets),''),
+    COALESCE((SELECT string_agg(DISTINCT reason,',' ORDER BY reason) FROM cleanup_blockers),'')),'UTF8')),'hex') AS digest
+FROM public.events e WHERE e.id='{event_id}'::uuid;
+"""
+    if applying:
+        search = "" if target == "notifications" else """
+    INSERT INTO public.outbox_events(id,event_type,payload,status,retry_count)
+      SELECT gen_random_uuid(),'search.delete',jsonb_build_object('type','operational_task','id',id),'PENDING',0 FROM cleanup_targets;
+"""
+        sql += f"""
+DO $apply$
+DECLARE plan record; removed integer;
+BEGIN
+  SELECT * INTO plan FROM cleanup_plan;
+  IF NOT FOUND OR plan.status<>'ARCHIVED' OR plan.digest<>'{expected}' OR
+     plan.count=0 OR jsonb_array_length(plan.blockers)>0 THEN
+    RAISE EXCEPTION 'Cleanup refused: event, status, dependency inventory or plan changed';
+  END IF;
+  {search}
+  DELETE FROM public.{target} r USING cleanup_targets t WHERE r.id=t.id AND r.event_id=plan.event_id;
+  GET DIAGNOSTICS removed=ROW_COUNT;
+  IF removed<>plan.count THEN RAISE EXCEPTION 'Cleanup row count changed'; END IF;
+  INSERT INTO public.audit_events(id,actor_type,event_id,action,category,resource_type,resource_id,outcome,metadata)
+  VALUES(gen_random_uuid(),'SYSTEM',plan.event_id,'event.cleanup.executed','administration','event',plan.event_id::text,'SUCCESS',
+    jsonb_build_object('scope','{scope}','removed',removed,'planDigest',plan.digest,'backupSha256','{backup_sha}','executor','local-root'));
+END $apply$;
+"""
+    return sql + """
+SELECT json_build_object('eventId',event_id,'slug',slug,'status',status,'count',count,'blockers',blockers,'digest',digest)
+FROM cleanup_plan;
+""" + ("COMMIT;" if applying else "ROLLBACK;")
+
+def read_cleanup_plan(event_id, scope, expected=None, backup_sha=None):
+    env = load_env()
+    result = docker_compose_cmd("exec", "-T", "postgres", "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1",
+        "-U", env.get("POSTGRES_USER", "cyris"), "-d", env.get("POSTGRES_DB", "cyris"),
+        "-c", cleanup_sql(event_id,scope,expected,backup_sha))
+    if not result.stdout.strip():
+        raise ValueError("Exercise not found")
+    plan = json.loads(result.stdout.strip())
+    if plan.get("eventId") != str(__import__("uuid").UUID(event_id)) or type(plan.get("count")) is not int:
+        raise ValueError("Invalid cleanup plan response")
+    return plan
+
+def file_sha256(path):
+    h = hashlib.sha256()
+    with open(path,"rb") as stream:
+        for block in iter(lambda:stream.read(1024*1024),b""):
+            h.update(block)
+    return h.hexdigest()
+
+def recovery_copy(archive, directory):
+    """Require a separately mounted destination; never claim this proves off-host retention."""
+    dest = Path(directory)
+    if not dest.is_absolute() or not dest.is_dir() or dest.is_symlink():
+        raise ValueError("Backup copy directory must be an existing absolute directory")
+    if dest.stat().st_dev == archive.stat().st_dev:
+        raise ValueError("Backup copy must be on a different mounted filesystem")
+    target = dest / archive.name
+    with open(archive,"rb") as source, os.fdopen(os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),"wb") as copy:
+        shutil.copyfileobj(source,copy,1024*1024)
+        copy.flush()
+        os.fsync(copy.fileno())
+    folder=os.open(dest,os.O_RDONLY|os.O_DIRECTORY)
+    try:
+        os.fsync(folder)
+    finally:
+        os.close(folder)
+    digest=file_sha256(archive)
+    if file_sha256(target)!=digest:
+        raise ValueError("Backup copy checksum mismatch")
+    cmd_backup_verify(argparse.Namespace(backup=str(target)))
+    return digest
+
+def cmd_cleanup(args):
+    plan=read_cleanup_plan(args.event,args.scope)
+    print(json.dumps(plan,indent=2,ensure_ascii=False),flush=True)
+    if not args.apply:
+        print("Preview only. No live records changed.")
+        return
+    if (plan["status"]!="ARCHIVED" or plan["count"]<=0 or plan["blockers"] or
+        args.confirm!=plan["slug"] or args.expected_plan!=plan["digest"] or not args.backup_copy_dir):
+        raise ValueError("Apply requires archived event, nonempty unblocked plan, exact slug, current plan digest and external backup-copy directory")
+    dest=Path(args.backup_copy_dir)
+    if not dest.is_absolute() or not dest.is_dir() or dest.is_symlink() or dest.stat().st_dev==Path(CYRIS_BACKUPS).stat().st_dev:
+        raise ValueError("Choose an existing separate mounted backup filesystem")
+    running=running_services()
+    if "postgres" not in running:
+        raise ValueError("PostgreSQL must be running")
+    writers=[name for name in APP_SERVICES if name in running]
+    try:
+        if writers:
+            docker_compose_cmd("stop",*writers,capture=False)
+        # Back up while application writers remain paused; backup itself restores only
+        # the services that were running after this explicit stop.
+        current=read_cleanup_plan(args.event,args.scope)
+        if current!=plan:
+            raise ValueError("Cleanup plan changed before backup; obtain a new preview")
+        archive=cmd_backup(argparse.Namespace(backup_action=None))
+        cmd_backup_verify(argparse.Namespace(backup=str(archive)))
+        digest=recovery_copy(archive,args.backup_copy_dir)
+        applied=read_cleanup_plan(args.event,args.scope,args.expected_plan,digest)
+        print(f"Committed {applied['count']} records. Verified recovery archive: {archive.name}. Search cleanup is queued when applicable.",flush=True)
+    finally:
+        if writers:
+            docker_compose_cmd("up","-d","--no-deps","--no-recreate","--wait","--wait-timeout","240",*writers,capture=False)
+
+
 def cmd_restore(args):
     target = backup_target(args.backup)
     if not target.name.endswith(SNAP_EXT):
@@ -1707,6 +1912,15 @@ def main():
     p_backups = subparsers.add_parser("backups", help="List available backup snapshots")
     p_backups.set_defaults(func=cmd_backups)
 
+    p_cleanup=subparsers.add_parser("cleanup",help="Preview or execute bounded archived-exercise retention")
+    p_cleanup.add_argument("--event",required=True,help="Exact exercise UUID")
+    p_cleanup.add_argument("--scope",required=True,choices=CLEANUP_SCOPES)
+    p_cleanup.add_argument("--apply",action="store_true",help="Explicitly execute after a fresh verified encrypted backup")
+    p_cleanup.add_argument("--confirm",help="Exact event slug from preview")
+    p_cleanup.add_argument("--expected-plan",help="Current preview digest")
+    p_cleanup.add_argument("--backup-copy-dir",help="Separately mounted recovery destination")
+    p_cleanup.set_defaults(func=cmd_cleanup)
+
     # restore
     p_restore = subparsers.add_parser("restore", help="Restore CYRIS from a backup archive")
     p_restore.add_argument("backup", help="Path or name of backup archive to restore")
@@ -1783,7 +1997,7 @@ def main():
         raise SystemExit(128 + signum)
     for sig in (signal.SIGHUP, signal.SIGTERM):
         signal.signal(sig, interrupted)
-    mutates = args.subcommand in {"deploy", "start", "stop", "restart", "restore", "update", "self-update", "github", "backup", "admin"} or getattr(args, "db_action", "") == "migrate" or (args.subcommand == "watchdog" and args.watchdog_action != "status")
+    mutates = args.subcommand in {"deploy", "start", "stop", "restart", "restore", "update", "self-update", "github", "backup", "admin"} or (args.subcommand == "cleanup" and args.apply) or getattr(args, "db_action", "") == "migrate" or (args.subcommand == "watchdog" and args.watchdog_action != "status")
     with ExitStack() as stack:
         if mutates:
             lock = stack.enter_context(open("/run/cyris-first-install.lock", "a"))
