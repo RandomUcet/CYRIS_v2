@@ -92,6 +92,19 @@ jobs:
           pnpm db:migrate
           pnpm test:run
 
+      - name: Rehearse retention object recovery on disposable MinIO
+        run: |
+          set -euo pipefail
+          name="cyris-retention-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$name" -p 127.0.0.1:19000:9000 -e MINIO_ROOT_USER=cyris-test-only -e MINIO_ROOT_PASSWORD=local-ci-storage-only minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:19000/minio/health/ready >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:19000/minio/health/ready >/dev/null
+          CYRIS_TEST_S3_ISOLATED=true CYRIS_TEST_S3_ENDPOINT=http://127.0.0.1:19000 pnpm exec tsx --test apps/api/src/scripts/retention-object-recovery.test.ts
+
       - name: Check diff
         run: git diff --check
 
