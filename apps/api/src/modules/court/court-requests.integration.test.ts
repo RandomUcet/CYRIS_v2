@@ -5,7 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { getDbClient, closeDatabaseConnection, events, eventMemberships,
   organizationalUnits, membershipUnitAssignments, users, resources, courtCases,
-  courtRequests, roles, roleAssignments, rolePermissions, notifications } from '@cyris/db';
+  courtRequests, roles, roleAssignments, rolePermissions, notifications, forensicAnalyses } from '@cyris/db';
 import { generateId, Permissions, PermissionScopes } from '@cyris/shared';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -20,6 +20,8 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
   const db=getDbClient({url:url!,max:5});
   const eventA=generateId(),eventB=generateId(),caseA=generateId(),otherResource=generateId();
   const requesterId=generateId(),responderId=generateId(),strangerId=generateId();
+  const reportId=generateId(),documentId=generateId();
+  let requesterReportAccess=false;
   const unitId=generateId(),wrongUnitId=generateId(),memberId=generateId(),responderRoleId=generateId();
   const actor=(id:string):AuthenticatedUser=>({id,status:'ACTIVE',email:id+'@example.test',
     displayName:id} as AuthenticatedUser);
@@ -39,7 +41,7 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
       if(id!==caseA||user.id===strangerId)throw new ForbiddenException('Restricted matter');
     },
     canAccessResource:async(user:AuthenticatedUser,id:string)=>
-      id===caseA&&user.id!==strangerId,
+      (id===caseA&&user.id!==strangerId)||(id===reportId&&(user.id===responderId||(user.id===requesterId&&requesterReportAccess)))||(id===documentId&&user.id===responderId),
   };
   const audit=new AuditService(database);
   const service=new CourtRequestsService(database,authz as any,access as any,audit);
@@ -58,7 +60,10 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
     await db.insert(resources).values([
       {id:caseA,eventId:eventA,resourceType:'court_case'},
       {id:otherResource,eventId:eventB,resourceType:'document'},
+      {id:reportId,eventId:eventA,resourceType:'forensic_analysis'},
+      {id:documentId,eventId:eventA,resourceType:'document'},
     ]);
+    await db.insert(forensicAnalyses).values({id:reportId,eventId:eventA,analysisNumber:'FOR-001',status:'COMPLETED',conclusion:'Fixture conclusion'});
     await db.insert(courtCases).values({
       id:caseA,eventId:eventA,courtCaseNumber:'CRT-001',title:'Protected Court Matter',
     });
@@ -79,7 +84,7 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
       id:generateId(),roleId:responderRoleId,membershipId:memberId,
     });
     const input={
-      kind:'EXPERT_OPINION' as const,subject:'Independent expert assessment',
+      kind:'FORENSIC_REPORT' as const,subject:'Independent expert assessment',
       details:'Please assess the submitted simulated evidence.',
     };
     await assert.rejects(()=>service.create(eventA,caseA,{
@@ -125,8 +130,14 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
     await assert.rejects(()=>service.reply(eventA,caseA,created.id,{
       expectedRevision:1,status:'DECLINED',response:'Stale pending update.',
     },responder),ConflictException);
+    const deliver={expectedRevision:2,status:'FULFILLED' as const,response:'Signed simulated expert opinion.',linkedResourceId:reportId};
+    await assert.rejects(()=>service.reply(eventA,caseA,created.id,{...deliver,linkedResourceId:documentId},responder),BadRequestException);
+    await assert.rejects(()=>service.reply(eventA,caseA,created.id,deliver,responder),BadRequestException);
+    await db.update(forensicAnalyses).set({status:'APPROVED',approvedAt:new Date()}).where(eq(forensicAnalyses.id,reportId));
+    await assert.rejects(()=>service.reply(eventA,caseA,created.id,deliver,responder),ForbiddenException);
+    requesterReportAccess=true;
     const returned=await service.reply(eventA,caseA,created.id,{
-      expectedRevision:2,status:'FULFILLED',response:'Signed simulated expert opinion.',
+      expectedRevision:2,status:'FULFILLED',response:'Signed simulated expert opinion.',linkedResourceId:reportId,
     },responder);
     assert.equal(returned.revision,3);
     assert.equal((await work(responder,'personal')).length,0);
@@ -134,6 +145,10 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
     assert.deepEqual(returned.history.map(x=>x.status),['IN_PROGRESS','FULFILLED']);
     assert.equal(returned.history[0]?.response,'Expert team is preparing the report.');
     assert.equal(returned.respondedByUserId,responderId);
+    assert.equal((await service.list(eventA,caseA,requester))[0]?.linkedResourceId,reportId);
+    requesterReportAccess=false;
+    const redacted=(await service.list(eventA,caseA,requester))[0]!;
+    assert.equal(redacted.linkedResourceId,null);assert.equal(redacted.history.at(-1)?.linkedResourceId,null);
     const replyAlerts=await db.select().from(notifications).where(eq(notifications.eventId,eventA));
     assert.equal(replyAlerts.filter(row=>row.type==='COURT_REQUEST_RESPONDED').length,2);
     assert.ok(replyAlerts.filter(row=>row.type==='COURT_REQUEST_RESPONDED').every(row=>row.userId===requesterId));

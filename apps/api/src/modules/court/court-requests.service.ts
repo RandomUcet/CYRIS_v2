@@ -4,7 +4,7 @@ import {
 import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import {
   courtCases, courtRequests, courtRequestUpdates, membershipUnitAssignments, eventMemberships, organizationalUnits,
-  resources, MembershipStatus, roleAssignments, rolePermissions, roles, notifications
+  resources, MembershipStatus, roleAssignments, rolePermissions, roles, notifications, users, labAnalyses, forensicAnalyses
 } from '@cyris/db';
 import { generateId, Permissions, PermissionScopes, type PermissionKey } from '@cyris/shared';
 import type { CourtRequestItem, CourtRequestUpdate, CreateCourtRequest, ReplyCourtRequest } from '@cyris/contracts';
@@ -13,6 +13,14 @@ import { DatabaseService } from '../database/database.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
 import { AuditService } from '../audit/audit.service.js';
+
+const linkPermissions:Readonly<Record<string,PermissionKey>>={
+  evidence:Permissions.EVIDENCE_READ,document:Permissions.DOCUMENT_READ,lab_analysis:Permissions.LAB_READ,
+  forensic_analysis:Permissions.FORENSICS_READ,medical_encounter:Permissions.MEDICAL_READ,
+};
+const requestedLinkTypes:Readonly<Record<string,string>>={
+  EVIDENCE:'evidence',DOCUMENT:'document',LAB_REPORT:'lab_analysis',FORENSIC_REPORT:'forensic_analysis',MEDICAL_REPORT:'medical_encounter',
+};
 
 @Injectable()
 export class CourtRequestsService {
@@ -72,6 +80,37 @@ export class CourtRequestsService {
     return rows.map(row => ({ ...row, history: byId.get(row.id) ?? [] }));
   }
 
+  private async approvedReport(eventId:string,id:string,type:string):Promise<boolean>{
+    if(type==='lab_analysis'){
+      const [row]=await this.db.select({status:labAnalyses.status,approvedAt:labAnalyses.approvedAt}).from(labAnalyses)
+        .where(eq(labAnalyses.id,id)).limit(1);
+      return row?.status==='APPROVED'&&!!row.approvedAt;
+    }
+    if(type==='forensic_analysis'){
+      const [row]=await this.db.select({status:forensicAnalyses.status,approvedAt:forensicAnalyses.approvedAt}).from(forensicAnalyses)
+        .where(and(eq(forensicAnalyses.id,id),eq(forensicAnalyses.eventId,eventId))).limit(1);
+      return row?.status==='APPROVED'&&!!row.approvedAt;
+    }
+    return true;
+  }
+
+  /** A historical link is not a disclosure grant. Recheck on every read. */
+  private async visibleLinks(eventId:string,user:AuthenticatedUser,items:CourtRequestItem[]):Promise<CourtRequestItem[]>{
+    const visibility=new Map<string,boolean>();
+    const safeLink=async(id:string|null)=>{
+      if(!id)return null;
+      if(!visibility.has(id)){
+        const [resource]=await this.db.select({type:resources.resourceType,eventId:resources.eventId}).from(resources).where(eq(resources.id,id)).limit(1);
+        const permission=resource&&Object.hasOwn(linkPermissions,resource.type)?linkPermissions[resource.type]:undefined;
+        visibility.set(id,Boolean(resource&&resource.eventId===eventId&&permission&&
+          await this.access.canAccessResource(user,id,permission)&&await this.approvedReport(eventId,id,resource.type)));
+      }
+      return visibility.get(id)?id:null;
+    };
+    return Promise.all(items.map(async item=>({...item,linkedResourceId:await safeLink(item.linkedResourceId),
+      history:await Promise.all(item.history.map(async update=>({...update,linkedResourceId:await safeLink(update.linkedResourceId)})))})));
+  }
+
   private async visibleRequests(eventId: string, user: AuthenticatedUser,
     rows: (typeof courtRequests.$inferSelect)[]) {
     const isAdministrator = await this.authz.authorize({ user, permission: Permissions.PLATFORM_MANAGE });
@@ -93,7 +132,7 @@ export class CourtRequestsService {
         accessible.push(this.view(row));
       }
     }
-    return this.withHistory(accessible);
+    return this.visibleLinks(eventId,user,await this.withHistory(accessible));
   }
   async listEvent(eventId: string, user: AuthenticatedUser): Promise<CourtRequestItem[]> {
     await this.assertPermission(eventId,user,Permissions.COURT_REQUEST_READ);
@@ -196,14 +235,18 @@ export class CourtRequestsService {
         type: resources.resourceType }).from(resources)
         .where(eq(resources.id, input.linkedResourceId)).limit(1);
       if (!linked || linked.eventId !== eventId) throw new BadRequestException('Linked record belongs to another exercise');
-      const permissionByType: Record<string, PermissionKey> = {
-        evidence: Permissions.EVIDENCE_READ, document: Permissions.DOCUMENT_READ,
-        lab_analysis: Permissions.LAB_READ, forensic_analysis: Permissions.FORENSICS_READ,
-        medical_encounter: Permissions.MEDICAL_READ,
-      };
-      const required = permissionByType[linked.type];
-      if (!required || !(await this.access.canAccessResource(user, input.linkedResourceId, required))) {
+      const required=Object.hasOwn(linkPermissions,linked.type)?linkPermissions[linked.type]:undefined;
+      if(!required||!await this.access.canAccessResource(user,input.linkedResourceId,required)){
         throw new ForbiddenException('Cannot disclose a record without permission to view it');
+      }
+      const expectedType=Object.hasOwn(requestedLinkTypes,request.kind)?requestedLinkTypes[request.kind]:undefined;
+      if(expectedType&&linked.type!==expectedType)throw new BadRequestException('Linked record does not match the requested type');
+      if(!await this.approvedReport(eventId,input.linkedResourceId,linked.type))throw new BadRequestException('Only approved specialist reports can be linked');
+      const [recipient]=await this.db.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status,testExpiresAt:users.testExpiresAt})
+        .from(users).where(eq(users.id,request.requestedByUserId)).limit(1);
+      if(!recipient||recipient.status!=='ACTIVE'||(recipient.testExpiresAt&&recipient.testExpiresAt<=new Date())||
+        !await this.access.canAccessResource(recipient,input.linkedResourceId,required)){
+        throw new ForbiddenException('Requester cannot access this record; arrange authorized disclosure first');
       }
     }
     const updatedRow = await this.db.transaction(async tx => {
@@ -243,6 +286,6 @@ export class CourtRequestsService {
       }
       return updated;
     });
-    return (await this.withHistory([this.view(updatedRow)]))[0]!;
+    return (await this.visibleLinks(eventId,user,await this.withHistory([this.view(updatedRow)])))[0]!;
   }
 }
