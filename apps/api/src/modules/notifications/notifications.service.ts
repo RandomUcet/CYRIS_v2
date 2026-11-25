@@ -131,7 +131,7 @@ export class NotificationsService {
     ];
 
     if (eventId) {
-      conditions.push(eq(notifications.eventId, eventId));
+      conditions.push(or(eq(notifications.eventId,eventId),and(isNull(notifications.eventId),eq(notifications.templateKey,'platform.health.degraded')))!)
     }
 
     const rows = await db
@@ -209,7 +209,7 @@ export class NotificationsService {
     ];
 
     if (eventId) {
-      conditions.push(eq(notifications.eventId, eventId));
+      conditions.push(or(eq(notifications.eventId,eventId),and(isNull(notifications.eventId),eq(notifications.templateKey,'platform.health.degraded')))!)
     }
 
     // Only acknowledge groups that the recipient could actually see. Grouping
@@ -278,6 +278,7 @@ export class NotificationsService {
       return Boolean(user&&await this.authorization.authorize({user,permission:Permissions.PLATFORM_MANAGE}));
     })();
     return async(eventId:string|null|undefined,templateKey:string):Promise<boolean>=>{
+      if(templateKey==='platform.health.degraded')return isAdmin();
       const module=serviceModuleForAction(templateKey);
       if(!eventId||!module)return true;
       let pending=impacts.get(eventId);

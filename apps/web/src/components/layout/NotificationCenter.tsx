@@ -125,6 +125,7 @@ export function NotificationCenter(){
     const p=item.templateParams||{};
     const ref=p.taskNumber==null?'TASK':String(p.taskNumber);
     switch(item.templateKey){
+      case 'platform.health.degraded':return (typeof p.service==='string'?p.service+' · ':'')+'CYRIS — '+t('notification.platformHealth');
       case 'task.assigned':return t('notification.taskAssigned',{taskNumber:ref});
       case 'briefing.new':return t('notification.briefingNew');
       case 'briefing.requiresAcknowledgement':return t('notification.briefingAck');

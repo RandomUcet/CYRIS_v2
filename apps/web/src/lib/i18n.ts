@@ -289,6 +289,7 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'empty.timeline.desc': 'Operational timeline will populate automatically as actions occur.',
 
     // Notifications
+    'notification.platformHealth': 'Infrastructure check failed',
     'notification.title': 'NOTIFICATIONS',
     'notification.filters': 'Notification filters',
     'notification.filterAll': 'All',
@@ -608,6 +609,7 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'empty.timeline.desc': 'Časová osa se bude automaticky plnit s prováděním operačních úkonů.',
 
     // Notifications
+    'notification.platformHealth': 'Kontrola infrastruktury selhala',
     'notification.title': 'NOTIFIKACE',
     'notification.filters': 'Filtry oznámení',
     'notification.filterAll': 'Vše',
@@ -928,6 +930,7 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'empty.timeline.desc': 'Die Zeitachse füllt sich automatisch mit dem operativen Verlauf.',
 
     // Notifications
+    'notification.platformHealth': 'Infrastrukturprüfung fehlgeschlagen',
     'notification.title': 'BENACHRICHTIGUNGEN',
     'notification.filters': 'Benachrichtigungen filtern',
     'notification.filterAll': 'Alle',
@@ -1248,6 +1251,7 @@ export const translations: Record<SupportedLocale, Record<string, string>> = {
     'empty.timeline.desc': 'Oś czasu będzie automatycznie rejestrować podejmowane działania operacyjne.',
 
     // Notifications
+    'notification.platformHealth': 'Kontrola infrastruktury nie powiodła się',
     'notification.title': 'POWIADOMIENIA',
     'notification.filters': 'Filtry powiadomień',
     'notification.filterAll': 'Wszystkie',

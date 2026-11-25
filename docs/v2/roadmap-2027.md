@@ -1,33 +1,30 @@
-# CYRIS — roadmap to CzechCybertron 2027
+# CYRIS — master delivery backlog to CzechCybertron 2027
 
-Goal: dependable operational information layer for a multidisciplinary exercise. Preserve modular backend, role/event boundaries, Redis, search, object storage and local AI; simplify workflows rather than removing domain capabilities.
+Maintained across releases; supersedes the stale milestone/order below. Basis: operator feedback, historical development requests (June–November 2026), existing domain documentation and current PRs. A code change is not acceptance; use implemented / verified / pending explicitly. Preserve PostgreSQL as source of truth, derived Typesense, S3 binaries, Redis queues and sessions, gateway-only Spark, role/unit/event separation, LDAP/OIDC, Argon2id, explicit migrations, cyrisctl, systemd, GHCR, backups/rollback and secrets. Participant UI must not expose private EXCON scenario solutions or simulation/fictitious-data labels; retain clear real-vs-simulated operational distinction in organizer surfaces.
 
-## Release strategy
-- Bundle substantial end-to-end capability improvements into stable updates; keep published releases immutable. A passing CI run is not a publication decision. Do not cut a release for every small fix or count lines of code as a goal.
-- Keep a cumulative development branch / draft PR across work sessions. Run CI continuously; merge and trigger publication only after the agreed release scope and acceptance are satisfied. Critical security or production-blocking hotfixes may be isolated.
-- Current 2.4.22 scope expands beyond workspace polish: EXCON operational overview (clock, phase timeline, actionable workload), inter-team workflow improvements, measured performance work where evidence is available, and targeted UX/role acceptance. Remaining items must be tracked explicitly rather than implied complete.
-- Exact-head CI, database tests, encrypted backup restoration, multiarchitecture image and digest checks remain required.
-- Use a dedicated nonproduction exercise for interactive acceptance. Do not confuse simulated data with CYLAB infrastructure telemetry.
+| ID | Priority | Track / remaining acceptance |
+|---|---|---|
+| REL-01 | P0 | Exact-head CI, publish verified release assets, upgrade/rollback rehearsal from deployed 2.4.22, migration and encrypted restore, version consistency. 2.5.0 merged; release workflow still running when checked. 2.5.1 is separate PR #53. |
+| SEC-01 | P0 | Test each role's list/detail/action/search/direct URL and revoke mid-session; preview, multiple roles/units, disabled/expired accounts, local test users, LDAP/OIDC, hidden record references, CSRF/CSP/ingress/limits. Existing fixes need browser and integration acceptance. |
+| UX-01 | P1 | Entire sidebar, singleton groups, locale consistency, spacing, accessibility, desktop/mobile/light/dark, CYRIS/CYLAB/version branding. Search/filter added; acceptance pending. |
+| UX-02 | P1 | UUID-free operational references: audit names and record labels, pickers for all medical/legal/court/evidence/forensic/task/simulation/admin forms, clear technical details only. Review old embedded panels too. |
+| UX-03 | P1 | EXCON and presentation rework, compact meaningful status, no Zabbix-style visual clutter, role-specific workspaces, module availability, notification center, broken form/layout and unsaved-record handling. Actual browser screenshots required. |
+| UX-04 | P2 | Multitasking: reusable inspectors, preserving form drafts, cross-record navigation, graph and timeline with actionable relationships. |
+| AI-01 | P1 | Verify real DGX Spark inference, timeout, JSON mode, admission, throughput, FAST/DETAILED quality and scenario publication separately; no silent fallback. Fix long-running/minimum data generation with evidence. |
+| AI-02 | P1 | Contextual Architect: blueprint to coherent people/orgs/locations/assets, media/photos, relations, permits and documents; reviewed phased injects/teams implemented, improve actual context and preparation workflows. |
+| AI-03 | P2 | Proactive Observer, role-aware participant assistant, legal context and bounded hints; retain privacy, no auto-disclosure, review proposed interventions. |
+| OPS-01 | P1 | CLI diagnostic summary and Spark analysis, admin health panel, storage snapshot, allowlisted checks implemented; real host acceptance, scheduled host collector, scoped credentials, persistent history, cooldown alerts and Spark analysis without interactive login pending. |
+| OPS-02 | P1 | Deterministic dependency monitor independent of Spark: opt-in API polling, confirmed failures, admin-only in-app dedup; host/storage/complete API outages need external collector. |
+| OPS-03 | P2 | Host maintenance action catalog, dry runs, backup/restore and image retention, least privilege, local opt-in and maintenance lock. No generic root web shell or Docker socket in API. SSH remains general shell. |
+| DOM-01 | P1 | Registry permits/licences: holder/issuer invariant, effective scenario date, reassignment history, assets/document links, print, search, generated datasets, cleanup. Never treat possession as legal authority. |
+| DOM-02 | P1 | Cases/evidence/lab/forensics/JSOC: correct assignment to eligible worker, lead reassigns, custody and recipient selection, graph links, actual end-to-end cross-team tests, technical telemetry separate from real CYLAB. |
+| DOM-03 | P1 | Medical record form and handoff, reports and printing, confidential visibility, evidence and expert requests. |
+| DOM-04 | P1 | Prosecutor, defence, judge, legal collaboration: role workspaces, requests for evidence/reports/expert opinions, hearings, filings/decisions, document printing, verified Czech legal corpus and import/versioning. |
+| EX-01 | P1 | DEFCON sound only on change (verify silence across polling/reload), wall/public display, notifications/history, scenario-clock and phase controls, real-time sync and physical siren/panel integration only through authenticated bounded contract. |
+| EX-02 | P1 | Organizer cross-module correction/support, notice types and targeting, operational pause vs simulated outage, participant recovery objectives, reconciliation of automatic injects/external integrations. |
+| EX-03 | P2 | Evaluation: rubrics, after-action stats, event reports, printable medical/court/legal/registry/evidence records, export and retention policy; no invented real-world completion. |
+| ADM-01 | P1 | Local individual test accounts, onboarding, role and unit management, exercise templates; full/partial event cleanup dry run, dependency impact, verified backup, restore and explicit confirmation. |
+| INT-01 | P2 | CYLAB cyber polygon authenticated read-only telemetry, separation from simulated JSOC, hardware integration, independent validation; avoid broad general-purpose platform scope. |
+| QA-01 | P1 | Repeatable fictional demo/test exercise, mixed-role acceptance, load test, accessibility, browser regression, actual physical Spark and upgrade rehearsal. |
 
-## Delivery tracks (proposed priorities, not completed capabilities)
-
-| Track | Next deliverables | Acceptance |
-| --- | --- | --- |
-| UX / accessibility | Audit list/detail/form patterns, responsive tables, theme contrast, keyboard navigation and Czech labels | Desktop/mobile, light/dark, seven role walkthroughs; no clipped controls |
-| EXCON | Actionable alerts, phase/clock visibility, team readiness and handover workflow, scheduled-message visibility | Accurate status and timing; role-scoped actions; no fabricated online presence |
-| Spark | Generation profiling, controlled workload, resumable draft UX, inspect/review data and assets before import | Measure real DGX durations and success rate; preserve data and human approval |
-| Inter-team workflow | Connect authorized records, lab/forensics requests, court materials and technical simulation findings | End-to-end multi-role exercise; no cross-event data leakage |
-| Operations / security | Review CSP, ingress, CSRF, limits, audit and secret handling; test backup restore and service outages | Threat review, regression suite, documented recovery exercise and realistic load measurements |
-| Evaluation | Define rubric and outcomes, reliable timelines and aggregate after-action reporting | Reproducible counts, authorized export, no claims of physical completion without verification |
-| Administration | Improve onboarding and templates, safe event cleanup only after verified backup and dependency/retention checks | Dry-run impact, recovery rehearsal, explicit confirmation; no unsafe DELETE |
-| CYLAB integration | Define read-only, authenticated integration contract for real telemetry and separate it from simulated JSOC | Explicit provenance and access control; independent verification before enabling |
-| Demonstration | Dedicated fictional dataset and guided seven-team demo, product reveal using actual UI | Repeatable reset, offline fallback, no participant personal data |
-
-## Current milestone 2.4.22
-Brand spacing, table reliability, preview-state handling, JSOC reference copying, EXCON attention and freshness, legal inbox failure handling. Actual browser acceptance and production benchmark still outstanding.
-
-## Next implementation order
-1. Accumulate the larger 2.4.22 scope on PR #51; do not publish solely because CI passes.
-2. Improve EXCON time/phase and handover visibility; map cross-team workflow bottlenecks. Validate on a dedicated exercise and collect browser feedback.
-3. Run measured Spark and concurrent-user tests before changing defaults.
-4. Implement remaining operations/security and evaluation tasks as verified requirements, not speculative features.
+Release decisions: prioritize blocking regressions and security first, then cohesive UX/operational improvements for 2.5.x; larger scenario automation for 2.6.0 when validated. Do not mark a requirement complete based on an earlier assistant assertion, branch commit, or green CI alone. Detailed acceptance and implementation history: [UX and registry roadmap](ux-and-registry-roadmap.md), [acceptance](acceptance.md), [deployment](deployment.md), [capability map](cyris-capability-map.md), [production operations](production-operations.md). Review backlog at each merge and retain unfinished IDs.
