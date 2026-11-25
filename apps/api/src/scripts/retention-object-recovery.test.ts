@@ -1,6 +1,10 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,randomBytes} from 'node:crypto';
+import {mkdtemp,rm,realpath} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {persistRecoveryManifest,loadRecoveryManifest,type RecoveryContext} from './retention-recovery-manifest.js';
 import {S3Client,CreateBucketCommand,DeleteBucketCommand,PutObjectCommand,GetObjectCommand,DeleteObjectCommand} from '@aws-sdk/client-s3';
 import {selectRecoveryObjects,stageRecoveryObjects,removeStagedObjects,restoreStagedObjects,resumeStagedRemoval,resumeStagedRestore,validateRecoveryManifest} from './retention-object-recovery.js';
 
@@ -60,11 +64,15 @@ test('interrupted MinIO removal and restore reconcile actual object state withou
   const client=new S3Client({endpoint:endpoint!,region:'us-east-1',forcePathStyle:true,credentials:{accessKeyId:'cyris-test-only',secretAccessKey:'local-ci-storage-only'},maxAttempts:1});
   const source='retention-source-'+randomUUID(),backup='retention-backup-'+randomUUID(),operation=randomUUID();
   const keys=[key,key+'-second'];
+  const root=await mkdtemp(join(await realpath(tmpdir()),'cyris-s3-retention-'));
+  const secret=randomBytes(32),context:RecoveryContext={installationId:randomUUID(),operationId:operation,eventId:event,profile:'remove',
+    sourceBucket:source,recoveryBucket:backup,planDigest:'a'.repeat(64)};
   try{
     await client.send(new CreateBucketCommand({Bucket:source}));
     await client.send(new CreateBucketCommand({Bucket:backup}));
     for(const Key of [...keys,foreign])await client.send(new PutObjectCommand({Bucket:source,Key,Body:Key,ContentType:'text/plain'}));
-    const manifest=await stageRecoveryObjects(client,client,source,backup,operation,keys);
+    await persistRecoveryManifest(root,context,keys,await stageRecoveryObjects(client,client,source,backup,operation,keys),secret);
+    const manifest=(await loadRecoveryManifest(root,context,secret)).objects;
     // Simulate interruption after one successful deletion, before local progress was persisted.
     await client.send(new DeleteObjectCommand({Bucket:source,Key:keys[0]!}));
     await client.send(new PutObjectCommand({Bucket:source,Key:keys[1]!,Body:'replacement',ContentType:'text/plain'}));
@@ -82,6 +90,7 @@ test('interrupted MinIO removal and restore reconcile actual object state withou
   }finally{
     for(const Key of [...keys,foreign])await client.send(new DeleteObjectCommand({Bucket:source,Key})).catch(()=>{});
     for(const i of keys.keys())await client.send(new DeleteObjectCommand({Bucket:backup,Key:'retention/'+operation+'/'+i})).catch(()=>{});
+    await rm(root,{recursive:true,force:true});
     for(const Bucket of [source,backup])await client.send(new DeleteBucketCommand({Bucket})).catch(()=>{});
     client.destroy();
   }
