@@ -74,11 +74,12 @@ function PickerWorkspace({
     const controller=new AbortController();
     const timer=window.setTimeout(async()=>{
       try{
-        if(eventId && types === 'person'){
-          const response=await apiClient.searchRegistryRecords(eventId, query.trim(), controller.signal);
+        if(eventId && (types==='person'||types==='organisation'||types==='person,organisation')){
+          const registryTypes=types==='person'?'persons':types==='organisation'?'organisations':'persons,organisations';
+          const response=await apiClient.searchRegistryRecords(eventId, query.trim(), controller.signal,registryTypes);
           if(controller.signal.aborted)return;
-          setResults(response.ok&&response.data?response.data.filter(item=>item.entityType === 'persons').map(item=>({
-            id:item.id,canonicalId:item.id,type:'person',title:item.label,subtitle:item.identifier??undefined,eventId:item.eventId,highlights:[],tags:[],
+          setResults(response.ok&&response.data?response.data.filter(item=>item.eventId===eventId&&registryTypes.split(',').includes(item.entityType)).map(item=>({
+            id:item.id,canonicalId:item.id,type:item.entityType==='persons'?'person':'organisation',title:item.label,subtitle:item.identifier??undefined,eventId:item.eventId,highlights:[],tags:[],
           })):[]);
           if(!response.ok)setSearchError(response.error||'Search is unavailable');
         }else{

@@ -71,6 +71,7 @@ export class RegistryService {
    */
   async searchPicker(eventId:string, query:RegistryPickerQuery, user:AuthenticatedUser):Promise<RegistryPickerResult[]>{
     const pattern='%'+query.q+'%';
+    const allowed=query.types?.split(',');
     // Limit the candidate work per entity type; never scan unrestricted whole-table results into JS.
     const cap=Math.min(90,Math.max(20,query.limit*3));
     const [personRows,organisationRows,locationRows,vehicleRows,deviceRows,weaponRows,licenceRows]=await Promise.all([
@@ -112,7 +113,7 @@ export class RegistryService {
       ...deviceRows.map(row=>({...row,entityType:'devices' as const})),
       ...weaponRows.map(row=>({...row,entityType:'weapons' as const})),
       ...licenceRows.map(row=>({...row,entityType:'licences' as const})),
-    ].sort((a,b)=>a.label.localeCompare(b.label));
+    ].filter(row=>!allowed||allowed.includes(row.entityType)).sort((a,b)=>a.label.localeCompare(b.label));
     const visible:RegistryPickerResult[]=[];
     for(const candidate of candidates){
       if(visible.length>=query.limit)break;

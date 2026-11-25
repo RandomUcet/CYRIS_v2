@@ -306,6 +306,7 @@ export type WeaponResponse = z.infer<typeof WeaponResponseSchema>;
 export const RegistryPickerQuerySchema = z.object({
   q: z.string().trim().min(2).max(80),
   limit: z.coerce.number().int().min(1).max(30).default(20),
+  types:z.enum(['persons','organisations','persons,organisations']).optional(),
 });
 export type RegistryPickerQuery = z.infer<typeof RegistryPickerQuerySchema>;
 export const RegistryPickerResultSchema = z.object({
