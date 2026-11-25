@@ -664,7 +664,7 @@ export class CyrisApiClient {
   }
 
   // Administration
-  async getAudit(filters?: { limit?: number; page?: number; offset?: number; eventId?: string; action?: string; category?: string; resourceId?: string; q?: string }) {
+  async getAudit(filters?: { limit?: number; page?: number; offset?: number; eventId?: string; action?: string; category?: string; resourceId?: string; q?: string; outcome?:string }) {
     const params = new URLSearchParams();
     if (filters?.limit) params.set('limit', String(filters.limit));
     // API paging is 1-based; keep legacy offset callers mapped to a page.
@@ -675,6 +675,7 @@ export class CyrisApiClient {
     if (filters?.eventId) params.set('eventId', filters.eventId);
     if (filters?.action) params.set('action', filters.action);
     if (filters?.category) params.set('category', filters.category);
+    if (filters?.outcome) params.set('outcome',filters.outcome);
     const q = params.toString() ? `?${params.toString()}` : '';
     return this.fetchJson<{ items: any[]; total: number }>(`/audit${q}`);
   }

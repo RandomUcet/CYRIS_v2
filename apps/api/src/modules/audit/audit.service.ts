@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { eq, and, gte, lte, desc, isNull, notInArray, notLike, or, count, sql } from 'drizzle-orm';
+import { eq, and, gte, lte, desc, isNull, notInArray, notLike, or, count, sql, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { DatabaseService } from '../database/database.service.js';
 import {
   auditEvents,
-  users,
+  users, resources, persons, organisations, locations, vehicles, devices, licences, incidents, cases, evidence, operationalTasks, documents, medicalEncounters, labAnalyses, forensicAnalyses, courtCases,
   outboxEvents,
   AuditActorType,
   AuditOutcome,
@@ -118,6 +118,53 @@ export class AuditService {
   }
 
   /**
+   * Enrich only the already selected page, using current canonical records.
+   * Domain labels are platform-admin-only; an audit reader is not implicitly
+   * granted domain access. Match exact event and type, including legacy rows.
+   * Use numbers alone for medical, laboratory, forensic and court targets.
+   */
+  private async canonicalLabels(rows:AuditEventItem[],isPlatformAdmin:boolean):Promise<AuditEventItem[]>{
+    if(!isPlatformAdmin)return rows;
+    const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const ids=[...new Set(rows.filter(r=>!r.resourceDisplayName&&r.eventId&&r.resourceId&&uuid.test(r.resourceId)).map(r=>r.resourceId!.toLowerCase()))];
+    if(!ids.length)return rows;
+    const labels=await this.databaseService.client.select({
+      id:resources.id,eventId:resources.eventId,type:resources.resourceType,
+      label:sql<string|null>`case ${resources.resourceType}
+        when 'person' then nullif(concat_ws(' · ', ${persons.identifier},${persons.displayName}),'')
+        when 'organisation' then nullif(concat_ws(' · ',${organisations.identifier},${organisations.name}),'')
+        when 'location' then nullif(concat_ws(' · ',${locations.identifier},${locations.name}),'')
+        when 'vehicle' then nullif(concat_ws(' · ',${vehicles.identifier},${vehicles.label}),'')
+        when 'device' then nullif(concat_ws(' · ',${devices.identifier},${devices.label}),'')
+        when 'licence' then nullif(concat_ws(' · ',${licences.identifier},${licences.title}),'')
+        when 'incident' then nullif(concat_ws(' · ',${incidents.incidentNumber},${incidents.title}),'')
+        when 'case' then nullif(concat_ws(' · ',${cases.caseNumber},${cases.title}),'')
+        when 'evidence' then nullif(concat_ws(' · ',${evidence.evidenceNumber},${evidence.title}),'')
+        when 'operational_task' then nullif(concat_ws(' · ',${operationalTasks.taskNumber},${operationalTasks.title}),'')
+        when 'document' then ${documents.documentNumber}
+        when 'medical_encounter' then ${medicalEncounters.medicalNumber}
+        when 'lab_analysis' then ${labAnalyses.analysisNumber}
+        when 'forensic_analysis' then ${forensicAnalyses.analysisNumber}
+        when 'court_case' then ${courtCases.courtCaseNumber}
+        else null end`,
+    }).from(resources)
+      .leftJoin(persons,eq(persons.id,resources.id)).leftJoin(organisations,eq(organisations.id,resources.id))
+      .leftJoin(locations,eq(locations.id,resources.id)).leftJoin(vehicles,eq(vehicles.id,resources.id))
+      .leftJoin(devices,eq(devices.id,resources.id)).leftJoin(licences,eq(licences.id,resources.id))
+      .leftJoin(incidents,eq(incidents.id,resources.id)).leftJoin(cases,eq(cases.id,resources.id))
+      .leftJoin(evidence,eq(evidence.id,resources.id)).leftJoin(operationalTasks,eq(operationalTasks.id,resources.id))
+      .leftJoin(documents,eq(documents.id,resources.id)).leftJoin(medicalEncounters,eq(medicalEncounters.id,resources.id))
+      .leftJoin(labAnalyses,eq(labAnalyses.id,resources.id)).leftJoin(forensicAnalyses,eq(forensicAnalyses.id,resources.id))
+      .leftJoin(courtCases,eq(courtCases.id,resources.id)).where(inArray(resources.id,ids));
+    const byId=new Map(labels.map(row=>[row.id,row]));
+    return rows.map(row=>{
+      if(row.resourceDisplayName||!row.resourceId||!row.eventId)return row;
+      const label=byId.get(row.resourceId.toLowerCase());
+      return label?.eventId===row.eventId&&label.type===row.resourceType&&label.label?{...row,resourceDisplayName:label.label}:row;
+    });
+  }
+
+  /**
    * Read-only query method for the Admin Audit API.
    * Paginated, structured filtering.
    */
@@ -210,7 +257,7 @@ export class AuditService {
     }));
 
     return {
-      items,
+      items:await this.canonicalLabels(items,isPlatformAdmin),
       total,
       page,
       limit,
@@ -231,7 +278,7 @@ export class AuditService {
 
     if (!result) return null;
     const {row,actorDisplayName,resourceDisplayName}=result;
-    return {
+    const item:AuditEventItem = {
       actorDisplayName,resourceDisplayName,
       id: row.id,
       occurredAt: row.occurredAt.toISOString(),
@@ -249,5 +296,6 @@ export class AuditService {
       metadata: (row.metadata as Record<string, unknown>) || {},
       changes: (row.changes as Record<string, unknown>) || null,
     };
+    return (await this.canonicalLabels([item],isPlatformAdmin))[0]??null;
   }
 }
