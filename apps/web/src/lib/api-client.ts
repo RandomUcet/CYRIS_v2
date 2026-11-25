@@ -1,3 +1,4 @@
+import type {DiagnosticAnalysisInput,DiagnosticAnalysisResult} from '@cyris/contracts';
 import type {CreateLocalTestAccount,LocalTestAccount,LocalTestAccountCreated} from '@cyris/contracts';
 import type {ExerciseTeamSetupInput,ExerciseInjectSetupInput} from '@cyris/contracts';
 import type {ExercisePhaseSetupInput} from '@cyris/contracts';
@@ -254,6 +255,7 @@ export class CyrisApiClient {
     }
   }
 
+  analyzeOperationalDiagnostics(input:DiagnosticAnalysisInput){return this.postJson<DiagnosticAnalysisResult>('/admin/diagnostics/analyze',input);}
   async getReadiness(): Promise<{ ok: boolean; data?: ReadinessResponse; error?: string }> {
     try {
       const res = await this.request(`${this.baseUrl}/health/ready`, {

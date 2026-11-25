@@ -31,7 +31,7 @@ export interface ExecuteAIOperationParams {
   userId?: string | null;
   eventId?: string | null;
   capability?: AICapabilityValue;
-  operationType: 'WRITING_ASSIST' | 'CASE_SUMMARY' | 'CATCH_ME_UP' | 'TIMELINE_EXPLAIN' | 'SUPPORT_REPLY' | 'SUPPORT_HANDOVER' | 'SCENARIO_DATA' | 'EXERCISE_ARCHITECT' | 'EXERCISE_ADVISOR' | 'LEGAL_RESEARCH';
+  operationType: 'WRITING_ASSIST' | 'CASE_SUMMARY' | 'CATCH_ME_UP' | 'TIMELINE_EXPLAIN' | 'SUPPORT_REPLY' | 'SUPPORT_HANDOVER' | 'SCENARIO_DATA' | 'EXERCISE_ARCHITECT' | 'EXERCISE_ADVISOR' | 'LEGAL_RESEARCH' | 'SYSTEM_DIAGNOSTICS';
   promptTemplateVersion?: string;
   contextResourceIds?: string[];
   /** Internal server-derived scope; never supplied by the browser. */
@@ -184,7 +184,7 @@ export class AIGatewayService {
   async execute(params: ExecuteAIOperationParams): Promise<ExecuteAIOperationResult> {
     const startedAt = new Date();
     const runId = generateId();
-    const active = await this.getActiveProvider(['SCENARIO_DATA','EXERCISE_ARCHITECT','EXERCISE_ADVISOR','LEGAL_RESEARCH'].includes(params.operationType) ? 'DGX_SPARK' : undefined);
+    const active = await this.getActiveProvider(['SCENARIO_DATA','EXERCISE_ARCHITECT','EXERCISE_ADVISOR','LEGAL_RESEARCH','SYSTEM_DIAGNOSTICS'].includes(params.operationType) ? 'DGX_SPARK' : undefined);
 
     if (!active) {
       throw new Error(

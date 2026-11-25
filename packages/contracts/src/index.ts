@@ -42,3 +42,5 @@ export * from './jsoc.js';
 export * from './exercise-intelligence.js';
 
 export * from './legal-library.js';
+
+export * from './operational-diagnostics.js';

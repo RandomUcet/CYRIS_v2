@@ -9,6 +9,7 @@ import {useAuth} from '@/contexts/AuthContext';
 import {usePreferences} from '@/contexts/PreferencesContext';
 import {apiClient} from '@/lib/api-client';
 import styles from './system-health.module.css';
+import {DiagnosticAnalysisPanel} from './DiagnosticAnalysisPanel';
 
 type Snapshot={health:HealthResponse|null;readiness:ReadinessResponse|null;checkedAt:Date;problem:string|null};
 type Key='postgres'|'redis'|'typesense'|'storage'|'mail';
@@ -102,6 +103,7 @@ export default function SystemHealthPage(){
             </table></div>
             <p>{tr('Pokud některá služba neodpovídá, zkontrolujte serverové logy a stav nasazených kontejnerů. Z této obrazovky se neprovádějí žádné změny.','If a service is down, inspect the server logs and containers. This screen does not perform any changes.')}</p>
           </section>
+          <DiagnosticAnalysisPanel cs={cs}/>
           <div className={styles.links}><Link href="/admin/audit">{tr('Otevřít audit','Open audit')}</Link>
             <Link href="/admin/settings/integrations/ai">{tr('Integrace a AI','Integrations & AI')}</Link>
           </div>
