@@ -17,6 +17,8 @@ import subprocess
 import json
 import urllib.request
 import urllib.error
+import http.client
+from http.cookies import SimpleCookie
 import shutil
 import time
 import hashlib
@@ -1351,8 +1353,77 @@ def diagnostic_summary(minutes):
         report["version"]="unknown"
     return report
 
+def diagnostic_api_request(port, path, body, token=None, timeout=10):
+    """Use only the loopback API published by Compose; no proxies or redirects."""
+    conn=http.client.HTTPConnection("127.0.0.1",port,timeout=timeout)
+    headers={"Content-Type":"application/json","Accept":"application/json"}
+    if token:
+        headers["Authorization"]="Bearer "+token
+    try:
+        conn.request("POST",path,body=json.dumps(body).encode("utf-8"),headers=headers)
+        res=conn.getresponse()
+        raw=res.read(65537)
+        if len(raw)>65536:
+            raise ValueError("Diagnostic API response exceeds the allowed size")
+        if not 200<=res.status<300:
+            raise ValueError(f"Diagnostic API request failed (HTTP {res.status})")
+        cookies=res.getheaders()
+        return json.loads(raw),cookies
+    except (OSError,http.client.HTTPException,json.JSONDecodeError):
+        raise ValueError("Local diagnostic API unavailable or invalid response") from None
+    finally:
+        conn.close()
+
+def analyze_diagnostic_summary(summary, locale):
+    # Local admin authentication through the existing API, no direct Spark secrets.
+    # Password/token never enter command-line arguments, disk, logs or report.
+    port=int(load_env().get("CYRIS_API_PORT","4000"))
+    if not 1<=port<=65535:
+        raise ValueError("Invalid local API port")
+    if not sys.stdin.isatty() or not sys.stderr.isatty():
+        raise ValueError("Interactive terminal required for local administrator authentication")
+    identifier=getpass.getpass("CYRIS local administrator identifier: ")
+    password=getpass.getpass("CYRIS administrator password: ")
+    if not identifier or not password:
+        raise ValueError("Administrator credentials required")
+    token=None
+    try:
+        try:
+            _,headers=diagnostic_api_request(port,"/auth/login",{"identifier":identifier,"password":password})
+        finally:
+            del password
+        for key,value in headers:
+            if key.lower()=="set-cookie":
+                cookie=SimpleCookie()
+                cookie.load(value)
+                if "cyris_session" in cookie:
+                    candidate=cookie["cyris_session"].value
+                    if re.fullmatch(r"[0-9a-f]{64}",candidate):
+                        token=candidate
+        if not token:
+            raise ValueError("Local API did not issue a valid session")
+        result,_=diagnostic_api_request(port,"/admin/diagnostics/analyze",{"summary":summary,"locale":locale},token,timeout=125)
+        if not isinstance(result,dict) or not isinstance(result.get("report"),dict) or result.get("source")!=summary:
+            raise ValueError("Invalid diagnostic report from local API")
+        return result
+    finally:
+        if token:
+            try:
+                diagnostic_api_request(port,"/auth/logout",{},token)
+            except (ValueError,OSError):
+                print("Warning: temporary session logout was not confirmed. Revoke the session if necessary.",file=sys.stderr)
+
 def cmd_diagnostics(args):
     """Collect non-secret operational diagnostics for troubleshooting."""
+    if getattr(args,'analyze',False):
+        summary=diagnostic_summary(args.minutes)
+        try:
+            report=analyze_diagnostic_summary(summary,args.locale)
+        except ValueError as error:
+            print(json.dumps({"status":"analysis_unavailable","source":summary},indent=2,ensure_ascii=True))
+            raise error
+        print(json.dumps(report,indent=2,ensure_ascii=True))
+        return
     if getattr(args,'summary',False):
         print(json.dumps(diagnostic_summary(args.minutes),indent=2,ensure_ascii=True))
         return
@@ -1600,7 +1671,10 @@ def main():
 
     # diagnostics
     p_diag = subparsers.add_parser("diagnostics", help="Generate non-secret diagnostics archive")
-    p_diag.add_argument('--summary',action='store_true',help='Print only fixed-category log counts as JSON; never exports raw log messages')
+    diag_mode=p_diag.add_mutually_exclusive_group()
+    diag_mode.add_argument('--summary',action='store_true',help='Print only fixed-category log counts as JSON; never exports raw log messages')
+    diag_mode.add_argument('--analyze',action='store_true',help='Analyze the classified summary via local API and managed Spark (interactive local admin login)')
+    p_diag.add_argument('--locale',choices=('cs','en'),default='cs',help='Report language for --analyze')
     p_diag.add_argument('--minutes',type=int,default=60,help='Log sampling window for --summary (1–1440 minutes)')
     p_diag.set_defaults(func=cmd_diagnostics)
 

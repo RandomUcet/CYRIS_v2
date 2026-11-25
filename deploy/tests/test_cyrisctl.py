@@ -286,3 +286,22 @@ class DiagnosticSummary(unittest.TestCase):
             self.assertIn("500",run.call_args_list[0].args[0])
         with self.assertRaises(ValueError):
             ctl.diagnostic_summary(1441)
+
+
+class DiagnosticTransport(unittest.TestCase):
+    def test_login_analysis_and_logout(self):
+        source={"schema":"test"}
+        report={"report":{"summary":"Test"},"source":source}
+        token="a"*64
+        with patch.object(ctl,"load_env",return_value={"CYRIS_API_PORT":"4001"}), patch.object(ctl.sys.stdin,"isatty",return_value=True), patch.object(ctl.sys.stderr,"isatty",return_value=True), patch.object(ctl.getpass,"getpass",side_effect=["admin","secret"]), patch.object(ctl,"diagnostic_api_request",side_effect=[({},[("Set-Cookie","cyris_session="+token+"; HttpOnly")]),(report,[]),({},[])]) as req:
+            self.assertEqual(ctl.analyze_diagnostic_summary(source,"cs"),report)
+            self.assertEqual(req.call_args_list[1].args,(4001,"/admin/diagnostics/analyze",{"summary":source,"locale":"cs"},token))
+            self.assertEqual(req.call_args_list[2].args,(4001,"/auth/logout",{},token))
+            self.assertNotIn("secret",str(report))
+
+    def test_failed_analysis_still_revokes_session(self):
+        token="b"*64
+        with patch.object(ctl,"load_env",return_value={}), patch.object(ctl.sys.stdin,"isatty",return_value=True), patch.object(ctl.sys.stderr,"isatty",return_value=True), patch.object(ctl.getpass,"getpass",side_effect=["admin","secret"]), patch.object(ctl,"diagnostic_api_request",side_effect=[({},[("Set-Cookie","cyris_session="+token)]),ValueError("unavailable"),({},[])]) as req:
+            with self.assertRaisesRegex(ValueError,"unavailable"):
+                ctl.analyze_diagnostic_summary({},"en")
+            self.assertEqual(req.call_args_list[-1].args[1],"/auth/logout")
