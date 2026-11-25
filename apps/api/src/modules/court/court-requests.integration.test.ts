@@ -8,6 +8,8 @@ import { getDbClient, closeDatabaseConnection, events, eventMemberships,
   courtRequests, roles, roleAssignments, rolePermissions, notifications, forensicAnalyses } from '@cyris/db';
 import { generateId, Permissions, PermissionScopes } from '@cyris/shared';
 import type { AuthenticatedUser } from '../auth/session.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { AuthorizationService } from '../authorization/authorization.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { CourtRequestsService } from '../court/court-requests.service.js';
 import { listCourtWork } from './court-work.js';
@@ -110,6 +112,25 @@ test('formal prosecution/tribunal requests reject cross-event unit links and sta
     assert.equal(newAlerts[0]?.userId,responderId);
     assert.deepEqual(newAlerts[0]?.templateParams,{});
     assert.equal(newAlerts[0]?.actionUrl,'/events/'+eventA+'/court/'+caseA+'?tab=requests');
+    // Exercise the production notification ACL, not the mocked court service ACL.
+    await db.insert(rolePermissions).values([Permissions.COURT_READ,Permissions.COURT_REQUEST_READ].map(permissionKey=>({id:generateId(),roleId:responderRoleId,permissionKey,scope:PermissionScopes.EVENT})));
+    const inbox=new NotificationsService(database,{} as never,{} as never,{} as never,new AuthorizationService(database));
+    const noticeId=newAlerts[0]!.id;
+    assert.ok((await inbox.getNotifications(responderId,eventA)).newItems.some(x=>x.id===noticeId));
+    const unrelatedId=generateId();
+    await db.insert(notifications).values({id:unrelatedId,userId:responderId,eventId:eventA,type:'COURT_REQUEST_CREATED',templateKey:'court.request.created',resourceId:caseA,sourceEventId:generateId()});
+    assert.ok(!(await inbox.getNotifications(responderId,eventA)).newItems.some(x=>x.id===unrelatedId));
+    assert.equal((await inbox.markAllRead(responderId,eventA)).updatedCount,1);
+    const [hiddenNotice]=await db.select().from(notifications).where(eq(notifications.id,unrelatedId));
+    assert.equal(hiddenNotice?.readAt,null);
+    await inbox.markRead(noticeId,responderId,false);
+    await db.delete(membershipUnitAssignments).where(eq(membershipUnitAssignments.membershipId,memberId));
+    try{
+      assert.ok(!(await inbox.getNotifications(responderId,eventA)).newItems.some(x=>x.id===noticeId));
+      await assert.rejects(inbox.markRead(noticeId,responderId),NotFoundException);
+      await assert.rejects(inbox.dismiss(noticeId,responderId),NotFoundException);
+    }finally{await db.insert(membershipUnitAssignments).values({id:generateId(),membershipId:memberId,unitId});}
+    await db.delete(notifications).where(eq(notifications.id,unrelatedId));
     assert.equal((await service.list(eventA,caseA,requester)).length,1);
     await assert.rejects(()=>service.reply(eventA,caseA,created.id,{
       expectedRevision:1,status:'FULFILLED',response:'Unauthorised reply',
