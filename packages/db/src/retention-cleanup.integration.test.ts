@@ -15,7 +15,7 @@ test('actual host cleanup SQL is scoped, rollback-only by default, stale-safe an
   skip:!isolated&&'Requires verified isolated PostgreSQL',
 },async()=>{
   const client=postgres(url!,{max:1,prepare:false});
-  const a=randomUUID(),b=randomUUID(),user=randomUUID(),task=randomUUID(),linked=randomUUID(),other=randomUUID(),note=randomUUID(),unread=randomUUID(),foreignNote=randomUUID(),link=randomUUID();
+  const a=randomUUID(),b=randomUUID(),user=randomUUID(),task=randomUUID(),linked=randomUUID(),other=randomUUID(),note=randomUUID(),unread=randomUUID(),foreignNote=randomUUID(),link=randomUUID(),court=randomUUID(),request=randomUUID(),priorAudit=randomUUID();
   async function run(scope:string,eventId:string,expected?:string){
     const conn=await client.reserve();
     try{
@@ -41,6 +41,16 @@ test('actual host cleanup SQL is scoped, rollback-only by default, stale-safe an
     await client`delete from resource_relationships where id=${link}`;
     await client`update operational_tasks set status='OPEN' where id=${linked}`;
     await client`insert into notifications(id,event_id,user_id,type,template_key,read_at) values(${note},${a},${user},'TEST','test',now()),(${unread},${a},${user},'TEST','test',null),(${foreignNote},${b},${user},'TEST','test',now())`;
+    // A legacy FK reference from another domain must block execution, never cascade.
+    await client`insert into resources(id,event_id,resource_type) values(${court},${a},'court_case')`;
+    await client`insert into court_cases(id,event_id,court_case_number,title) values(${court},${a},'CRT-CLEANUP','Fixture')`;
+    await client`insert into court_requests(id,event_id,court_case_id,kind,subject,details,requested_by_user_id,linked_resource_id)
+      values(${request},${a},${court},'OTHER','Legacy reference','Must remain protected',${user},${task})`;
+    const blocked=await run('terminal-tasks',a);
+    assert.equal(blocked.count,1);assert.ok(blocked.blockers.some(x=>x.includes('court_requests')));
+    await assert.rejects(run('terminal-tasks',a,blocked.digest),/Cleanup refused/);
+    await client`delete from court_requests where id=${request}`;
+    await client`insert into audit_events(id,event_id,actor_type,action,category) values(${priorAudit},${a},'SYSTEM','fixture.prior','administration')`;
     const plan=await run('terminal-tasks',a);
     assert.equal(plan.count,1);assert.deepEqual(plan.blockers,[]);
     assert.equal((await client`select id from operational_tasks where id=${task}`).length,1);
@@ -60,6 +70,7 @@ test('actual host cleanup SQL is scoped, rollback-only by default, stale-safe an
     assert.equal((await client`select id from notifications where id in (${unread},${foreignNote})`).length,2);
     assert.equal((await client`select id from audit_events where event_id=${a} and action='event.cleanup.executed'`).length,2);
     assert.equal((await client`select id from users where id=${user}`).length,1);
+    assert.equal((await client`select id from audit_events where id=${priorAudit} and event_id=${a}`).length,1);
   }finally{
     await client`delete from outbox_events where payload->>'id'=${task}`.catch(()=>undefined);
     await client`delete from audit_events where event_id in (${a},${b})`.catch(()=>undefined);

@@ -17,7 +17,11 @@ const labels:Record<string,[string,string]>={
   resources:['Záznamy','Records'],relationships:['Vazby','Relationships'],assignments:['Přidělení','Assignments'],
   accessGrants:['Přístupová pravidla','Access grants'],notifications:['Oznámení','Notifications'],
   activity:['Operační historie','Activity history'],audit:['Auditní stopa','Audit trail'],memberships:['Členství','Memberships'],
-  units:['Týmy','Teams'],roles:['Role','Roles'],operational_task:['Operační úkoly','Operational tasks'],
+  units:['Týmy','Teams'],roles:['Role','Roles'],
+  documentObjects:['Odkazy dokumentů','Document references'],documentVersions:['Verze souborů','Document versions'],
+  registryMedia:['Média registrů','Registry media'],draftMedia:['Média scénáře','Scenario media'],
+  forensicStorageReferences:['Forenzní úložiště','Forensic storage references'],exerciseJobs:['Úlohy na pozadí','Background jobs'],aiRuns:['AI běhy','AI runs'],
+  operational_task:['Operační úkoly','Operational tasks'],
   person:['Osoby','People'],organisation:['Organizace','Organizations'],location:['Místa','Locations'],vehicle:['Vozidla','Vehicles'],
   weapon:['Zbraně','Weapons'],licence:['Oprávnění','Licences'],device:['Zařízení','Devices'],evidence:['Důkazy','Evidence'],
   case:['Případy','Cases'],incident:['Incidenty','Incidents'],lab_analysis:['Laboratoř','Laboratory'],
@@ -94,7 +98,9 @@ function DataWorkspace({id}:{id:string}){
       {base&&<>
         <section className={styles.panel}>
           <div className={styles.sectionHead}><div><h2>{tr('Inventář cvičení','Exercise inventory')}</h2><p>{tr('Databázové počty. Nejde o kompletní inventář souborů a externích indexů.','Database counts, not a complete file or external index inventory.')}</p></div><small>{formatTime(base.generatedAt)}</small></div>
-          <div className={styles.metrics}>{Object.entries(base.retention?.inventory??{}).map(([key,count])=><div key={key}><span>{display(key)}</span><strong>{count.toLocaleString(locale)}</strong></div>)}</div>
+          <div className={styles.metrics}>{Object.entries(base.retention?.inventory??{}).filter(([key])=>!['documentObjects','documentVersions','registryMedia','draftMedia','forensicStorageReferences','exerciseJobs','aiRuns'].includes(key)).map(([key,count])=><div key={key}><span>{display(key)}</span><strong>{count.toLocaleString(locale)}</strong></div>)}</div>
+          <div className={styles.sectionHead}><div><h3>{tr('Soubory a externí zpracování','Files and external processing')}</h3><p>{tr('Počty databázových odkazů, nikoli ověřených fyzických objektů. Jeden soubor může mít více odkazů.','Database reference counts, not verified physical objects. A file can have multiple references.')}</p></div></div>
+          <div className={styles.metrics}>{Object.entries(base.retention?.inventory??{}).filter(([key])=>['documentObjects','documentVersions','registryMedia','draftMedia','forensicStorageReferences','exerciseJobs','aiRuns'].includes(key)).map(([key,count])=><div key={key}><span>{display(key)}</span><strong>{count.toLocaleString(locale)}</strong></div>)}</div>
         </section>
         <div className={styles.columns}>
           <section className={styles.panel}>
@@ -111,7 +117,7 @@ function DataWorkspace({id}:{id:string}){
               <button className="btn btn-secondary" type="button" onClick={()=>changeSelection('selected',[])}>{tr('Zrušit výběr','Clear selection')}</button>
             </div>}
             <button className="btn btn-primary" type="button" onClick={()=>void inspect()} disabled={working||(mode==='selected'&&!selected.length)}>{working?tr('Počítám…','Calculating…'):tr('Vypočítat náhled','Calculate preview')}</button>
-            {preview&&<div className={styles.result} role="status"><strong>{preview.selection.matchingResources} {tr('záznamů ve výběru','selected records')}</strong><span>{preview.selection.unselectedResources} {tr('mimo výběr','outside selection')}</span><small>{tr('Přímé databázové počty, nikoli závazný mazací plán.','Direct database counts, not an executable deletion plan.')}</small>
+            {preview&&<div className={styles.result} role="status"><strong>{preview.selection.matchingResources} {tr('záznamů ve výběru','selected records')}</strong><span>{preview.selection.unselectedResources} {tr('mimo výběr','outside selection')}</span><small>{tr('Přímé databázové počty, nikoli závazný mazací plán.','Direct database counts, not an executable deletion plan.')}</small><div className={styles.breakdown}>{Object.entries(preview.profiles.exerciseDataOnly.counts).map(([key,count])=><div key={key}><span>{display(key)}</span><strong>{count}</strong></div>)}</div>
               <button className="btn btn-secondary" type="button" onClick={download}><Download size={14}/>{tr('Export náhledu','Export preview')}</button></div>}
           </section>
           <section className={styles.panel}>

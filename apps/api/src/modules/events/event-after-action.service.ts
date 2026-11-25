@@ -104,6 +104,13 @@ export class EventAfterActionService {
       notifications:sql<number>`(select count(*)::integer from notifications where event_id=${eventId}::uuid)`,
       units:sql<number>`(select count(*)::integer from organizational_units where event_id=${eventId}::uuid)`,
       roles:sql<number>`(select count(*)::integer from roles where event_id=${eventId}::uuid)`,
+      documentObjects:sql<number>`(select count(*)::integer from documents where event_id=${eventId}::uuid)`,
+      documentVersions:sql<number>`(select count(*)::integer from document_versions v join documents d on d.id=v.document_id where d.event_id=${eventId}::uuid)`,
+      registryMedia:sql<number>`(select count(*)::integer from registry_media m join resources r on r.id=m.resource_id where r.event_id=${eventId}::uuid)`,
+      draftMedia:sql<number>`(select count(*)::integer from scenario_draft_media where event_id=${eventId}::uuid)`,
+      forensicStorageReferences:sql<number>`(select count(*)::integer from forensic_acquisitions a join forensic_analyses f on f.id=a.analysis_id where f.event_id=${eventId}::uuid and nullif(trim(a.storage_reference),'') is not null)`,
+      exerciseJobs:sql<number>`(select count(*)::integer from exercise_jobs where event_id=${eventId}::uuid)`,
+      aiRuns:sql<number>`(select count(*)::integer from ai_runs where event_id=${eventId}::uuid)`,
       notificationHistory:sql<number>`(select count(*)::integer from notifications where event_id=${eventId}::uuid and (read_at is not null or dismissed_at is not null))`,
       terminalManualTasks:sql<number>`(select count(*)::integer from resources r join operational_tasks t on t.id=r.id
         where r.event_id=${eventId}::uuid and t.event_id=r.event_id and r.resource_type='operational_task'
@@ -124,6 +131,9 @@ export class EventAfterActionService {
           accessGrants:Number(inventory?.grants??0),notifications:Number(inventory?.notifications??0),
           activity:report.operationalEvents,audit:report.auditEvents,memberships:report.membershipCount,
           units:Number(inventory?.units??0),roles:Number(inventory?.roles??0),
+          documentObjects:Number(inventory?.documentObjects??0),documentVersions:Number(inventory?.documentVersions??0),
+          registryMedia:Number(inventory?.registryMedia??0),draftMedia:Number(inventory?.draftMedia??0),
+          forensicStorageReferences:Number(inventory?.forensicStorageReferences??0),exerciseJobs:Number(inventory?.exerciseJobs??0),aiRuns:Number(inventory?.aiRuns??0),
         },
       },
       profiles: {

@@ -69,6 +69,7 @@ test('admin UTC after-action metrics and partial cleanup preview remain tenant-s
     assert.equal(preview.retention.eventSlug,eventA);
     assert.equal(preview.retention.inventory.resources,2);
     assert.equal(preview.retention.inventory.audit,2);
+    for(const key of ['documentObjects','documentVersions','registryMedia','draftMedia','forensicStorageReferences','exerciseJobs','aiRuns'])assert.equal(preview.retention.inventory[key],0);
     assert.equal(preview.retention.notificationHistory,0);
     assert.equal(preview.retention.terminalManualTasks,0);
     assert.equal(preview.selection.unselectedResources,1);
