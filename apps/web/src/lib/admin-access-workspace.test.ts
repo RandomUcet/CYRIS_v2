@@ -144,9 +144,11 @@ test('account audit drilldown uses server resource ID filtering and paginated hi
   const audit=readFileSync(new URL('../app/admin/audit/page.tsx',import.meta.url),'utf8');
   const api=readFileSync(new URL('./api-client.ts',import.meta.url),'utf8');
   assert.ok(directory.includes("href={'/admin/audit?resourceId='+encodeURIComponent(account.userId)}"));
-  assert.ok(audit.includes("new URLSearchParams(window.location.search).get('resourceId')"));
+  assert.ok(audit.includes("new URLSearchParams(window.location.search)"));
+  assert.ok(audit.includes("setResourceFilter(valid(params.get('resourceId')))"));
+  assert.ok(audit.includes("setEventFilter(platformAdmin?valid(params.get('eventId')):'')"));
   assert.ok(audit.includes("resourceId: resourceFilter || undefined"));
-  assert.ok(audit.includes("if (resourceFilter===null) return"),'avoid unfiltered load on direct-link mount');
+  assert.ok(audit.includes("if (resourceFilter===null||eventFilter===null) return"),'avoid unfiltered load until both direct-link filters are initialized');
   assert.ok(audit.includes('const request = ++auditRequest.current'), 'audit queries need an in-flight request guard');
   assert.ok(audit.includes('if (request !== auditRequest.current) return'));
   assert.ok(audit.includes('if (request === auditRequest.current) setLoading(false)'));
@@ -164,8 +166,10 @@ test('security audit category dropdown matches backend and clear-filter actually
   for(const bogus of ["value: 'AUTH'","value: 'ADMIN'","value: 'INVESTIGATION'"]) {
     assert.ok(!audit.includes(bogus),'old invented audit category '+bogus);
   }
-  assert.ok(audit.includes("onClick={()=>{setResourceFilter('');setPage(1);setSelectedEntry(null);"),
-    'clear account audit must reset component state as well as the URL');
+  assert.ok(audit.includes("onClick={()=>{setResourceFilter('');setEventFilter('');setPage(1);setSelectedEntry(null);"),
+    'clear account audit must reset both filters, paging and inspector as well as the URL');
+  assert.ok(audit.includes("if(resourceFilter||eventFilter){setResourceFilter('');setEventFilter('');window.history.replaceState(null,'','/admin/audit');}"),
+    'global filter reset must remove both deep-link filters');
 });
 
 test('admin user tabs can open directly from provider settings and survive refresh',()=>{
@@ -188,7 +192,7 @@ test('audit search is server-wide with debouncing, proper counts and stable requ
   const client=readFileSync(new URL('./api-client.ts',import.meta.url),'utf8');
   assert.ok(page.includes('setDebouncedSearch(search.trim()),300'),'text input should be debounced');
   assert.ok(page.includes('q: debouncedSearch || undefined'),'send query to the backend');
-  assert.ok(page.includes('}, [categoryFilter,outcomeFilter,page,resourceFilter,debouncedSearch])'));
+  assert.ok(page.includes('}, [categoryFilter,outcomeFilter,page,resourceFilter,eventFilter,debouncedSearch])'));
   assert.ok(page.includes('const filteredEntries = entries;'),'avoid second local-only search');
   assert.ok(page.includes('totalResults={total}'),'show the total server-matched count');
   assert.ok(page.includes('const searchPending=search.trim()!==debouncedSearch'));
@@ -206,4 +210,17 @@ test('LDAP group mappings expose whole-exercise role scope explicitly',()=>{
   assert.ok(provider.includes('Role platí pro celé cvičení'));
   assert.ok(provider.includes('if (result.ok) onSaved();'));
   assert.ok(provider.includes("catch (err)"));
+});
+
+test('historical exercise audit preserves server filtering and platform-only navigation',()=>{
+  const page=readFileSync(new URL('../app/admin/audit/page.tsx',import.meta.url),'utf8');
+  const api=readFileSync(new URL('./api-client.ts',import.meta.url),'utf8');
+  assert.ok(page.includes("platformAdmin={permissions.includes('platform.manage')}"));
+  assert.ok(page.includes("setEventFilter(platformAdmin?valid(params.get('eventId')):'')"));
+  assert.ok(page.includes('eventId:eventFilter||undefined'));
+  assert.ok(api.includes("params.set('eventId', filters.eventId)"));
+  assert.ok(page.includes("platformAdmin&&selectedEntry.originalEventId"));
+  assert.ok(page.includes("setEventFilter(id);setResourceFilter('');setPage(1);setSelectedEntry(null);"));
+  assert.ok(page.includes("if(resourceFilter!==null&&eventFilter!==null) void fetchAudit()"));
+  assert.ok(page.includes("encodeURIComponent(id)"));
 });
