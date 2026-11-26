@@ -97,3 +97,16 @@ test('candidate cache keeps all three locally built runtime images and mandatory
  assert.ok(upgrade.includes('for baseline in 2.4.22 2.5.1 2.5.2; do'));
  assert.ok(!upgrade.includes('continue-on-error'));
 });
+
+test('upgrade evidence records checkout identity and per-baseline timings without swallowing failure',()=>{
+ const ci=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8');
+ const step=ci.slice(ci.indexOf('      - name: Rehearse published image upgrades'));
+ assert.ok(step.includes('git rev-parse HEAD'));
+ assert.ok(step.includes('docker image inspect --format'));
+ assert.ok(step.includes('rehearsals.tsv'));
+ assert.ok(step.includes('|| result=$?'));
+ assert.ok(step.includes('if [[ "$result" != 0 ]]; then exit "$result"; fi'));
+ assert.ok(step.includes('name: cyris-upgrade-rehearsal-evidence'));
+ assert.ok(!step.includes('continue-on-error'));
+ assert.ok(!step.includes('printenv'));
+});

@@ -294,6 +294,29 @@ jobs:
       - name: Rehearse published image upgrades and rollback on isolated Compose
         run: |
           set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/cyris-upgrade-evidence"
+          mkdir -p "$evidence_dir"
+          {
+            printf 'checkout_sha=%s\n' "$(git rev-parse HEAD)"
+            printf 'candidate_version=%s\n' "$(cat VERSION)"
+            for role in api worker web; do
+              printf '%s_image_id=%s\n' "$role" "$(docker image inspect --format '{{.Id}}' "cyris-upgrade-candidate-$role:local")"
+            done
+          } > "$evidence_dir/identity.txt"
+          printf 'baseline\tduration_seconds\tstatus\n' > "$evidence_dir/rehearsals.tsv"
           for baseline in 2.4.22 2.5.1 2.5.2; do
-            sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" DOCKER_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}" bash deploy/tests/upgrade-image-smoke.sh "$baseline"
+            started=$SECONDS
+            result=0
+            sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" DOCKER_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}" bash deploy/tests/upgrade-image-smoke.sh "$baseline" || result=$?
+            printf '%s\t%s\t%s\n' "$baseline" "$((SECONDS-started))" "$result" >> "$evidence_dir/rehearsals.tsv"
+            if [[ "$result" != 0 ]]; then exit "$result"; fi
           done
+
+      - name: Upload upgrade rehearsal identity and timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyris-upgrade-rehearsal-evidence
+          path: ${{ runner.temp }}/cyris-upgrade-evidence/
+          if-no-files-found: warn
+          retention-days: 7
