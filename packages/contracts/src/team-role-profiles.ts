@@ -1,3 +1,4 @@
+import {z} from 'zod';
 /** Canonical role suggestions are not authorization or automatic assignment. */
 export const canonicalTeamRoleSlugs:Readonly<Record<string,readonly string[]>>={
   'bezpecnostne-pravni-sluzby':['team-bps-operator'],
@@ -14,4 +15,14 @@ export interface TeamRoleReviewItem {
   roleSlug:string;roleName:string;rolePresent:boolean;
   memberCount:number;unitBoundCount:number;
   missing:string[];additional:string[];
+  primary:boolean;
+  eligibleMembers:Array<{membershipId:string;displayName:string}>;
 }
+
+/** Only explicitly selected members; the server derives the primary role from the team. */
+export const AssignTeamOperatorProfileSchema=z.object({
+  unitId:z.string().uuid(),
+  roleSlug:z.string().min(1).max(128),
+  membershipIds:z.array(z.string().uuid()).min(1).max(100),
+}).strict().refine(v=>new Set(v.membershipIds).size===v.membershipIds.length,'Duplicate members');
+export type AssignTeamOperatorProfile=z.infer<typeof AssignTeamOperatorProfileSchema>;

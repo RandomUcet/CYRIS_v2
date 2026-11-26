@@ -731,6 +731,9 @@ export class CyrisApiClient {
   getTeamRoleReview(eventId:string){
     return this.fetchJson<import('@cyris/contracts').TeamRoleReviewItem[]>(`/events/${encodeURIComponent(eventId)}/team-templates/review`);
   }
+  assignTeamOperatorProfile(eventId:string,payload:import('@cyris/contracts').AssignTeamOperatorProfile){
+    return this.postJson<{created:number;alreadyAssigned:number}>(`/events/${encodeURIComponent(eventId)}/team-templates/assign-operators`,payload);
+  }
   initializeTeamTemplates(eventId: string) {
     return this.postJson<{ eventId: string; unitsCreated: number; rolesCreated: number }>(
       `/events/${encodeURIComponent(eventId)}/team-templates`, {},
