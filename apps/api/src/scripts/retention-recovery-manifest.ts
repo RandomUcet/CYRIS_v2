@@ -13,7 +13,7 @@ const MAX_FILE=8*1024*1024;
 const AAD=Buffer.from('CYRIS retention manifest v1','utf8');
 function validateContext(c:RecoveryContext){
   if(!c||![c.installationId,c.operationId,c.eventId].every(v=>typeof v==='string'&&uuid.test(v))
-    ||!['reset','remove'].includes(c.profile)||!hex.test(c.planDigest)
+    ||!['reset','remove'].includes(c.profile)||typeof c.planDigest!=='string'||!hex.test(c.planDigest)
     ||typeof c.sourceBucket!=='string'||typeof c.recoveryBucket!=='string'
     ||!c.sourceBucket||!c.recoveryBucket||c.sourceBucket===c.recoveryBucket
     ||c.sourceBucket.length>255||c.recoveryBucket.length>255)throw Error('Invalid recovery context');
@@ -78,8 +78,8 @@ export async function persistRecoveryManifest(root:string,context:RecoveryContex
   if(bytes.length>MAX_FILE)throw Error('Recovery manifest exceeds file limit');
   const target=filename(root,context),temp=join(root,'.'+randomUUID()+'.tmp');
   const file=await open(temp,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|constants.O_NOFOLLOW,0o600);
-  try{await file.writeFile(bytes);await file.sync();}finally{await file.close();}
   try{
+    try{await file.writeFile(bytes);await file.sync();}finally{await file.close();}
     // Hard-link atomically without overwriting an existing operation manifest.
     await link(temp,target);
     const directory=await open(root,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);

@@ -3,8 +3,12 @@ import {sql,type CyrisDatabase} from '@cyris/db';
 import {inspectRelationalRetention,retentionOwnershipPredicate} from './retention-relational-plan.js';
 import {inspectRetentionOutbox} from './retention-outbox.js';
 import {executeCombinedRehearsal} from './retention-relational-execution.js';
-import {validateRecoveryManifest,type RecoveryObject} from './retention-object-recovery.js';
-import type {RecoveryContext} from './retention-recovery-manifest.js';
+import {validateRecoveryManifest,inspectRecoveryProgress,selectRecoveryObjects,type RecoveryObject} from './retention-object-recovery.js';
+import {loadRecoveryManifest,type RecoveryContext} from './retention-recovery-manifest.js';
+import {ListObjectsV2Command,type S3Client} from '@aws-sdk/client-s3';
+import type {Redis} from 'ioredis';
+import {inspectRetentionRedis} from './retention-redis.js';
+import type {ObjectReference,ListedObject} from './retention-inventory-core.js';
 
 type Tx=Parameters<Parameters<CyrisDatabase['transaction']>[0]>[0];
 type Scope=Omit<RecoveryContext,'planDigest'>;
@@ -95,6 +99,19 @@ async function inventory(tx:Tx,scope:Scope,objects:readonly RecoveryObject[],loc
     }else if(ref.bucket===scope.sourceBucket&&wanted.has(ref.key))throw Error('Shared recovery object');
   }
   if(target.size!==wanted.size)throw Error('Recovery object selection changed');
+  // Verify stored byte size and hash for current and historical documents;
+  // media without a stored checksum must at least have the exact byte size.
+  const metadata=await tx.execute<{key:string;size:string;sha:string|null}>(sql`
+    SELECT object_key AS key,byte_size::text AS size,sha256 AS sha FROM documents WHERE event_id=${scope.eventId}::uuid
+    UNION ALL SELECT v.object_key,v.byte_size::text,v.sha256 FROM document_versions v JOIN documents d ON d.id=v.document_id WHERE d.event_id=${scope.eventId}::uuid
+    UNION ALL SELECT m.object_key,m.byte_size::text,NULL::text FROM registry_media m JOIN resources r ON r.id=m.resource_id WHERE r.event_id=${scope.eventId}::uuid
+    UNION ALL SELECT object_key,byte_size::text,NULL::text FROM scenario_draft_media WHERE event_id=${scope.eventId}::uuid
+  `);
+  const staged=new Map(objects.map(o=>[o.key,o]));
+  for(const m of metadata){
+    const obj=staged.get(m.key);
+    if(!obj||!/^\d+$/.test(m.size)||Number(m.size)!==obj.size||(m.sha!==null&&m.sha!==obj.sha256))throw Error('Stored object metadata differs from recovery bytes');
+  }
   return {slug:lockedEvent.slug,inventoryDigest:digest([stamps,outbox.digest]),objectDigest:objectDigest(scope,objects)};
 }
 
@@ -105,13 +122,54 @@ export async function approveRetentionRehearsal(tx:Tx,scope:Scope,objects:readon
   const p={scope:canonical(scope),...data,issuedAt:now,expiresAt:now+TTL};
   return {...p,authorization:authenticate(p,key)};
 }
-export async function executeApprovedRetentionRehearsal(tx:Tx,scope:Scope,objects:readonly RecoveryObject[],approval:ApprovedPlan,confirmedSlug:string,key:Uint8Array){
+type RecoveryPreflight={root:string;manifestKey:Uint8Array;source:S3Client;recovery:S3Client;redis:Redis;auditBucket:string};
+/** Re-read the actual object namespace, not an assumed list assembled from
+ * database references. The archive bucket can never be a deletion source
+ * or recovery destination. All external writers must already be isolated. */
+async function verifyActualObjectSelection(tx:Tx,scope:Scope,objects:readonly RecoveryObject[],preflight:RecoveryPreflight){
+  if(!preflight.auditBucket||[scope.sourceBucket,scope.recoveryBucket].includes(preflight.auditBucket))throw Error('Protected recovery bucket');
+  const refs=await tx.execute<ObjectReference>(sql`SELECT * FROM (
+    SELECT event_id AS "eventId",${scope.sourceBucket}::text AS bucket,object_key AS key,'document' AS source FROM documents
+    UNION ALL SELECT d.event_id,${scope.sourceBucket}::text,v.object_key,'version' FROM document_versions v JOIN documents d ON d.id=v.document_id
+    UNION ALL SELECT r.event_id,m.bucket,m.object_key,'registry' FROM registry_media m JOIN resources r ON r.id=m.resource_id
+    UNION ALL SELECT event_id,bucket,object_key,'draft' FROM scenario_draft_media
+  ) refs LIMIT ${MAX_ROWS+1}`);
+  const ids=await tx.execute<{id:string}>(sql`SELECT id FROM resources WHERE event_id=${scope.eventId}::uuid LIMIT ${MAX_ROWS+1}`);
+  if(refs.length>MAX_ROWS||ids.length>MAX_ROWS)throw Error('Object inventory exceeds limit');
+  const listed:ListedObject[]=[];
+  let scanned=0;
+  for(const prefix of ['documents/'+scope.eventId+'/','scenario-drafts/'+scope.eventId+'/','registry/']){
+    let token:string|undefined;
+    do{
+      const page=await preflight.source.send(new ListObjectsV2Command({Bucket:scope.sourceBucket,Prefix:prefix,ContinuationToken:token,MaxKeys:1000}),{abortSignal:AbortSignal.timeout(15000)});
+      for(const item of page.Contents??[]){
+        if(++scanned>MAX_ROWS||!item.Key)throw Error('Incomplete object listing');
+        listed.push({bucket:scope.sourceBucket,key:item.Key});
+      }
+      const next=page.NextContinuationToken;
+      if(page.IsTruncated&&(!next||next===token))throw Error('Incomplete object listing');
+      token=page.IsTruncated?next:undefined;
+    }while(token);
+  }
+  const selected=selectRecoveryObjects({eventId:scope.eventId,refs:[...refs],listed,resourceIds:new Set(ids.map(x=>x.id)),bucket:scope.sourceBucket,auditBucket:preflight.auditBucket,listingComplete:true});
+  if(JSON.stringify(selected)!==JSON.stringify(objects.map(o=>o.key).sort()))throw Error('Actual object selection changed');
+  const states=await inspectRecoveryProgress(preflight.source,preflight.recovery,scope.sourceBucket,scope.recoveryBucket,objects);
+  if(states.some((state,i)=>state.state!=='PRESENT'||state.etag!==objects[i]?.etag))throw Error('Original object missing or changed before commit');
+}
+export async function executeApprovedRetentionRehearsal(tx:Tx,context:RecoveryContext,approval:ApprovedPlan,confirmedSlug:string,key:Uint8Array,preflight:RecoveryPreflight){
   return tx.transaction(async sub=>{
-    const context=verifyRetentionApproval(approval,scope,objects,confirmedSlug,key);
-    const current=await inventory(sub,scope,objects,true);
+    // Require a re-opened authenticated on-disk manifest, not a caller's
+    // mutable staged object array. Validate again under the relational locks.
+    const manifest=await loadRecoveryManifest(preflight.root,context,preflight.manifestKey);
+    const verified=verifyRetentionApproval(approval,context,manifest.objects,confirmedSlug,key);
+    if(verified.planDigest!==context.planDigest)throw Error('Recovery approval digest mismatch');
+    const current=await inventory(sub,context,manifest.objects,true);
     if(current.slug!==approval.slug||current.inventoryDigest!==approval.inventoryDigest||current.objectDigest!==approval.objectDigest)throw Error('Stale retention approval');
-    // Check expiry again after potentially lengthy locking and inventory.
-    verifyRetentionApproval(approval,scope,objects,confirmedSlug,key);
-    return executeCombinedRehearsal(sub,context);
+    const redisPlan=await inspectRetentionRedis(preflight.redis,context.eventId);
+    if(redisPlan.counts.unknown||redisPlan.counts.unreviewedQueue||redisPlan.aiWork)throw Error('Unreconciled Redis work before commit');
+    await verifyActualObjectSelection(sub,context,manifest.objects,preflight);
+    // Check expiry again after locking, listing and byte verification.
+    verifyRetentionApproval(approval,context,manifest.objects,confirmedSlug,key);
+    return executeCombinedRehearsal(sub,verified);
   });
 }
