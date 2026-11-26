@@ -226,3 +226,22 @@ jobs:
 
       - name: Restore encrypted backup on an isolated Compose project
         run: sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" bash deploy/tests/recovery-smoke.sh
+
+  upgrade-images:
+    # Hosted ephemeral runner only, never a deployed CYRIS host.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build exact candidate runtime images
+        run: |
+          set -euo pipefail
+          for role in api worker web; do
+            docker build --file "docker/$role.Dockerfile" --tag "cyris-upgrade-candidate-$role:local" .
+          done
+      - name: Rehearse published image upgrades and rollback on isolated Compose
+        run: |
+          set -euo pipefail
+          for baseline in 2.4.22 2.5.1; do
+            sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" bash deploy/tests/upgrade-image-smoke.sh "$baseline"
+          done
