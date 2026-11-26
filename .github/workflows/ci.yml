@@ -151,6 +151,67 @@ jobs:
           docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_upgrade_251
           CYRIS_TEST_RETENTION_UPGRADE=true pnpm exec tsx --test packages/db/src/retention-upgrade.test.ts
 
+      - name: Real browser release smoke with populated admin and participant
+        run: |
+          set -euo pipefail
+          storage="cyris-browser-s3-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          search="cyris-browser-search-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          temp="$(mktemp -d)"
+          export CYRIS_BROWSER_ARTIFACTS="$RUNNER_TEMP/cyris-browser-evidence"
+          mkdir -p "$CYRIS_BROWSER_ARTIFACTS"
+          api_pid="" web_pid=""
+          cleanup() {
+            if [[ -n "$api_pid" ]]; then kill "$api_pid" 2>/dev/null || true; fi
+            if [[ -n "$web_pid" ]]; then kill "$web_pid" 2>/dev/null || true; fi
+            docker rm -f "$storage" "$search" >/dev/null 2>&1 || true
+            rm -rf "$temp"
+          }
+          trap cleanup EXIT
+          docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_browser_smoke
+          export DATABASE_URL=postgresql://cyris_test:local-ci-only@127.0.0.1:5432/cyris_browser_smoke
+          export REDIS_URL=redis://127.0.0.1:6379/13
+          export NODE_ENV=development CYRIS_VERSION=2.5.2 PORT=4000 PUBLIC_WEB_URL=http://127.0.0.1:3000
+          export CYRIS_MASTER_KEY="$(openssl rand -hex 32)"
+          export TYPESENSE_HOST=127.0.0.1 TYPESENSE_PORT=18110 TYPESENSE_API_KEY=cyris-browser-search-only
+          export S3_ENDPOINT=http://127.0.0.1:19002 S3_ACCESS_KEY=cyris-test-only S3_SECRET_KEY=local-ci-storage-only
+          export CYRIS_BROWSER_FIXTURE_PATH="$temp/fixture.json"
+          export CYRIS_BROWSER_FIXTURE_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$CYRIS_BROWSER_FIXTURE_PASSWORD"
+          echo "::add-mask::$CYRIS_MASTER_KEY"
+          storage_image="$(docker compose -f deploy/compose.prod.yml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["minio"]["image"])')"
+          search_image="$(docker compose -f deploy/compose.prod.yml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["typesense"]["image"])')"
+          docker run -d --name "$storage" -p 127.0.0.1:19002:9000 -e MINIO_ROOT_USER=cyris-test-only -e MINIO_ROOT_PASSWORD=local-ci-storage-only "$storage_image" server /data
+          docker run -d --name "$search" -p 127.0.0.1:18110:8108 "$search_image" --data-dir=/tmp --api-key=cyris-browser-search-only
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:19002/minio/health/ready >/dev/null && curl -fsS http://127.0.0.1:18110/health >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:19002/minio/health/ready >/dev/null
+          curl -fsS http://127.0.0.1:18110/health >/dev/null
+          pnpm db:migrate
+          pnpm exec tsx scripts/browser-release-fixture.ts
+          npm install --prefix "$temp" --no-audit --no-fund --ignore-scripts --no-package-lock playwright@1.51.1
+          "$temp/node_modules/.bin/playwright" install --with-deps chromium
+          export CYRIS_BROWSER_PLAYWRIGHT_PATH="$temp/node_modules/playwright/index.mjs"
+          node apps/api/dist/main.js >"$temp/api.log" 2>&1 & api_pid=$!
+          node apps/web/node_modules/next/dist/bin/next start apps/web -p 3000 -H 127.0.0.1 >"$temp/web.log" 2>&1 & web_pid=$!
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:4000/health/ready >/dev/null && curl -fsS http://127.0.0.1:3000/ >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:4000/health/ready >/dev/null || { tail -n 40 "$temp/api.log"; exit 1; }
+          curl -fsS http://127.0.0.1:3000/ >/dev/null || { tail -n 40 "$temp/web.log"; exit 1; }
+          node scripts/browser-release-smoke.mjs
+
+      - name: Upload browser acceptance screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyris-browser-release-evidence
+          path: ${{ runner.temp }}/cyris-browser-evidence/*.png
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Check diff
         run: git diff --check
 
