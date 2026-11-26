@@ -2284,3 +2284,31 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
 .workspace-nav-link:focus-visible{outline:2px solid var(--accent-active);outline-offset:-2px}
 .is-rail .workspace-nav-scroll{padding:8px 4px}
 .is-rail .workspace-nav-group{padding-bottom:5px;margin-bottom:5px}
+
+/* Operational UI quality: readable results, keyboard orientation and reflow. */
+.workspace-skip-link{position:absolute;z-index:1000;inset:8px auto auto 12px;transform:translateY(-200%);padding:10px 16px;background:var(--bg-panel);color:var(--text-primary);border:2px solid var(--accent-active);border-radius:4px}
+.workspace-skip-link:focus{transform:none}
+#workspace-main:focus-visible{outline:2px solid var(--accent-active);outline-offset:-2px}
+.workspace-nav-heading{margin:0}
+.workspace-nav-link:focus-visible,.record-tab-btn:focus-visible,.my-work-toolbar button:focus-visible,.my-work-item:focus-visible,.my-work-pagination button:focus-visible,.work-guide summary:focus-visible{outline:2px solid var(--accent-active);outline-offset:2px}
+.record-tabs-shell{flex-wrap:wrap;gap:4px;min-width:0}
+.record-tabs-shell .record-tabs{flex:1 1 0;min-width:0;flex-wrap:wrap}
+.record-tabs-shell .record-tab-btn{min-height:36px;max-width:100%;text-align:left;overflow-wrap:anywhere;white-space:normal}
+.record-tab-icon{display:inline-flex;flex-shrink:0}
+.my-work-page{max-width:1440px;width:100%;margin-inline:auto;min-width:0}
+.my-work-toolbar{gap:6px;align-items:center}
+.my-work-toolbar button,.my-work-toolbar select,.my-work-pagination button{min-height:36px;max-width:100%}
+.work-results{min-width:0}
+.work-results-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:16px 0 8px}
+.work-results-header h2{font-size:17px;margin:0;color:var(--text-primary)}
+.work-results-header p{margin:4px 0 0;font-size:13px;color:var(--text-secondary);max-width:65ch}
+.work-results-header small,.work-result-count,.work-record-time{font-size:12px;color:var(--text-muted)}
+.work-result-count{margin:8px 0}
+.my-work-item{grid-template-columns: minmax(5.5rem,7rem) minmax(0,1fr) minmax(6rem,auto) minmax(5rem,auto);gap:12px}
+.work-record-id,.work-record-title,.work-record-time{min-width:0;overflow-wrap:anywhere}
+.work-record-title strong{font-size:14px;line-height:1.45}
+.work-record-title small{line-height:1.5}
+.work-record-status{min-width:0;justify-self:start}
+.my-work-pagination{flex-wrap:wrap}
+@media(max-width:760px){.my-work-item{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"identifier status" "title title" "time time";gap:6px;padding:12px}.work-record-id{grid-area:identifier}.work-record-status{grid-area:status}.work-record-title{grid-area:title}.work-record-time{grid-area:time}.my-work-toolbar button,.my-work-toolbar select,.my-work-pagination button{min-height:44px}.record-tabs-shell .record-tab-btn{min-height:44px;padding:8px 10px}}
+@media(prefers-reduced-motion:reduce){.workspace-state .spin{animation:none!important}.record-tab-btn{transition:none}}

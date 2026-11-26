@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import {usePreferences} from '@/contexts/PreferencesContext';
 
 export interface TabItem {
   id: string;
@@ -17,8 +18,9 @@ export interface RecordTabsProps {
 }
 
 export function RecordTabs({ tabs, activeTab, onChange, rightSlot }: RecordTabsProps) {
+  const {locale}=usePreferences();
   return (
-    <div
+    <div className="record-tabs-shell"
       style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -28,16 +30,17 @@ export function RecordTabs({ tabs, activeTab, onChange, rightSlot }: RecordTabsP
         padding: '0 16px',
       }}
     >
-      <div className="record-tabs" style={{ padding: 0, borderBottom: 'none' }}>
+      <div className="record-tabs" role="group" aria-label={locale==='cs'?'Části záznamu':'Record sections'} style={{ padding: 0, borderBottom: 'none' }}>
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
+            aria-pressed={activeTab===tab.id}
             className={`record-tab-btn ${activeTab === tab.id ? 'active' : ''}`}
             onClick={() => onChange(tab.id)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
-            {tab.icon}
+            {tab.icon&&<span className="record-tab-icon" aria-hidden="true">{tab.icon}</span>}
             {tab.label}
             {tab.count != null && (
               <span

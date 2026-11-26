@@ -183,8 +183,9 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
     }
   }
   const orderedSections=organizeWorkspaceNavigation(sectionsToRender,adminMode?'/admin':selectedEventId?'/events/'+selectedEventId:'',adminMode);
-  const needle=moduleQuery.trim().toLocaleLowerCase();
-  const visibleSections=needle?orderedSections.map(section=>({...section,items:section.items.filter(item=>[workspaceLabel(locale,section.title),workspaceItemLabel(locale,item)].some(label=>label.toLocaleLowerCase().includes(needle)))})).filter(section=>section.items.length):orderedSections;
+  const normalize=(value:string)=>value.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLocaleLowerCase();
+  const needle=normalize(moduleQuery.trim());
+  const visibleSections=needle?orderedSections.map(section=>({...section,items:section.items.filter(item=>[workspaceLabel(locale,section.title),workspaceItemLabel(locale,item)].some(label=>normalize(label).includes(needle)))})).filter(section=>section.items.length):orderedSections;
   const activeHref = activeWorkspaceHref(orderedSections.flatMap(section => section.items.map(item => item.href)), pathname, query.toString());
   const getSectionTitle = (title: string) => workspaceLabel(locale, title);
 
@@ -192,7 +193,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
     if (!section.items || section.items.length === 0) return null;
     return (
       <section key={section.id} className="workspace-nav-group">
-        {!collapsed&&section.items.length>1&&<div className="workspace-nav-heading">{getSectionTitle(section.title)}</div>}
+        {!collapsed&&section.items.length>1&&<h2 className="workspace-nav-heading">{getSectionTitle(section.title)}</h2>}
         <div className="workspace-nav-items">
           {section.items.map((item: WorkspaceNavItem) => {
             const isActive = item.href === activeHref;
@@ -311,7 +312,7 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
         </div>
         <div className="workspace-nav-scroll">
           {(collapsed?orderedSections:visibleSections).map((section) => renderSection(section))}
-          {!collapsed&&needle&&!visibleSections.length&&<p className="workspace-module-empty">{locale==='cs'?'Žádný odpovídající modul.':'No matching modules.'}</p>}
+          {!collapsed&&needle&&!visibleSections.length&&<p className="workspace-module-empty" role="status">{locale==='cs'?'Žádný odpovídající modul.':'No matching modules.'}</p>}
 
           {!selectedEventId && !isPlatformAdmin && !collapsed && (
             <div style={{ padding: '16px 14px', fontSize: '11px', color: 'var(--text-dim)' }}>

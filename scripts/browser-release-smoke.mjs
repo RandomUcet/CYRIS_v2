@@ -182,6 +182,10 @@ try{
   assert.equal((await chem.context.request.patch(labEndpoint,{data:{status:'APPROVED'}})).status(),403);
   assert.equal((await chem.context.request.get(base+'/api/events/'+fixture.foreign+'/lab/'+lab.id)).status(),404);
   await cp.setViewportSize({width:390,height:844});
+  const tabsGroup=cp.getByRole('group',{name:'Record sections'});
+  await tabsGroup.waitFor();
+  assert.equal(await tabsGroup.locator('button[aria-pressed="true"]').count(),1);
+  assert.ok(await tabsGroup.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'Record sections must reflow within mobile viewport');
   await cp.screenshot({path:join(output,'specialist-lab-mobile.png'),fullPage:true});
   await chem.context.close();
   const labSupervisor=await login(fixture.labLeadEmail);
