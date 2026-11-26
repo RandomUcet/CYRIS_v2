@@ -122,7 +122,10 @@ try{
   assert.equal((await read(requester.context)).conclusion,conclusion);
   await requester.page.goto(eventRoot+'/my-work');
   await requester.page.getByRole('button',{name:/My requests and results|Moje žádanky a výsledky/}).click();
-  await requester.page.getByText(purpose,{exact:true}).waitFor();
+  const outgoing=requester.page.locator('.my-work-item').filter({has:requester.page.getByText(analysis.analysisNumber,{exact:true})});
+  await outgoing.waitFor();
+  assert.equal(await outgoing.getAttribute('href'),'/events/'+fixture.event+'/forensics/'+analysis.id);
+  await outgoing.getByText('Approved report',{exact:false}).waitFor();
   await requester.page.screenshot({path:join(output,'specialist-requester-result.png'),fullPage:true});
   // Independent chemical laboratory workflow, using real canonical roles.
   const labPurpose='Browser fingerprint comparison request',labConclusion='Synthetic fingerprint comparison report';
@@ -179,7 +182,7 @@ try{
   assert.equal(labResult.reportAvailable,true);assert.equal(labResult.conclusion,labConclusion);
   await requester.page.goto(labDetail);
   await requester.page.locator('#lab-conclusion').waitFor();
-  assert.equal(await requester.page.locator('#lab-conclusion').inputValue(),labConclusion);
+  await requester.page.waitForFunction(value=>document.querySelector('#lab-conclusion')?.value===value,labConclusion);
   await requester.page.screenshot({path:join(output,'specialist-lab-requester-result.png'),fullPage:true});
   await requester.context.close();
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');

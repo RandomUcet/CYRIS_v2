@@ -130,6 +130,30 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       await assert.rejects(evidenceService.createEvidence(eventB,dto,worker),ForbiddenException);
       assert.equal((await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA))).length,before.length);
     });
+    await t.test('evidence provenance and initial custody are validated and atomic',async()=>{
+      await addRole('evidence-registrar',requester,[[Permissions.EVIDENCE_CREATE,'EVENT'],[Permissions.EVIDENCE_UPDATE,'OWN'],[Permissions.EVIDENCE_TRANSFER,'OWN']]);
+      const dto=CreateEvidenceRequestSchema.parse({title:'Synthetic sample registration',evidenceType:'FINGERPRINT',currentHolderType:'USER',currentHolderId:requester.id,owningUnitId:unitA});
+      const before=await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA));
+      for(const id of [outsider.id,inactive.id,disabled.id,generateId(),'not-a-uuid'])await assert.rejects(evidenceService.createEvidence(eventA,{...dto,currentHolderId:id},requester),BadRequestException);
+      await assert.rejects(evidenceService.createEvidence(eventA,{...dto,currentHolderType:'UNIT',currentHolderId:foreignUnit},requester),BadRequestException);
+      await assert.rejects(evidenceService.createEvidence(eventA,{...dto,securedByUserId:outsider.id},requester),BadRequestException);
+      assert.equal((await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA))).length,before.length);
+      const failedAudit={async record(){throw Error('Injected evidence audit failure');}} as unknown as AuditService;
+      const failing=new EvidenceService(database,resource,access,allocator,failedAudit,activity,indexer,auth);
+      await assert.rejects(failing.createEvidence(eventA,dto,requester),/Injected evidence audit failure/);
+      assert.equal((await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA))).length,before.length);
+      const item=await evidenceService.createEvidence(eventA,dto,requester);
+      const initial=await evidenceService.getEvidence(eventA,item.id,requester);
+      assert.equal(initial.custodyHistory?.length,1);assert.equal(initial.currentHolderId,requester.id);
+      await assert.rejects(evidenceService.updateEvidence(eventA,item.id,{owningUnitId:unitB},requester),BadRequestException);
+      await assert.rejects(evidenceService.updateEvidence(eventA,item.id,{currentHolderId:worker.id},requester),BadRequestException);
+      await assert.rejects(failing.updateEvidence(eventA,item.id,{title:'Must roll back'},requester),/Injected evidence audit failure/);
+      assert.equal((await evidenceService.getEvidence(eventA,item.id,requester)).title,dto.title);
+      const transferred=await evidenceService.transferCustody(eventA,item.id,{toHolderType:'UNIT',toHolderId:unitB,reason:'Synthetic laboratory delivery'},requester);
+      assert.equal(transferred.currentHolderId,unitB);assert.equal(transferred.custodyHistory?.length,2);
+      assert.equal(transferred.owningUnitId,unitA);
+      assert.equal((await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId,item.id),eq(auditEvents.action,'evidence.created')))).length,1);
+    });
     await t.test('forensic request and indicator creation require permission, event routes are scoped',async()=>{
       await db.insert(unitCapabilities).values({unitId:unitA,capabilityKey:'digital_forensics'});
       const forensicWorkerPermissions:Array<[PermissionKey,string]>=[Permissions.FORENSICS_READ,Permissions.FORENSICS_ACCEPT,Permissions.FORENSICS_WORK,Permissions.FORENSICS_COMPLETE].map(p=>[p,'ASSIGNED']);
