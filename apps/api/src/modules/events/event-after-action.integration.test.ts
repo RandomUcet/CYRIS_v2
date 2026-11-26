@@ -49,6 +49,14 @@ test('admin UTC after-action metrics and partial cleanup preview remain tenant-s
     ]);
     await assert.rejects(()=>service.report(eventA,denied),ForbiddenException);
     await assert.rejects(()=>service.purgePreview(eventA,denied),ForbiddenException);
+    await assert.rejects(()=>service.relationalPlan(eventA,denied),ForbiddenException);
+    const plan=await service.relationalPlan(eventA,admin);
+    assert.equal(plan.eventId,eventA);
+    assert.equal(plan.relational.executable,false);
+    assert.equal(plan.relational.tables.find(t=>t.table==='resources')?.count,2);
+    assert.equal(plan.relational.auditRows,2);
+    assert.equal(plan.relational.tables.find(t=>t.table==='events')?.reset,'KEEP');
+    assert.equal(plan.relational.tables.find(t=>t.table==='events')?.remove,'DELETE');
     const report=await service.report(eventA,admin);
     assert.equal(report.eventId,eventA);
     assert.equal(report.auditEvents,2);
@@ -65,6 +73,13 @@ test('admin UTC after-action metrics and partial cleanup preview remain tenant-s
     assert.equal(preview.executable,false);
     assert.equal(preview.selection.inventoryCoverage,'DATABASE_RESOURCES_ONLY');
     assert.equal(preview.selection.matchingResources,1);
+    assert.equal(preview.retention.execution,'HOST_ONLY');
+    assert.equal(preview.retention.eventSlug,eventA);
+    assert.equal(preview.retention.inventory.resources,2);
+    assert.equal(preview.retention.inventory.audit,2);
+    for(const key of ['documentObjects','documentVersions','registryMedia','draftMedia','forensicStorageReferences','exerciseJobs','aiRuns'])assert.equal(preview.retention.inventory[key],0);
+    assert.equal(preview.retention.notificationHistory,0);
+    assert.equal(preview.retention.terminalManualTasks,0);
     assert.equal(preview.selection.unselectedResources,1);
     assert.deepEqual(preview.profiles.exerciseDataOnly.counts,{device:1});
     await assert.rejects(()=>service.purgePreview(eventA,admin,['other']),BadRequestException);

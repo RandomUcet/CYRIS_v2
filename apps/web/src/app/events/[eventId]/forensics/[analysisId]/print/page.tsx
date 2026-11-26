@@ -2,17 +2,24 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import type { ForensicAnalysisDetail } from '@cyris/contracts';
+import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api-client';
 import { PrintField, PrintSection, PrintSheet } from '@/components/print/PrintSheet';
 const at=(value:string|null|undefined)=>value?new Date(value).toLocaleString('cs-CZ'):'—';
 export default function PrintableForensicReport() {
-  const p=useParams(),eventId=p.eventId as string,id=p.analysisId as string;
+  const {eventId,analysisId:id}=useParams<{eventId:string;analysisId:string}>();
+  const {currentUser,viewAs,loading}=useAuth();
+  if(loading)return <p>Načítám…</p>;
+  return <Report key={JSON.stringify([eventId,id,currentUser?.user.id,viewAs?.id,currentUser?.memberships.find(m=>m.eventId===eventId)?.permissions])} eventId={eventId} id={id}/>;
+}
+function Report({eventId,id}:{eventId:string;id:string}){
   const [data,setData]=useState<ForensicAnalysisDetail|null>(null),[error,setError]=useState('');
   useEffect(()=>{
     let active=true;
     void apiClient.getForensicAnalysis(eventId,id).then(res=>{
       if(!active)return;
       if(!res.ok||!res.data)throw new Error(res.error||'Access denied');
+      if(!res.data.reportAvailable)throw Error('Protokol dosud není schválen / Report not approved');
       setData(res.data);
     }).catch(e=>{if(active)setError(e instanceof Error?e.message:'Error')});
     return()=>{active=false};

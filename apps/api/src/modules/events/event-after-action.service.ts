@@ -5,7 +5,8 @@ import {
   supportRequests, auditEvents, courtRequests, activityEvents,
 } from '@cyris/db';
 import { Permissions } from '@cyris/shared';
-import type { EventAfterActionReport, EventPurgePreview } from '@cyris/contracts';
+import { EventRetentionPlanSchema, type EventRetentionPlan, type EventAfterActionReport, type EventPurgePreview } from '@cyris/contracts';
+import { inspectRelationalRetention } from '../../scripts/retention-relational-plan.js';
 import { mergeActivityDays, previewResourceSelection } from './event-report-utils.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import { DatabaseService } from '../database/database.service.js';
@@ -86,6 +87,17 @@ export class EventAfterActionService {
       ),
     };
   }
+  async relationalPlan(eventId:string,actor:AuthenticatedUser):Promise<EventRetentionPlan>{
+    await this.getForAdmin(eventId,actor);
+    return this.db.transaction(async tx=>{
+      await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`);
+      await tx.execute(sql`SET LOCAL statement_timeout='15s'`);
+      await tx.execute(sql`SET LOCAL lock_timeout='2s'`);
+      const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).limit(1);
+      if(!event)throw new NotFoundException('Exercise not found');
+      return EventRetentionPlanSchema.parse({eventId,status:event.status,generatedAt:new Date().toISOString(),relational:await inspectRelationalRetention(tx,eventId)});
+    });
+  }
   async purgePreview(eventId: string, actor: AuthenticatedUser, selectedResourceTypes?: string[]): Promise<EventPurgePreview> {
     const report = await this.report(eventId, actor);
     const current = await this.getForAdmin(eventId, actor);
@@ -95,9 +107,47 @@ export class EventAfterActionService {
     } catch {
       throw new BadRequestException('Requested resource category does not exist in this event');
     }
+    // Event-wide relational inventory, distinct from selected resource counts.
+    // Candidate counts are preliminary; the host plan checks all FK dependencies again.
+    const [inventory]=await this.db.select({
+      relationships:sql<number>`(select count(*)::integer from resource_relationships where event_id=${eventId}::uuid)`,
+      assignments:sql<number>`(select count(*)::integer from resource_assignments where event_id=${eventId}::uuid)`,
+      grants:sql<number>`(select count(*)::integer from resource_access_control a join resources r on r.id=a.resource_id where r.event_id=${eventId}::uuid)`,
+      notifications:sql<number>`(select count(*)::integer from notifications where event_id=${eventId}::uuid)`,
+      units:sql<number>`(select count(*)::integer from organizational_units where event_id=${eventId}::uuid)`,
+      roles:sql<number>`(select count(*)::integer from roles where event_id=${eventId}::uuid)`,
+      documentObjects:sql<number>`(select count(*)::integer from documents where event_id=${eventId}::uuid)`,
+      documentVersions:sql<number>`(select count(*)::integer from document_versions v join documents d on d.id=v.document_id where d.event_id=${eventId}::uuid)`,
+      registryMedia:sql<number>`(select count(*)::integer from registry_media m join resources r on r.id=m.resource_id where r.event_id=${eventId}::uuid)`,
+      draftMedia:sql<number>`(select count(*)::integer from scenario_draft_media where event_id=${eventId}::uuid)`,
+      forensicStorageReferences:sql<number>`(select count(*)::integer from forensic_acquisitions a join forensic_analyses f on f.id=a.analysis_id where f.event_id=${eventId}::uuid and nullif(trim(a.storage_reference),'') is not null)`,
+      exerciseJobs:sql<number>`(select count(*)::integer from exercise_jobs where event_id=${eventId}::uuid)`,
+      aiRuns:sql<number>`(select count(*)::integer from ai_runs where event_id=${eventId}::uuid)`,
+      notificationHistory:sql<number>`(select count(*)::integer from notifications where event_id=${eventId}::uuid and (read_at is not null or dismissed_at is not null))`,
+      terminalManualTasks:sql<number>`(select count(*)::integer from resources r join operational_tasks t on t.id=r.id
+        where r.event_id=${eventId}::uuid and t.event_id=r.event_id and r.resource_type='operational_task'
+        and t.status in ('COMPLETED','CANCELLED') and t.source_type='MANUAL' and t.source_resource_id is null
+        and not exists(select 1 from resource_relationships x where x.source_resource_id=r.id or x.target_resource_id=r.id)
+        and not exists(select 1 from operational_tasks x where x.source_resource_id=r.id))`,
+    }).from(events).where(eq(events.id,eventId));
     return {
       eventId, eventName: report.eventName, status: report.status,
       generatedAt: new Date().toISOString(), executable: false,
+      retention:{
+        eventSlug:current.slug,execution:'HOST_ONLY',
+        notificationHistory:Number(inventory?.notificationHistory??0),
+        terminalManualTasks:Number(inventory?.terminalManualTasks??0),
+        inventory:{
+          resources:Object.values(report.resources).reduce((sum,n)=>sum+n,0),
+          relationships:Number(inventory?.relationships??0),assignments:Number(inventory?.assignments??0),
+          accessGrants:Number(inventory?.grants??0),notifications:Number(inventory?.notifications??0),
+          activity:report.operationalEvents,audit:report.auditEvents,memberships:report.membershipCount,
+          units:Number(inventory?.units??0),roles:Number(inventory?.roles??0),
+          documentObjects:Number(inventory?.documentObjects??0),documentVersions:Number(inventory?.documentVersions??0),
+          registryMedia:Number(inventory?.registryMedia??0),draftMedia:Number(inventory?.draftMedia??0),
+          forensicStorageReferences:Number(inventory?.forensicStorageReferences??0),exerciseJobs:Number(inventory?.exerciseJobs??0),aiRuns:Number(inventory?.aiRuns??0),
+        },
+      },
       profiles: {
         exerciseDataOnly: {
           description: 'Simulation records only: never implicitly delete users, event membership, role assignments or audit trail.',
@@ -119,7 +169,7 @@ export class EventAfterActionService {
         'An authenticated, verified off-host encrypted backup is required before irreversible cleanup.',
         'Object storage and external integration artifacts must be inventoried and removed safely.',
         'Retention and export of immutable audit evidence require an explicit policy.',
-        'Execution remains disabled until transaction, backup-restore and concurrency acceptance tests pass.',
+        'Complete event deletion and arbitrary resource deletion remain disabled; bounded host cleanup has a separate dependency and recovery preflight.',
       ],
     };
   }

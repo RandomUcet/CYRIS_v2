@@ -43,7 +43,7 @@ describe('service availability policy', () => {
     const prefix = '/events/:eventId/';
     for (const [path, module] of [
       ['resources/:sourceResourceId/relationships', 'relationships'], ['activity', 'timeline'],
-      ['indicators', 'forensics'], ['registry/:resourceId/primary-media', 'registry'],
+      ['indicators', 'forensics'], ['legal-requests','court'], ['registry/:resourceId/primary-media', 'registry'],
     ]) {
       assert.deepEqual(serviceRouteChecks(prefix + path, 'POST'), [{ module, operation: 'write' }]);
     }

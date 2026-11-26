@@ -1,4 +1,5 @@
 import { WorkerHeartbeat } from './worker-heartbeat.js';
+import { DrainableWork } from './drainable-work.js';
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { loadConfig, type EnvConfig } from '@cyris/config';
 import { getDbClient, checkDatabaseConnection, closeDatabaseConnection } from '@cyris/db';
@@ -18,10 +19,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private outboxTimer: NodeJS.Timeout | null = null;
   private scenarioTimer: NodeJS.Timeout | null = null;
   private observerTimer: NodeJS.Timeout | null = null;
-  private isProcessingOutbox = false;
+  private readonly outboxWork=new DrainableWork<number>();
   private readonly heartbeat=new WorkerHeartbeat();
   private heartbeatTimer:NodeJS.Timeout|null=null;
-  private scenarioInFlight=false;
+  private readonly scenarioWork=new DrainableWork<void>();
   private stopping=false;
 
   constructor(
@@ -93,29 +94,23 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async runScenarioTick(){
-    if(this.stopping||this.scenarioInFlight)return;
-    this.scenarioInFlight=true;
-    try{await this.scenarioScheduler.tick();}
-    catch{this.logger.error('Scenario tick did not complete normally');}
-    finally{this.scenarioInFlight=false;this.heartbeat.scenarioSettled();}
+    if(this.stopping)return;
+    await this.scenarioWork.run(async()=>{
+      try{await this.scenarioScheduler.tick();}
+      catch{this.logger.error('Scenario tick did not complete normally');}
+      finally{if(!this.stopping)this.heartbeat.scenarioSettled();}
+    },undefined);
   }
 
   /**
    * Safe execution wrapper for outbox processing.
    */
   async triggerOutboxProcessing(): Promise<number> {
-    if (this.isProcessingOutbox) {
-      return 0;
-    }
-    this.isProcessingOutbox = true;
-    try {
-      return await this.outboxProcessor.processPendingOutbox();
-    } catch (err) {
-      this.logger.error(`Outbox archival processing error: ${(err as Error).message}`);
-      return 0;
-    } finally {
-      this.isProcessingOutbox = false;
-    }
+    if(this.stopping)return 0;
+    return this.outboxWork.run(async()=>{
+      try{return await this.outboxProcessor.processPendingOutbox();}
+      catch(err){this.logger.error(`Outbox archival processing error: ${(err as Error).message}`);return 0;}
+    },0);
   }
 
   /**
@@ -126,6 +121,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     processor: Processor<DataType, ResultType>,
     options?: Partial<WorkerOptions>
   ): Worker<DataType, ResultType> {
+    if(this.stopping)throw Error('Worker runtime is stopping');
     const worker = new Worker<DataType, ResultType>(queueName, processor, {
       connection: this.redisOptions,
       ...options,
@@ -148,8 +144,9 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       this.scenarioTimer = null;
     }
     if(this.observerTimer){clearInterval(this.observerTimer);this.observerTimer=null;}
-    await this.exerciseObserver.stop();
-    await Promise.all(this.activeWorkers.map((w) => w.close()));
+    // Stop admission synchronously and drain every producer before closing DB/Redis.
+    await Promise.all([this.outboxWork.close(),this.scenarioWork.close(),
+      this.exerciseObserver.stop(),...this.activeWorkers.map(w=>w.close())]);
     if (this.redisClient) {
       await this.redisClient.quit();
     }

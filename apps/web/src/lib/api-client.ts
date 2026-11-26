@@ -18,6 +18,7 @@ import type {
   EventResponse,
   EventAfterActionReport,
   EventPurgePreview,
+  EventRetentionPlan,
   LoginRequest,
   SearchResponse,
   AIProviderResponse,
@@ -79,7 +80,7 @@ import type {
   CreateCourtDecisionRequest,
   OperationalTaskItem,
   OperationalTaskDetail,
-  MyWorkResponse,
+  MyWorkResponse, MyWorkKind,
   CreateOperationalTaskRequest,
   UpdateOperationalTaskRequest,
   AssignOperationalTaskRequest,
@@ -711,6 +712,9 @@ export class CyrisApiClient {
     return this.fetchJson<EventAfterActionReport>(
       '/events/' + encodeURIComponent(eventId) + '/after-action-report');
   }
+  getEventRetentionPlan(eventId:string,signal?:AbortSignal){
+    return this.fetchJson<EventRetentionPlan>('/events/'+encodeURIComponent(eventId)+'/retention-plan',signal);
+  }
   getEventPurgePreview(eventId: string, resourceTypes?: string[]) {
     const suffix = resourceTypes && resourceTypes.length
       ? '?resourceTypes=' + encodeURIComponent(resourceTypes.join(','))
@@ -1014,11 +1018,13 @@ export class CyrisApiClient {
 
   async listForensicAnalyses(
     eventId: string,
-    query?: { status?: string; analysisType?: string; priority?: string; page?: number; limit?: number }
+    query?: { status?: string; analysisType?: string; priority?: string; page?: number; limit?: number;evidenceId?:string;mine?:'requested'|'assigned' }
   ): Promise<{ ok: boolean; data?: { items: ForensicAnalysisItem[]; total: number; page: number; limit: number }; error?: string }> {
     const params = new URLSearchParams();
     if (query?.status) params.set('status', query.status);
     if (query?.analysisType) params.set('analysisType', query.analysisType);
+    if(query?.evidenceId)params.set('evidenceId',query.evidenceId);
+    if(query?.mine)params.set('mine',query.mine);
     if (query?.priority) params.set('priority', query.priority);
     if (query?.page) params.set('page', String(query.page));
     if (query?.limit) params.set('limit', String(query.limit));
@@ -1026,6 +1032,9 @@ export class CyrisApiClient {
     return this.fetchJson<{ items: ForensicAnalysisItem[]; total: number; page: number; limit: number }>(`/events/${eventId}/forensics${qs}`);
   }
 
+  getForensicUnits(eventId:string){return this.fetchJson<Array<{id:string;name:string}>>(`/events/${eventId}/forensics/units`);}
+  listForensicReassignmentCandidates(eventId:string,analysisId:string){return this.fetchJson<Array<{id:string;displayName:string}>>(`/events/${eventId}/forensics/${analysisId}/reassignment-candidates`);}
+  reassignForensicAnalysis(eventId:string,analysisId:string,payload:{assignedToUserId:string;expectedUpdatedAt:string;reason:string}){return this.patchJson<ForensicAnalysisDetail>(`/events/${eventId}/forensics/${analysisId}/assignment`,payload);}
   async getForensicAnalysis(eventId: string, analysisId: string): Promise<{ ok: boolean; data?: ForensicAnalysisDetail; error?: string }> {
     return this.fetchJson<ForensicAnalysisDetail>(`/events/${eventId}/forensics/${analysisId}`);
   }
@@ -1283,10 +1292,11 @@ export class CyrisApiClient {
 
   async listMyWork(
     eventId: string,
-    query?: { view?: 'personal' | 'unit' | 'event'; unitId?: string; page?: number; limit?: number }
+    query?: { view?: 'personal' | 'unit' | 'event' | 'requested' | 'approval'; unitId?: string; kind?:MyWorkKind; page?: number; limit?: number }
   ): Promise<{ ok: boolean; data?: MyWorkResponse; error?: string }> {
     const params = new URLSearchParams();
     if (query?.view) params.set('view', query.view);
+    if (query?.kind) params.set('kind',query.kind);
     if (query?.unitId) params.set('unitId', query.unitId);
     if (query?.page) params.set('page', String(query.page));
     if (query?.limit) params.set('limit', String(query.limit));

@@ -36,6 +36,7 @@ export function serviceRouteChecks(route: string, method: string): ModuleCheck[]
     return checks;
   }
   if (module === 'activity') return [{ module: 'timeline', operation }];
+  if (module === 'legal-requests') return [{ module: 'court', operation }];
   if (module === 'indicators') return [{ module: 'forensics', operation }];
   if (module === 'resources' && segments.includes('relationships')) return [{ module: 'relationships', operation }];
   return isServiceModule(module) ? [{ module, operation }] : [];

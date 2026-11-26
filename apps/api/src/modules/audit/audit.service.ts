@@ -17,6 +17,8 @@ import { privateControlTypes } from '../disruptions/module-resources.js';
 import { redactSensitiveData } from '../../common/redaction.js';
 import type { AuditQueryFilters, AuditListResponse, AuditEventItem } from '@cyris/contracts';
 
+const liveEventIdExpression=sql<string|null>`(SELECT e.id FROM public.events e WHERE e.id=${auditEvents.eventId})`;
+const historicalExerciseName=sql<string|null>`coalesce((SELECT e.name FROM public.events e WHERE e.id=${auditEvents.eventId}),(SELECT r.name FROM public.removed_exercise_receipts r WHERE r.event_id=${auditEvents.eventId}))`;
 const actorAccount=alias(users,'audit_actor_account');
 const targetAccount=alias(users,'audit_target_account');
 // Text comparison is intentional: historical resource IDs are not always UUIDs.
@@ -26,6 +28,7 @@ const targetJoin=and(eq(auditEvents.resourceType,'user'),sql`${auditEvents.resou
 function visibleAuditActions(isPlatformAdmin: boolean) {
   if (isPlatformAdmin) return undefined;
   return and(
+    or(isNull(auditEvents.eventId),sql`EXISTS (SELECT 1 FROM public.events e WHERE e.id=${auditEvents.eventId})`),
     notLike(auditEvents.action, 'exercise.disruption.%'),
     notLike(auditEvents.action, 'exercise.recovery%'),
     or(isNull(auditEvents.resourceType), notInArray(auditEvents.resourceType, privateControlTypes)),
@@ -229,7 +232,7 @@ export class AuditService {
     const total = totalResult ? Number(totalResult.count) : 0;
 
     const rows = await db
-      .select({row:auditEvents,actorDisplayName:actorAccount.displayName,resourceDisplayName:targetAccount.displayName})
+      .select({row:auditEvents,liveEventId:liveEventIdExpression,exerciseName:historicalExerciseName,actorDisplayName:actorAccount.displayName,resourceDisplayName:targetAccount.displayName})
       .from(auditEvents)
       .leftJoin(actorAccount,actorJoin).leftJoin(targetAccount,targetJoin)
       .where(whereClause)
@@ -237,13 +240,14 @@ export class AuditService {
       .limit(limit)
       .offset(offset);
 
-    const items: AuditEventItem[] = rows.map(({row:r,actorDisplayName,resourceDisplayName}) => ({
+    const items: AuditEventItem[] = rows.map(({row:r,liveEventId,exerciseName,actorDisplayName,resourceDisplayName}) => ({
       actorDisplayName,resourceDisplayName,
       id: r.id,
       occurredAt: r.occurredAt.toISOString(),
       actorUserId: r.actorUserId,
       actorType: r.actorType,
-      eventId: r.eventId,
+      eventId:liveEventId,
+      ...(isPlatformAdmin?{originalEventId:r.eventId,exerciseName}:{}),
       action: r.action,
       category: r.category,
       resourceType: r.resourceType,
@@ -270,21 +274,22 @@ export class AuditService {
   async getById(id: string, isPlatformAdmin = false): Promise<AuditEventItem | null> {
     const db = this.databaseService.client;
     const [result] = await db
-      .select({row:auditEvents,actorDisplayName:actorAccount.displayName,resourceDisplayName:targetAccount.displayName})
+      .select({row:auditEvents,liveEventId:liveEventIdExpression,exerciseName:historicalExerciseName,actorDisplayName:actorAccount.displayName,resourceDisplayName:targetAccount.displayName})
       .from(auditEvents)
       .leftJoin(actorAccount,actorJoin).leftJoin(targetAccount,targetJoin)
       .where(and(eq(auditEvents.id, id), visibleAuditActions(isPlatformAdmin)))
       .limit(1);
 
     if (!result) return null;
-    const {row,actorDisplayName,resourceDisplayName}=result;
+    const {row,liveEventId,exerciseName,actorDisplayName,resourceDisplayName}=result;
     const item:AuditEventItem = {
       actorDisplayName,resourceDisplayName,
       id: row.id,
       occurredAt: row.occurredAt.toISOString(),
       actorUserId: row.actorUserId,
       actorType: row.actorType,
-      eventId: row.eventId,
+      eventId:liveEventId,
+      ...(isPlatformAdmin?{originalEventId:row.eventId,exerciseName}:{}),
       action: row.action,
       category: row.category,
       resourceType: row.resourceType,

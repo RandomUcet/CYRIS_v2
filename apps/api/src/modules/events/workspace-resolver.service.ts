@@ -179,7 +179,7 @@ export class WorkspaceResolverService {
         permission: Permissions.BRIEFING_READ,
         context: { eventId },
       }),
-      isPlatformAdmin || this.authzService.hasEventCapability({user, permission: Permissions.FORENSICS_READ, eventId, resourceScopes: ['OWN','ASSIGNED']}),
+      isPlatformAdmin || (async()=>await this.authzService.hasEventCapability({user, permission: Permissions.FORENSICS_READ, eventId, resourceScopes: ['OWN','ASSIGNED']})||await this.authzService.hasEventCapability({user,permission:Permissions.FORENSICS_REQUEST,eventId,resourceScopes:['OWN','ASSIGNED']}))(),
       this.authzService.authorize({
         user,
         permission: Permissions.COURT_READ,
@@ -197,9 +197,7 @@ export class WorkspaceResolverService {
         permission: Permissions.EVALUATION_READ,
         context: { eventId },
       }),
-      isPlatformAdmin || this.authzService.hasEventCapability({
-        user, permission: Permissions.LAB_READ, eventId, resourceScopes: ['OWN', 'ASSIGNED'],
-      }),
+      isPlatformAdmin || (async()=>await this.authzService.hasEventCapability({user,permission:Permissions.LAB_READ,eventId,resourceScopes:['OWN','ASSIGNED']})||await this.authzService.hasEventCapability({user,permission:Permissions.LAB_REQUEST,eventId,resourceScopes:['OWN','ASSIGNED']}))(),
     ]);
 
     // Personal judicial roles must work even before a unit capability is assigned.

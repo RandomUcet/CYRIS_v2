@@ -6,14 +6,16 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import {
   getDbClient, closeDatabaseConnection, users, events, eventMemberships,
   membershipUnitAssignments, organizationalUnits, unitCapabilities,
-  roles, rolePermissions, roleAssignments, resources, medicalEncounters, medicalInterventions, locations,
+  roles, rolePermissions, roleAssignments, resources, medicalEncounters, medicalInterventions, locations, notifications,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
-import { UnitCapabilityKeys } from '@cyris/contracts';
+import { MyWorkQuerySchema, UnitCapabilityKeys } from '@cyris/contracts';
 import { DatabaseService } from '../modules/database/database.service.js';
 import { AuthorizationService } from '../modules/authorization/authorization.service.js';
 import { ResourceAccessService } from '../modules/resources/resource-access.service.js';
 import { ResourceService } from '../modules/resources/resource.service.js';
+import { NotificationsService } from '../modules/notifications/notifications.service.js';
+import { TasksService } from '../modules/tasks/tasks.service.js';
 import { MedicalService } from '../modules/medical/medical.service.js';
 import { WorkspaceResolverService } from '../modules/events/workspace-resolver.service.js';
 import { AuditService } from '../modules/audit/audit.service.js';
@@ -37,7 +39,9 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
   const medical = new MedicalService(database,registry,access,
     {allocate:async ()=>'MED-'+generateId()} as never,
     audit,activity,indexer,authz);
+  const tasks=new TasksService(database,registry,access,{} as never,audit,activity,indexer,{} as never,authz,{getModuleImpacts:async()=>new Map()} as never);
   const eventA=generateId(),eventB=generateId();
+  const queue=(eventId:string,user:AuthenticatedUser,view:'personal'|'unit'|'event'|'requested'='personal',unitId?:string)=>tasks.listMyWork(eventId,MyWorkQuerySchema.parse({view,unitId}),user);
   const medA=generateId(),medB=generateId(),medExtra=generateId(),otherEventUnit=generateId();
   const locationId=generateId(),actorId=generateId(),recipientId=generateId();
   const actor={id:actorId,status:'ACTIVE',email:`${actorId}@example.test`,displayName:'Medical A'} as AuthenticatedUser;
@@ -112,6 +116,14 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
       assert.equal(await access.canAccessResource(actor,record.id,Permissions.MEDICAL_READ),true);
       assert.equal(await access.canAccessResource(recipient,record.id,Permissions.MEDICAL_READ),false);
 
+      const own=(await queue(eventA,actor)).items.find(x=>x.id===record.id);
+      assert.equal(own?.kind,'MEDICAL_ENCOUNTER');assert.equal(own?.title,record.medicalNumber);
+      assert.ok(!JSON.stringify(own).includes('Fictional casualty'));
+      assert.ok(!(await queue(eventA,recipient)).items.some(x=>x.id===record.id));
+      assert.ok(!(await queue(eventA,actor,'requested')).items.some(x=>x.id===record.id));
+      await assert.rejects(queue(eventA,actor,'unit',medB),ForbiddenException);
+      await assert.rejects(queue(eventA,actor,'event'),ForbiddenException);
+      await assert.rejects(queue(eventB,actor),ForbiddenException);
       // A plain update to another team's restricted medical record requires
       // handoff permissions, not just edit rights.
       const reassigned=await medical.updateEncounter(record.id,{assignedUnitId:medB},actor);
@@ -125,6 +137,9 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
       assert.equal(await access.canAccessResource(recipient,record.id,Permissions.MEDICAL_READ),true);
       await assert.rejects(medical.getEncounterDetail(record.id,actor),ForbiddenException);
       assert.equal((await medical.getEncounterDetail(record.id,recipient)).assignedUnitId,medB);
+      assert.ok(!(await queue(eventA,actor)).items.some(x=>x.id===record.id));
+      assert.ok((await queue(eventA,recipient)).items.some(x=>x.id===record.id));
+      assert.ok((await queue(eventA,recipient,'unit',medB)).items.some(x=>x.id===record.id));
     });
 
     await t.test('ambiguous multiple medical memberships do not auto-disclose to a random team', async () => {
@@ -152,11 +167,21 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
       assert.equal(after.resource?.ownerUserId,original.resource?.ownerUserId);
       assert.equal(after.record?.status,'RECEIVED');
       assert.equal(after.record?.locationId,null);
+      assert.equal((await db.select().from(notifications).where(eq(notifications.resourceId,created.id))).length,0);
 
       const success=await medical.transferEncounter(created.id,{
         targetLocationId:locationId,receivingUnitId:medB,disposition:'Clinic B',
       },actor);
       assert.equal(success.status,'TRANSFERRED');
+      const alerts=await db.select().from(notifications).where(eq(notifications.resourceId,created.id));
+      assert.equal(alerts.length,1);assert.equal(alerts[0]?.userId,recipientId);assert.equal(alerts[0]?.templateKey,'medical.handoff');assert.deepEqual(alerts[0]?.templateParams,{});
+      const inbox=new NotificationsService(database,{} as never,{} as never,{} as never,authz);
+      assert.ok((await inbox.getNotifications(recipientId,eventA)).newItems.some(x=>x.id===alerts[0]?.id));
+      await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,roleB),eq(rolePermissions.permissionKey,Permissions.MEDICAL_INTERVENE)));
+      try{assert.ok(!(await inbox.getNotifications(recipientId,eventA)).newItems.some(x=>x.id===alerts[0]?.id));}
+      finally{await db.insert(rolePermissions).values({roleId:roleB,permissionKey:Permissions.MEDICAL_INTERVENE,scope:'UNIT'});}
+      assert.equal((await queue(eventA,recipient)).items.find(x=>x.id===created.id)?.status,'TRANSFERRED');
+      assert.ok(!(await queue(eventA,actor)).items.some(x=>x.id===created.id));
       assert.equal(success.assignedUnitId,medB);
       const transferred=await lookup(created.id);
       assert.equal(transferred.resource?.owningUnitId,medB);
@@ -188,6 +213,7 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
 
         const received=await medical.receiveTransferredEncounter(created.id,recipient);
         assert.equal(received.status,'UNDER_CARE');
+        assert.equal((await queue(eventA,recipient)).items.find(x=>x.id===created.id)?.status,'UNDER_CARE');
         assert.equal(received.assignedUnitId,medB);
         assert.equal(received.locationId,locationId);
         assert.equal(received.transferredAt?.toString(),success.transferredAt?.toString());
@@ -228,6 +254,7 @@ test('medical team routing and patient handoff keep ACL ownership in sync', {
         // A final disposition cannot be undone by ordinary triage or transfer endpoints.
         const final=await medical.closeEncounter(created.id,{status:'CLOSED',disposition:'Simulated discharge'},recipient);
         assert.equal(final.status,'CLOSED');
+        assert.ok(!(await queue(eventA,recipient)).items.some(x=>x.id===created.id));
         await assert.rejects(medical.stabilizeEncounter(created.id,recipient),ConflictException);
         await assert.rejects(medical.triageEncounter(created.id,{triageCategory:'MINOR'},recipient),ConflictException);
         await assert.rejects(medical.transferEncounter(created.id,{

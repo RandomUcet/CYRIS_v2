@@ -212,7 +212,12 @@ test('event administration and read-only participant preview against isolated Po
       assert.equal(await permissions.canActivate(ctx), true);
       const results = await Promise.all([controller.initialize(eventA, admin, req), controller.initialize(eventA, admin, req)]);
       assert.deepEqual(results.map(r => r.unitsCreated).sort(), [0, 8]);
-      assert.deepEqual(results.map(r => r.rolesCreated).sort(), [0, 11]);
+      assert.deepEqual(results.map(r => r.rolesCreated).sort((a,b)=>a-b), [0, 14]);
+      const initializedRoles=await db.select().from(roles).where(eq(roles.eventId,eventA));
+      for(const slug of ['forensic-worker','forensic-coordinator','forensic-requester'])assert.ok(initializedRoles.some(role=>role.slug===slug));
+      const coordinator=initializedRoles.find(role=>role.slug==='forensic-coordinator')!;
+      const grants=await db.select().from(rolePermissions).where(eq(rolePermissions.roleId,coordinator.id));
+      assert.deepEqual(grants.map(g=>[g.permissionKey,g.scope]).sort(),[[Permissions.FORENSICS_READ,'UNIT'],[Permissions.FORENSICS_REASSIGN,'UNIT']].sort());
       assert.ok(results.every(r => r.eventId === eventA));
       assert.equal((await db.select().from(organizationalUnits).where(eq(organizationalUnits.eventId, eventB))).length, 0);
       const records = await db.select().from(auditEvents).where(and(eq(auditEvents.eventId, eventA), eq(auditEvents.action, 'event.team_templates.initialized')));

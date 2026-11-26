@@ -1,18 +1,21 @@
 import type { MyWorkItem } from '@cyris/contracts';
 
 export function isActionableMyWorkItem(item: Pick<MyWorkItem, 'kind' | 'status'>): boolean {
+  if(item.kind==='MEDICAL_ENCOUNTER')return ['RECEIVED','TRIAGED','UNDER_CARE','STABILIZED','TRANSFERRED'].includes(item.status);
+  if(item.kind==='COURT_REQUEST')return item.status==='OPEN'||item.status==='IN_PROGRESS';
   return item.kind === 'TASK'
     ? !['COMPLETED', 'CANCELLED'].includes(item.status)
     : !['APPROVED', 'REJECTED', 'CANCELLED'].includes(item.status);
 }
 
 export function isMyWorkViewAllowed(
-  view: 'personal' | 'unit' | 'event',
+  view: 'personal' | 'unit' | 'event' | 'requested' | 'approval',
   canViewUnit: boolean,
   canViewEvent: boolean,
-  unitSelected: boolean
+  unitSelected: boolean,
+  canApprove = false
 ): boolean {
-  return view === 'personal' ||
+  return view === 'personal' || view === 'requested' || (view === 'approval' && canApprove) ||
     (view === 'unit' && canViewUnit && unitSelected) ||
     (view === 'event' && canViewEvent);
 }

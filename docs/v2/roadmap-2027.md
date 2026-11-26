@@ -28,3 +28,7 @@ Maintained across releases; supersedes the stale milestone/order below. Basis: o
 | QA-01 | P1 | Repeatable fictional demo/test exercise, mixed-role acceptance, load test, accessibility, browser regression, actual physical Spark and upgrade rehearsal. |
 
 Release decisions: prioritize blocking regressions and security first, then cohesive UX/operational improvements for 2.5.x; larger scenario automation for 2.6.0 when validated. Do not mark a requirement complete based on an earlier assistant assertion, branch commit, or green CI alone. Detailed acceptance and implementation history: [UX and registry roadmap](ux-and-registry-roadmap.md), [acceptance](acceptance.md), [deployment](deployment.md), [capability map](cyris-capability-map.md), [production operations](production-operations.md). Review backlog at each merge and retain unfinished IDs.
+
+2.5.1 merged after exact-head CI #651. 2.5.2 begins with forensic lifecycle parity: approved report receipt, explicit status transitions, server-derived actions, draft editing and locked child records, followed by routing and evidence integration. Do not drop other backlog IDs.
+
+Execution continuity: [delivery ledger](delivery-ledger.md) is mandatory at every continuation. Active block ADM-01 retention and exercise administration must reach explicit acceptance checkpoints before unrelated feature work. The ledger distinguishes actual destructive capability, non-destructive inventory and deployment/browser verification. All original backlog IDs remain open until their own acceptance criteria are met.

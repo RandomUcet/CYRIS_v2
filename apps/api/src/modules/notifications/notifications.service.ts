@@ -4,7 +4,7 @@ import { DatabaseService } from '../database/database.service.js';
 import { PreferencesService } from '../preferences/preferences.service.js';
 import { InAppNotificationProvider } from './providers/in-app-notification.provider.js';
 import { EmailNotificationProvider } from './providers/email-notification.provider.js';
-import { notifications, users, labAnalyses, resources } from '@cyris/db';
+import { notifications, users, labAnalyses, forensicAnalyses, medicalEncounters, courtRequests, courtCases, resources, eventMemberships, membershipUnitAssignments, organizationalUnits } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
@@ -105,7 +105,7 @@ export class NotificationsService {
 
     // Save the in-app row so it reappears after restoration. Do not mail details
     // to a recipient while the originating module is unavailable to them.
-    if (canDeliverEmail && await this.canShowModule(input.eventId, input.templateKey, input.userId,input.resourceId)) {
+    if (canDeliverEmail && await this.canShowModule(input.eventId, input.templateKey, input.userId,input.resourceId,input.sourceEventId)) {
       this.emailProvider
         .deliver(notificationItem, {
           userEmail: recipient.email,
@@ -147,7 +147,7 @@ export class NotificationsService {
 
     const canShow=this.moduleVisibility(userId);
     for(const row of rows){
-      if(!await canShow(row.eventId,row.templateKey,row.resourceId))continue;
+      if(!await canShow(row.eventId,row.templateKey,row.resourceId,row.sourceEventId))continue;
       const item = this.mapToItem(row);
       if (!row.readAt) {
         newItems.push(item);
@@ -183,7 +183,7 @@ export class NotificationsService {
       throw new ForbiddenException('Cannot modify notifications of other users');
     }
 
-    if (!await this.canShowModule(existing.eventId, existing.templateKey, userId,existing.resourceId)) {
+    if (!await this.canShowModule(existing.eventId, existing.templateKey, userId,existing.resourceId,existing.sourceEventId)) {
       throw new NotFoundException('Notification not found');
     }
 
@@ -217,14 +217,17 @@ export class NotificationsService {
     // in SQL avoids transferring unread notification bodies and UUID lists.
     const readAt=new Date();
     conditions.push(lte(notifications.createdAt,readAt));
-    const groups=await db.selectDistinct({eventId:notifications.eventId,templateKey:notifications.templateKey,resourceId:notifications.resourceId})
+    const groups=await db.selectDistinct({eventId:notifications.eventId,templateKey:notifications.templateKey,resourceId:notifications.resourceId,sourceEventId:notifications.sourceEventId})
       .from(notifications).where(and(...conditions));
     const canShow=this.moduleVisibility(userId);
     const allowed=new Map<string|null,Set<string>>();
     const labGroups:NonNullable<ReturnType<typeof and>>[]=[];
     for(const group of groups){
-      if(!await canShow(group.eventId,group.templateKey,group.resourceId))continue;
-      if(group.templateKey==='lab.request.status'&&group.resourceId&&group.eventId){
+      if(!await canShow(group.eventId,group.templateKey,group.resourceId,group.sourceEventId))continue;
+      if(['court.request.created','court.request.responded'].includes(group.templateKey)&&group.eventId&&group.resourceId&&group.sourceEventId){
+        labGroups.push(and(eq(notifications.eventId,group.eventId),eq(notifications.templateKey,group.templateKey),eq(notifications.resourceId,group.resourceId),eq(notifications.sourceEventId,group.sourceEventId))!);continue;
+      }
+      if(['lab.request.status','forensics.request.status','forensics.assigned','medical.handoff'].includes(group.templateKey)&&group.resourceId&&group.eventId){
         labGroups.push(and(eq(notifications.eventId,group.eventId),eq(notifications.templateKey,group.templateKey),eq(notifications.resourceId,group.resourceId))!);continue;
       }
       const keys=allowed.get(group.eventId)??new Set<string>();
@@ -260,7 +263,7 @@ export class NotificationsService {
       throw new ForbiddenException('Cannot dismiss notifications of other users');
     }
 
-    if(!await this.canShowModule(existing.eventId,existing.templateKey,userId,existing.resourceId)){
+    if(!await this.canShowModule(existing.eventId,existing.templateKey,userId,existing.resourceId,existing.sourceEventId)){
       throw new NotFoundException('Notification not found');
     }
     await db
@@ -284,15 +287,56 @@ export class NotificationsService {
     })();
     const access=new ResourceAccessService(this.databaseService,this.authorization);
     const labVisibility=new Map<string,Promise<boolean>>();
-    return async(eventId:string|null|undefined,templateKey:string,resourceId?:string|null):Promise<boolean>=>{
-      if(templateKey==='lab.request.status'){
+    return async(eventId:string|null|undefined,templateKey:string,resourceId?:string|null,sourceEventId?:string|null):Promise<boolean>=>{
+      if(templateKey==='lab.request.status'||templateKey==='forensics.request.status'||templateKey==='forensics.assigned'){
         if(!eventId||!resourceId)return false;
-        const key=eventId+':'+resourceId;let visible=labVisibility.get(key);
+        const key=templateKey+':'+eventId+':'+resourceId;let visible=labVisibility.get(key);
         if(!visible){visible=(async()=>{
-          const [record]=await db.select({requester:labAnalyses.requestedByUserId}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id)).where(and(eq(labAnalyses.id,resourceId),eq(resources.eventId,eventId))).limit(1);
+          const [record]=templateKey!=='lab.request.status'?await db.select({requester:templateKey==='forensics.assigned'?forensicAnalyses.assignedToUserId:forensicAnalyses.requestedByUserId}).from(forensicAnalyses).innerJoin(resources,eq(resources.id,forensicAnalyses.id)).where(and(eq(forensicAnalyses.id,resourceId),eq(resources.eventId,eventId),eq(forensicAnalyses.eventId,eventId))).limit(1):await db.select({requester:labAnalyses.requestedByUserId}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id)).where(and(eq(labAnalyses.id,resourceId),eq(resources.eventId,eventId))).limit(1);
           if(record?.requester!==userId)return false;
           const [user]=await db.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status}).from(users).where(eq(users.id,userId)).limit(1);
-          return Boolean(user&&await access.canAccessResource(user,resourceId,Permissions.LAB_READ));
+          return Boolean(user&&await access.canAccessResource(user,resourceId,templateKey!=='lab.request.status'?Permissions.FORENSICS_READ:Permissions.LAB_READ));
+        })();labVisibility.set(key,visible);}
+        return visible;
+      }
+      if(templateKey==='court.request.created'||templateKey==='court.request.responded'){
+        const requestId=sourceEventId?.split(':')[0];
+        if(!eventId||!resourceId||!requestId||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId))return false;
+        const key=templateKey+':'+eventId+':'+resourceId+':'+requestId;
+        let visible=labVisibility.get(key);
+        if(!visible){visible=(async()=>{
+          const [user]=await db.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status,testExpiresAt:users.testExpiresAt}).from(users).where(eq(users.id,userId)).limit(1);
+          if(!user||user.status!=='ACTIVE'||(user.testExpiresAt&&user.testExpiresAt<=new Date()))return false;
+          const [request]=await db.select({author:courtRequests.requestedByUserId,unitId:courtRequests.requestedFromUnitId}).from(courtRequests)
+            .innerJoin(courtCases,eq(courtCases.id,courtRequests.courtCaseId)).innerJoin(resources,eq(resources.id,courtCases.id))
+            .where(and(eq(courtRequests.id,requestId),eq(courtRequests.eventId,eventId),eq(courtRequests.courtCaseId,resourceId),eq(courtCases.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'court_case'))).limit(1);
+          if(!request||!await this.authorization.authorize({user,permission:Permissions.COURT_REQUEST_READ,context:{eventId}})||!await access.canAccessResource(user,resourceId,Permissions.COURT_READ))return false;
+          if(templateKey==='court.request.responded')return request.author===userId;
+          if(!request.unitId||!await this.authorization.authorize({user,permission:Permissions.COURT_REQUEST_RESPOND,context:{eventId}}))return false;
+          const [member]=await db.select({id:eventMemberships.id}).from(eventMemberships)
+            .innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.membershipId,eventMemberships.id))
+            .innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId))
+            .where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,userId),eq(eventMemberships.status,'ACTIVE'),eq(organizationalUnits.id,request.unitId),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt))).limit(1);
+          return Boolean(member);
+        })();labVisibility.set(key,visible);}
+        return visible;
+      }
+      if(templateKey==='medical.handoff'){
+        if(!eventId||!resourceId)return false;
+        const key=templateKey+':'+eventId+':'+resourceId;
+        let visible=labVisibility.get(key);
+        if(!visible){visible=(async()=>{
+          const [user]=await db.select({id:users.id,email:users.email,displayName:users.displayName,status:users.status,testExpiresAt:users.testExpiresAt}).from(users).where(eq(users.id,userId)).limit(1);
+          if(!user||user.status!=='ACTIVE'||(user.testExpiresAt&&user.testExpiresAt<=new Date()))return false;
+          const [row]=await db.select({id:medicalEncounters.id}).from(medicalEncounters)
+            .innerJoin(resources,eq(resources.id,medicalEncounters.id))
+            .innerJoin(organizationalUnits,eq(organizationalUnits.id,medicalEncounters.assignedUnitId))
+            .innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.unitId,organizationalUnits.id))
+            .innerJoin(eventMemberships,eq(eventMemberships.id,membershipUnitAssignments.membershipId))
+            .where(and(eq(medicalEncounters.id,resourceId),eq(medicalEncounters.eventId,eventId),eq(resources.eventId,eventId),
+              eq(resources.resourceType,'medical_encounter'),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt),
+              eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,userId),eq(eventMemberships.status,'ACTIVE'))).limit(1);
+          return Boolean(row&&await access.canAccessResource(user,resourceId,Permissions.MEDICAL_READ)&&await access.canAccessResource(user,resourceId,Permissions.MEDICAL_INTERVENE));
         })();labVisibility.set(key,visible);}
         return visible;
       }
@@ -305,8 +349,8 @@ export class NotificationsService {
     };
   }
 
-  private canShowModule(eventId:string|null|undefined,templateKey:string,userId:string,resourceId?:string|null):Promise<boolean>{
-    return this.moduleVisibility(userId)(eventId,templateKey,resourceId);
+  private canShowModule(eventId:string|null|undefined,templateKey:string,userId:string,resourceId?:string|null,sourceEventId?:string|null):Promise<boolean>{
+    return this.moduleVisibility(userId)(eventId,templateKey,resourceId,sourceEventId);
   }
 
   private mapToItem(row: typeof notifications.$inferSelect): NotificationItem {

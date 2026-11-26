@@ -44,10 +44,15 @@ test('My Work excludes terminal task and laboratory statuses', () => {
   assert.equal(isActionableMyWorkItem({ kind: 'TASK', status: 'IN_PROGRESS' }), true);
   assert.equal(isActionableMyWorkItem({ kind: 'LAB_ANALYSIS', status: 'APPROVED' }), false);
   assert.equal(isActionableMyWorkItem({ kind: 'LAB_ANALYSIS', status: 'REQUESTED' }), true);
+  assert.equal(isActionableMyWorkItem({kind:'FORENSIC_ANALYSIS',status:'APPROVED'}),false);
+  assert.equal(isActionableMyWorkItem({kind:'FORENSIC_ANALYSIS',status:'COMPLETED'}),true);
 });
 
 test('My Work view scope allows only personal, authorized unit, or authorized event views', () => {
   assert.equal(isMyWorkViewAllowed('personal', false, false, false), true);
+  assert.equal(isMyWorkViewAllowed('requested',false,false,false),true);
+  assert.equal(isMyWorkViewAllowed('approval',true,true,true),false);
+  assert.equal(isMyWorkViewAllowed('approval',false,false,false,true),true);
   assert.equal(isMyWorkViewAllowed('unit', true, false, true), true);
   assert.equal(isMyWorkViewAllowed('unit', true, false, false), false);
   assert.equal(isMyWorkViewAllowed('event', false, false, false), false);
@@ -60,3 +65,9 @@ test('My Work controller route is declared before the dynamic task route', () =>
 });
 
 // Real role, assignment and event-scope checks live in regression/tasks-authorization.test.ts.
+
+test('medical and legal terminal records are not actionable work',()=>{
+  for(const status of ['RECEIVED','TRIAGED','UNDER_CARE','STABILIZED','TRANSFERRED'])assert.equal(isActionableMyWorkItem({kind:'MEDICAL_ENCOUNTER',status}),true);
+  for(const status of ['CLOSED','DECEASED','UNKNOWN'])assert.equal(isActionableMyWorkItem({kind:'MEDICAL_ENCOUNTER',status}),false);
+  assert.equal(isActionableMyWorkItem({kind:'COURT_REQUEST',status:'FULFILLED'}),false);
+});

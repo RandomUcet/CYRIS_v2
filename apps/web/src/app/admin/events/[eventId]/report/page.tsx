@@ -6,7 +6,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { apiClient } from '@/lib/api-client';
 import { buildEventReportSummaryCsv } from '@/lib/event-report-csv';
 import { PrintField, PrintSection, PrintSheet } from '@/components/print/PrintSheet';
-import type { EventAfterActionReport, EventPurgePreview } from '@cyris/contracts';
+import type { EventAfterActionReport } from '@cyris/contracts';
 
 function ActivityChart({data}: {data: EventAfterActionReport['dailyActivity']}) {
   const recent = data.slice(-28);
@@ -51,11 +51,7 @@ function CountTable({ counts }: { counts: Record<string,number> }) {
 export default function AdminAfterActionReportPage(){
   const id=useParams().eventId as string;
   const [report,setReport]=useState<EventAfterActionReport|null>(null);
-  const [preview,setPreview]=useState<EventPurgePreview|null>(null);
   const [error,setError]=useState('');
-  const [preflightError,setPreflightError]=useState('');
-  const [working,setWorking]=useState(false);
-  const [selectedResourceTypes,setSelectedResourceTypes]=useState<string[]>([]);
   useEffect(()=>{
     let active=true;
     void apiClient.getEventAfterActionReport(id).then(result=>{
@@ -65,13 +61,6 @@ export default function AdminAfterActionReportPage(){
     }).catch(e=>{if(active)setError(e instanceof Error?e.message:'Report unavailable')});
     return()=>{active=false};
   },[id]);
-  async function inspectPurge(){
-    setWorking(true);setPreflightError('');
-    const result=await apiClient.getEventPurgePreview(id,selectedResourceTypes);
-    if(result.ok&&result.data)setPreview(result.data);
-    else setPreflightError(result.error||'Could not retrieve cleanup impact');
-    setWorking(false);
-  }
   function downloadData(filename: string, data: string, mime: string) {
     const raw=new Blob([data],{type:mime});
     const url=URL.createObjectURL(raw),a=document.createElement('a');
@@ -138,54 +127,10 @@ export default function AdminAfterActionReportPage(){
           vytisknout jednotlivě podle přidělených oprávnění.</p>
         </PrintSection>
       </PrintSheet>}
-      <section style={{margin:'1.5rem 0',padding:18,border:'1px solid var(--border-strong)',borderRadius:10}}>
-        <h2 style={{fontSize:'1.12rem'}}>Správa retence a bezpečné vyčištění</h2>
-        <p>Nejdřív zobrazit přesný dopad. Tato verze pouze analyzuje, nic nemaže.
-          Mazání musí mít ověřenou šifrovanou zálohu, zachování auditní stopy a oddělené potvrzení.</p>
-        <fieldset style={{border:'1px solid var(--border-default)',borderRadius:8,padding:12,margin:'12px 0'}}>
-          <legend style={{fontWeight:650}}>Kategorie pro částečný náhled</legend>
-          <p style={{fontSize:13,marginTop:0}}>
-            Bez výběru se zobrazí všechny typy. Výběr pouze upřesní počty v bezpečnostním náhledu.
-          </p>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(175px,1fr))',gap:8}}>
-            {Object.entries(report?.resources??{}).sort((a,b)=>a[0].localeCompare(b[0])).map(([type,count])=>
-              <label key={type} style={{display:'flex',gap:6,alignItems:'center',overflowWrap:'anywhere'}}>
-                <input type="checkbox" checked={selectedResourceTypes.includes(type)}
-                  onChange={event=>{
-                    setPreview(null);
-                    setSelectedResourceTypes(previous=>event.target.checked?
-                      [...previous,type]:previous.filter(value=>value!==type));
-                  }}/>
-                {type.replaceAll('_',' ')} ({count})
-              </label>)}
-          </div>
-          <button type="button" className="btn btn-secondary" style={{marginTop:8}}
-            onClick={()=>{setSelectedResourceTypes([]);setPreview(null);}}>Zrušit výběr kategorií</button>
-        </fieldset>
-        <button type="button" className="btn btn-secondary" disabled={working||!report} onClick={()=>void inspectPurge()}>
-          {working?'Počítám…':'Zkontrolovat dopad částečného / úplného promazání'}
-        </button>
-        {preflightError&&<p role="alert">{preflightError}</p>}
-        {preview&&<div style={{display:'grid',gap:12,marginTop:14}}>
-          <p role="status"><strong>Nejde o seznam skutečně odstranitelných dat.</strong>
-            Výpočet pokrývá pouze přímo evidované databázové resources,
-            nikoli vazby, soubory, fronty a externí indexy.</p>
-          <PrintField label="Vybráno záznamů" value={preview.selection.matchingResources}/>
-          <PrintField label="Mimo výběr" value={preview.selection.unselectedResources}/>
-          <button type="button" className="btn btn-secondary" style={{justifySelf:'start'}}
-            onClick={()=>downloadData('cyris-purge-preview-'+id+'.json',
-              JSON.stringify(preview,null,2),'application/json')}>Uložit bezpečnostní náhled JSON</button>
-          <div><h3>Částečné odstranění dat cvičení</h3>
-            <p>{preview.profiles.exerciseDataOnly.description}</p>
-            <CountTable counts={preview.profiles.exerciseDataOnly.counts}/></div>
-          <div><h3>Úplné odstranění eventu</h3>
-            <p>{preview.profiles.wholeEvent.description}</p>
-            <CountTable counts={preview.profiles.wholeEvent.counts}/></div>
-          <div><h3>Bezpečnostní blokace</h3>
-            <ul>{preview.blockers.map(x=><li key={x}>{x}</li>)}</ul>
-          </div>
-          <p role="status"><strong>Operace mazání jsou z bezpečnostních důvodů zatím uzamčené.</strong></p>
-        </div>}
+      <section className="card" style={{margin:'1.5rem 0',padding:18}}>
+        <h2 style={{fontSize:'1.12rem'}}>Správa dat cvičení</h2>
+        <p>Inventář, částečné čištění a bezpečnostní podmínky jsou v samostatném administračním pracovišti.</p>
+        <Link className="btn btn-secondary" href={'/admin/events/'+id+'/data'}>Otevřít správu dat</Link>
       </section>
     </div>
   </AppShell>;

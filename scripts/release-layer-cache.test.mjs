@@ -27,7 +27,18 @@ test('release builds use per-image GHA layer cache without relaxing dual-archite
 
 test('CI and publisher support isolated runner recovery without bypassing verification',()=>{
   const ci=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8');
-  assert.ok(ci.includes("vars.CYRIS_CI_RUNNER || 'ubuntu-latest'"));
+  assert.ok(ci.includes("vars.CYRIS_CI_RUNNER || 'ubuntu-24.04'"));
+  assert.match(ci,/playwright@1\.51\.1/);
+  assert.match(ci,/playwright" install --with-deps chromium/);
+  assert.match(ci,/node scripts\/browser-release-smoke\.mjs/);
+  assert.match(ci,/upgrade-images:\s*\n[^]*?runs-on: ubuntu-24\.04/);
+  const upgrade=ci.slice(ci.indexOf("  upgrade-images:"));
+  assert.match(upgrade,/permissions:\s*\n\s*contents: read\s*\n\s*packages: read/);
+  assert.match(upgrade,/uses: docker\/login-action@v3/);
+  assert.ok(upgrade.includes("password: ${{ github.token }}"));
+  assert.ok(upgrade.includes('DOCKER_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}"'));
+  assert.match(release,/permissions:\s*\n\s*contents: read\s*\n\s*packages: read/);
+  assert.match(ci,/bash deploy\/tests\/upgrade-image-smoke\.sh "\$baseline"/);
   assert.ok(release.includes("vars.CYRIS_RELEASE_RUNNER || 'ubuntu-latest'"));
   assert.ok(ci.includes("run: sudo env GITHUB_ACTIONS=true"),'restore integration gate is mandatory');
   assert.ok(ci.includes("run: pnpm typecheck"));

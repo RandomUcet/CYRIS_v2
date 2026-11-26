@@ -42,6 +42,53 @@ class Operations(unittest.TestCase):
         self.docker.return_value.stdout = "api\npostgres\n"
         self.args = argparse.Namespace(backup=None, force=True, version=None)
 
+    def test_cleanup_inventory_validates_uuid_and_only_executes_fixed_reader(self):
+        event="00000000-0000-4000-8000-000000000001"
+        self.docker.return_value.stdout='{"mode":"READ_ONLY"}'
+        ctl.cmd_cleanup_inventory(argparse.Namespace(event=event))
+        self.docker.assert_called_once_with("exec","-T","api","node","dist/scripts/retention-inventory.js",event)
+        self.docker.reset_mock()
+        with self.assertRaises(ValueError):
+            ctl.cmd_cleanup_inventory(argparse.Namespace(event="invalid"))
+        self.docker.assert_not_called()
+
+    def test_cleanup_sql_is_fixed_scoped_and_preview_rolls_back(self):
+        event="00000000-0000-4000-8000-000000000001"
+        preview=ctl.cleanup_sql(event,"terminal-tasks")
+        self.assertIn("ROLLBACK;",preview)
+        self.assertNotIn("DELETE FROM public.resources",preview)
+        self.assertIn("resource_relationships",preview)
+        self.assertIn("pg_constraint",preview)
+        apply=ctl.cleanup_sql(event,"terminal-tasks","a"*64,"b"*64)
+        self.assertIn("plan.status<>'ARCHIVED'",apply)
+        self.assertIn("DELETE FROM public.resources",apply)
+        self.assertIn("search.delete",apply)
+        self.assertIn("event.cleanup.executed",apply)
+        self.assertIn("COMMIT;",apply)
+        self.assertNotIn("DELETE FROM public.audit_events",apply)
+        notices=ctl.cleanup_sql(event,"read-notifications","a"*64,"b"*64)
+        self.assertIn("DELETE FROM public.notifications",notices)
+        self.assertNotIn("DELETE FROM public.resources",notices)
+        for bad in ("not-a-uuid",event+"'; DROP TABLE events;"):
+            with self.assertRaises(ValueError):
+                ctl.cleanup_sql(bad,"terminal-tasks")
+        with self.assertRaises(ValueError):
+            ctl.cleanup_sql(event,"all")
+        with self.assertRaises(ValueError):
+            ctl.cleanup_sql(event,"terminal-tasks","bad","b"*64)
+
+    def test_cleanup_preview_and_mismatched_confirmation_never_stop_or_backup(self):
+        plan={"eventId":"00000000-0000-4000-8000-000000000001","slug":"exercise","status":"ARCHIVED","count":2,"blockers":[],"digest":"a"*64}
+        args=argparse.Namespace(event=plan["eventId"],scope="terminal-tasks",apply=False,confirm=None,expected_plan=None,backup_copy_dir=None)
+        with patch.object(ctl,"read_cleanup_plan",return_value=plan) as inspect, patch.object(ctl,"cmd_backup") as backup:
+            ctl.cmd_cleanup(args)
+            self.assertEqual(inspect.call_count,1)
+            args.apply=True
+            with self.assertRaisesRegex(ValueError,"Apply requires"):
+                ctl.cmd_cleanup(args)
+            backup.assert_not_called()
+            self.docker.assert_not_called()
+
     def test_encrypted_restore_and_corrupt_input(self):
         checkpoint = Path(ctl.CYRIS_VAR, "typesense", "checkpoint")
         os.link(checkpoint.with_name("item"), checkpoint)

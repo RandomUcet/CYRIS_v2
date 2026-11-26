@@ -4,7 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { eq, and, desc, inArray, sql, isNull } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql, isNull, or } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
@@ -21,7 +21,7 @@ import {
   organizationalUnits,
   eventMemberships,
   resourceRelationships,
-  labAnalyses,
+  labAnalyses,forensicAnalyses,medicalEncounters,
   membershipUnitAssignments,
   MembershipStatus,
   UserStatus,
@@ -49,6 +49,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { isActionableMyWorkItem, isMyWorkViewAllowed, sortAndPaginateMyWork } from './my-work.js';
 import { DisruptionsService } from '../disruptions/disruptions.service.js';
+import { listCourtWork } from '../court/court-work.js';
 
 @Injectable()
 export class TasksService {
@@ -560,120 +561,79 @@ export class TasksService {
     return accessible;
   }
 
-  async listMyWork(
-    eventId: string,
-    query: MyWorkQuery,
-    user: AuthenticatedUser
-  ): Promise<MyWorkResponse> {
-    const canReadTasks = await this.canUseModule(eventId, user, Permissions.TASK_READ);
-    const canReadLaboratory = await this.canUseModule(eventId, user, Permissions.LAB_READ);
-    if (!canReadTasks && !canReadLaboratory) throw new ForbiddenException('Work queues are not available in this exercise');
-    const requestedUnitId = query.unitId;
-    if (query.view === 'unit' && !requestedUnitId) {
-      throw new BadRequestException('unitId is required for a unit work queue');
+  async listMyWork(eventId:string,query:MyWorkQuery,user:AuthenticatedUser):Promise<MyWorkResponse>{
+    const domains=[{read:Permissions.TASK_READ,request:Permissions.TASK_CREATE,module:'tasks'},{read:Permissions.LAB_READ,request:Permissions.LAB_REQUEST,module:'lab'},{read:Permissions.FORENSICS_READ,request:Permissions.FORENSICS_REQUEST,module:'forensics'},{read:Permissions.MEDICAL_READ,request:Permissions.MEDICAL_READ,module:'medical'}] as const;
+    const access=await Promise.all(domains.map(async d=>({
+      ...d,readable:await this.canUseModule(eventId,user,d.read),requestable:await this.canUseModule(eventId,user,d.request),
+      eventWide:await this.authorizationService.authorize({user,permission:d.read,context:{eventId}}),
+      unitWide:query.unitId?await this.authorizationService.authorize({user,permission:d.read,context:{eventId,unitId:query.unitId}}):false,
+    })));
+    const canReadCourtRequests=await this.authorizationService.authorize({user,permission:Permissions.COURT_REQUEST_READ,context:{eventId}});
+    if(!canReadCourtRequests&&!access.some(d=>d.readable||d.requestable))throw new ForbiddenException('Work queues are not available in this exercise');
+    const units=await this.db.select({id:organizationalUnits.id,name:organizationalUnits.name}).from(organizationalUnits).where(and(eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt)));
+    const availableUnits:Array<{id:string;name:string}>=[];
+    for(const unit of units){
+      if((await Promise.all(access.map(d=>this.authorizationService.authorize({user,permission:d.read,context:{eventId,unitId:unit.id}})))).some(Boolean))availableUnits.push(unit);
     }
-
-    const canViewEvent = await this.authorizationService.authorize({
-      user,
-      permission: Permissions.TASK_READ,
-      context: { eventId },
-    }) || await this.authorizationService.authorize({
-      user,
-      permission: Permissions.LAB_READ,
-      context: { eventId },
-    });
-    const canViewUnit = requestedUnitId
-      ? await this.authorizationService.authorize({
-          user,
-          permission: Permissions.TASK_READ,
-          context: { eventId, unitId: requestedUnitId },
-        }) || await this.authorizationService.authorize({
-          user,
-          permission: Permissions.LAB_READ,
-          context: { eventId, unitId: requestedUnitId },
-        })
-      : false;
-
-    if (!isMyWorkViewAllowed(query.view, canViewUnit, canViewEvent, Boolean(requestedUnitId))) {
-      throw new ForbiddenException('Event-wide My Work access is not authorized');
-    }
-
-    const units = await this.db.select({ id: organizationalUnits.id, name: organizationalUnits.name })
-      .from(organizationalUnits).where(and(eq(organizationalUnits.eventId, eventId), isNull(organizationalUnits.archivedAt)));
-    const availableUnits: Array<{ id: string; name: string }> = [];
-    for (const unit of units) {
-      if (canViewEvent || await this.authorizationService.authorize({ user, permission: Permissions.TASK_READ, context: { eventId, unitId: unit.id } }) ||
-          await this.authorizationService.authorize({ user, permission: Permissions.LAB_READ, context: { eventId, unitId: unit.id } })) availableUnits.push(unit);
-    }
-
-    const impacts = await this.disruptionsService.getModuleImpacts(eventId, user);
-    const [taskRows, labRows] = await Promise.all([
-      !canReadTasks || impacts.get('tasks') === 'UNAVAILABLE' ? [] : this.db.select({ task: operationalTasks, resource: resources })
-        .from(operationalTasks)
-        .innerJoin(resources, eq(operationalTasks.id, resources.id))
-        .where(eq(operationalTasks.eventId, eventId)),
-      !canReadLaboratory || impacts.get('lab') === 'UNAVAILABLE' ? [] : this.db.select({ analysis: labAnalyses, resource: resources })
-        .from(labAnalyses)
-        .innerJoin(resources, eq(labAnalyses.id, resources.id))
-        .where(eq(resources.eventId, eventId)),
+    const canViewEvent=access.some(d=>d.eventWide);
+    const [canApproveLab,canApproveForensics]=await Promise.all([
+      access[1]!.readable?this.canUseModule(eventId,user,Permissions.LAB_APPROVE):false,
+      access[2]!.readable?this.canUseModule(eventId,user,Permissions.FORENSICS_APPROVE):false,
     ]);
-
-    const items: MyWorkItem[] = [];
-    for (const row of taskRows) {
-      const personal = row.task.assignedUserId === user.id;
-      const unitMatch = Boolean(requestedUnitId && row.task.assignedUnitId === requestedUnitId);
-      if ((query.view === 'personal' && !personal) ||
-        (query.view === 'unit' && !unitMatch) ||
-        (query.view === 'event' && !canViewEvent) ||
-        !isActionableMyWorkItem({ kind: 'TASK', status: row.task.status })) continue;
-      if (!await this.resourceAccessService.canAccessResource(user, row.task.id, Permissions.TASK_READ)) continue;
-      items.push({
-        id: row.task.id,
-        eventId,
-        kind: 'TASK',
-        identifier: row.task.taskNumber,
-        title: row.task.title,
-        status: row.task.status,
-        assignedToUserId: row.task.assignedUserId,
-        assignedUnitId: row.task.assignedUnitId,
-        assignedUnitName: await this.getUnitName(row.task.assignedUnitId),
-        updatedAt: row.task.updatedAt.toISOString(),
-        href: `/events/${eventId}/tasks/${row.task.id}`,
-      });
+    const canApprove=canApproveLab||canApproveForensics;
+    if(query.view==='unit'&&!query.unitId)throw new BadRequestException('unitId is required for a unit work queue');
+    if(!isMyWorkViewAllowed(query.view,access.some(d=>d.unitWide)&&availableUnits.some(u=>u.id===query.unitId),canViewEvent,Boolean(query.unitId),canApprove))throw new ForbiddenException('Work queue scope is not authorized');
+    const impacts=await this.disruptionsService.getModuleImpacts(eventId,user);
+    const show=(d:typeof access[number])=>impacts.get(d.module)!=='UNAVAILABLE'&&(query.view==='approval'?(!impacts.has(d.module)&&(d.module==='lab'?canApproveLab:d.module==='forensics'?canApproveForensics:false)):query.view==='event'?d.eventWide:query.view==='unit'?d.unitWide:query.view==='requested'?d.readable||d.requestable:d.readable);
+    const legalVisible=canReadCourtRequests&&impacts.get('court')!=='UNAVAILABLE'&&(query.view==='requested'||(query.view==='personal'&&await this.authorizationService.authorize({user,permission:Permissions.COURT_REQUEST_RESPOND,context:{eventId}})));
+    const medicalVisible=show(access[3]!)&&['personal','unit','event'].includes(query.view);
+    const availableKinds:MyWorkItem['kind'][]=[];
+    if(show(access[0]!))availableKinds.push('TASK');
+    if(show(access[1]!))availableKinds.push('LAB_ANALYSIS');
+    if(show(access[2]!))availableKinds.push('FORENSIC_ANALYSIS');
+    if(legalVisible)availableKinds.push('COURT_REQUEST');
+    if(medicalVisible)availableKinds.push('MEDICAL_ENCOUNTER');
+    const includesKind=(kind:MyWorkItem['kind'])=>availableKinds.includes(kind)&&(!query.kind||query.kind===kind);
+    const [taskRows,labRows,forensicRows]=await Promise.all([
+      includesKind('TASK')?this.db.select({row:operationalTasks}).from(operationalTasks).innerJoin(resources,eq(resources.id,operationalTasks.id)).where(and(eq(operationalTasks.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'operational_task'),query.view==='personal'?eq(operationalTasks.assignedUserId,user.id):query.view==='requested'?eq(operationalTasks.createdByUserId,user.id):query.view==='unit'?eq(operationalTasks.assignedUnitId,query.unitId!):undefined)):[],
+      includesKind('LAB_ANALYSIS')?this.db.select({row:labAnalyses}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id)).where(and(eq(resources.eventId,eventId),eq(resources.resourceType,'lab_analysis'),query.view==='approval'?eq(labAnalyses.status,'COMPLETED'):query.view==='personal'?eq(labAnalyses.assignedToUserId,user.id):query.view==='requested'?eq(labAnalyses.requestedByUserId,user.id):query.view==='unit'?eq(labAnalyses.assignedUnitId,query.unitId!):undefined)):[],
+      includesKind('FORENSIC_ANALYSIS')?this.db.select({row:forensicAnalyses}).from(forensicAnalyses).innerJoin(resources,eq(resources.id,forensicAnalyses.id)).where(and(eq(forensicAnalyses.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'forensic_analysis'),query.view==='approval'?eq(forensicAnalyses.status,'COMPLETED'):query.view==='personal'?eq(forensicAnalyses.assignedToUserId,user.id):query.view==='requested'?eq(forensicAnalyses.requestedByUserId,user.id):query.view==='unit'?eq(forensicAnalyses.assignedUnitId,query.unitId!):undefined)):[],
+    ]);
+    const items:MyWorkItem[]=[];
+    // Medical records are not outgoing requests. Never expose clinical prose or patient identities in this mixed queue.
+    if(includesKind('MEDICAL_ENCOUNTER')){
+      const memberUnits=query.view==='personal'?await this.db.select({unitId:membershipUnitAssignments.unitId}).from(eventMemberships)
+        .innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.membershipId,eventMemberships.id))
+        .innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId))
+        .where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,user.id),eq(eventMemberships.status,MembershipStatus.ACTIVE),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt))):[];
+      const ownUnits=memberUnits.map(u=>u.unitId);
+      const target=query.view==='personal'?or(eq(medicalEncounters.assignedUserId,user.id),ownUnits.length?and(isNull(medicalEncounters.assignedUserId),inArray(medicalEncounters.assignedUnitId,ownUnits)):undefined):query.view==='unit'?eq(medicalEncounters.assignedUnitId,query.unitId!):undefined;
+      const medicalRows=await this.db.select({id:medicalEncounters.id,number:medicalEncounters.medicalNumber,status:medicalEncounters.status,assignedUserId:medicalEncounters.assignedUserId,assignedUnitId:medicalEncounters.assignedUnitId,updatedAt:medicalEncounters.updatedAt}).from(medicalEncounters).innerJoin(resources,eq(resources.id,medicalEncounters.id))
+        .where(and(eq(medicalEncounters.eventId,eventId),eq(resources.eventId,eventId),eq(resources.resourceType,'medical_encounter'),inArray(medicalEncounters.status,['RECEIVED','TRIAGED','UNDER_CARE','STABILIZED','TRANSFERRED']),target));
+      for(const row of medicalRows){
+        if(!await this.resourceAccessService.canAccessResource(user,row.id,Permissions.MEDICAL_READ))continue;
+        items.push({id:row.id,eventId,kind:'MEDICAL_ENCOUNTER',identifier:row.number,title:row.number,status:row.status,assignedToUserId:row.assignedUserId,assignedUnitId:row.assignedUnitId,assignedUnitName:units.find(u=>u.id===row.assignedUnitId)?.name,updatedAt:row.updatedAt.toISOString(),href:`/events/${eventId}/medical/${row.id}`});
+      }
     }
-    for (const row of labRows) {
-      const personal = row.analysis.assignedToUserId === user.id;
-      const unitMatch = Boolean(requestedUnitId && row.analysis.assignedUnitId === requestedUnitId);
-      if ((query.view === 'personal' && !personal) ||
-        (query.view === 'unit' && !unitMatch) ||
-        (query.view === 'event' && !canViewEvent) ||
-        !isActionableMyWorkItem({ kind: 'LAB_ANALYSIS', status: row.analysis.status })) continue;
-      if (!await this.resourceAccessService.canAccessResource(user, row.analysis.id, Permissions.LAB_READ)) continue;
-      items.push({
-        id: row.analysis.id,
-        eventId,
-        kind: 'LAB_ANALYSIS',
-        identifier: row.analysis.analysisNumber,
-        title: row.analysis.analysisType,
-        status: row.analysis.status,
-        assignedToUserId: row.analysis.assignedToUserId,
-        assignedUnitId: row.analysis.assignedUnitId,
-        assignedUnitName: await this.getUnitName(row.analysis.assignedUnitId),
-        updatedAt: row.analysis.updatedAt.toISOString(),
-        href: `/events/${eventId}/lab/${row.analysis.id}`,
-      });
+    const names=new Map(units.map(u=>[u.id,u.name]));
+    async function append(item:MyWorkItem,permission:PermissionKey,service:ResourceAccessService){
+      if(query.view!=='requested'&&!isActionableMyWorkItem(item))return;
+      if(!await service.canAccessResource(user,item.id,permission))return;
+      if(query.view==='approval'){
+        const approvalPermission=item.kind==='LAB_ANALYSIS'?Permissions.LAB_APPROVE:item.kind==='FORENSIC_ANALYSIS'?Permissions.FORENSICS_APPROVE:null;
+        if(!approvalPermission||item.status!=='COMPLETED'||!await service.canAccessResource(user,item.id,approvalPermission))return;
+      }
+      items.push({...item,assignedUnitName:item.assignedUnitId?names.get(item.assignedUnitId):undefined});
     }
-
-    const paged = sortAndPaginateMyWork(items, query.page, query.limit);
-    return {
-      items: paged.items,
-      total: paged.total,
-      page: query.page,
-      limit: query.limit,
-      view: query.view,
-      availableViews: ['personal', ...(availableUnits.length ? ['unit' as const] : []), ...(canViewEvent ? ['event' as const] : [])],
-      availableUnits,
-    };
+    for(const {row:r} of taskRows)await append({id:r.id,eventId,kind:'TASK',identifier:r.taskNumber,title:r.title,status:r.status,assignedToUserId:r.assignedUserId,assignedUnitId:r.assignedUnitId,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/tasks/${r.id}`},Permissions.TASK_READ,this.resourceAccessService);
+    for(const {row:r} of labRows)await append({id:r.id,eventId,kind:'LAB_ANALYSIS',identifier:r.analysisNumber,title:r.analysisType,status:r.status,assignedToUserId:r.assignedToUserId,assignedUnitId:r.assignedUnitId,reportAvailable:r.status==='APPROVED'&&!!r.approvedAt,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/lab/${r.id}`},Permissions.LAB_READ,this.resourceAccessService);
+    for(const {row:r} of forensicRows)await append({id:r.id,eventId,kind:'FORENSIC_ANALYSIS',identifier:r.analysisNumber,title:r.analysisType,status:r.status,assignedToUserId:r.assignedToUserId,assignedUnitId:r.assignedUnitId,reportAvailable:r.status==='APPROVED'&&!!r.approvedAt,updatedAt:r.updatedAt.toISOString(),href:`/events/${eventId}/forensics/${r.id}`},Permissions.FORENSICS_READ,this.resourceAccessService);
+    if(includesKind('COURT_REQUEST')){
+      const legalItems=await listCourtWork(this.db,this.authorizationService,this.resourceAccessService,eventId,user,query.view);
+      items.push(...legalItems.map(item=>({...item,assignedUnitName:item.assignedUnitId?names.get(item.assignedUnitId):undefined})));
+    }
+    const paged=sortAndPaginateMyWork(items,query.page,query.limit);
+    return {items:paged.items,total:paged.total,page:query.page,limit:query.limit,view:query.view,availableKinds,availableViews:['personal',...(availableUnits.length?['unit' as const]:[]),...(canViewEvent?['event' as const]:[]),'requested',...(canApprove?['approval' as const]:[])],availableUnits};
   }
 
   private async validateAssignmentTargets(

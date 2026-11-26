@@ -8,6 +8,8 @@ export const AuditEventItemSchema = z.object({
   actorDisplayName: z.string().nullable().optional(),
   resourceDisplayName: z.string().nullable().optional(),
   eventId: z.string().uuid().nullable().optional(),
+  originalEventId: z.string().uuid().nullable().optional(),
+  exerciseName: z.string().nullable().optional(),
   action: z.string(),
   category: z.string(),
   resourceType: z.string().nullable().optional(),

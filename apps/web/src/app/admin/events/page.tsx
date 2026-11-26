@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useTransition } from 'react';
+import React, { useEffect, useState, useTransition, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
@@ -29,9 +29,11 @@ import {
   BarChart3,
   Radio,
   Shield,
+  Database,
 } from 'lucide-react';
 import { CAPABILITY_CATALOG } from '@cyris/contracts';
 import { COMMON_TIMEZONES, SUPPORTED_LOCALES } from '@/lib/i18n';
+import styles from './events.module.css';
 
 function EventTemplateAction({ eventId, onApplied }: { eventId: string; onApplied: () => void }) {
   const { locale } = usePreferences();
@@ -97,6 +99,9 @@ export default function AdminEventsPage() {
   const cs = locale === 'cs';
 
   const [events, setEvents] = useState<EventItem[]>([]);
+  const [search,setSearch]=useState(''),[statusFilter,setStatusFilter]=useState('ALL');
+  const filteredEvents=events.filter(item=>(statusFilter==='ALL'||item.status===statusFilter)&&[item.name,item.slug,item.description??''].some(value=>value.toLocaleLowerCase(locale).includes(search.trim().toLocaleLowerCase(locale))));
+  const eventRequest=useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -150,29 +155,35 @@ export default function AdminEventsPage() {
   const [editingUnitCaps, setEditingUnitCaps] = useState<any | null>(null);
   const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
   const [savingCaps, setSavingCaps] = useState(false);
+  const [capsLoading,setCapsLoading]=useState(false),[capsError,setCapsError]=useState(''),[capsLoadedKey,setCapsLoadedKey]=useState('');
+  const capsRequest=useRef(0);
+  const capsKey=inspectingEvent&&editingUnitCaps?inspectingEvent.id+':'+editingUnitCaps.id:'';
   useDialogAccessibility(showCreateModal || Boolean(editingEvent) || Boolean(duplicatingEvent) || Boolean(inspectingEvent), () => { if (!createSubmitting && !editSubmitting && !dupSubmitting && !savingCaps) { setShowCreateModal(false); setEditingEvent(null); setDuplicatingEvent(null); setInspectingEvent(null); } });
 
   const canManage = hasPermission('event.create') || hasPermission('platform.manage');
 
   const fetchEvents = async () => {
+    const request=++eventRequest.current;
     setLoading(true);
     setError(null);
     try {
       const res = await apiClient.getEvents();
+      if(request!==eventRequest.current)return;
       if (res.ok && res.data) {
         setEvents(res.data as EventItem[]);
       } else {
         setError('Failed to load exercise editions');
       }
     } catch (err: any) {
-      setError(err.message || 'Network error');
+      if(request===eventRequest.current)setError(err.message || 'Network error');
     } finally {
-      setLoading(false);
+      if(request===eventRequest.current)setLoading(false);
     }
   };
 
   useEffect(() => {
     void fetchEvents();
+    return()=>{eventRequest.current++;};
   }, []);
 
   // Handle Create Event
@@ -364,56 +375,37 @@ export default function AdminEventsPage() {
     return () => { current = false; };
   }, [inspectedId, unitsRevision, cs]);
 
-  // Open unit capability configuration
-  const openUnitCapsEditor = async (unit: any) => {
-    setEditingUnitCaps(unit);
-    try {
-      const res = await apiClient.getUnitCapabilities(inspectingEvent!.id, unit.id);
-      if (res.ok && res.data) {
-        setSelectedCaps(res.data.map((c: any) => c.capabilityKey));
-      }
-    } catch (err) {
-      console.error(err);
-    }
+  // Never carry selection from one team into another. A failed load cannot be saved.
+  const openUnitCapsEditor=(unit:any)=>{
+    capsRequest.current++;setSelectedCaps([]);setCapsLoadedKey('');setCapsError('');setCapsLoading(true);setEditingUnitCaps(unit);
   };
-
-  // Save unit capabilities
-  const handleSaveUnitCaps = async () => {
-    if (!inspectingEvent || !editingUnitCaps) return;
-    setSavingCaps(true);
-    try {
-      const res = await apiClient.setUnitCapabilities(inspectingEvent.id, editingUnitCaps.id, selectedCaps);
-      if (res.ok) {
-        // Refresh units list
-        const updatedUnits = await apiClient.getEventUnits(inspectingEvent.id);
-        if (updatedUnits.ok && updatedUnits.data) {
-          setEventUnits(updatedUnits.data);
-        }
-        setEditingUnitCaps(null);
-      } else {
-        alert(res.error || 'Failed to save capabilities');
-      }
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setSavingCaps(false);
-    }
+  useEffect(()=>{
+    if(!capsKey||!inspectingEvent||!editingUnitCaps)return;
+    const request=++capsRequest.current;
+    setCapsLoading(true);setCapsError('');setCapsLoadedKey('');setSelectedCaps([]);
+    void apiClient.getUnitCapabilities(inspectingEvent.id,editingUnitCaps.id).then(res=>{
+      if(request!==capsRequest.current)return;
+      if(!res.ok||!res.data)throw new Error(res.error||(cs?'Oprávnění týmu nelze načíst.':'Unable to load team capabilities.'));
+      setSelectedCaps(res.data.map((c:any)=>c.capabilityKey));setCapsLoadedKey(capsKey);
+    }).catch(err=>{if(request===capsRequest.current)setCapsError(err instanceof Error?err.message:'Unable to load capabilities');})
+      .finally(()=>{if(request===capsRequest.current)setCapsLoading(false);});
+    return()=>{capsRequest.current++;};
+  },[capsKey,cs]);
+  const closeCaps=()=>{if(savingCaps)return;capsRequest.current++;setEditingUnitCaps(null);setCapsLoadedKey('');setSelectedCaps([]);setCapsError('');setCapsLoading(false);};
+  const handleSaveUnitCaps=async()=>{
+    if(!inspectingEvent||!editingUnitCaps||savingCaps||capsLoading||capsLoadedKey!==capsKey)return;
+    const request=++capsRequest.current;
+    setSavingCaps(true);setCapsError('');
+    try{
+      const res=await apiClient.setUnitCapabilities(inspectingEvent.id,editingUnitCaps.id,selectedCaps);
+      if(request!==capsRequest.current)return;
+      if(!res.ok)throw new Error(res.error||(cs?'Uložení se nezdařilo.':'Unable to save capabilities.'));
+      setEditingUnitCaps(null);setCapsLoadedKey('');setSelectedCaps([]);setUnitsRevision(n=>n+1);
+    }catch(err){if(request===capsRequest.current)setCapsError(err instanceof Error?err.message:'Unable to save capabilities');}
+    finally{setSavingCaps(false);}
   };
 
   const columns: Column<EventItem>[] = [
-    {
-      header: t('field.slug'),
-      accessor: (item) => (
-        <div>
-          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{item.slug}</span>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)' }}>
-            {item.id}
-          </div>
-        </div>
-      ),
-      sortKey: 'slug',
-      width: '180px',
-    },
     {
       header: t('field.name'),
       accessor: (item) => (
@@ -432,10 +424,11 @@ export default function AdminEventsPage() {
                   border: '1px solid var(--accent-primary)',
                 }}
               >
-                CURRENT ACTIVE CONTEXT
+                {cs?'Vybrané cvičení':'Selected exercise'}
               </span>
             )}
           </div>
+          <div className={styles.slug}>{item.slug}</div>
           {item.description && (
             <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>{item.description}</div>
           )}
@@ -486,7 +479,7 @@ export default function AdminEventsPage() {
     {
       header: t('field.actions'),
       accessor: (item) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <div className={styles.rowActions}><div className={styles.actionGroup}>
           <button
             onClick={() => handleEnterEvent(item)}
             className="btn btn-secondary"
@@ -508,18 +501,20 @@ export default function AdminEventsPage() {
             style={{fontSize:'11px',padding:'3px 7px'}}>
             <Radio size={12}/> {cs?'Zprávy':'Broadcast'}
           </button>}
+          </div><div className={styles.actionGroup}>
           {isPlatformAdmin && <button className="btn btn-secondary"
-            title={cs?'Statistiky, závěrečný report a náhled promazání':'Statistics, after-action report and cleanup preview'}
+            title={cs?'Statistiky a závěrečný report':'Statistics and after-action report'}
             onClick={() => router.push('/admin/events/' + item.id + '/report')}
             style={{fontSize:'11px',padding:'3px 7px'}}>
             <BarChart3 size={12}/> {cs?'Report':'Report'}
           </button>}
+          {isPlatformAdmin&&<button type="button" className="btn btn-secondary" title={cs?'Inventář a bezpečné čištění dat':'Data inventory and safe retention'} onClick={()=>router.push('/admin/events/'+item.id+'/data')} style={{fontSize:'11px',padding:'3px 7px'}}><Database size={12}/> {cs?'Data':'Data'}</button>}
           {canManage && (
             <>
               <button
                 onClick={() => openEditModal(item)}
                 className="btn btn-secondary"
-                title="Edit event metadata & lifecycle"
+                title={cs?'Upravit cvičení':'Edit exercise'} aria-label={cs?'Upravit cvičení':'Edit exercise'}
                 style={{ fontSize: '11px', padding: '3px 7px' }}
               >
                 <Edit2 size={12} />
@@ -536,7 +531,7 @@ export default function AdminEventsPage() {
               <button
                 onClick={() => openDuplicateModal(item)}
                 className="btn btn-secondary"
-                title="Duplicate edition as starting template"
+                title={cs?'Duplikovat cvičení':'Duplicate exercise'} aria-label={cs?'Duplikovat cvičení':'Duplicate exercise'}
                 style={{ fontSize: '11px', padding: '3px 7px' }}
               >
                 <Copy size={12} />
@@ -545,7 +540,7 @@ export default function AdminEventsPage() {
                 <button
                   onClick={() => handleArchive(item)}
                   className="btn btn-ghost"
-                  title="Archive event"
+                  title={cs?'Archivovat cvičení':'Archive exercise'} aria-label={cs?'Archivovat cvičení':'Archive exercise'}
                   style={{ fontSize: '11px', padding: '3px 6px', color: 'var(--text-muted)' }}
                 >
                   <Archive size={12} />
@@ -553,9 +548,9 @@ export default function AdminEventsPage() {
               )}
             </>
           )}
-        </div>
+        </div></div>
       ),
-      width: '210px',
+      width: '310px',
     },
   ];
 
@@ -566,7 +561,7 @@ export default function AdminEventsPage() {
         { label: t('page.events.title') },
       ]}
     >
-      <div style={{ padding: '20px 24px' }}>
+      <div className={styles.workspace}>
         {/* Header */}
         <div
           style={{
@@ -576,6 +571,7 @@ export default function AdminEventsPage() {
             marginBottom: '16px',
             borderBottom: '1px solid var(--border-default)',
             paddingBottom: '16px',
+            flexWrap:'wrap',gap:12,
           }}
         >
           <div>
@@ -622,6 +618,12 @@ export default function AdminEventsPage() {
           </div>
         </div>
 
+        {!loading&&!error&&events.length>0&&<section className={styles.filters} aria-label={cs?'Filtry cvičení':'Exercise filters'}>
+          <label><span>{cs?'Hledat cvičení':'Search exercises'}</span><input className="field-input" type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder={cs?'Název, kód nebo popis…':'Name, code or description…'}/></label>
+          <label><span>{cs?'Stav':'Status'}</span><select className="field-input" value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}><option value="ALL">{cs?'Všechny stavy':'All statuses'}</option>{LIFECYCLE_OPTIONS.map((opt,i)=><option key={opt.value} value={opt.value}>{cs?['Koncept','Příprava','Aktivní','Ukončené','Archivované'][i]:opt.label}</option>)}</select></label>
+          <button className="btn btn-secondary" type="button" onClick={()=>{setSearch('');setStatusFilter('ALL')}}>{cs?'Vymazat filtry':'Clear filters'}</button>
+          <span role="status" className={styles.resultCount}>{filteredEvents.length} / {events.length} {cs?'cvičení':'exercises'}</span>
+        </section>}
         {/* Content */}
         {loading ? (
           <LoadingState message="Loading exercise editions..." />
@@ -638,8 +640,10 @@ export default function AdminEventsPage() {
           <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
             <DataTable
               columns={columns}
-              data={events}
+              data={filteredEvents}
               keyExtractor={(item) => item.id}
+              pageSize={20} pageResetKey={JSON.stringify([search,statusFilter])}
+              emptyTitle={cs?'Žádné odpovídající cvičení':'No matching exercises'}
             />
           </div>
         )}
@@ -1159,7 +1163,7 @@ export default function AdminEventsPage() {
                   </span>
                 </div>
                 <button
-                  onClick={() => setInspectingEvent(null)}
+                  onClick={() => {capsRequest.current++;setInspectingEvent(null);}} disabled={savingCaps} aria-label={cs?'Zavřít':'Close'}
                   style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
                 >
                   <X size={16} />
@@ -1177,19 +1181,20 @@ export default function AdminEventsPage() {
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                       <div>
-                        <span style={{ fontWeight: 600, fontSize: '13px' }}>Configure Capabilities: {editingUnitCaps.name}</span>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Select the operational modules assigned to this unit.</div>
+                        <span style={{ fontWeight: 600, fontSize: '13px' }}>{cs?'Moduly týmu':'Team capabilities'}: {editingUnitCaps.name}</span>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{cs?'Vyberte operační moduly pro tento tým.':'Select the operational modules assigned to this unit.'}</div>
                       </div>
                       <button
-                        onClick={() => setEditingUnitCaps(null)}
+                        onClick={closeCaps} disabled={savingCaps}
                         className="btn btn-secondary"
                         style={{ fontSize: '11px', padding: '3px 8px' }}
                       >
-                        Back to Units
+                        {cs?'Zpět na týmy':'Back to teams'}
                       </button>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
+                    {capsError&&<p role="alert" className={styles.capsError}>{capsError}</p>}
+                    {capsLoading?<LoadingState message={cs?'Načítám moduly…':'Loading capabilities…'}/>:capsLoadedKey!==capsKey?<button type="button" className="btn btn-secondary" onClick={()=>{setEditingUnitCaps(null);setUnitsRevision(n=>n+1);}}>{cs?'Zpět a zkusit znovu':'Back and retry'}</button>:<div className={styles.capGrid}>
                       {CAPABILITY_CATALOG.map((cap) => {
                         const isChecked = selectedCaps.includes(cap.key);
                         return (
@@ -1208,14 +1213,8 @@ export default function AdminEventsPage() {
                           >
                             <input
                               type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedCaps([...selectedCaps, cap.key]);
-                                } else {
-                                  setSelectedCaps(selectedCaps.filter((c) => c !== cap.key));
-                                }
-                              }}
+                              checked={isChecked} disabled={savingCaps}
+                              onChange={e=>setSelectedCaps(previous=>e.target.checked?[...new Set([...previous,cap.key])]:previous.filter(c=>c!==cap.key))}
                               style={{ marginTop: '2px' }}
                             />
                             <div>
@@ -1225,14 +1224,14 @@ export default function AdminEventsPage() {
                           </label>
                         );
                       })}
-                    </div>
+                    </div>}
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                      <button onClick={() => setEditingUnitCaps(null)} className="btn btn-secondary" disabled={savingCaps}>
-                        Cancel
+                      <button onClick={closeCaps} className="btn btn-secondary" disabled={savingCaps}>
+                        {cs?'Zrušit':'Cancel'}
                       </button>
-                      <button onClick={handleSaveUnitCaps} className="btn btn-primary" disabled={savingCaps}>
-                        {savingCaps ? 'Saving...' : 'Apply Capabilities'}
+                      <button onClick={handleSaveUnitCaps} className="btn btn-primary" disabled={savingCaps||capsLoading||capsLoadedKey!==capsKey}>
+                        {savingCaps ? (cs?'Ukládám…':'Saving…') : (cs?'Uložit moduly':'Apply capabilities')}
                       </button>
                     </div>
                   </div>
@@ -1288,7 +1287,7 @@ export default function AdminEventsPage() {
                           style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
                         >
                           <Sliders size={12} />
-                          Capabilities
+                          {cs?'Moduly':'Capabilities'}
                         </button>
                       </div>
                     ))}
@@ -1305,8 +1304,8 @@ export default function AdminEventsPage() {
                   justifyContent: 'flex-end',
                 }}
               >
-                <button onClick={() => setInspectingEvent(null)} className="btn btn-secondary">
-                  Close
+                <button onClick={() => {capsRequest.current++;setInspectingEvent(null);}} disabled={savingCaps} className="btn btn-secondary">
+                  {cs?'Zavřít':'Close'}
                 </button>
               </div>
             </div>

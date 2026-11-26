@@ -12,11 +12,13 @@ import { useServiceStatus } from '@/hooks/useServiceStatus';
 import { useEvent } from '@/contexts/EventContext';
 import { workspaceItemLabel } from '@/lib/workspace-navigation';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import { serviceModuleLabels, type MyWorkResponse, type MyWorkView } from '@cyris/contracts';
+import { serviceModuleLabels, type MyWorkResponse, type MyWorkView, type MyWorkKind } from '@cyris/contracts';
 
 export default function MyWorkPage() {
   const { eventId } = useParams<{ eventId: string }>();
-  return <WorkQueue key={eventId} eventId={eventId} />;
+  const {currentUser,viewAs,loading}=useAuth();
+  if(loading)return <AppShell><LoadingState/></AppShell>;
+  return <WorkQueue key={JSON.stringify([eventId,currentUser?.user.id,viewAs?.id,currentUser?.memberships.find(m=>m.eventId===eventId)?.permissions,currentUser?.platformPermissions])} eventId={eventId} />;
 }
 
 function WorkQueue({ eventId }: { eventId: string }) {
@@ -27,65 +29,78 @@ function WorkQueue({ eventId }: { eventId: string }) {
   const { workspace } = useEvent();
   const team = workspace?.eventId === eventId ? workspace : null;
   const shortcuts = (team?.sections ?? [])
-    .filter(section => ['analysis-section', 'medical-section', 'command-section', 'forensics-section', 'investigation-section', 'prosecution-section', 'evidence-section'].includes(section.id))
+    .filter(section => ['analysis-section', 'medical-section', 'command-section', 'forensics-section', 'investigation-section', 'prosecution-section', 'evidence-section','legal-request-inbox'].includes(section.id))
     .flatMap(section => section.items.slice(0, 1));
   const cs = locale === 'cs';
   const [view, setView] = useState<MyWorkView>('personal');
   const [unitId, setUnitId] = useState('');
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<MyWorkResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [fetching,setFetching]=useState(true);
+  const [kind,setKind]=useState<MyWorkKind|''>('');
+  const [resultKey,setResultKey]=useState('');
+  const queryKey=JSON.stringify([eventId,view,view==='unit'?unitId:'',page,kind]);
+  const displayResult=resultKey===queryKey?result:null;
+  const loading=fetching&&!displayResult;
+  const refreshing=fetching&&!!displayResult;
+  const inFlight=useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
 
 
   const requestSequence = useRef(0);
-  const availableViews = result?.availableViews ?? ['personal'];
+  const availableViews = result?.availableViews ?? ['personal','requested'];
   const units = result?.availableUnits ?? [];
   const needsUnitSelection = view === 'unit' && !unitId;
+  const kindLabels:Record<MyWorkKind,string>=cs?{TASK:'Úkoly',LAB_ANALYSIS:'Laboratoř',FORENSIC_ANALYSIS:'Digitální forenzika',COURT_REQUEST:'Právní žádosti',MEDICAL_ENCOUNTER:'Zdravotnictví'}:{TASK:'Tasks',LAB_ANALYSIS:'Laboratory',FORENSIC_ANALYSIS:'Digital forensics',COURT_REQUEST:'Legal requests',MEDICAL_ENCOUNTER:'Medical'};
+  const availableKinds=result?.availableKinds??[];
 
   useEffect(() => {
-    const refresh = () => setRefreshNonce(n => n + 1);
+    const refresh = () => {if(!inFlight.current)setRefreshNonce(n => n + 1);};
     window.addEventListener('focus', refresh);
-    return () => window.removeEventListener('focus', refresh);
+    const timer=window.setInterval(()=>{if(!document.hidden)refresh();},20000);
+    return () => {window.removeEventListener('focus', refresh);window.clearInterval(timer);};
   }, []);
 
   useEffect(() => {
     if (!eventId) return;
     const sequence = ++requestSequence.current;
-    setLoading(true);
+    setFetching(true);
     setError(null);
     if (view === 'unit' && !unitId) {
-      setLoading(false);
+      inFlight.current=false;setFetching(false);
       return;
     }
+    inFlight.current=true;
     apiClient.listMyWork(eventId, {
       view,
       unitId: view === 'unit' ? unitId || undefined : undefined,
       page,
       limit: 50,
+      kind:kind||undefined,
     }).then((response) => {
       if (sequence !== requestSequence.current) return;
       if (response.ok && response.data) {
-        setResult(response.data);
+        setResult(response.data);setResultKey(queryKey);
+        if(kind&&response.data.availableKinds&&!response.data.availableKinds.includes(kind)){setKind('');setPage(1);return;}
         const lastPage = Math.max(1, Math.ceil(response.data.total / response.data.limit));
         if (page > lastPage) setPage(lastPage);
       }
-      else setError(response.error || 'Unable to load My Work');
+      else {setResult(null);setError(response.error || 'Unable to load My Work');}
     }).catch((cause) => {
       if (sequence !== requestSequence.current) return;
-      setError(cause instanceof Error ? cause.message : 'Unable to load My Work');
+      setResult(null);setError(cause instanceof Error ? cause.message : 'Unable to load My Work');
     }).finally(() => {
-      if (sequence === requestSequence.current) setLoading(false);
+      if (sequence === requestSequence.current){inFlight.current=false;setFetching(false);}
     });
-    return () => { requestSequence.current++; };
-  }, [eventId, page, refreshNonce, unitId, view]);
+    return () => { requestSequence.current++;inFlight.current=false; };
+  }, [eventId, page, refreshNonce, unitId, view,kind,queryKey]);
 
 
   const selectView = (next: MyWorkView) => {
     if (next === 'unit' && units.length === 1) setUnitId(units[0]!.id);
     setView(next);
-    setPage(1);
+    setKind('');setPage(1);
   };
 
   return (
@@ -108,7 +123,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
         )}
         <details className="work-guide" open={guideOpen} onToggle={e=>setGuideOpen(e.currentTarget.open)}>
           <summary>{cs?'Jak začít pracovat':'How to get started'}</summary>
-          <div><p>{cs?'Zde najdete úkoly a požadavky, které jsou vám přiděleny. Otevřete záznam, přečtěte si zadání a pracujte podle jeho dostupných akcí. Nové pokyny najdete v části Briefingy.':'Open your assigned tasks and requests, read their instructions and use the actions available on each record. Open Briefings for new instructions.'}</p>
+          <div><p>{cs?'Zde najdete přidělenou práci i vlastní odeslané žádanky a výsledky. Otevřete záznam a pracujte podle jeho dostupných akcí. Nové pokyny najdete v části Briefingy.':'Find assigned work, outgoing requests and results here. Open the record and use its available actions. Open Briefings for new instructions.'}</p>
           <Link href={`/events/${eventId}/support`}>{cs?'Potřebujete pomoc? Obraťte se na podporu.':'Need help? Contact support.'}</Link></div>
         </details>
         <div className="my-work-toolbar">
@@ -116,6 +131,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
             <button
               key={option}
               type="button"
+              aria-pressed={view===option}
               onClick={() => selectView(option)}
               style={{
                 padding: '8px 12px',
@@ -125,7 +141,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
                 color: 'var(--color-text-main)',
               }}
             >
-              {option === 'personal' ? (cs ? 'Moje práce' : 'My work') : option === 'unit' ? (cs ? 'Práce týmu' : 'Unit queue') : (cs ? 'Přehled cvičení' : 'Event overview')}
+              {option==='approval'?(cs?'Ke schválení':'Awaiting approval'):option==='requested'?(cs?'Moje žádanky a výsledky':'My requests and results'):option === 'personal' ? (cs ? 'Moje práce' : 'My work') : option === 'unit' ? (cs ? 'Práce týmu' : 'Unit queue') : (cs ? 'Přehled cvičení' : 'Event overview')}
             </button>
           ))}
           {view === 'unit' && (
@@ -133,7 +149,7 @@ function WorkQueue({ eventId }: { eventId: string }) {
               value={unitId}
               onChange={(event) => {
                 setUnitId(event.target.value);
-                setPage(1);
+                setKind('');setPage(1);
               }}
               aria-label={cs ? 'Vybrat tým' : 'Select unit'}
             >
@@ -141,7 +157,11 @@ function WorkQueue({ eventId }: { eventId: string }) {
               {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
             </select>
           )}
-          <button type="button" disabled={loading || needsUnitSelection} onClick={() => setRefreshNonce(n => n + 1)}>{t('action.refresh')}</button>
+          {(availableKinds.length>1||kind)&&!needsUnitSelection&&<select value={kind} aria-label={cs?'Filtrovat agendu':'Filter work type'} onChange={e=>{setKind(e.target.value as MyWorkKind|'');setPage(1);}}>
+            <option value="">{cs?'Všechny agendy':'All work types'}</option>
+            {availableKinds.map(value=><option key={value} value={value}>{kindLabels[value]}</option>)}
+          </select>}
+          <button type="button" disabled={fetching || needsUnitSelection} onClick={() => setRefreshNonce(n => n + 1)}>{refreshing?(cs?'Obnovuji…':'Refreshing…'):t('action.refresh')}</button>
         </div>
         <Link className="service-mini" href={`/events/${eventId}/service-status`}>
           <span><strong>{t('serviceStatus.title')}</strong><small>{serviceStatusError?(cs?'Stav není dostupný':'Status unavailable'):serviceStatus?(serviceStatus.items.length ? serviceStatus.items.map(item => serviceModuleLabels[item.service][cs ? 'cs' : 'en']).join(' · ') : (cs ? 'Všechny vaše služby jsou dostupné' : 'All your services are available')):t('serviceStatus.loading')}</small></span>
@@ -150,22 +170,23 @@ function WorkQueue({ eventId }: { eventId: string }) {
         </Link>
 
         {loading && <LoadingState />}
+        {displayResult&&!loading&&!error&&!needsUnitSelection&&<p style={{fontSize:12,color:'var(--color-text-muted)'}} aria-live="polite">{cs?'Záznamy:':'Records:'} {displayResult.total}</p>}
         {!loading && error && <ErrorState message={error} onRetry={() => setRefreshNonce((value) => value + 1)} />}
-        {!loading && !error && needsUnitSelection && <EmptyState title={cs ? 'Vyber tým' : 'Select a team'} description={cs ? 'Zobrazí se úkoly a laboratorní požadavky vybraného týmu.' : 'See the selected team’s tasks and laboratory requests.'} />}
-        {!loading && !error && !needsUnitSelection && result && result.items.length === 0 && (
-          <EmptyState title={t('myWork.emptyTitle')} description={t('myWork.emptyDescription')} />
+        {!loading && !error && needsUnitSelection && <EmptyState title={cs ? 'Vyber tým' : 'Select a team'} description={cs ? 'Zobrazí se dostupné úkoly a odborné rozbory vybraného týmu.' : 'See the selected team’s accessible tasks and specialist requests.'} />}
+        {!loading && !error && !needsUnitSelection && displayResult && displayResult.items.length === 0 && (
+          <EmptyState title={view==='approval'?(cs?'Žádné protokoly ke schválení':'No reports awaiting approval'):t('myWork.emptyTitle')} description={view==='approval'?(cs?'Dokončené protokoly, které smíte schválit, se zobrazí zde.':'Completed reports you can approve will appear here.'):t('myWork.emptyDescription')} />
         )}
-        {!loading && !error && !needsUnitSelection && result && result.items.length > 0 && (
+        {!loading && !error && !needsUnitSelection && displayResult && displayResult.items.length > 0 && (
           <>
             <div className="my-work-list">
-              {result.items.map((item) => (
+              {displayResult.items.map((item) => (
                 <Link
                   key={`${item.kind}-${item.id}`}
                   href={item.href}
                   className="my-work-item"
                 >
                   <span>{item.identifier}</span>
-                  <span><strong>{item.title}</strong><small>{item.kind === 'LAB_ANALYSIS' ? (cs ? 'Laboratorní požadavek' : 'Laboratory request') : (cs ? 'Úkol' : 'Task')}</small></span>
+                  <span><strong>{item.kind==='MEDICAL_ENCOUNTER'?(item.status==='TRANSFERRED'?(cs?'Pacient čeká na převzetí':'Patient awaiting handover'):(cs?'Zdravotnický případ':'Medical encounter')):item.title}</strong><small>{item.kind === 'LAB_ANALYSIS' ? (cs ? 'Laboratorní požadavek' : 'Laboratory request') : item.kind==='FORENSIC_ANALYSIS'?(cs?'Digitální forenzní analýza':'Digital forensic analysis'):item.kind==='COURT_REQUEST'?(cs?'Právní žádost':'Legal request'):item.kind==='MEDICAL_ENCOUNTER'?(cs?'Zdravotnictví':'Medical'):(cs ? 'Úkol' : 'Task')}{item.assignedUnitName?' · '+item.assignedUnitName:''}{item.reportAvailable?' · '+(cs?'Schválený protokol':'Approved report'):''}</small></span>
                   <StatusBadge status={item.status} />
                   <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>{formatDate(item.updatedAt)}</span>
                 </Link>
@@ -173,8 +194,8 @@ function WorkQueue({ eventId }: { eventId: string }) {
             </div>
             <div className="my-work-pagination">
               <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>{t('myWork.previous')}</button>
-              <span style={{ padding: '6px 0' }}>{t('myWork.page')} {result.page}</span>
-              <button type="button" disabled={page * result.limit >= result.total} onClick={() => setPage((current) => current + 1)}>{t('myWork.next')}</button>
+              <span style={{ padding: '6px 0' }}>{t('myWork.page')} {displayResult.page}</span>
+              <button type="button" disabled={page * displayResult.limit >= displayResult.total} onClick={() => setPage((current) => current + 1)}>{t('myWork.next')}</button>
             </div>
           </>
         )}

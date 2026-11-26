@@ -155,6 +155,10 @@ export const ForensicAnalysisItemSchema = z.object({
   startedAt: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
   approvedAt: z.string().nullable().optional(),
+  reportAvailable:z.boolean().optional(),
+  requesterName:z.string().nullable().optional(),
+  unitName:z.string().nullable().optional(),
+  analystName:z.string().nullable().optional(),
   purpose: z.string().nullable().optional(),
   methodology: z.string().nullable().optional(),
   findings: z.string().nullable().optional(),
@@ -165,6 +169,8 @@ export const ForensicAnalysisItemSchema = z.object({
 export type ForensicAnalysisItem = z.infer<typeof ForensicAnalysisItemSchema>;
 
 export const ForensicAnalysisDetailSchema = ForensicAnalysisItemSchema.extend({
+  reportAvailable:z.boolean().optional(),
+  actions:z.object({accept:z.boolean(),work:z.boolean(),complete:z.boolean(),approve:z.boolean(),reassign:z.boolean().optional()}).optional(),
   findingsList: z.array(ForensicFindingSchema).default([]),
   acquisitions: z.array(ForensicAcquisitionSchema).default([]),
   evidenceLinks: z.array(z.object({
@@ -216,6 +222,15 @@ export const UpdateForensicStatusRequestSchema = z.object({
   methodology: z.string().optional(),
 });
 export type UpdateForensicStatusRequest = z.infer<typeof UpdateForensicStatusRequestSchema>;
+export const SaveForensicReportSchema=z.object({methodology:z.string().max(20000).optional(),findings:z.string().max(20000).optional(),conclusion:z.string().max(20000).optional()}).strict().refine(v=>Object.keys(v).length>0,'Provide report content');
+export type SaveForensicReport=z.infer<typeof SaveForensicReportSchema>;
+
+export const ReassignForensicAnalysisSchema=z.object({
+  assignedToUserId:z.string().uuid(),
+  expectedUpdatedAt:z.string().datetime(),
+  reason:z.string().trim().min(1).max(1000),
+}).strict();
+export type ReassignForensicAnalysis=z.infer<typeof ReassignForensicAnalysisSchema>;
 
 export const CreateForensicFindingRequestSchema = z.object({
   findingType: z.string().default('ARTIFACT'),
@@ -258,6 +273,8 @@ export const ForensicQueryFiltersSchema = z.object({
   priority: z.string().optional(),
   assignedUnitId: z.string().uuid().optional(),
   assignedToUserId: z.string().uuid().optional(),
+  evidenceId:z.string().uuid().optional(),
+  mine:z.enum(['requested','assigned']).optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
 });

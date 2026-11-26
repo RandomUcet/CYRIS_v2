@@ -25,7 +25,7 @@ export const exerciseOrganizerPermissions = [
   Permissions.BRIEFING_READ, Permissions.BRIEFING_ACKNOWLEDGE,
   Permissions.DOCUMENT_READ, Permissions.DOCUMENT_CREATE, Permissions.DOCUMENT_UPDATE, Permissions.DOCUMENT_VERSION, Permissions.DOCUMENT_DELETE,
   Permissions.FORENSICS_READ, Permissions.FORENSICS_REQUEST, Permissions.FORENSICS_ACCEPT,
-  Permissions.FORENSICS_WORK, Permissions.FORENSICS_COMPLETE, Permissions.FORENSICS_APPROVE,
+  Permissions.FORENSICS_WORK, Permissions.FORENSICS_COMPLETE, Permissions.FORENSICS_APPROVE, Permissions.FORENSICS_REASSIGN,
   Permissions.INDICATOR_READ, Permissions.INDICATOR_CREATE, Permissions.INDICATOR_UPDATE,
   Permissions.COURT_READ, Permissions.COURT_CREATE, Permissions.COURT_UPDATE, Permissions.COURT_ASSIGN,
   Permissions.COURT_CHARGE_MANAGE, Permissions.COURT_EXHIBIT_READ, Permissions.COURT_EXHIBIT_SUBMIT,
@@ -208,6 +208,9 @@ const eventRoleTemplates = [
     description: 'Receives exercise casualties and records triage, treatment and transfers only within assigned medical unit',
     permissions: medicalResponderPermissions },
   ...laboratoryRoles,
+  { slug:'forensic-worker',name:'Digitální forenzní analytik',description:'Processes assigned digital forensic analyses',permissions:[Permissions.FORENSICS_READ,Permissions.FORENSICS_ACCEPT,Permissions.FORENSICS_WORK,Permissions.FORENSICS_COMPLETE].map(key=>({key,scope:PermissionScopes.ASSIGNED})) },
+  { slug:'forensic-coordinator',name:'Vedoucí digitální forenziky',description:'Coordinates digital forensic work in the assigned unit',permissions:[Permissions.FORENSICS_READ,Permissions.FORENSICS_REASSIGN].map(key=>({key,scope:PermissionScopes.UNIT})) },
+  { slug:'forensic-requester',name:'Žadatel o digitální forenzní analýzu',description:'Requests analyses and follows own results',permissions:[{key:Permissions.FORENSICS_REQUEST,scope:PermissionScopes.EVENT},{key:Permissions.FORENSICS_READ,scope:PermissionScopes.OWN}] },
   ...legalRoleTemplates,
 ];
 

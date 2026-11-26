@@ -1,0 +1,14 @@
+'use client';
+import {useEffect,useState,useRef} from 'react';
+import Link from 'next/link';
+import type {ForensicAnalysisItem} from '@cyris/contracts';
+import {apiClient} from '@/lib/api-client';
+import {StatusBadge} from '@/components/common/Badges';
+export function EvidenceForensicRequests({eventId,evidenceId,cs,canRequest}:{eventId:string;evidenceId:string;cs:boolean;canRequest:boolean}){
+ const [rows,setRows]=useState<ForensicAnalysisItem[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(true);const generation=useRef(0);
+ const tr=(c:string,e:string)=>cs?c:e;
+ async function load(){const id=++generation.current;try{const r=await apiClient.listForensicAnalyses(eventId,{evidenceId,limit:100});if(id!==generation.current)return;if(!r.ok||!r.data){setRows([]);setError(r.error||tr('Žádanky nedostupné','Requests unavailable'));return;}setRows(r.data.items);setError('');}catch{if(id===generation.current){setRows([]);setError(tr('Žádanky nedostupné','Requests unavailable'));}}finally{if(id===generation.current)setLoading(false);}}
+ useEffect(()=>{void load();const timer=window.setInterval(()=>{if(!document.hidden)void load();},10000);return()=>{generation.current++;window.clearInterval(timer);};},[eventId,evidenceId]);
+ return <section style={{display:'grid',gap:12}}><div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}><h2 style={{margin:0,fontSize:18}}>{tr('Digitální forenzní analýzy důkazu','Evidence digital forensic requests')}</h2><div style={{display:'flex',gap:8}}><button className="btn btn-secondary" onClick={()=>void load()}>{tr('Obnovit','Refresh')}</button>{canRequest&&<Link className="btn btn-primary" href={`/events/${eventId}/forensics?fromEvidence=${evidenceId}`}>{tr('Zadat analýzu','Request analysis')}</Link>}</div></div>
+ {loading?<p role="status">{tr('Načítám…','Loading…')}</p>:error?<p role="alert">{error}</p>:!rows.length?<p>{tr('K důkazu nemáte dostupnou forenzní žádanku.','No accessible forensic request for this evidence.')}</p>:rows.map(row=><article key={row.id} style={{border:'1px solid var(--border-default)',padding:12,borderRadius:5,display:'grid',gap:8}}><div style={{display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}><strong>{row.analysisNumber} · {row.analysisType}</strong><StatusBadge status={row.status}/></div><p style={{margin:0}}>{row.reportAvailable?row.conclusion:row.status==='COMPLETED'?tr('Čeká na schválení zprávy','Awaiting report approval'):tr('Schválený výsledek zatím není k dispozici','Approved report not available')}</p><div style={{display:'flex',gap:8}}><Link className="btn btn-secondary" href={`/events/${eventId}/forensics/${row.id}`}>{tr('Otevřít žádanku','Open request')}</Link>{row.reportAvailable&&<Link className="btn btn-secondary" href={`/events/${eventId}/forensics/${row.id}/print`} target="_blank" rel="noopener noreferrer">{tr('Zpráva / tisk','Report / print')}</Link>}</div></article>)}</section>;
+}
