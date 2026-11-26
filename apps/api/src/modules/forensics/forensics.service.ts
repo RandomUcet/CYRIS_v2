@@ -800,29 +800,40 @@ export class ForensicsService {
       conditions.push(inArray(forensicAnalyses.id,this.db.select({id:forensicAnalysisEvidence.analysisId}).from(forensicAnalysisEvidence).where(eq(forensicAnalysisEvidence.evidenceId,filters.evidenceId))));
     }
     if(filters.mine==='requested')conditions.push(eq(forensicAnalyses.requestedByUserId,user.id));
-    if(filters.mine==='assigned')conditions.push(eq(forensicAnalyses.assignedToUserId,user.id));
+    if(filters.mine==='assigned'){
+      const activeUnits=this.db.select({id:membershipUnitAssignments.unitId})
+        .from(membershipUnitAssignments)
+        .innerJoin(eventMemberships,eq(eventMemberships.id,membershipUnitAssignments.membershipId))
+        .innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId))
+        .where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,user.id),
+          eq(eventMemberships.status,'ACTIVE'),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt)));
+      conditions.push(or(eq(forensicAnalyses.assignedToUserId,user.id),
+        and(isNull(forensicAnalyses.assignedToUserId),inArray(forensicAnalyses.assignedUnitId,activeUnits)))!);
+    }
     if(filters.assignedToUserId)conditions.push(eq(forensicAnalyses.assignedToUserId,filters.assignedToUserId));
     if(filters.assignedUnitId)conditions.push(eq(forensicAnalyses.assignedUnitId,filters.assignedUnitId));
     if (filters.status) conditions.push(eq(forensicAnalyses.status, filters.status));
     if (filters.analysisType) conditions.push(eq(forensicAnalyses.analysisType, filters.analysisType));
     if (filters.priority) conditions.push(eq(forensicAnalyses.priority, filters.priority));
+    const search=filters.search?.trim();
+    if(search)conditions.push(sql`(strpos(lower(${forensicAnalyses.analysisNumber}),lower(${search}))>0 OR strpos(lower(coalesce(${forensicAnalyses.purpose},'')),lower(${search}))>0 OR strpos(lower(${forensicAnalyses.analysisType}),lower(${search}))>0)`);
 
-    const rows = await this.db
-      .select()
-      .from(forensicAnalyses)
-      .where(and(...conditions))
-      .orderBy(desc(forensicAnalyses.createdAt),desc(forensicAnalyses.id))
-      .limit(limit)
-      .offset(offset);
-
+    // Page over authorized results, not raw database rows.
     const accessible: ForensicAnalysisItem[] = [];
-    for (const r of rows) {
+    let total=0;
+    const batchSize=100;
+    for(let scanned=0;;scanned+=batchSize){
+      const rows=await this.db.select().from(forensicAnalyses).where(and(...conditions))
+        .orderBy(desc(forensicAnalyses.createdAt),desc(forensicAnalyses.id)).limit(batchSize).offset(scanned);
+      for (const r of rows) {
       const canAccess = await this.resourceAccessService.canAccessResource(
         user,
         r.id,
         Permissions.FORENSICS_READ
       );
       if (canAccess) {
+        const index=total++;
+        if(index<offset||accessible.length>=limit)continue;
         const canSeeReport=r.status==='APPROVED'&&!!r.approvedAt||await this.resourceAccessService.canAccessResource(user,r.id,Permissions.FORENSICS_WORK)||await this.resourceAccessService.canAccessResource(user,r.id,Permissions.FORENSICS_APPROVE);
         accessible.push({
           id: r.id,
@@ -849,11 +860,13 @@ export class ForensicsService {
           updatedAt: r.updatedAt.toISOString(),
         });
       }
+      }
+      if(rows.length<batchSize)break;
     }
 
     return {
       items: accessible,
-      total: accessible.length,
+      total,
       page,
       limit,
     };

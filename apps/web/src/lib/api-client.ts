@@ -1018,13 +1018,14 @@ export class CyrisApiClient {
 
   async listForensicAnalyses(
     eventId: string,
-    query?: { status?: string; analysisType?: string; priority?: string; page?: number; limit?: number;evidenceId?:string;mine?:'requested'|'assigned' }
+    query?: { status?: string; analysisType?: string; priority?: string; page?: number; limit?: number;evidenceId?:string;mine?:'requested'|'assigned';search?:string }
   ): Promise<{ ok: boolean; data?: { items: ForensicAnalysisItem[]; total: number; page: number; limit: number }; error?: string }> {
     const params = new URLSearchParams();
     if (query?.status) params.set('status', query.status);
     if (query?.analysisType) params.set('analysisType', query.analysisType);
     if(query?.evidenceId)params.set('evidenceId',query.evidenceId);
     if(query?.mine)params.set('mine',query.mine);
+    if(query?.search)params.set('search',query.search);
     if (query?.priority) params.set('priority', query.priority);
     if (query?.page) params.set('page', String(query.page));
     if (query?.limit) params.set('limit', String(query.limit));

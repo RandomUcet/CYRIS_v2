@@ -275,6 +275,7 @@ export const ForensicQueryFiltersSchema = z.object({
   assignedToUserId: z.string().uuid().optional(),
   evidenceId:z.string().uuid().optional(),
   mine:z.enum(['requested','assigned']).optional(),
+  search:z.string().trim().max(200).optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
 });

@@ -474,7 +474,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
         <div style={{ marginTop: '16px' }}>
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '16px' }}>
+            <div className="forensic-overview-grid">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div className="card" style={{ padding: '20px' }}>
                   <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--color-text-bright)', marginBottom: '12px' }}>
@@ -490,12 +490,13 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                   </div>
 
                   <form onSubmit={handleSaveOverview}>
+                    {!canWork&&<p role="status" style={{fontSize:13,color:'var(--color-text-dim)',marginBottom:14}}>{analysis.status==='REQUESTED'?tr('Žádanka čeká na převzetí. Odborný report lze upravit až po převzetí a s příslušným oprávněním.','Request awaits acceptance. Report editing requires acceptance and the appropriate permission.'):tr('Report je v tomto stavu nebo pro vaši roli pouze ke čtení.','Report is read-only in this state or for your role.')}</p>}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                       <div>
-                        <label className="field-label">Methodology & Toolchain</label>
+                        <label className="forensic-report-label" htmlFor="forensic-methodology">Methodology & Toolchain</label>
                         <textarea
-                          className="field-input"
-                          rows={3}
+                          id="forensic-methodology" className="field-input forensic-report-field"
+                          rows={5}
                           value={methodology}
                           onChange={(e) => setMethodology(e.target.value)}
                           placeholder="e.g. Write blocker acquisition, Volatility 3 memory triage, Autopsy keyword indexing..."
@@ -504,10 +505,10 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                       </div>
 
                       <div>
-                        <label className="field-label">Technical Findings & Artifacts Summary</label>
+                        <label className="forensic-report-label" htmlFor="forensic-findings">Technical Findings & Artifacts Summary</label>
                         <textarea
-                          className="field-input"
-                          rows={4}
+                          id="forensic-findings" className="field-input forensic-report-field"
+                          rows={6}
                           value={findingsText}
                           onChange={(e) => setFindingsText(e.target.value)}
                           placeholder="Summary of detected user artifacts, deleted files, network beacons, or malware signatures..."
@@ -516,10 +517,10 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                       </div>
 
                       <div>
-                        <label className="field-label">Forensic Conclusion / Opinion</label>
+                        <label className="forensic-report-label" htmlFor="forensic-conclusion">Forensic Conclusion / Opinion</label>
                         <textarea
-                          className="field-input"
-                          rows={3}
+                          id="forensic-conclusion" className="field-input forensic-report-field"
+                          rows={5}
                           value={conclusion}
                           onChange={(e) => setConclusion(e.target.value)}
                           placeholder="Final opinion of the forensic examiner regarding authenticity, intent, and timeline consistency..."
@@ -527,7 +528,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                         />
                       </div>
 
-                      {analysis.status !== 'APPROVED' && (
+                      {canWork && (
                         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                           <button type="submit" className="btn btn-secondary" disabled={savingOverview||!canWork||handoffSaving}>
                             {savingOverview ? 'Saving...' : 'Save Overview Notes'}

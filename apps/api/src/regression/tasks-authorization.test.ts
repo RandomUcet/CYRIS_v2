@@ -6,10 +6,10 @@ import { ForbiddenException, NotFoundException, BadRequestException, ConflictExc
 import {
   getDbClient, closeDatabaseConnection, users, events, eventMemberships,
   organizationalUnits, membershipUnitAssignments, roles, roleAssignments, rolePermissions,
-  unitCapabilities, resources, evidence, operationalTasks, auditEvents, outboxEvents, notifications as notificationRows,
+  unitCapabilities, resources, evidence, operationalTasks, auditEvents, outboxEvents, forensicAnalyses, resourceAssignments, notifications as notificationRows,
 } from '@cyris/db';
 import { generateId, Permissions, type PermissionKey } from '@cyris/shared';
-import { MyWorkQuerySchema, CreateOperationalTaskRequestSchema } from '@cyris/contracts';
+import { MyWorkQuerySchema, CreateOperationalTaskRequestSchema, ForensicQueryFiltersSchema } from '@cyris/contracts';
 import { DatabaseService } from '../modules/database/database.service.js';
 import { AuthorizationService } from '../modules/authorization/authorization.service.js';
 import { ResourceAccessService } from '../modules/resources/resource-access.service.js';
@@ -202,6 +202,25 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         assert.ok(results.items.some(x=>x.id===created.id&&x.reportAvailable));
         const assignment=(await inbox.getNotifications(examiner.id,eventA)).newItems.find(x=>x.resourceId===created.id&&x.templateKey==='forensics.assigned');
         assert.ok(assignment);await inbox.markRead(assignment.id,examiner.id);
+        const unclaimed=generateId(),hidden=generateId();
+        await db.insert(resources).values([
+          {id:unclaimed,eventId:eventA,resourceType:'forensic_analysis',visibility:'UNIT',owningUnitId:unitA,ownerUserId:requester.id},
+          {id:hidden,eventId:eventA,resourceType:'forensic_analysis',visibility:'RESTRICTED',owningUnitId:unitB,ownerUserId:organizer.id},
+        ]);
+        await db.insert(forensicAnalyses).values([
+          {id:unclaimed,eventId:eventA,analysisNumber:'FOR-QUEUE-USB',analysisType:'DISK_IMAGE',purpose:'USB queue fixture',assignedUnitId:unitA,createdAt:new Date('2090-01-01T00:00:00Z')},
+          {id:hidden,eventId:eventA,analysisNumber:'FOR-QUEUE-HIDDEN',analysisType:'DISK_IMAGE',purpose:'USB queue fixture hidden',assignedUnitId:unitB,createdAt:new Date('2090-01-02T00:00:00Z')},
+        ]);
+        await db.insert(resourceAssignments).values({eventId:eventA,resourceId:unclaimed,unitId:unitA,assignedByUserId:requester.id});
+        const query=ForensicQueryFiltersSchema.parse({search:'USB queue fixture',limit:1});
+        const visible=await forensics.listAnalyses(eventA,query,examiner);
+        assert.equal(visible.total,1);assert.deepEqual(visible.items.map(x=>x.id),[unclaimed]);
+        const teamQueue=await forensics.listAnalyses(eventA,{...query,mine:'assigned'},examiner);
+        assert.equal(teamQueue.total,1);assert.deepEqual(teamQueue.items.map(x=>x.id),[unclaimed]);
+        assert.equal((await forensics.listAnalyses(eventA,{...query,page:2},examiner)).items.length,0);
+        assert.equal((await forensics.listAnalyses(eventA,query,outsider)).total,0);
+        assert.equal((await forensics.listAnalyses(eventB,query,examiner)).total,0);
+        await assert.rejects(forensics.getAnalysisDetail(hidden,examiner),ForbiddenException);
       }finally{await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,role!.id),eq(rolePermissions.permissionKey,Permissions.FORENSICS_REQUEST)));}
     });
     await t.test('task creation denies an outsider and a member without TASK_CREATE before writes', async () => {
