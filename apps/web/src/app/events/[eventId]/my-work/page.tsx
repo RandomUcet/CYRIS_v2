@@ -126,6 +126,16 @@ function WorkQueue({ eventId }: { eventId: string }) {
           <div><p>{cs?'Zde najdete přidělenou práci i vlastní odeslané žádanky a výsledky. Otevřete záznam a pracujte podle jeho dostupných akcí. Nové pokyny najdete v části Briefingy.':'Find assigned work, outgoing requests and results here. Open the record and use its available actions. Open Briefings for new instructions.'}</p>
           <Link href={`/events/${eventId}/support`}>{cs?'Potřebujete pomoc? Obraťte se na podporu.':'Need help? Contact support.'}</Link></div>
         </details>
+        {!!team?.teamGuides?.length&&<details className="work-guide">
+          <summary>{cs?'Metodiky a checklisty týmu':'Team guides and checklists'}</summary>
+          <div style={{display:'grid',gap:12}}>
+            <p style={{fontSize:12,color:'var(--color-text-dim)'}}>{cs?'Výchozí cvičební pomůcky k odbornému posouzení instruktorem. Nejde o schválené odborné postupy ani záznam splnění.':'Exercise starter prompts for instructor review. Not approved professional procedures or completion records.'}</p>
+            {team.teamGuides.map(guide=><section key={guide.unitId}>
+              <h3 style={{fontSize:14,marginBottom:6}}>{guide.unitName} <small>{guide.version}</small></h3>
+              <ol style={{paddingLeft:20,display:'grid',gap:6}}>{guide.items.map((item,index)=><li key={index}>{cs?item.cs:item.en}</li>)}</ol>
+            </section>)}
+          </div>
+        </details>}
         <div className="my-work-toolbar">
           {(availableViews as MyWorkView[]).map((option) => (
             <button

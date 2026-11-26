@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import {TeamGuideSchema} from './team-guides.js';
 
 /**
  * CYRIS v2 - Operational Capability Catalog
@@ -158,6 +159,7 @@ export const WorkspaceResolutionResponseSchema = z.object({
   eventName: z.string(),
   unitIds: z.array(z.string().uuid()),
   unitNames: z.array(z.string()),
+  teamGuides:z.array(TeamGuideSchema).optional(),
   capabilities: z.array(z.string()),
   sections: z.array(WorkspaceNavSectionSchema),
 });

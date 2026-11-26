@@ -1,3 +1,4 @@
+import {resolveTeamGuides} from '@cyris/contracts';
 import { completeWorkspaceSections } from './workspace-permission-links.js';
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { eq, and, inArray, or, isNull, sql } from 'drizzle-orm';
@@ -936,6 +937,7 @@ export class WorkspaceResolverService {
       eventName: event.name,
       unitIds,
       unitNames,
+      teamGuides:resolveTeamGuides(unitAssignments),
       capabilities,
       sections: completeWorkspaceSections(sections,eventId,allowed),
     };
