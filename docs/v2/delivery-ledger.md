@@ -108,3 +108,24 @@ Do not publish a release with unverified new destructive functionality or imply 
 - Exact head 7df18f8 CI 45779296113 succeeded (all build/typecheck, regressions, mandatory actual committed reset/removal with approval and isolated encrypted restore). Next increment closes pre-commit recovery gap: mandatory authenticated manifest reload, exact HMAC context digest, DB stored document/version SHA256 and all known byte sizes, actual bounded S3 namespace listing, protected bucket rejection, byte/ETag verification of every live source and backup, Redis blocker check before any deletion under relational locks. Integrated real-service test corrupts backup, removes original, adds orphan/unknown Redis key and wrong manifest key; witness and rows must remain unchanged until valid apply. Manifest temp cleanup fixed. Same-cluster CI storage is not independent recovery, no production route; host writer isolation, independent verified database recovery, unknown JSON/external references and admin operator workflow still open. Exact new CI pending.
 
 - Exact head 0da7b30 CI 45806417199 green including committed cross-service preflight. Attempt to add actual post-removal database restore test was blocked by the tool safety gate; no such commit or test was run. Return owner: CYRIS development; use approved isolated CI recovery workflow, do not bypass tool safety. Meanwhile improve read-only admin data workspace: correct reset/remove retention semantics, bilingual storage blockers, explicit snapshot comparison including scope/status/table actions/counts/conflicts, tests and clear independent recovery/host/approval prerequisites. This is informational only, not production execution authorization. Browser screenshot and independent restore/host isolation still pending; exact new CI required. No production mutation or release.
+
+## Release 2.5.2 — fixed publication checklist (10 gates)
+
+Scope frozen: publish the participant/cross-team workflow and read-only admin improvements; full reset/remove remains internal rehearsal, bounded host cleanup only. ADM-01 production removal is explicitly blocked and returns in 2.5.3 (owner CYRIS development; independent recovery, writer isolation, external reference review and actual operator acceptance). Do not enable a production apply route in 2.5.2. Every manual and automated continuation must report **verified N/10, remaining 10-N**, with links and blockers. Do not equate implementation with verification; recalculate exact-head-dependent gates after each push.
+
+| ID | Criterion | State at preparation |
+|---|---|---|
+| R1 | Release scope and deferred ADM-01 return recorded | VERIFIED |
+| R2 | Cross-team forensic/My Work/medical/legal backend and ACL regressions | VERIFIED — 1726efa CI 45843444770 |
+| R3 | Admin inventory/read-only comparison and UI regressions (not browser acceptance) | VERIFIED — 1726efa CI 45843444770 |
+| R4 | Full retention inaccessible from production API/CLI/UI; explicit regression guard | PENDING — new test |
+| R5 | Release version consistency 2.5.2 | VERIFIED — 1726efa CI 45843444770; version files unchanged |
+| R6 | Populated DB migration from 2.4.22 and 2.5.1, immutable audit/rows, encrypted restore rehearsal; actual deployed-image upgrade/rollback acceptance separate | PENDING — new migration test; verify restore and actual image upgrade/rollback |
+| R7 | Browser smoke with populated role-specific views and real screenshots | PENDING — no browser evidence |
+| R8 | Exact final release candidate CI all mandatory steps green | PENDING — new head |
+| R9 | Merge verified candidate to main with no unrelated changes | PENDING |
+| R10 | Release workflow green, versioned amd64/arm64 images and installer assets verified | PENDING |
+
+Initial evidence count **4/10**, 6 remaining. R6 is not complete solely on fresh schema migrations or generic encrypted backup. Keep browser/host limitations explicit; do not silently waive security/release criteria. R1 scope decision does not close ADM-01 or DOM-02–04. Preserve roadmap IDs.
+
+- Exact head 1726efa CI 45843444770 completed green (417 regression tests: 405 pass, 4 skipped, 8 todo; mandatory actual S3 4/4, Typesense 2/2, committed retention 1/1 no skips, encrypted restore). Verified all 35 migration SQL blobs in v2.4.22 and 42 in v2.5.1 unchanged in current tree. New mandatory isolated upgrade test applies those exact migration prefixes, seeds actual exercise, memberships, document and audit, upgrades twice and validates preservation and append-only behavior. Added production boundary regression. No production changes. Exact new CI pending.

@@ -144,6 +144,13 @@ jobs:
           curl -fsS http://127.0.0.1:18109/health >/dev/null
           CYRIS_TEST_RETENTION_COMMITTED=true CYRIS_TEST_S3_ENDPOINT=http://127.0.0.1:19001 CYRIS_TEST_TYPESENSE_ENDPOINT=http://127.0.0.1:18109 pnpm exec tsx --test apps/api/src/scripts/retention-finish.test.ts
 
+      - name: Rehearse populated schema upgrades from 2.4.22 and 2.5.1
+        run: |
+          set -euo pipefail
+          docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_upgrade_2422
+          docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_upgrade_251
+          CYRIS_TEST_RETENTION_UPGRADE=true pnpm exec tsx --test packages/db/src/retention-upgrade.test.ts
+
       - name: Check diff
         run: git diff --check
 
