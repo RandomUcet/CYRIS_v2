@@ -101,6 +101,10 @@ try{
   await ex.getByText('Overview',{exact:true}).last().click();
   await ex.locator('#forensic-methodology').fill('Browser fixture methodology');
   await ex.locator('#forensic-findings').fill('Synthetic fixture findings');
+  await ex.getByRole('button',{name:'Complete Analysis'}).click();
+  await ex.getByRole('alert').filter({hasText:'Enter the report conclusion before completing.'}).waitFor();
+  assert.equal((await read(examiner.context)).status,'IN_PROGRESS');
+  assert.equal(await ex.locator('#forensic-methodology').inputValue(),'Browser fixture methodology');
   await ex.locator('#forensic-conclusion').fill(conclusion);
   await ex.getByRole('button',{name:'Complete Analysis'}).click();
   await ex.getByRole('button',{name:'Complete Analysis'}).waitFor({state:'hidden'});
@@ -109,6 +113,8 @@ try{
   assert.equal((await examiner.context.request.patch(endpoint+'/status',{data:{status:'APPROVED'}})).status(),403);
   assert.equal((await examiner.context.request.get(base+'/api/events/'+fixture.foreign+'/forensics/'+analysis.id)).status(),404);
   await ex.setViewportSize({width:390,height:844});
+  const header=ex.locator('.record-header');
+  assert.ok(await header.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'Shared record header reflows without horizontal overflow');
   await ex.screenshot({path:join(output,'specialist-forensics-mobile.png'),fullPage:true});
   await examiner.context.close();
 

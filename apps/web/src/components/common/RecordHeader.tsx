@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import {usePreferences} from '@/contexts/PreferencesContext';
+import {workspaceLabel} from '@/lib/workspace-navigation';
 import { StatusBadge, PriorityBadge, ClassificationBadge, RecordIdentifier } from './Badges';
 
 export interface RecordHeaderProps {
@@ -31,40 +33,45 @@ export function RecordHeader({
   actions,
 }: RecordHeaderProps) {
   const finalLead = leadOrHolder || lead;
+  const {locale}=usePreferences();
+  const cs=locale==='cs';
+  const label=(value:string)=>workspaceLabel(locale,value);
 
   return (
-    <div className="record-header">
+    <header className="record-header">
       <div className="record-header-top">
         <div className="record-title-group">
           <RecordIdentifier value={identifier} />
           <h1 className="record-title">{title}</h1>
-          {typeof status === 'string' ? <StatusBadge status={status} /> : status}
-          {priority && (typeof priority === 'string' ? <PriorityBadge priority={priority} /> : priority)}
-          {classification && (typeof classification === 'string' ? <ClassificationBadge classification={classification} /> : classification)}
+          <div className="record-header-badges">
+            {typeof status === 'string' ? <StatusBadge status={status} /> : status}
+            {priority && (typeof priority === 'string' ? <PriorityBadge priority={priority} /> : priority)}
+            {classification && (typeof classification === 'string' ? <ClassificationBadge classification={classification} /> : classification)}
+          </div>
         </div>
-        {actions && <div className="flex-row">{actions}</div>}
+        {actions && <div className="record-header-actions" role="group" aria-label={cs?'Akce záznamu':'Record actions'}>{actions}</div>}
       </div>
 
-      <div className="record-meta-strip">
+      <dl className="record-meta-strip">
         {owningUnit && (
           <div className="record-meta-item">
-            <span className="record-meta-label">Unit:</span>
-            <span>{owningUnit}</span>
+            <dt className="record-meta-label">{cs?'Tým':'Unit'}:</dt>
+            <dd>{owningUnit}</dd>
           </div>
         )}
         {finalLead && (
           <div className="record-meta-item">
-            <span className="record-meta-label">{leadLabel}:</span>
-            <span>{finalLead}</span>
+            <dt className="record-meta-label">{label(leadLabel)}:</dt>
+            <dd>{finalLead}</dd>
           </div>
         )}
         {dates.map((d, i) => (
           <div key={i} className="record-meta-item">
-            <span className="record-meta-label">{d.label}:</span>
-            <span>{d.value}</span>
+            <dt className="record-meta-label">{label(d.label)}:</dt>
+            <dd>{d.value}</dd>
           </div>
         ))}
-      </div>
-    </div>
+      </dl>
+    </header>
   );
 }

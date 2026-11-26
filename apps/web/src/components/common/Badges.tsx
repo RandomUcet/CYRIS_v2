@@ -25,7 +25,7 @@ export function StatusBadge({ status }: { status: string }) {
 
   return (
     <span className={`badge ${badgeClass}`}>
-      <span className="badge-dot" />
+      <span className="badge-dot" aria-hidden="true" />
       {displayText}
     </span>
   );
@@ -52,7 +52,10 @@ export function PriorityBadge({ priority }: { priority: string }) {
 }
 
 export function ClassificationBadge({ classification }: { classification: string }) {
+  const {locale}=usePreferences();
   const c = classification.toUpperCase();
+  const cs=locale==='cs';
+  const labels:Record<string,string>=cs?{EVENT:'Cvičení',UNIT:'Tým',RESTRICTED:'Omezený přístup',SCENARIO:'Scénář'}:{EVENT:'Exercise',UNIT:'Team',RESTRICTED:'Restricted',SCENARIO:'Scenario'};
   let badgeClass = 'badge-neutral';
   if (c === 'RESTRICTED') badgeClass = 'badge-restricted';
   else if (c === 'SCENARIO') badgeClass = 'badge-orange';
@@ -60,8 +63,8 @@ export function ClassificationBadge({ classification }: { classification: string
   else if (c === 'EVENT') badgeClass = 'badge-neutral';
 
   return (
-    <span className={`badge ${badgeClass}`} title={`Classification Scope: ${classification}`}>
-      {classification}
+    <span className={`badge ${badgeClass}`} title={(cs?'Rozsah přístupu: ':'Access scope: ')+(labels[c]??classification)}>
+      {labels[c]??classification}
     </span>
   );
 }

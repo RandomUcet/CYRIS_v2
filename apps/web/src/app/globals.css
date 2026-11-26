@@ -2318,3 +2318,18 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
 .action-feedback-success{border-left-color:var(--status-success)}
 .action-feedback p{margin:4px 0 0;color:var(--text-secondary);overflow-wrap:anywhere;max-width:70ch}
 .action-feedback button{min-height:36px}
+
+/* Shared record headers: keep the identifier, title and actions distinguishable
+ * even with long synthetic names, localization and narrow workspaces. */
+.record-header{min-width:0}
+.record-title-group{flex:1 1 280px;min-width:0;flex-wrap:wrap;column-gap:12px;row-gap:6px;align-items:baseline}
+.record-title-group>.record-title{min-width:0;max-width:100%;margin:0;overflow-wrap:anywhere;line-height:1.35}
+.record-header-badges{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.record-header-badges .badge{white-space:normal;overflow-wrap:anywhere;max-width:100%}
+.record-header-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;max-width:100%;min-width:0}
+.record-header-actions>div{max-width:100%;flex-wrap:wrap}
+.record-header-actions .btn{min-height:36px;max-width:100%;white-space:normal}
+.record-meta-strip{margin:0;gap:8px 20px;align-items:flex-start}
+.record-meta-item{min-width:0;max-width:100%;align-items:baseline;flex-wrap:wrap}
+.record-meta-item dd{margin:0;min-width:0;overflow-wrap:anywhere}
+@media(max-width:700px){.record-header{padding:14px}.record-title-group{flex-basis:100%}.record-title-group>.record-title{flex-basis:100%}.record-header-actions{width:100%}.record-header-actions .btn{min-height:44px}.record-meta-strip{gap:8px 12px}.record-meta-item{flex-basis:100%}}
