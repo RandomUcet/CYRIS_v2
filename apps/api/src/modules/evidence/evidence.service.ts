@@ -11,13 +11,14 @@ import { SearchIndexerService } from '../search/search-indexer.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
   evidence,
-  evidenceCustodyTransfers,
+  evidenceCustodyTransfers,auditEvents,
   resources,users,eventMemberships,organizationalUnits,previewTeamAccounts,events,
   type ResourceVisibilityValue,
   type EvidenceStatusValue,
   type CustodyHolderTypeValue,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
+import {createEvidenceChecklistReceipt,EvidenceChecklistReceiptSchema} from '@cyris/contracts';
 import type {
   CreateEvidenceRequest,
   UpdateEvidenceRequest,
@@ -84,6 +85,8 @@ export class EvidenceService {
   ): Promise<EvidenceResponse> {
     await this.authorizationService.assertAuthorized({user,permission:Permissions.EVIDENCE_CREATE,context:{eventId,unitId:data.owningUnitId,resourceOwnerId:user.id}});
     const evidenceId = generateId();
+    const checklist=data.collectionChecklist?createEvidenceChecklistReceipt(data.evidenceType,data.collectionChecklist,user.id,new Date().toISOString()):null;
+    if(data.collectionChecklist&&!checklist)throw new BadRequestException('Checklist must match the evidence type, with unique answers and reasons for exceptions');
 
     return this.db.transaction(async (tx) => {
       const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).for('update').limit(1);
@@ -168,7 +171,7 @@ export class EvidenceService {
         resourceType: 'evidence',
         resourceId: evidenceId,
         actorUserId: user.id,
-        metadata: { evidenceNumber, title: data.title, evidenceType: data.evidenceType },
+        metadata: { evidenceNumber, title: data.title, evidenceType: data.evidenceType, ...(checklist?{collectionChecklist:checklist}:{}) },
         txClient:tx,
       });
 
@@ -204,6 +207,7 @@ export class EvidenceService {
         currentHolderType: created!.currentHolderType,
         currentHolderId: created!.currentHolderId,
         visibility: data.visibility || 'EVENT',
+        collectionChecklist:checklist,
         createdAt: created!.createdAt.toISOString(),
         updatedAt: created!.updatedAt.toISOString(),
       };
@@ -229,6 +233,8 @@ export class EvidenceService {
     }
 
     const custodyRows = await this.getCustodyHistory(eventId, evidenceId, user);
+    const [registration]=await this.db.select({metadata:auditEvents.metadata}).from(auditEvents).where(and(eq(auditEvents.eventId,eventId),eq(auditEvents.resourceId,evidenceId),eq(auditEvents.resourceType,'evidence'),eq(auditEvents.action,'evidence.created'))).orderBy(asc(auditEvents.occurredAt),asc(auditEvents.id)).limit(1);
+    const checklist=EvidenceChecklistReceiptSchema.safeParse((registration?.metadata as {collectionChecklist?:unknown}|undefined)?.collectionChecklist);
     const holderNames=await this.holderNames(eventId,[{type:row.ev.currentHolderType,id:row.ev.currentHolderId}]);
 
     return {
@@ -250,6 +256,7 @@ export class EvidenceService {
       createdAt: row.ev.createdAt.toISOString(),
       updatedAt: row.ev.updatedAt.toISOString(),
       custodyHistory: custodyRows,
+      collectionChecklist:checklist.success?checklist.data:null,
     };
   }
 

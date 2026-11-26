@@ -11,6 +11,7 @@ import { LoadingState, EmptyState, ErrorState } from '@/components/common/StateV
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
+import {evidenceChecklistItems,evidenceChecklistV1,type EvidenceChecklistSubmission} from '@cyris/contracts';
 import { FolderOpen, Plus, RefreshCw, X, ShieldAlert, ArrowRight } from 'lucide-react';
 
 interface EvidenceItem {
@@ -31,7 +32,9 @@ export default function EvidenceListPage() {
   const searchParams = useSearchParams();
   const eventId = params.eventId as string;
   const { hasPermission, currentUser } = useAuth();
-  const { formatDate } = usePreferences();
+  const { formatDate,locale } = usePreferences();
+  const cs=locale==='cs';
+  const [checklist,setChecklist]=useState<Record<string,{state:EvidenceChecklistSubmission['answers'][number]['state'];note:string}>>({});
 
   const [evidenceList, setEvidenceList] = useState<EvidenceItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,6 +128,8 @@ export default function EvidenceListPage() {
       return;
     }
 
+    const items=evidenceChecklistItems(formData.evidenceType);
+    if(items.some(item=>!checklist[item.id]||(checklist[item.id]?.state!=='DONE'&&!checklist[item.id]?.note.trim()))){setFormError(cs?'Vyplň všechny body checklistu a zdůvodni výjimky.':'Complete all checklist items and explain exceptions.');return;}
     setSubmitting(true);
     setFormError(null);
     try {
@@ -132,6 +137,7 @@ export default function EvidenceListPage() {
         title: formData.title.trim(),
         description: formData.description.trim() || undefined,
         evidenceType: formData.evidenceType,
+        collectionChecklist:{version:evidenceChecklistV1.version,answers:items.map(item=>({id:item.id,...checklist[item.id]!}))},
         currentHolderType: 'USER',
         currentHolderId: currentUser?.user.id ?? '',
         caseId: formData.caseId.trim() || undefined,
@@ -139,6 +145,7 @@ export default function EvidenceListPage() {
 
       if (res.ok && res.data) {
         setShowCreateModal(false);
+        setChecklist({});
         setFormData({ title: '', description: '', evidenceType: 'DIGITAL', caseId: '' });
         router.push(`/events/${eventId}/evidence/${res.data.id}`);
       } else {
@@ -419,12 +426,13 @@ export default function EvidenceListPage() {
                     </label>
                     <select
                       value={formData.evidenceType}
-                      onChange={(e) => setFormData({ ...formData, evidenceType: e.target.value })}
+                      onChange={(e) => {setFormData({ ...formData, evidenceType: e.target.value });setChecklist({});}}
                       className="select-field"
                       style={{ width: '100%' }}
                     >
                       <option value="DIGITAL">Digital</option>
                       <option value="PHYSICAL">Physical</option>
+                      <option value="FINGERPRINT">{cs?"Daktyloskopická stopa":"Fingerprint"}</option>
                       <option value="DOCUMENT">Document</option>
                       <option value="BIOLOGICAL">Biological</option>
                       <option value="CHEMICAL">Chemical</option>
@@ -466,6 +474,18 @@ export default function EvidenceListPage() {
                     style={{ width: '100%', resize: 'vertical' }}
                   />
                 </div>
+                <fieldset style={{border:'1px solid var(--color-border-subtle)',borderRadius:6,padding:12,marginBottom:16}}>
+                  <legend>{cs?'Kontrola zajištění důkazu':'Evidence collection checklist'} · v1</legend>
+                  <p style={{fontSize:12,color:'var(--color-text-dim)'}}>{cs?'Výchozí cvičební pomůcka k posouzení instruktorem, nikoliv schválený odborný postup. Zaznamenej skutečný stav; výjimky zdůvodni.':'Exercise starter for instructor review, not an approved forensic procedure. Record actual conditions and explain exceptions.'}</p>
+                  {evidenceChecklistItems(formData.evidenceType).map(item=><div key={item.id} style={{display:'grid',gap:6,padding:'10px 0',borderBottom:'1px solid var(--color-border-subtle)'}}>
+                    <label htmlFor={'collection-'+item.id}>{cs?item.cs:item.en}</label>
+                    <select id={'collection-'+item.id} className="select-field" required disabled={submitting} value={checklist[item.id]?.state??''} onChange={e=>{const state=e.target.value as EvidenceChecklistSubmission['answers'][number]['state'];setChecklist(old=>({...old,[item.id]:{state,note:old[item.id]?.note??''}}));}}>
+                      <option value="" disabled>{cs?'Vyber skutečný stav':'Select actual state'}</option>
+                      <option value="DONE">{cs?'Splněno':'Done'}</option><option value="NOT_DONE">{cs?'Nesplněno':'Not done'}</option><option value="NOT_APPLICABLE">{cs?'Nevztahuje se':'Not applicable'}</option>
+                    </select>
+                    {checklist[item.id]?.state&&checklist[item.id]?.state!=='DONE'&&<input className="input-field" required maxLength={1000} aria-label={(cs?'Důvod: ':'Reason: ')+(cs?item.cs:item.en)} value={checklist[item.id]?.note??''} disabled={submitting} onChange={e=>{const note=e.target.value;setChecklist(old=>({...old,[item.id]:{...old[item.id]!,note}}));}} />}
+                  </div>)}
+                </fieldset>
                 </div>
                 <div className="dialog-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                   <button

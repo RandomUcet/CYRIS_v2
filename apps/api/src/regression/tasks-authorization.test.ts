@@ -142,9 +142,16 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       const failing=new EvidenceService(database,resource,access,allocator,failedAudit,activity,indexer,auth);
       await assert.rejects(failing.createEvidence(eventA,dto,requester),/Injected evidence audit failure/);
       assert.equal((await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA))).length,before.length);
-      const item=await evidenceService.createEvidence(eventA,dto,requester);
+      const checklist={version:'collection-v1' as const,answers:['identity','condition','handling','package','custody','sample-context'].map(id=>({id,state:'DONE' as const}))};
+      await assert.rejects(evidenceService.createEvidence(eventA,{...dto,collectionChecklist:{...checklist,answers:checklist.answers.map(a=>({...a,id:'identity'}))}},requester),BadRequestException);
+      await assert.rejects(evidenceService.createEvidence(eventA,{...dto,collectionChecklist:{...checklist,answers:checklist.answers.map(a=>a.id==='condition'?{...a,state:'NOT_DONE' as const}:a)}},requester),BadRequestException);
+      const item=await evidenceService.createEvidence(eventA,{...dto,collectionChecklist:{...checklist,answers:checklist.answers.map(a=>a.id==='condition'?{...a,state:'NOT_DONE' as const,note:'Synthetic exception'}:a)}},requester);
       const initial=await evidenceService.getEvidence(eventA,item.id,requester);
       assert.equal(initial.custodyHistory?.length,1);assert.equal(initial.currentHolderId,requester.id);
+      assert.equal(initial.collectionChecklist?.version,'collection-v1');
+      assert.equal(initial.collectionChecklist?.answers.find(a=>a.id==='condition')?.note,'Synthetic exception');
+      assert.equal(initial.collectionChecklist?.recordedBy,requester.id);
+      await assert.rejects(evidenceService.getEvidence(eventA,item.id,outsider),ForbiddenException);
       await assert.rejects(evidenceService.updateEvidence(eventA,item.id,{owningUnitId:unitB},requester),BadRequestException);
       await assert.rejects(evidenceService.updateEvidence(eventA,item.id,{currentHolderId:worker.id},requester),BadRequestException);
       await assert.rejects(failing.updateEvidence(eventA,item.id,{title:'Must roll back'},requester),/Injected evidence audit failure/);
