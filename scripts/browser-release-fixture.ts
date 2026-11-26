@@ -18,14 +18,16 @@ async function main(){
   const adminEmail='browser-admin@example.invalid',participantEmail='browser-participant@example.invalid';
   const requester=randomUUID(),[analyst,lead]=[randomUUID(),randomUUID()].sort() as [string,string],usb=randomUUID();
   const requesterEmail='browser-bps@example.invalid',analystEmail='browser-cyber@example.invalid',leadEmail='browser-cyber-lead@example.invalid';
-  let bpsUnit='',cyberUnit='';
+  const [labAnalyst,labLead]=[randomUUID(),randomUUID()].sort() as [string,string],sample=randomUUID();
+  const labAnalystEmail='browser-chemical@example.invalid',labLeadEmail='browser-chemical-lead@example.invalid';
+  let bpsUnit='',cyberUnit='',chemicalUnit='';
   const passwordHash=await hash(password,{type:argon2id,memoryCost:65536,timeCost:3,parallelism:4});
   await db.transaction(async tx=>{
     await tx.execute(sql`INSERT INTO events(id,slug,name,status,default_locale) VALUES
       (${event},'browser-active','Browser active exercise','ACTIVE','en'),
       (${archived},'browser-archived','Browser archived exercise','ARCHIVED','en'),
       (${foreign},'browser-other','Browser unrelated exercise','ACTIVE','en')`);
-    for(const [id,email,name] of [[admin,adminEmail,'Browser Administrator'],[participant,participantEmail,'Browser Participant'],[requester,requesterEmail,'Browser BPS investigator'],[analyst,analystEmail,'Browser forensic analyst'],[lead,leadEmail,'Browser forensic lead']] as const){
+    for(const [id,email,name] of [[admin,adminEmail,'Browser Administrator'],[participant,participantEmail,'Browser Participant'],[requester,requesterEmail,'Browser BPS investigator'],[analyst,analystEmail,'Browser forensic analyst'],[lead,leadEmail,'Browser forensic lead'],[labAnalyst,labAnalystEmail,'Browser laboratory analyst'],[labLead,labLeadEmail,'Browser laboratory lead']] as const){
       await tx.execute(sql`INSERT INTO users(id,email,display_name) VALUES(${id},${email},${name})`);
       await tx.execute(sql`INSERT INTO user_identities(id,user_id,provider_type,provider_subject,password_hash) VALUES(gen_random_uuid(),${id},'LOCAL',${email},${passwordHash})`);
       await tx.execute(sql`INSERT INTO user_preferences(user_id,locale) VALUES(${id},'en')`);
@@ -34,9 +36,10 @@ async function main(){
     await addMissingEventTemplates(tx,event);
     const [bps]=await tx.execute(sql`SELECT id FROM organizational_units WHERE event_id=${event} AND slug='bezpecnostne-pravni-sluzby'`);
     const [cyber]=await tx.execute(sql`SELECT id FROM organizational_units WHERE event_id=${event} AND slug='kyberneticky-forenzni-tym'`);
-    if(!bps?.id||!cyber?.id)throw Error('Canonical team fixtures missing');
-    bpsUnit=String(bps.id);cyberUnit=String(cyber.id);
-    for(const [id,unit,slug] of [[requester,bpsUnit,'team-bps-operator'],[analyst,cyberUnit,'team-cyber-forensic-operator'],[lead,cyberUnit,'team-digital-forensic-lead']] as const){
+    const [chemical]=await tx.execute(sql`SELECT id FROM organizational_units WHERE event_id=${event} AND slug='chemicky-forenzni-tym'`);
+    if(!bps?.id||!cyber?.id||!chemical?.id)throw Error('Canonical team fixtures missing');
+    bpsUnit=String(bps.id);cyberUnit=String(cyber.id);chemicalUnit=String(chemical.id);
+    for(const [id,unit,slug] of [[requester,bpsUnit,'team-bps-operator'],[analyst,cyberUnit,'team-cyber-forensic-operator'],[lead,cyberUnit,'team-digital-forensic-lead'],[labAnalyst,chemicalUnit,'team-chemical-forensic-operator'],[labLead,chemicalUnit,'team-laboratory-lead']] as const){
       const member=randomUUID();
       await tx.execute(sql`INSERT INTO event_memberships(id,event_id,user_id) VALUES(${member},${event},${id})`);
       await tx.execute(sql`INSERT INTO membership_unit_assignments(id,membership_id,unit_id) VALUES(gen_random_uuid(),${member},${unit})`);
@@ -44,6 +47,8 @@ async function main(){
     }
     await tx.execute(sql`INSERT INTO resources(id,event_id,resource_type,visibility,owning_unit_id,owner_user_id) VALUES(${usb},${event},'evidence','EVENT',${bpsUnit},${requester})`);
     await tx.execute(sql`INSERT INTO evidence(id,evidence_number,title,description,evidence_type,status,owning_unit_id,current_holder_id) VALUES(${usb},'EV-BROWSER-USB','Browser USB sample','Private source detail for access test','DIGITAL','SECURED',${bpsUnit},${requester})`);
+    await tx.execute(sql`INSERT INTO resources(id,event_id,resource_type,visibility,owning_unit_id,owner_user_id) VALUES(${sample},${event},'evidence','EVENT',${bpsUnit},${requester})`);
+    await tx.execute(sql`INSERT INTO evidence(id,evidence_number,title,description,evidence_type,status,owning_unit_id,current_holder_id) VALUES(${sample},'EV-BROWSER-SAMPLE','Browser fingerprint sample','Synthetic exercise sample','FINGERPRINT','SECURED',${bpsUnit},${requester})`);
     await tx.execute(sql`INSERT INTO organizational_units(id,event_id,name,slug) VALUES(${team},${event},'Browser investigation team','investigation')`);
     await tx.execute(sql`INSERT INTO event_memberships(id,event_id,user_id) VALUES(${membership},${event},${participant})`);
     await tx.execute(sql`INSERT INTO membership_unit_assignments(id,membership_id,unit_id) VALUES(gen_random_uuid(),${membership},${team})`);
@@ -57,6 +62,6 @@ async function main(){
     await tx.execute(sql`INSERT INTO organizational_units(id,event_id,name,slug) VALUES(gen_random_uuid(),${archived},'Archived team','archived-team')`);
     await tx.execute(sql`INSERT INTO audit_events(id,event_id,actor_type,action,category) VALUES(gen_random_uuid(),${archived},'SYSTEM','browser.fixture','administration')`);
   });
-  await writeFile(output,JSON.stringify({event,archived,foreign,adminEmail,participantEmail,requesterEmail,analystEmail,leadEmail,analyst,bpsUnit,cyberUnit,usb}),{mode:0o600,flag:'wx'});
+  await writeFile(output,JSON.stringify({event,archived,foreign,adminEmail,participantEmail,requesterEmail,analystEmail,leadEmail,analyst,bpsUnit,cyberUnit,usb,labAnalyst,labAnalystEmail,labLeadEmail,chemicalUnit,sample}),{mode:0o600,flag:'wx'});
 }
 main().catch(e=>{console.error(e instanceof Error?e.message:'Fixture failed');process.exitCode=1;}).finally(closeDatabaseConnection);

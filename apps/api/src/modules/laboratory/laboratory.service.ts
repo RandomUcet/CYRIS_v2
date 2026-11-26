@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
-import { eq, desc, inArray, and, ne, sql, isNull } from 'drizzle-orm';
+import { eq, desc, inArray, and, ne, sql, isNull, or, gt } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
@@ -21,6 +21,7 @@ import {
   membershipUnitAssignments,
   resourceAssignments,
   users,
+  previewTeamAccounts,
   MembershipStatus,
   UserStatus,
   type ResourceVisibilityValue,
@@ -205,20 +206,20 @@ export class LaboratoryService {
     userId: string,
     displayName = ''
   ): Promise<boolean> {
-    const allowed = await this.authorizationService.hasEventCapability({
-      user: {
-        id: userId,
-        email: '',
-        displayName,
-        status: 'ACTIVE',
-      },
-      permission: Permissions.LAB_WORK,
-      eventId,
-      unitId,
-      resourceScopes: ['ASSIGNED'],
-      requireUnitMembership: true,
+    // Use the same eligibility policy for manual and automatic assignment.
+    // Preview identities are not operational workers; partial grants must not
+    // cause a request to be assigned to someone unable to finish the workflow.
+    const [active]=await this.db.select({id:users.id}).from(users)
+      .leftJoin(previewTeamAccounts,eq(previewTeamAccounts.userId,users.id))
+      .where(and(eq(users.id,userId),eq(users.status,UserStatus.ACTIVE),
+        or(isNull(users.testExpiresAt),gt(users.testExpiresAt,new Date())),isNull(previewTeamAccounts.userId))).limit(1);
+    if(!active)return false;
+    const required=[Permissions.LAB_READ,Permissions.LAB_ACCEPT,Permissions.LAB_WORK,Permissions.LAB_COMPLETE] as const;
+    const allowed=await this.authorizationService.eventCapabilities({
+      user:{id:userId,email:'',displayName,status:'ACTIVE'},permissions:required,
+      eventId,unitId,resourceScopes:['ASSIGNED'],requireUnitMembership:true,
     });
-    return allowed;
+    return required.every(permission=>allowed.has(permission));
   }
 
   async listLaboratoryUnits(eventId: string, user: AuthenticatedUser): Promise<Array<{ id: string; name: string }>> {

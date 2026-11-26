@@ -124,7 +124,64 @@ try{
   await requester.page.getByRole('button',{name:/My requests and results|Moje žádanky a výsledky/}).click();
   await requester.page.getByText(purpose,{exact:true}).waitFor();
   await requester.page.screenshot({path:join(output,'specialist-requester-result.png'),fullPage:true});
+  // Independent chemical laboratory workflow, using real canonical roles.
+  const labPurpose='Browser fingerprint comparison request',labConclusion='Synthetic fingerprint comparison report';
+  const labSubmission=await requester.context.request.post(apiRoot+'/lab',{data:{
+    analysisType:'Fingerprint comparison',purpose:labPurpose,evidenceIds:[fixture.sample],
+    requestedFromUnitId:fixture.bpsUnit,assignedUnitId:fixture.chemicalUnit,visibility:'EVENT',
+  }});
+  assert.equal(labSubmission.status(),201);
+  const labPayload=await labSubmission.json(),lab=labPayload.data??labPayload;
+  assert.equal(lab.requestedFromUnitId,fixture.bpsUnit);assert.equal(lab.assignedUnitId,fixture.chemicalUnit);
+  assert.equal(lab.assignedToUserId,fixture.labAnalyst);
+  const labEndpoint=apiRoot+'/lab/'+lab.id,labDetail=eventRoot+'/lab/'+lab.id;
+  const readLab=async(context)=>{const response=await context.request.get(labEndpoint);assert.equal(response.status(),200);const payload=await response.json();return payload.data??payload;};
+  assert.equal((await readLab(requester.context)).reportAvailable,false);
+  assert.equal((await requester.context.request.patch(labEndpoint,{data:{status:'ACCEPTED'}})).status(),403);
+  const chem=await login(fixture.labAnalystEmail),cp=chem.page;
+  await cp.waitForURL(/\/events\/.+\/my-work/);
+  await cp.goto(eventRoot+'/lab');
+  await cp.getByText(labPurpose,{exact:true}).waitFor();
+  await cp.screenshot({path:join(output,'specialist-lab-queue.png'),fullPage:true});
+  await cp.goto(labDetail);
+  await cp.getByRole('button',{name:'Accept request',exact:true}).waitFor();
+  const labRecord=await readLab(chem.context);
+  assert.ok(labRecord.requestingUnitName&&labRecord.unitName&&labRecord.requestingUnitName!==labRecord.unitName);
+  assert.equal(labRecord.evidenceItems.find(e=>e.id===fixture.sample)?.canOpen,false);
+  assert.equal((await chem.context.request.get(apiRoot+'/evidence/'+fixture.sample)).status(),403);
+  await cp.getByText('Evidence Input',{exact:false}).first().click();
+  await cp.getByText('Browser fingerprint sample',{exact:false}).first().waitFor();
+  await cp.screenshot({path:join(output,'specialist-lab-input.png'),fullPage:true});
+  await cp.getByRole('button',{name:'Accept request',exact:true}).click();
+  await cp.getByRole('button',{name:'Start analysis',exact:true}).click();
+  await cp.getByText('Protocol & Findings',{exact:true}).click();
+  await cp.getByRole('button',{name:'Complete analysis',exact:true}).waitFor();
+  await cp.locator('#lab-method').fill('Synthetic fixture method');
+  await cp.locator('#lab-findings').fill('Synthetic fixture observations');
+  await cp.locator('#lab-conclusion').fill(labConclusion);
+  await cp.getByRole('button',{name:'Complete analysis',exact:true}).click();
+  await cp.getByRole('button',{name:'Complete analysis',exact:true}).waitFor({state:'hidden'});
+  assert.equal((await readLab(chem.context)).status,'COMPLETED');
+  assert.equal((await readLab(requester.context)).conclusion,null);
+  assert.equal((await chem.context.request.patch(labEndpoint,{data:{status:'APPROVED'}})).status(),403);
+  assert.equal((await chem.context.request.get(base+'/api/events/'+fixture.foreign+'/lab/'+lab.id)).status(),404);
+  await cp.setViewportSize({width:390,height:844});
+  await cp.screenshot({path:join(output,'specialist-lab-mobile.png'),fullPage:true});
+  await chem.context.close();
+  const labSupervisor=await login(fixture.labLeadEmail);
+  await labSupervisor.page.waitForURL(/\/events\/.+\/my-work/);
+  await labSupervisor.page.goto(labDetail);
+  await labSupervisor.page.getByRole('button',{name:'Approve & Certify Report'}).click();
+  await labSupervisor.page.getByRole('button',{name:'Approve & Certify Report'}).waitFor({state:'hidden'});
+  assert.equal((await readLab(labSupervisor.context)).status,'APPROVED');
+  await labSupervisor.context.close();
+  const labResult=await readLab(requester.context);
+  assert.equal(labResult.reportAvailable,true);assert.equal(labResult.conclusion,labConclusion);
+  await requester.page.goto(labDetail);
+  await requester.page.locator('#lab-conclusion').waitFor();
+  assert.equal(await requester.page.locator('#lab-conclusion').inputValue(),labConclusion);
+  await requester.page.screenshot({path:join(output,'specialist-lab-requester-result.png'),fullPage:true});
   await requester.context.close();
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');
-  console.log('Real-browser admin, participant and canonical specialist workflow smoke passed; 9 screenshots captured.');
+  console.log('Real-browser admin, participant and canonical specialist workflow smoke passed; 13 screenshots captured.');
 }finally{await browser.close();}

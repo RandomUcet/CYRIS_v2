@@ -544,12 +544,12 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                   </div>
 
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
+                    <label htmlFor="lab-method" style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
                       {cs ? 'Použitá metoda' : 'Method'}
                     </label>
-                    <textarea
+                    <textarea id="lab-method"
                       rows={3}
-                      placeholder="e.g. Volatility 3 memory triage, SHA-256 integrity hash verification, Ghidra disassembly..."
+                      placeholder="Describe the approved exercise analysis method"
                       value={method}
                       onChange={(e) => setMethod(e.target.value)}
                       readOnly={!canEdit}
@@ -559,12 +559,12 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                   </div>
 
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
+                    <label htmlFor="lab-findings" style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
                       {cs ? 'Zjištění' : 'Findings'}
                     </label>
-                    <textarea
+                    <textarea id="lab-findings"
                       rows={5}
-                      placeholder="Document extracted IP addresses, persistence registry keys, compromised user tokens..."
+                      placeholder="Record observations and findings from the sample"
                       value={findings}
                       onChange={(e) => setFindings(e.target.value)}
                       readOnly={!canEdit}
@@ -574,12 +574,12 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
+                    <label htmlFor="lab-conclusion" style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
                       {cs ? 'Závěr' : 'Conclusion'}
                     </label>
-                    <textarea
+                    <textarea id="lab-conclusion"
                       rows={3}
-                      placeholder="Conclusive assessment for investigative leadership or courtroom presentation..."
+                      placeholder="Summarize the result and its limitations"
                       value={conclusion}
                       onChange={(e) => setConclusion(e.target.value)}
                       readOnly={!canEdit}

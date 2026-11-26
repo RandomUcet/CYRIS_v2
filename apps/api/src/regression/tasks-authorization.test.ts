@@ -313,6 +313,25 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       assert.equal((await auth.eventCapabilities({...capability,user:worker,permissions,eventId:eventB})).size,0);
       assert.equal((await auth.eventCapabilities({...capability,user:worker,permissions:[]})).size,0);
     });
+    await t.test('laboratory assignment requires the complete operator lifecycle',async()=>{
+      const partial=await db.select({id:roles.id}).from(roles).where(and(eq(roles.eventId,eventA),eq(roles.slug,`worker-${worker.id}`)));
+      await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,partial[0]!.id),eq(rolePermissions.permissionKey,Permissions.LAB_COMPLETE)));
+      try{
+        const candidates=await lab.listEligibleWorkers(eventA,unitA,leader);
+        assert.ok(!candidates.some(x=>x.id===worker.id));
+        assert.ok(candidates.some(x=>x.id===secondWorker.id));
+        const row=await lab.createAnalysis(eventA,{analysisType:'Eligibility fixture',evidenceIds:[evidenceId],requestedFromUnitId:unitA,visibility:'EVENT'},requester);
+        assert.equal(row.assignedToUserId,secondWorker.id);
+        await assert.rejects(lab.reassignAnalysis(eventA,row.id,{assignedToUserId:worker.id,reason:'Incomplete lifecycle'},leader),BadRequestException);
+      }finally{await db.insert(rolePermissions).values({roleId:partial[0]!.id,permissionKey:Permissions.LAB_COMPLETE,scope:'ASSIGNED'});}
+      // Remove this isolated fixture's active workload from the balancing test below.
+      // Complete through the normal workflow instead of deleting evidence or audit history.
+      const rows=await lab.listAnalyses(eventA,requester);
+      const row=rows.find(x=>x.analysisType==='Eligibility fixture')!;
+      await lab.updateAnalysis(eventA,row.id,{status:'ACCEPTED'},secondWorker);
+      await lab.updateAnalysis(eventA,row.id,{status:'IN_PROGRESS'},secondWorker);
+      await lab.updateAnalysis(eventA,row.id,{status:'COMPLETED',conclusion:'Synthetic fixture'},secondWorker);
+    });
     let labId = '';
     await t.test('concurrent lab requests assign real eligible workers with balanced workload', async () => {
       const created = await Promise.all(Array.from({ length: 4 }, () => lab.createAnalysis(eventA, { analysisType: 'chemical', evidenceIds: [evidenceId], requestedFromUnitId: unitA, visibility: 'EVENT' }, requester)));
