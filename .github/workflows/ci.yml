@@ -228,11 +228,20 @@ jobs:
         run: sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" bash deploy/tests/recovery-smoke.sh
 
   upgrade-images:
+    permissions:
+      contents: read
+      packages: read
     # Hosted ephemeral runner only, never a deployed CYRIS host.
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate published image reads
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
       - name: Build exact candidate runtime images
         run: |
           set -euo pipefail
@@ -243,5 +252,5 @@ jobs:
         run: |
           set -euo pipefail
           for baseline in 2.4.22 2.5.1; do
-            sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" bash deploy/tests/upgrade-image-smoke.sh "$baseline"
+            sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" DOCKER_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}" bash deploy/tests/upgrade-image-smoke.sh "$baseline"
           done

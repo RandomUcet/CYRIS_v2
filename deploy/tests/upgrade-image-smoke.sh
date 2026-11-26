@@ -41,6 +41,8 @@ PY
 sed -e "s|/var/lib/cyris/|$CYRIS_VAR_DIR/|g" -e "s|/opt/cyris/|$CYRIS_OPT_DIR/|g" -e "s|/etc/cyris/|$CYRIS_ETC_DIR/|g" -e "s|^    name: cyris-internal$|    name: $COMPOSE_PROJECT_NAME|" -e '/^    container_name:/d'  deploy/compose.prod.yml > "$CYRIS_OPT_DIR/docker-compose.yml"
 compose=(docker compose -f "$CYRIS_OPT_DIR/docker-compose.yml" --env-file "$CYRIS_ETC_DIR/cyris.env")
 trap '"${compose[@]}" down --remove-orphans && rm -rf -- "$stage"' EXIT
+# Pull immutable baseline images before provisioning the isolated services.
+"${compose[@]}" pull api worker web
 "${compose[@]}" up -d --wait --wait-timeout 180 postgres redis typesense minio
 "${compose[@]}" run --rm --no-deps -T minio-init
 sql() { "${compose[@]}" exec -T postgres psql -U cyris -d cyris -Atq -v ON_ERROR_STOP=1 -c "$1"; }
@@ -55,7 +57,6 @@ probe() {
   curl -fsS http://127.0.0.1:13100/api/health | python3 -c 'import json,sys; assert json.load(sys.stdin)["version"]==sys.argv[1]' "$1"
   curl -fsS http://127.0.0.1:13100/ >/dev/null
 }
-"${compose[@]}" pull api worker web
 "${compose[@]}" run --rm --no-deps -T api node dist/scripts/db-migrate.js
 [[ $(sql 'select count(*) from drizzle.__drizzle_migrations') == "$count" ]]
 sql "insert into events(id,slug,name,status) values ('00000000-0000-4000-8000-000000000001','upgrade-fixture','Upgrade fixture','ARCHIVED');
