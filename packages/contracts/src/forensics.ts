@@ -176,13 +176,16 @@ export const ForensicAnalysisDetailSchema = ForensicAnalysisItemSchema.extend({
   evidenceLinks: z.array(z.object({
     id: z.string().uuid(),
     evidenceNumber: z.string(),
+    title: z.string().optional(),
     description: z.string(),
     status: z.string(),
+    canOpen: z.boolean().optional(),
   })).default([]),
   deviceLinks: z.array(z.object({
     id: z.string().uuid(),
     name: z.string(),
     deviceType: z.string(),
+    canOpen: z.boolean().optional(),
   })).default([]),
 });
 export type ForensicAnalysisDetail = z.infer<typeof ForensicAnalysisDetailSchema>;

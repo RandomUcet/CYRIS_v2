@@ -494,6 +494,14 @@ export class ForensicsService {
       // Check the exact input against the analysis, not an arbitrary UUID supplied by the caller.
       const link=table===forensicAnalysisEvidence?await tx.select({id:forensicAnalysisEvidence.id}).from(forensicAnalysisEvidence).where(and(eq(forensicAnalysisEvidence.analysisId,analysisId),eq(forensicAnalysisEvidence.evidenceId,id))).limit(1):await tx.select({id:forensicAnalysisDevices.id}).from(forensicAnalysisDevices).where(and(eq(forensicAnalysisDevices.analysisId,analysisId),eq(forensicAnalysisDevices.deviceId,id))).limit(1);
       if(!link.length)throw new BadRequestException('Acquisition source is not linked to this analysis');
+      const isEvidence=table===forensicAnalysisEvidence;
+      const [source]=await tx.select({visibility:resources.visibility}).from(resources).where(and(eq(resources.id,id),eq(resources.eventId,analysis.eventId),eq(resources.resourceType,isEvidence?'evidence':'device'))).limit(1);
+      if(!source)throw new BadRequestException('Acquisition source is unavailable in this exercise');
+      const sourcePermission=isEvidence?Permissions.EVIDENCE_READ:Permissions.REGISTRY_READ;
+      const sourceModule=isEvidence?'evidence':'registry';
+      const impacts=await this.resourceAccessService.getModuleImpacts(analysis.eventId,user);
+      if(impacts.get(sourceModule)==='UNAVAILABLE')throw new ForbiddenException('Acquisition source is unavailable');
+      if(source.visibility!=='EVENT'&&!await this.resourceAccessService.canAccessResource(user,id,sourcePermission,tx))throw new ForbiddenException('Acquisition source requires explicit access');
     }
     const acquisitionId = generateId();
     const now = new Date();
@@ -692,8 +700,10 @@ export class ForensicsService {
       .select({
         id: evidence.id,
         evidenceNumber: evidence.evidenceNumber,
+        title: evidence.title,
         description: evidence.description,
         status: evidence.status,
+        visibility: resources.visibility,
       })
       .from(forensicAnalysisEvidence)
       .innerJoin(evidence, eq(forensicAnalysisEvidence.evidenceId, evidence.id))
@@ -706,16 +716,31 @@ export class ForensicsService {
         id: devices.id,
         name: devices.label,
         deviceType: devices.deviceType,
+        visibility: resources.visibility,
       })
       .from(forensicAnalysisDevices)
       .innerJoin(devices, eq(forensicAnalysisDevices.deviceId, devices.id))
       .innerJoin(resources,eq(resources.id,devices.id))
       .where(and(eq(forensicAnalysisDevices.analysisId, analysisId),eq(resources.eventId,row.eventId)));
 
-    const visibleEvidence=[] as typeof evidenceRows;
-    for(const item of evidenceRows)if(await this.resourceAccessService.canAccessResource(user,item.id,Permissions.EVIDENCE_READ))visibleEvidence.push(item);
-    const visibleDevices=[] as typeof deviceRows;
-    for(const item of deviceRows)if(await this.resourceAccessService.canAccessResource(user,item.id,Permissions.REGISTRY_READ))visibleDevices.push(item);
+    // A work assignment authorizes a minimal input manifest, not general access
+    // to the source record. No fallback for UNIT, RESTRICTED or SCENARIO inputs.
+    const impacts=await this.resourceAccessService.getModuleImpacts(row.eventId,user);
+    const maySeeManifest=accept||work||complete||approve;
+    const visibleEvidence:ForensicAnalysisDetail['evidenceLinks']=[];
+    for(const item of evidenceRows){
+      const canOpen=await this.resourceAccessService.canAccessResource(user,item.id,Permissions.EVIDENCE_READ);
+      if(canOpen||(maySeeManifest&&item.visibility==='EVENT'&&impacts.get('evidence')!=='UNAVAILABLE')){
+        visibleEvidence.push({id:item.id,evidenceNumber:item.evidenceNumber,title:item.title,status:item.status,description:canOpen?item.description??'':'',canOpen});
+      }
+    }
+    const visibleDevices:ForensicAnalysisDetail['deviceLinks']=[];
+    for(const item of deviceRows){
+      const canOpen=await this.resourceAccessService.canAccessResource(user,item.id,Permissions.REGISTRY_READ);
+      if(canOpen||(maySeeManifest&&item.visibility==='EVENT'&&impacts.get('registry')!=='UNAVAILABLE')){
+        visibleDevices.push({id:item.id,name:item.name,deviceType:item.deviceType,canOpen});
+      }
+    }
     return {
       id: row.id,
       analysisNumber: row.analysisNumber,
@@ -770,12 +795,7 @@ export class ForensicsService {
         notes: work||approve?a.notes:null,
         createdAt: a.createdAt.toISOString(),
       })),
-      evidenceLinks: visibleEvidence.map((e) => ({
-        id: e.id,
-        evidenceNumber: e.evidenceNumber,
-        description: e.description || '',
-        status: e.status,
-      })),
+      evidenceLinks: visibleEvidence,
       deviceLinks: visibleDevices,
     };
   }

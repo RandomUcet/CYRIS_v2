@@ -9,7 +9,7 @@ import {
   unitCapabilities, resources, evidence, operationalTasks, auditEvents, outboxEvents, forensicAnalyses, resourceAssignments, notifications as notificationRows,
 } from '@cyris/db';
 import { generateId, Permissions, type PermissionKey } from '@cyris/shared';
-import { MyWorkQuerySchema, CreateOperationalTaskRequestSchema, ForensicQueryFiltersSchema, CreateEvidenceRequestSchema } from '@cyris/contracts';
+import { MyWorkQuerySchema, CreateOperationalTaskRequestSchema, ForensicQueryFiltersSchema, CreateEvidenceRequestSchema, CreateForensicAcquisitionRequestSchema } from '@cyris/contracts';
 import { DatabaseService } from '../modules/database/database.service.js';
 import { AuthorizationService } from '../modules/authorization/authorization.service.js';
 import { ResourceAccessService } from '../modules/resources/resource-access.service.js';
@@ -161,11 +161,27 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         assert.equal(deniedKind.total,0);assert.ok(!deniedKind.availableKinds?.includes('MEDICAL_ENCOUNTER'));
         assert.equal(created.assignedUnitId,unitA);assert.ok([worker.id,secondWorker.id].includes(created.assignedToUserId!));
         let examiner=created.assignedToUserId===worker.id?worker:secondWorker;
+        assert.equal(await access.canAccessResource(examiner,evidenceId,Permissions.EVIDENCE_READ),false);
+        const manifest=(await forensics.getAnalysisDetail(created.id,examiner)).evidenceLinks;
+        assert.equal(manifest.find(e=>e.id===evidenceId)?.canOpen,false);
+        assert.equal(manifest.find(e=>e.id===evidenceId)?.title,'Fixture sample');
+        assert.equal(manifest.find(e=>e.id===evidenceId)?.description,'');
+        assert.equal((await forensics.getAnalysisDetail(created.id,requester)).evidenceLinks.find(e=>e.id===evidenceId)?.canOpen,true);
+        const unrelated=examiner.id===worker.id?secondWorker:worker;
+        await assert.rejects(forensics.getAnalysisDetail(created.id,unrelated),ForbiddenException);
         await assert.rejects(forensics.updateStatus(created.id,{status:'APPROVED'},organizer),BadRequestException);
         const assignedWork=await tasks.listMyWork(eventA,MyWorkQuerySchema.parse({view:'personal'}),examiner);
         assert.ok(assignedWork.items.some(x=>x.id===created.id&&x.kind==='FORENSIC_ANALYSIS'));
         await forensics.updateStatus(created.id,{status:'ACCEPTED'},examiner);
         await forensics.updateStatus(created.id,{status:'IN_PROGRESS'},examiner);
+        const acquisition=CreateForensicAcquisitionRequestSchema.parse({evidenceId,acquisitionType:'LOGICAL'});
+        await db.update(resources).set({visibility:'RESTRICTED'}).where(eq(resources.id,evidenceId));
+        try{
+          assert.equal((await forensics.getAnalysisDetail(created.id,examiner)).evidenceLinks.length,0);
+          await assert.rejects(forensics.createAcquisition(created.id,acquisition,examiner),ForbiddenException);
+        }finally{await db.update(resources).set({visibility:'EVENT'}).where(eq(resources.id,evidenceId));}
+        await assert.rejects(forensics.createAcquisition(created.id,{...acquisition,evidenceId:generateId()},examiner),BadRequestException);
+        assert.equal((await forensics.createAcquisition(created.id,acquisition,examiner)).evidenceId,evidenceId);
         await assert.rejects(forensicController.createFinding(eventB,created.id,{findingType:'ARTIFACT',title:'Wrong event',description:'Must not be saved',confidence:'CONFIRMED'},examiner),NotFoundException);
         await assert.rejects(forensics.updateStatus(created.id,{status:'COMPLETED'},examiner),BadRequestException);
         const draft=await forensics.saveReport(created.id,{methodology:'Fixture method',findings:'Fixture findings',conclusion:'Fixture conclusion'},examiner);
@@ -181,6 +197,8 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         await assert.rejects(forensics.reassignAnalysis(eventA,created.id,{...handoff,assignedToUserId:examiner.id},leader),ConflictException);
         await assert.rejects(forensics.saveReport(created.id,{conclusion:'Old assignment'},examiner),ForbiddenException);
         assert.equal((await forensics.getAnalysisDetail(created.id,nextExaminer)).conclusion,'Fixture conclusion');
+        assert.equal((await forensics.getAnalysisDetail(created.id,nextExaminer)).evidenceLinks.find(e=>e.id===evidenceId)?.canOpen,false);
+        await assert.rejects(forensics.getAnalysisDetail(created.id,examiner),ForbiddenException);
         assert.ok(!(await tasks.listMyWork(eventA,MyWorkQuerySchema.parse({view:'personal'}),examiner)).items.some(x=>x.id===created.id));
         examiner=nextExaminer;
         await forensics.updateStatus(created.id,{status:'COMPLETED'},examiner);

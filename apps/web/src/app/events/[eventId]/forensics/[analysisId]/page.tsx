@@ -97,6 +97,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
   const [showAcquisitionModal, setShowAcquisitionModal] = useState(false);
   const [acquisitionForm, setAcquisitionForm] = useState<{
     acquisitionType: 'PHYSICAL' | 'LOGICAL' | 'TARGETED' | 'MEMORY_DUMP' | 'TRIAGE';
+    source: string;
     toolName: string;
     toolVersion: string;
     hashAlgorithm: string;
@@ -106,6 +107,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
     notes: string;
   }>({
     acquisitionType: 'PHYSICAL',
+    source: '',
     toolName: '',
     toolVersion: '',
     hashAlgorithm: 'SHA256',
@@ -290,6 +292,8 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
     try {
       const res = await apiClient.createForensicAcquisition(eventId, analysisId, {
         acquisitionType: acquisitionForm.acquisitionType,
+        evidenceId: acquisitionForm.source.startsWith('evidence:')?acquisitionForm.source.slice(9):undefined,
+        deviceId: acquisitionForm.source.startsWith('device:')?acquisitionForm.source.slice(7):undefined,
         toolName: acquisitionForm.toolName || undefined,
         toolVersion: acquisitionForm.toolVersion || undefined,
         hashAlgorithm: acquisitionForm.hashAlgorithm,
@@ -300,6 +304,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
       });
       if (res.ok) {
         setShowAcquisitionModal(false);
+        setAcquisitionForm(form=>({...form,source:''}));
         fetchAnalysisDetails();
       } else {
         alert(res.error || 'Failed to add acquisition record');
@@ -599,16 +604,16 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                           <HardDrive size={16} style={{ color: 'var(--color-accent-ops)' }} />
                           <div>
                             <div style={{ fontWeight: 500 }}>
-                              <RecordIdentifier value={ev.evidenceNumber} /> {ev.description}
+                              <RecordIdentifier value={ev.evidenceNumber} /> {ev.title||ev.description}
                             </div>
                             <div style={{ fontSize: '12px', color: 'var(--color-text-dim)' }}>
                               Status: {ev.status}
                             </div>
                           </div>
                         </div>
-                        <Link href={`/events/${eventId}/evidence/${ev.id}`} className="btn btn-secondary btn-sm">
-                          View Evidence
-                        </Link>
+                        {ev.canOpen!==false?<Link href={`/events/${eventId}/evidence/${ev.id}`} className="btn btn-secondary btn-sm">
+                          {tr('Otevřít důkaz','View Evidence')}
+                        </Link>:<span style={{fontSize:12,color:'var(--text-dim)'}}>{tr('Předaný vstup · omezený přehled','Submitted input · limited manifest')}</span>}
                       </div>
                     ))}
                   </div>
@@ -645,6 +650,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                             <div style={{ fontSize: '12px', color: 'var(--color-text-dim)' }}>
                               Type: {dev.deviceType}
                             </div>
+                            {dev.canOpen===false&&<div style={{fontSize:12,color:'var(--text-dim)'}}>{tr('Předaný vstup · omezený přehled','Submitted input · limited manifest')}</div>}
                           </div>
                         </div>
                       </div>
@@ -1018,6 +1024,12 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
               </div>
               <form onSubmit={handleCreateAcquisition}>
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <label htmlFor="acquisition-source" className="forensic-report-label">{tr('Zdroj akvizice','Acquisition source')}</label>
+                  <select id="acquisition-source" className="field-input forensic-report-field" style={{minHeight:36}} value={acquisitionForm.source} onChange={e=>setAcquisitionForm(form=>({...form,source:e.target.value}))}>
+                    <option value="">{tr('Bez konkrétního vstupu','No specific input')}</option>
+                    {(analysis.evidenceLinks??[]).map(ev=><option key={'evidence:'+ev.id} value={'evidence:'+ev.id}>{ev.evidenceNumber} · {ev.title||ev.description}</option>)}
+                    {(analysis.deviceLinks??[]).map(dev=><option key={'device:'+dev.id} value={'device:'+dev.id}>{dev.name} · {dev.deviceType}</option>)}
+                  </select>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <div>
                       <label className="field-label">Acquisition Type</label>
