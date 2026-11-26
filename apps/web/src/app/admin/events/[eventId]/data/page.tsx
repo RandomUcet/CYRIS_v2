@@ -10,6 +10,7 @@ import {apiClient} from '@/lib/api-client';
 import {useAuth} from '@/contexts/AuthContext';
 import {usePreferences} from '@/contexts/PreferencesContext';
 import {EventRetentionPlanSchema,RetentionInventoryReportSchema,type EventRetentionPlan,type EventPurgePreview,type RetentionInventoryReport} from '@cyris/contracts';
+import {compareRetentionSnapshots} from '@/lib/retention-review';
 import styles from './data.module.css';
 
 type Scope='read-notifications'|'terminal-tasks';
@@ -118,6 +119,8 @@ function DataWorkspace({id}:{id:string}){
     try{await navigator.clipboard.writeText(hostCommand);setCopied(true);}catch{setError(tr('Příkaz zkopírujte ručně.','Copy the command manually.'));}
   }
   const valid=base?.retention?.execution==='HOST_ONLY';
+  const comparison=compareRetentionSnapshots(id,plan,hostInventory);
+  const comparisonText={MISSING:tr('Načtěte oba snímky.','Load both snapshots.'),LEGACY:tr('Serverový snímek neobsahuje databázový plán.','Host snapshot has no relational plan.'),MISMATCH:tr('Snímky se liší. Obnovte databázový plán a serverový inventář.','Snapshots differ. Refresh the database plan and host inventory.'),MATCH:tr('Počty a známé vazby souhlasí. Nejde o ověření totožnosti jednotlivých záznamů.','Counts and known relationships agree. This does not verify individual record identity.')}[comparison];
   return <AppShell title={tr('Správa dat cvičení','Exercise data administration')} breadcrumbs={[{label:tr('Cvičení','Exercises'),href:'/admin/events'},{label:tr('Správa dat','Data administration')}]}>
     <div className={styles.workspace}>
       <header className={styles.header}>
@@ -219,14 +222,30 @@ function DataWorkspace({id}:{id:string}){
               [tr('Nezařazený outbox','Unclassified outbox'),hostInventory.background.unclassifiedOutbox],
               [tr('Forenzní externí odkazy','External forensic refs'),hostInventory.background.forensicReferences]
             ].map(([label,count])=><div key={String(label)}><span>{label}</span><strong>{count}</strong></div>)}</div>
-            <div className={styles.warning}><AlertTriangle size={17}/><div><strong>{tr('Blokace úplného mazání','Full deletion blockers')}</strong><ul>{hostInventory.blockers.map(key=><li key={key}>{key.replaceAll('_',' ')}</li>)}</ul></div></div>
+            <div className={styles.warning}><AlertTriangle size={17}/><div><strong>{tr('Blokace úplného mazání','Full deletion blockers')}</strong><ul>{hostInventory.blockers.map(key=><li key={key}>{({
+              OBJECT_LIST_INCOMPLETE:tr('Neúplný inventář úložiště','Incomplete storage inventory'),
+              SHARED_OR_FOREIGN_OBJECTS:tr('Sdílené nebo cizí objekty','Shared or foreign objects'),
+              UNMANAGED_OBJECT_REFERENCES:tr('Odkazy mimo spravované úložiště','Unmanaged object references'),
+              MISSING_OR_UNVERIFIED_OBJECTS:tr('Chybějící nebo neověřené soubory','Missing or unverified files'),
+              UNREFERENCED_OBJECTS_REQUIRE_REVIEW:tr('Soubory bez známého odkazu','Unreferenced objects require review'),
+              FORENSIC_EXTERNAL_REFERENCES:tr('Externí forenzní úložiště','External forensic storage'),
+              BACKGROUND_WORK_REQUIRES_RECONCILIATION:tr('Neuzavřené úlohy na pozadí','Unreconciled background work'),
+              SEARCH_INDEX_UNAVAILABLE:tr('Vyhledávací index není dostupný','Search index unavailable'),
+              REDIS_AND_EXTERNAL_RECONCILIATION_PENDING:tr('Zbývá kontrola Redis a externích služeb','Redis and external services require review'),
+            })[key]}</li>)}</ul></div></div>
             <p>{tr('Import není potvrzením oprávnění k mazání. Redis, externí forenzní úložiště a obnova stále vyžadují samostatnou kontrolu.','Import is not deletion authorization. Redis, external forensic storage and recovery require separate checks.')}</p>
           </div>}
         </section>
         <section className={styles.panel}>
           <h2><ShieldCheck size={19}/>{tr('5 · Co zůstává zachováno','5 · What is retained')}</h2>
           <Link className="btn btn-secondary" href={'/admin/audit?eventId='+encodeURIComponent(id)}>{tr('Audit tohoto cvičení','Audit for this exercise')}</Link>
-          <p>{tr('Uživatelé, role, členství, auditní stopa a operační historie. Samotné cvičení zůstává archivované.','Users, roles, memberships, audit and operational history. The exercise itself remains archived.')}</p>
+          <div className={styles.retentionCompare}>
+            <div><h3>{tr('Částečný reset','Content reset')}</h3><p>{tr('Cvičení, týmy, role, členství a uživatelské účty zůstávají. Operační záznamy a soubory jsou předmětem vyčištění.','Exercise, teams, roles, memberships and user accounts remain. Operational records and files are cleanup targets.')}</p></div>
+            <div><h3>{tr('Úplné odstranění','Full removal')}</h3><p>{tr('Odstraní se také cvičení, jeho týmy, role a členství. Sdílené uživatelské účty a neměnný audit zůstávají.','The exercise, its teams, roles and memberships are also removed. Shared user accounts and immutable audit remain.')}</p></div>
+          </div>
+          <div className={styles.result} role="status"><strong>{tr('Porovnání databázového a serverového snímku','Database and host snapshot comparison')}</strong><span>{comparisonText}</span><small>{tr('Snímky jsou pouze informativní. Nejsou schválením operace ani potvrzením zálohy.','Snapshots are informational only. They are not operation approval or backup verification.')}</small></div>
+          <h3>{tr('Podmínky před zpřístupněním úplného mazání','Requirements before enabling full removal')}</h3>
+          <ol className={styles.steps}><li>{tr('Ověřený nezávislý bod obnovy databáze i souborů.','Verified independent recovery point for database and files.')}</li><li>{tr('Izolace zapisujících služeb a bezpečné obnovení provozu.','Isolation of writing services and safe restart.')}</li><li>{tr('Oprávněný správce, přesný aktuální plán a výslovné potvrzení.','Authorized operator, exact current plan and explicit confirmation.')}</li></ol>
           <div className={styles.warning}><AlertTriangle size={19}/><div><strong>{tr('Úplné odstranění cvičení zatím není k dispozici','Complete exercise deletion is not yet available')}</strong><p>{tr('Důkazy, zprávy, soubory, externí integrace a závislosti musí projít samostatnou akceptací. Náhled neznamená oprávnění odstranit všechna data.','Evidence, reports, files, external integrations and dependencies require separate acceptance. Preview is not permission to delete all data.')}</p></div></div>
         </section>
       </>}
