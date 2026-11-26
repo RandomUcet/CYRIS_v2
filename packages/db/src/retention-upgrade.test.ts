@@ -15,6 +15,7 @@ const url=process.env.CYRIS_TEST_DATABASE_URL;
 const baselines=[
   {version:'2.4.22',count:35,last:'0034_legal_library',database:'cyris_upgrade_2422'},
   {version:'2.5.1',count:42,last:'0041_exercise_inject_setup',database:'cyris_upgrade_251'},
+  {version:'2.5.2',count:43,last:'0042_retained_exercise_audit',database:'cyris_upgrade_252'},
 ] as const;
 for(const baseline of baselines)test('populated schema upgrade from '+baseline.version+' preserves exercise and immutable audit',{skip:!enabled},async()=>{
   if(process.env.CYRIS_TEST_DATABASE_ISOLATED!=='true'||!url)throw Error('Dedicated isolated upgrade database required');

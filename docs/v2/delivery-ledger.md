@@ -5,7 +5,7 @@ Status definitions: **OPEN** not accepted; **ACTIVE** current workstream; **IMPL
 
 ## ACTIVE: ADM-01 — Exercise data lifecycle and administration
 
-Owner: CYRIS development. Current working PR #54 (2.5.2); check actual head and CI before editing.
+Owner: CYRIS development. Release 2.5.2 is published; active branch `feat/2.5.3-recovery-and-acceptance`. Check actual head and exact CI before editing. ADM-01 remains active; production apply stays blocked until independent recovery and writer isolation are verified.
 
 | Acceptance item | State | Evidence / next action |
 |---|---|---|
@@ -139,3 +139,8 @@ Initial evidence count **4/10**, 6 remaining. R6 is not complete solely on fresh
 - Exact head eda9bc8 CI 45846534653 failed one regression in scripts/release-layer-cache.test.mjs:30 because it required the obsolete ubuntu-latest default; 405 pass, 1 fail, 6 skipped, 8 todo, build/typecheck successful. Browser not reached. Reconcile prepared R6 child dc99468 onto a single corrected commit: maintain isolated runner override, assert Ubuntu 24.04 + mandatory pinned Chromium and actual upgrade job, add published baseline image and local candidate Docker build/rollback test with real migration-status checks before/after restore. Parallel hosted upgrade job is mandatory under reusable CI. No release or production mutation. R1–R5 verified from preceding passing evidence, R6–R10 pending; 5/10. New exact CI must pass before merge.
 
 - Exact head 5421ce8 CI 45848108670: upgrade-images job 140006968746 built all candidate runtime images successfully, then failed pulling published baseline 2.4.22 digest from GHCR (unauthorized); baseline manifest checksum passed and disposable infrastructure initialized. Prepared read-only registry authentication via GitHub Actions token, explicit packages:read job and caller permission, inherited Docker config for scoped sudo, immutable baseline pull before infrastructure and mandatory regression assertions. No credentials printed, no package visibility changes. If token lacks package access, repository/package owner must grant Actions read access; do not bypass or replace published-image verification with tag-only/local baseline. Other validate job still running during preparation. R6/R7/R8 pending; 5/10. Attach only after current validation settles; reconcile if browser fails. R6 index/migration fingerprints reviewed as test follow-up, not implemented in this increment. No production mutation.
+
+## 2.5.2 completed / 2.5.3 active
+
+- 2.5.2 publication **10/10**: tag v2.5.2 points to b4fa0d4; main CI 45855659166 and Release 45855659203 passed, published 2026-11-26 16:36 UTC; five assets and AMD64/ARM64 digest verification successful. Candidate tree identical to green PR #54 head a6eab6a. Browser acceptance limited to admin/participant; actual host and installer download path not verified.
+- 2.5.3 first increment: version alignment, mandatory populated schema and immutable image upgrade/rollback from newly published 2.5.2 in addition to prior two baselines, candidate version and migration count derived from checkout. Exact CI pending. No new production mutation route. Return ADM-01 independent recovery, writer isolation, external reference review and operator acceptance; extend specialist browser coverage. Preserve 2.5.2 tag and all backlog IDs.

@@ -57,3 +57,17 @@ test('never publish a release with missing image digest or architecture',()=>{
     assert.ok(release.includes('"'+service+':$'+service.toUpperCase()+'_DIGEST"'));
   }
 });
+
+test('next release rehearses the latest immutable published baseline and derives candidate identity',()=>{
+  const ci=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8');
+  const smoke=readFileSync(new URL('../deploy/tests/upgrade-image-smoke.sh',import.meta.url),'utf8');
+  const db=readFileSync(new URL('../packages/db/src/retention-upgrade.test.ts',import.meta.url),'utf8');
+  assert.ok(ci.includes('for baseline in 2.4.22 2.5.1 2.5.2; do'));
+  assert.ok(ci.includes('createdb -U cyris_test -T template0 cyris_upgrade_252'));
+  assert.ok(ci.includes('CYRIS_VERSION="$(cat VERSION)"'));
+  assert.ok(smoke.includes('2.5.2) checksum=ed5b40126d3008a97e1de3a17f7d0dc90e3d027b20b6907e278ecc6f28c04eb9; count=43'));
+  assert.ok(smoke.includes('candidate="$(cat VERSION)"'));
+  assert.ok(smoke.includes('probe "$candidate"'));
+  assert.ok(smoke.includes('== "$candidate_count"'));
+  assert.ok(db.includes("version:'2.5.2',count:43,last:'0042_retained_exercise_audit'"));
+});

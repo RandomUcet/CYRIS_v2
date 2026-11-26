@@ -144,11 +144,12 @@ jobs:
           curl -fsS http://127.0.0.1:18109/health >/dev/null
           CYRIS_TEST_RETENTION_COMMITTED=true CYRIS_TEST_S3_ENDPOINT=http://127.0.0.1:19001 CYRIS_TEST_TYPESENSE_ENDPOINT=http://127.0.0.1:18109 pnpm exec tsx --test apps/api/src/scripts/retention-finish.test.ts
 
-      - name: Rehearse populated schema upgrades from 2.4.22 and 2.5.1
+      - name: Rehearse populated schema upgrades from 2.4.22, 2.5.1 and 2.5.2
         run: |
           set -euo pipefail
           docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_upgrade_2422
           docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_upgrade_251
+          docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_upgrade_252
           CYRIS_TEST_RETENTION_UPGRADE=true pnpm exec tsx --test packages/db/src/retention-upgrade.test.ts
 
       - name: Real browser release smoke with populated admin and participant
@@ -170,7 +171,7 @@ jobs:
           docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_browser_smoke
           export DATABASE_URL=postgresql://cyris_test:local-ci-only@127.0.0.1:5432/cyris_browser_smoke
           export REDIS_URL=redis://127.0.0.1:6379/13
-          export NODE_ENV=development CYRIS_VERSION=2.5.2 PORT=4000 PUBLIC_WEB_URL=http://127.0.0.1:3000
+          export NODE_ENV=development CYRIS_VERSION="$(cat VERSION)" PORT=4000 PUBLIC_WEB_URL=http://127.0.0.1:3000
           export CYRIS_MASTER_KEY="$(openssl rand -hex 32)"
           export TYPESENSE_HOST=127.0.0.1 TYPESENSE_PORT=18110 TYPESENSE_API_KEY=cyris-browser-search-only
           export S3_ENDPOINT=http://127.0.0.1:19002 S3_ACCESS_KEY=cyris-test-only S3_SECRET_KEY=local-ci-storage-only
@@ -251,6 +252,6 @@ jobs:
       - name: Rehearse published image upgrades and rollback on isolated Compose
         run: |
           set -euo pipefail
-          for baseline in 2.4.22 2.5.1; do
+          for baseline in 2.4.22 2.5.1 2.5.2; do
             sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" DOCKER_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}" bash deploy/tests/upgrade-image-smoke.sh "$baseline"
           done
