@@ -54,6 +54,77 @@ try{
   await work.getByText('Platform administrator access required.',{exact:false}).waitFor();
   await work.screenshot({path:join(output,'participant-admin-denied.png'),fullPage:true});
   await participant.close();
+
+  // Canonical profiles, real browser sessions, no administrator impersonation.
+  // Requester creates a request through the authenticated API; the examiner
+  // finds it in the actual queue and performs the workflow in Chromium.
+  const requester=await login(fixture.requesterEmail);
+  await requester.page.waitForURL(/\/events\/.+\/my-work/);
+  const eventRoot=base+'/events/'+fixture.event,apiRoot=base+'/api/events/'+fixture.event;
+  const purpose='Browser USB examination request',conclusion='Browser verified synthetic USB report';
+  const submission=await requester.context.request.post(apiRoot+'/forensics',{data:{
+    purpose,analysisType:'DISK_IMAGE',priority:'MEDIUM',visibility:'EVENT',
+    requestedFromUnitId:fixture.bpsUnit,assignedUnitId:fixture.cyberUnit,evidenceIds:[fixture.usb],
+  }});
+  assert.equal(submission.status(),201,'BPS requester can create a digital analysis');
+  const submitted=await submission.json(),analysis=submitted.data??submitted;
+  assert.ok(analysis.id);assert.equal(analysis.assignedToUserId,fixture.analyst);
+  const endpoint=apiRoot+'/forensics/'+analysis.id,detail=eventRoot+'/forensics/'+analysis.id;
+  const read=async(context)=>{const response=await context.request.get(endpoint);assert.equal(response.status(),200);const payload=await response.json();return payload.data??payload;};
+  assert.equal((await read(requester.context)).reportAvailable,false);
+  assert.equal((await requester.context.request.patch(endpoint+'/status',{data:{status:'APPROVED'}})).status(),403);
+
+  const examiner=await login(fixture.analystEmail),ex=examiner.page;
+  await ex.waitForURL(/\/events\/.+\/my-work/);
+  await ex.goto(eventRoot+'/forensics');
+  await ex.getByText(purpose,{exact:true}).waitFor();
+  const sidebar=ex.locator('.workspace-nav-scroll');
+  const forensicNav=sidebar.locator('a[href="/events/'+fixture.event+'/forensics"]');
+  await forensicNav.waitFor();
+  assert.equal(await forensicNav.count(),1,'No duplicated forensic navigation links');
+  assert.equal(await sidebar.locator('a[href^="/admin"]').count(),0);
+  assert.equal(await sidebar.locator('a[href="/events/'+fixture.event+'/excon"]').count(),0);
+  await ex.screenshot({path:join(output,'specialist-forensics-queue.png'),fullPage:true});
+  await ex.goto(detail);
+  await ex.getByRole('button',{name:'Accept Analysis Request'}).waitFor();
+  await ex.getByText('Evidence & Devices',{exact:false}).first().click();
+  await ex.getByText('Browser USB sample',{exact:false}).first().waitFor();
+  await ex.getByText('Submitted input · limited manifest',{exact:true}).waitFor();
+  assert.equal(await ex.getByRole('link',{name:'View Evidence',exact:true}).count(),0);
+  assert.equal((await examiner.context.request.get(apiRoot+'/evidence/'+fixture.usb)).status(),403);
+  const manifest=await read(examiner.context);
+  assert.equal(manifest.evidenceLinks.find(e=>e.id===fixture.usb)?.canOpen,false);
+  assert.equal(manifest.evidenceLinks.find(e=>e.id===fixture.usb)?.description,'');
+  await ex.screenshot({path:join(output,'specialist-forensics-input.png'),fullPage:true});
+  await ex.getByRole('button',{name:'Accept Analysis Request'}).click();
+  await ex.getByRole('button',{name:'Start Examination'}).click();
+  await ex.getByText('Overview',{exact:true}).last().click();
+  await ex.locator('#forensic-methodology').fill('Browser fixture methodology');
+  await ex.locator('#forensic-findings').fill('Synthetic fixture findings');
+  await ex.locator('#forensic-conclusion').fill(conclusion);
+  await ex.getByRole('button',{name:'Complete Analysis'}).click();
+  await ex.getByRole('button',{name:'Complete Analysis'}).waitFor({state:'hidden'});
+  assert.equal((await read(examiner.context)).status,'COMPLETED');
+  assert.equal((await read(requester.context)).conclusion,null,'Draft remains private');
+  assert.equal((await examiner.context.request.patch(endpoint+'/status',{data:{status:'APPROVED'}})).status(),403);
+  assert.equal((await examiner.context.request.get(base+'/api/events/'+fixture.foreign+'/forensics/'+analysis.id)).status(),404);
+  await ex.setViewportSize({width:390,height:844});
+  await ex.screenshot({path:join(output,'specialist-forensics-mobile.png'),fullPage:true});
+  await examiner.context.close();
+
+  const supervisor=await login(fixture.leadEmail);
+  await supervisor.page.waitForURL(/\/events\/.+\/my-work/);
+  await supervisor.page.goto(detail);
+  await supervisor.page.getByRole('button',{name:'Approve Forensic Report'}).click();
+  await supervisor.page.getByRole('button',{name:'Approve Forensic Report'}).waitFor({state:'hidden'});
+  assert.equal((await read(supervisor.context)).status,'APPROVED');
+  await supervisor.context.close();
+  assert.equal((await read(requester.context)).conclusion,conclusion);
+  await requester.page.goto(eventRoot+'/my-work');
+  await requester.page.getByRole('button',{name:/My requests and results|Moje žádanky a výsledky/}).click();
+  await requester.page.getByText(purpose,{exact:true}).waitFor();
+  await requester.page.screenshot({path:join(output,'specialist-requester-result.png'),fullPage:true});
+  await requester.context.close();
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');
-  console.log('Real-browser admin and participant smoke passed; 5 screenshots captured.');
+  console.log('Real-browser admin, participant and canonical specialist workflow smoke passed; 9 screenshots captured.');
 }finally{await browser.close();}
