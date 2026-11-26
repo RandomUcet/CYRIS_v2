@@ -78,7 +78,7 @@ archive=("$CYRIS_BACKUPS_DIR"/backup_*.tar.gz.gpg)
 [[ ${#archive[@]} == 1 && -f "${archive[0]}" ]]
 python3 - "$CYRIS_ETC_DIR/cyris.env" "$CYRIS_OPT_DIR/release-manifest.json" "$candidate" <<'PY'
 import json, pathlib, sys
-env, manifest = map(pathlib.Path, sys.argv[1:])
+env, manifest = map(pathlib.Path, sys.argv[1:3])
 settings = {"CYRIS_VERSION": sys.argv[3], **{"CYRIS_"+r.upper()+"_IMAGE":"cyris-upgrade-candidate-"+r+":local" for r in ("api","worker","web")}}
 lines = [line for line in env.read_text().splitlines() if line.partition("=")[0] not in settings]
 env.write_text("\n".join(lines+[f"{k}={v}" for k,v in settings.items()])+"\n")

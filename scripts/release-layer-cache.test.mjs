@@ -71,3 +71,9 @@ test('next release rehearses the latest immutable published baseline and derives
   assert.ok(smoke.includes('== "$candidate_count"'));
   assert.ok(db.includes("version:'2.5.2',count:43,last:'0042_retained_exercise_audit'"));
 });
+
+test('upgrade smoke Python snippets separate path arguments from version argument',()=>{
+  const smoke=readFileSync(new URL('../deploy/tests/upgrade-image-smoke.sh',import.meta.url),'utf8');
+  assert.equal(smoke.split('env, manifest = map(pathlib.Path, sys.argv[1:3])').length-1,2);
+  assert.ok(!smoke.includes('map(pathlib.Path, sys.argv[1:])'));
+});
