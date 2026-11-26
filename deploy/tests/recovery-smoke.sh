@@ -23,16 +23,28 @@ object() {
     mc "$1" "probe/$S3_AUDIT_BUCKET/recovery-check"
   ' sh "$1"
 }
+# Exercise the real search index as well as the database, object store and
+# queue cache. The helper is restricted to this disposable Compose project.
+typesense_fixture() {
+  python3 deploy/tests/typesense-recovery-probe.py "$COMPOSE_PROJECT_NAME" "$("${compose[@]}" ps -q typesense)" "$1"
+}
 sql "create table recovery_check(value text); insert into recovery_check values ('before')"
 echo before | object pipe
 "${compose[@]}" exec -T redis redis-cli set recovery-check before
+typesense_fixture seed
+typesense_fixture assert-before
 deploy/cyrisctl backup
 deploy/cyrisctl backup verify
 sql "update recovery_check set value='after'"
 echo after | object pipe
 "${compose[@]}" exec -T redis redis-cli set recovery-check after
+typesense_fixture mutate
+typesense_fixture assert-after
 archive=("$CYRIS_BACKUPS_DIR"/backup_*.tar.gz.gpg)
 deploy/cyrisctl restore "${archive[0]}" --force
 [[ $(sql "select value from recovery_check") == before ]]
 [[ $(object cat) == before ]]
 [[ $("${compose[@]}" exec -T redis redis-cli get recovery-check) == before ]]
+
+typesense_fixture assert-before
+echo 'Encrypted backup restore verified PostgreSQL, MinIO, Redis and Typesense fixture data.'

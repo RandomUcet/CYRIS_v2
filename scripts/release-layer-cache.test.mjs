@@ -110,3 +110,18 @@ test('upgrade evidence records checkout identity and per-baseline timings withou
  assert.ok(!step.includes('continue-on-error'));
  assert.ok(!step.includes('printenv'));
 });
+
+test('isolated encrypted recovery checks Typesense data and search before mutation and after restore',()=>{
+ const script=readFileSync(new URL('../deploy/tests/recovery-smoke.sh',import.meta.url),'utf8');
+ const probe=readFileSync(new URL('../deploy/tests/typesense-recovery-probe.py',import.meta.url),'utf8');
+ const backup=script.indexOf('deploy/cyrisctl backup');
+ const restore=script.indexOf('deploy/cyrisctl restore');
+ assert.ok(script.indexOf('typesense_fixture seed')<backup);
+ assert.ok(script.indexOf('typesense_fixture assert-after')>backup&&script.indexOf('typesense_fixture assert-after')<restore);
+ assert.ok(script.lastIndexOf('typesense_fixture assert-before')>restore);
+ assert.ok(probe.includes('com.docker.compose.project'));
+ assert.ok(probe.includes('com.docker.compose.service'));
+ assert.ok(probe.includes('ProxyHandler({})'));
+ assert.ok(probe.includes('/search?q='));
+ assert.ok(probe.includes('GITHUB_ACTIONS'));
+});
