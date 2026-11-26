@@ -1,5 +1,12 @@
 import {translate,type SupportedLocale} from './i18n';
 const cs: Record<string,string> = {
+  "Work & overview": "Práce a přehled",
+  "Laboratory": "Laboratoř",
+  "Digital forensics": "Digitální forenzika",
+  "Command & control": "Velení a řízení",
+  "Exercise administration": "Správa cvičení",
+  "Identity & access": "Uživatelé a přístupy",
+  "System & operations": "Systém a provoz",
   "Help & support": "Pomoc a podpora",
   "Support": "Podpora",
   "Module availability": "Dostupnost modulů",

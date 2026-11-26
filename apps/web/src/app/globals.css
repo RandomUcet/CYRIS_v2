@@ -2269,3 +2269,18 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
 .forensic-report-label{display:block;font-weight:600;margin-bottom:6px;}
 .forensic-report-field{display:block;box-sizing:border-box;width:100%;min-width:0;min-height:100px;resize:vertical;}
 @media(max-width:1000px){.forensic-overview-grid{grid-template-columns:minmax(0,1fr);}}
+
+/* Stable flat navigation: toolbar and footer remain visible, only module list scrolls. */
+:root{--nav-width:252px}
+.workspace-nav-body{flex:1;min-height:0}
+.workspace-nav-tools{flex-shrink:0;border-bottom:1px solid var(--border-default);padding:4px 0}
+.workspace-nav-tools .workspace-mode-switch{padding:7px 12px}
+.workspace-nav-tools .workspace-module-filter{margin:5px 12px 8px}
+.workspace-nav-scroll{flex:1;min-height:0;padding:8px 8px 14px;scrollbar-width:thin}
+.workspace-nav-group{margin:0 0 9px;padding:0 0 8px;border-bottom:1px solid var(--border-default)}
+.workspace-nav-group:last-child{border-bottom:0}
+.workspace-nav-heading{font-size:10px;font-weight:700;letter-spacing:.055em;text-transform:uppercase;color:var(--text-dim);padding:7px 10px 5px}
+.workspace-nav-items{display:flex;flex-direction:column;gap:2px}
+.workspace-nav-link:focus-visible{outline:2px solid var(--accent-active);outline-offset:-2px}
+.is-rail .workspace-nav-scroll{padding:8px 4px}
+.is-rail .workspace-nav-group{padding-bottom:5px;margin-bottom:5px}

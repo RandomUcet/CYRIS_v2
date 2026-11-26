@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { eq, desc, and, or, isNull, gt, asc, sql, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
+import { AuthorizationService } from '../authorization/authorization.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
 import { IdentifierAllocatorService } from '../resources/identifier-allocator.service.js';
@@ -34,7 +35,8 @@ export class EvidenceService {
     private readonly identifierAllocatorService: IdentifierAllocatorService,
     private readonly auditService: AuditService,
     private readonly activityService: ActivityService,
-    private readonly searchIndexerService: SearchIndexerService
+    private readonly searchIndexerService: SearchIndexerService,
+    private readonly authorizationService: AuthorizationService
   ) {}
 
   private get db() {
@@ -80,9 +82,21 @@ export class EvidenceService {
     data: CreateEvidenceRequest,
     user: AuthenticatedUser
   ): Promise<EvidenceResponse> {
+    await this.authorizationService.assertAuthorized({user,permission:Permissions.EVIDENCE_CREATE,context:{eventId,unitId:data.owningUnitId,resourceOwnerId:user.id}});
     const evidenceId = generateId();
 
     return this.db.transaction(async (tx) => {
+      const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).for('update').limit(1);
+      if(!event||['CLOSED','ARCHIVED'].includes(event.status))throw new BadRequestException('Exercise is read-only');
+      if(data.owningUnitId){
+        const [unit]=await tx.select({id:organizationalUnits.id}).from(organizationalUnits).where(and(eq(organizationalUnits.id,data.owningUnitId),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt))).limit(1);
+        if(!unit)throw new BadRequestException('Owning unit is unavailable in this exercise');
+      }
+      if(data.caseId){
+        const [linked]=await tx.select({id:resources.id}).from(resources).where(and(eq(resources.id,data.caseId),eq(resources.eventId,eventId),eq(resources.resourceType,'case'))).limit(1);
+        if(!linked)throw new BadRequestException('Case is unavailable in this exercise');
+        await this.resourceAccessService.assertCanAccessResource(user,data.caseId,Permissions.CASE_READ,tx);
+      }
       // 1. Allocate sequential identifier (e.g. E-0001)
       const evidenceNumber = await this.identifierAllocatorService.allocate(
         eventId,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { RoleResponse, UnitResponse } from '@cyris/contracts';
+import {canonicalTeamRoleSlugs, type RoleResponse, type UnitResponse} from '@cyris/contracts';
 import { apiClient } from '@/lib/api-client';
 import styles from './LdapTeams.module.css';
 
@@ -52,6 +52,10 @@ interface Props {
 
 export function ExerciseTeamRoles({ cs, catalog, hasEvent, valueKey, unit, role, onUnit, onRole, retry, allowEventWide, disabled }: Props) {
   const pending = disabled || !catalog || Boolean(catalog.error);
+  const selectedUnit=catalog?.units.find(row=>row[valueKey]===unit);
+  const recommended=new Set(canonicalTeamRoleSlugs[selectedUnit?.slug??'']??[]);
+  const suggested=(catalog?.roles??[]).filter(row=>recommended.has(row.slug));
+  const other=(catalog?.roles??[]).filter(row=>!recommended.has(row.slug));
   return <>
     <label>{cs ? 'Tým' : 'Team'}
       <select value={unit} onChange={e => onUnit(e.target.value)} disabled={pending} required={!allowEventWide}>
@@ -64,9 +68,11 @@ export function ExerciseTeamRoles({ cs, catalog, hasEvent, valueKey, unit, role,
       <select value={role} onChange={e => onRole(e.target.value)} disabled={pending} required>
         <option value="">{cs ? 'Vyberte roli' : 'Select a role'}</option>
         {role && !catalog?.roles.some(row => row[valueKey] === role) && <option value={role} disabled>{role}{catalog && (cs ? ' · nedostupná' : ' · unavailable')}</option>}
-        {catalog?.roles.map(row => <option key={row.id} value={row[valueKey]}>{row.name}</option>)}
+        {suggested.length>0&&<optgroup label={cs?'Doporučené pro tým':'Suggested for team'}>{suggested.map(row=><option key={row.id} value={row[valueKey]}>{row.name}</option>)}</optgroup>}
+        {other.length>0&&<optgroup label={cs?'Ostatní role':'Other roles'}>{other.map(row=><option key={row.id} value={row[valueKey]}>{row.name}</option>)}</optgroup>}
       </select>
     </label>
+    {selectedUnit&&recommended.size>0&&!suggested.length&&<p className={styles.full} role="status">{cs?'Doporučená role chybí. Doplňte šablony v Administraci → Role a oprávnění.':'Recommended role missing. Add templates in Administration → Roles and permissions.'}</p>}
     {hasEvent && !catalog && <p className={styles.full} role="status">{cs ? 'Načítání týmů a rolí…' : 'Loading teams and roles…'}</p>}
     {catalog?.error && <p className={styles.full} role="alert">{cs ? 'Týmy a role se nepodařilo načíst.' : 'Unable to load teams and roles.'} <button className="btn btn-secondary" type="button" onClick={retry}>{cs ? 'Zkusit znovu' : 'Retry'}</button></p>}
     {catalog && !catalog.error && ((!catalog.units.length && !allowEventWide) || !catalog.roles.length) && <p className={styles.full} role="status">{cs ? 'Pro toto cvičení nejdříve vytvořte tým a roli v administraci.' : 'Create a team and an exercise role in Administration first.'}</p>}

@@ -101,7 +101,8 @@ async function main() {
     identifierAllocatorService,
     auditService,
     activityService,
-    searchIndexerService
+    searchIndexerService,
+    authzService
   );
   const laboratoryService = new LaboratoryService(
     databaseService,

@@ -728,6 +728,9 @@ export class CyrisApiClient {
   async createEvent(data: any) {
     return this.postJson<EventResponse>('/events', data);
   }
+  getTeamRoleReview(eventId:string){
+    return this.fetchJson<import('@cyris/contracts').TeamRoleReviewItem[]>(`/events/${encodeURIComponent(eventId)}/team-templates/review`);
+  }
   initializeTeamTemplates(eventId: string) {
     return this.postJson<{ eventId: string; unitsCreated: number; rolesCreated: number }>(
       `/events/${encodeURIComponent(eventId)}/team-templates`, {},

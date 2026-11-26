@@ -9,7 +9,7 @@ import {
   unitCapabilities, resources, evidence, operationalTasks, auditEvents, outboxEvents, forensicAnalyses, resourceAssignments, notifications as notificationRows,
 } from '@cyris/db';
 import { generateId, Permissions, type PermissionKey } from '@cyris/shared';
-import { MyWorkQuerySchema, CreateOperationalTaskRequestSchema, ForensicQueryFiltersSchema } from '@cyris/contracts';
+import { MyWorkQuerySchema, CreateOperationalTaskRequestSchema, ForensicQueryFiltersSchema, CreateEvidenceRequestSchema } from '@cyris/contracts';
 import { DatabaseService } from '../modules/database/database.service.js';
 import { AuthorizationService } from '../modules/authorization/authorization.service.js';
 import { ResourceAccessService } from '../modules/resources/resource-access.service.js';
@@ -21,6 +21,7 @@ import { SearchIndexerService } from '../modules/search/search-indexer.service.j
 import { NotificationsService } from '../modules/notifications/notifications.service.js';
 import { TasksService } from '../modules/tasks/tasks.service.js';
 import { TasksController } from '../modules/tasks/tasks.controller.js';
+import { EvidenceService } from '../modules/evidence/evidence.service.js';
 import { ForensicsService } from '../modules/forensics/forensics.service.js';
 import { ForensicsController } from '../modules/forensics/forensics.controller.js';
 import { LaboratoryService } from '../modules/laboratory/laboratory.service.js';
@@ -61,6 +62,7 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
   const disruptions = new DisruptionsService(database, auth, audit);
   const tasks = new TasksService(database, resource, access, allocator, audit, activity, indexer, notificationService, auth, disruptions);
   const controller = new TasksController(tasks);
+  const evidenceService=new EvidenceService(database,resource,access,allocator,audit,activity,indexer,auth);
   const forensics=new ForensicsService(database,audit,activity,resource,access,allocator,auth);
   const forensicController=new ForensicsController(forensics);
   const lab = new LaboratoryService(database, resource, access, allocator, audit, activity, indexer, notificationService, auth);
@@ -120,6 +122,14 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
     await db.insert(resources).values({ id: evidenceId, eventId: eventA, resourceType: 'evidence', visibility: 'EVENT', ownerUserId: requester.id });
     await db.insert(evidence).values({ id: evidenceId, evidenceNumber: 'EV-TEST', title: 'Fixture sample', evidenceType: 'sample', currentHolderId: requester.id });
 
+    await t.test('evidence creation is authorized before any database write',async()=>{
+      const dto=CreateEvidenceRequestSchema.parse({title:'Authorization fixture',evidenceType:'DIGITAL',currentHolderType:'USER',currentHolderId:worker.id});
+      const before=await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA));
+      await assert.rejects(evidenceService.createEvidence(eventA,dto,outsider),ForbiddenException);
+      await assert.rejects(evidenceService.createEvidence(eventA,dto,worker),ForbiddenException);
+      await assert.rejects(evidenceService.createEvidence(eventB,dto,worker),ForbiddenException);
+      assert.equal((await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA))).length,before.length);
+    });
     await t.test('forensic request and indicator creation require permission, event routes are scoped',async()=>{
       await db.insert(unitCapabilities).values({unitId:unitA,capabilityKey:'digital_forensics'});
       const forensicWorkerPermissions:Array<[PermissionKey,string]>=[Permissions.FORENSICS_READ,Permissions.FORENSICS_ACCEPT,Permissions.FORENSICS_WORK,Permissions.FORENSICS_COMPLETE].map(p=>[p,'ASSIGNED']);

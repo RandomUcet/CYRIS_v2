@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { UnitCapabilityKeys, previewTeams } from '@cyris/contracts';
-import { Permissions, PermissionScopes } from '@cyris/shared';
+import { Permissions, PermissionScopes, type PermissionKey, type PermissionScope } from '@cyris/shared';
 import type { CyrisDatabase } from './client.js';
 import { organizationalUnits, unitCapabilities } from './schema/events.js';
 import { roles, rolePermissions } from './schema/roles.js';
@@ -197,6 +197,56 @@ export const legalRoleTemplates = [
   },
 ];
 
+// Explicit, additive role definitions. A unit capability or name never grants access.
+// Ordinary staff and supervisors are separate. Existing roles are not silently rewritten.
+const grants=(scope:PermissionScope,...keys:PermissionKey[])=>keys.map(key=>({key,scope}));
+const eventGrants=(...keys:PermissionKey[])=>grants(PermissionScopes.EVENT,...keys);
+const unitGrants=(...keys:PermissionKey[])=>grants(PermissionScopes.UNIT,...keys);
+const ownGrants=(...keys:PermissionKey[])=>grants(PermissionScopes.OWN,...keys);
+const assignedGrants=(...keys:PermissionKey[])=>grants(PermissionScopes.ASSIGNED,...keys);
+const P=Permissions;
+const commonStaff=[
+  ...eventGrants(P.EVENT_READ,P.UNIT_READ,P.TIMELINE_READ,P.BRIEFING_READ,P.BRIEFING_ACKNOWLEDGE),
+  ...assignedGrants(P.TASK_READ,P.TASK_ACKNOWLEDGE,P.TASK_WORK,P.TASK_COMPLETE),
+];
+const requestGrants=[...eventGrants(P.LAB_REQUEST,P.FORENSICS_REQUEST),...ownGrants(P.LAB_READ,P.FORENSICS_READ)];
+const documentGrants=[...eventGrants(P.DOCUMENT_READ,P.DOCUMENT_CREATE),...ownGrants(P.DOCUMENT_UPDATE,P.DOCUMENT_VERSION)];
+const labStaff=[
+  ...commonStaff,...documentGrants,...unitGrants(P.LAB_READ),
+  ...assignedGrants(P.LAB_READ,P.LAB_ACCEPT,P.LAB_WORK,P.LAB_COMPLETE,P.EVIDENCE_READ),
+];
+const digitalStaff=[
+  ...commonStaff,...documentGrants,...unitGrants(P.FORENSICS_READ),
+  ...assignedGrants(P.FORENSICS_READ,P.FORENSICS_ACCEPT,P.FORENSICS_WORK,P.FORENSICS_COMPLETE,P.EVIDENCE_READ,P.REGISTRY_READ),
+  ...eventGrants(P.INDICATOR_READ,P.INDICATOR_CREATE),
+];
+export const canonicalTeamRoleProfiles=[
+  {slug:'team-bps-operator',name:'BPS – vyšetřovatel',description:'Evidence collection, cases and external analysis requests',permissions:[
+    ...commonStaff,...documentGrants,...requestGrants,
+    ...eventGrants(P.INCIDENT_READ,P.INCIDENT_CREATE,P.CASE_READ,P.CASE_CREATE,P.EVIDENCE_READ,P.EVIDENCE_CREATE,P.REGISTRY_READ),
+    ...ownGrants(P.INCIDENT_UPDATE,P.CASE_UPDATE,P.EVIDENCE_UPDATE,P.EVIDENCE_TRANSFER),
+    ...unitGrants(P.INCIDENT_UPDATE,P.CASE_UPDATE,P.EVIDENCE_UPDATE,P.EVIDENCE_TRANSFER),
+  ]},
+  {slug:'team-lavender-operator',name:'Laboratoř levandulového oleje – analytik',description:'Assigned laboratory sample processing',permissions:labStaff},
+  {slug:'team-cyber-forensic-operator',name:'Kybernetický forenzní tým – analytik',description:'Assigned digital analysis and own unit queue',permissions:digitalStaff},
+  {slug:'team-intelligence-operator',name:'Juniorská zpravodajská služba – analytik',description:'Intelligence synthesis and operational reporting',permissions:[
+    ...commonStaff,...documentGrants,...eventGrants(P.INTELLIGENCE_USE,P.INCIDENT_READ,P.CASE_READ,P.REGISTRY_READ),
+  ]},
+  {slug:'team-crisis-operator',name:'Juniorský krizový štáb – člen',description:'Operational picture and coordination, no DEFCON change',permissions:[
+    ...commonStaff,...documentGrants,...eventGrants(P.COMMAND_READ,P.INCIDENT_READ,P.TASK_CREATE,P.TASK_READ,P.TASK_ASSIGN),
+  ]},
+  {slug:'team-chemical-forensic-operator',name:'Chemický forenzní tým – analytik',description:'Assigned physical evidence and laboratory processing',permissions:labStaff},
+  {slug:'team-medical-operator',name:'Záchranná a zdravotní služba – zdravotník',description:'Medical work in own active unit',permissions:[...commonStaff,...medicalResponderPermissions]},
+  {slug:'team-court-support',name:'Soudní senát – podpora',description:'Court records and filings, no judicial decisions',permissions:[
+    ...commonStaff,...documentGrants,...eventGrants(P.COURT_READ,P.COURT_FILING_READ,P.COURT_EXHIBIT_READ,P.COURT_DECISION_READ,P.COURT_REQUEST_READ),
+  ]},
+  {slug:'team-laboratory-lead',name:'Laboratoř – vedoucí',description:'Unit coordination and approval, no exercise correction',permissions:[
+    ...labStaff,...unitGrants(P.LAB_REASSIGN,P.LAB_APPROVE),
+  ]},
+  {slug:'team-digital-forensic-lead',name:'Digitální forenzika – vedoucí',description:'Unit coordination and approval',permissions:[
+    ...digitalStaff,...unitGrants(P.FORENSICS_REASSIGN,P.FORENSICS_APPROVE),
+  ]},
+];
 const eventRoleTemplates = [
   { slug: 'team-member', name: 'Team Member', description: 'Least-privilege event access for operational team members', permissions: teamMemberPermissions },
   {
@@ -212,6 +262,7 @@ const eventRoleTemplates = [
   { slug:'forensic-coordinator',name:'Vedoucí digitální forenziky',description:'Coordinates digital forensic work in the assigned unit',permissions:[Permissions.FORENSICS_READ,Permissions.FORENSICS_REASSIGN].map(key=>({key,scope:PermissionScopes.UNIT})) },
   { slug:'forensic-requester',name:'Žadatel o digitální forenzní analýzu',description:'Requests analyses and follows own results',permissions:[{key:Permissions.FORENSICS_REQUEST,scope:PermissionScopes.EVENT},{key:Permissions.FORENSICS_READ,scope:PermissionScopes.OWN}] },
   ...legalRoleTemplates,
+  ...canonicalTeamRoleProfiles,
 ];
 
 /** Builds missing templates in an existing exercise; operators retain ownership of existing records. */

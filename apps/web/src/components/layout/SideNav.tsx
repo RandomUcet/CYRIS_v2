@@ -2,7 +2,7 @@
 
 import { CyrisWordmark, CylabLogo } from './Brand';
 import React, { useState } from 'react';
-import { navigationSectionMode } from '@/lib/navigation-section';
+import { organizeWorkspaceNavigation } from '@/lib/workspace-nav-groups';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { activeWorkspaceHref, workspaceItemLabel, workspaceLabel } from '@/lib/workspace-navigation';
@@ -57,7 +57,6 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
   const { locale } = usePreferences();
   const query = useSearchParams();
   const adminMode = pathname === '/admin' || pathname.startsWith('/admin/');
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [moduleQuery,setModuleQuery]=useState('');
 
   const renderIcon = (iconKey?: string) => {
@@ -183,47 +182,18 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
       seen.add(exconHref);
     }
   }
+  const orderedSections=organizeWorkspaceNavigation(sectionsToRender,adminMode?'/admin':selectedEventId?'/events/'+selectedEventId:'',adminMode);
   const needle=moduleQuery.trim().toLocaleLowerCase();
-  const visibleSections=needle?sectionsToRender.map(section=>({...section,items:section.items.filter(item=>[workspaceLabel(locale,section.title),workspaceItemLabel(locale,item)].some(label=>label.toLocaleLowerCase().includes(needle)))})).filter(section=>section.items.length):sectionsToRender;
-  const activeHref = activeWorkspaceHref(sectionsToRender.flatMap(section => section.items.map(item => item.href)), pathname, query.toString());
+  const visibleSections=needle?orderedSections.map(section=>({...section,items:section.items.filter(item=>[workspaceLabel(locale,section.title),workspaceItemLabel(locale,item)].some(label=>label.toLocaleLowerCase().includes(needle)))})).filter(section=>section.items.length):orderedSections;
+  const activeHref = activeWorkspaceHref(orderedSections.flatMap(section => section.items.map(item => item.href)), pathname, query.toString());
   const getSectionTitle = (title: string) => workspaceLabel(locale, title);
 
   const renderSection = (section: WorkspaceNavSection) => {
     if (!section.items || section.items.length === 0) return null;
-    const sectionHasActiveRoute = section.items.some((item) => item.href === activeHref);
-    const mode = navigationSectionMode(section.items.length, collapsed, sectionHasActiveRoute||!!needle, collapsedSections[section.id]);
-    const isSectionCollapsed = mode === 'closed';
-
     return (
-      <div key={section.id} style={{ marginBottom: section.items.length===1?'5px':'12px' }}>
-        {!collapsed && mode==='heading' && <div style={{padding:'7px 14px 5px',fontSize:'10px',fontWeight:650,color:'var(--text-dim)',letterSpacing:'.045em'}}>{getSectionTitle(section.title)}</div>}
-        {!collapsed && (mode==='open'||mode==='closed') && (
-          <button
-            type="button"
-            aria-expanded={!isSectionCollapsed} aria-controls={'nav-section-'+section.id}
-            onClick={() => setCollapsedSections((current) => ({ ...current, [section.id]: !isSectionCollapsed }))}
-            style={{
-              display: 'flex',
-              width: '100%',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              border: 0,
-              background: 'transparent',
-              cursor: 'pointer',
-              textAlign: 'left',
-              padding: '6px 14px 4px 14px',
-              fontSize: '10px',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              color: 'var(--text-dim)',
-              letterSpacing: '0.08em',
-            }}
-          >
-            {getSectionTitle(section.title)}
-            <ChevronRight size={12} style={{ transform: isSectionCollapsed ? undefined : 'rotate(90deg)' }} />
-          </button>
-        )}
-        {!isSectionCollapsed && <div id={'nav-section-'+section.id} style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+      <section key={section.id} className="workspace-nav-group">
+        {!collapsed&&section.items.length>1&&<div className="workspace-nav-heading">{getSectionTitle(section.title)}</div>}
+        <div className="workspace-nav-items">
           {section.items.map((item: WorkspaceNavItem) => {
             const isActive = item.href === activeHref;
 
@@ -235,17 +205,19 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
                 href={item.href}
                 prefetch={false}
                 aria-current={isActive ? 'page' : undefined}
+                className={'workspace-nav-link'+(isActive?' is-current':'')}
                 title={labelText}
                 aria-label={collapsed ? labelText : undefined}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '10px',
-                  padding: collapsed ? '8px 0' : '6px 14px',
+                  padding: collapsed ? '9px 0' : '7px 10px',
                   justifyContent: collapsed ? 'center' : 'flex-start',
                   color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
                   backgroundColor: isActive ? 'var(--bg-active)' : 'transparent',
                   borderLeft: isActive ? '2px solid var(--accent-active)' : '2px solid transparent',
+                  borderRadius:5,minHeight:34,
                   fontSize: '13px',
                   fontWeight: isActive ? 600 : 500,
                   transition: 'background-color 0.1s ease, color 0.1s ease',
@@ -286,8 +258,8 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
               </Link>
             );
           })}
-        </div>}
-      </div>
+        </div>
+      </section>
     );
   };
 
@@ -333,10 +305,12 @@ export function SideNav({ collapsed, mobile, onNavigate, onToggleCollapse }: Sid
         </div>
 
         {/* Dynamic Navigation Sections from Resolver */}
-        <div className="workspace-nav-scroll">
+        <div className="workspace-nav-tools">
           {canOpenAdministration && <div className="workspace-mode-switch"><Link prefetch={false} href={adminMode ? (selectedEventId ? `/events/${selectedEventId}/my-work` : '/') : isPlatformAdmin ? '/admin' : (baseSections.flatMap((section) => section.items).find((item) => item.href.startsWith('/admin'))?.href ?? '/admin/events')} title={workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}><ShieldAlert size={15}/>{!collapsed && workspaceLabel(locale, adminMode ? 'Exercise workspace' : 'Platform Administration')}</Link></div>}
           {!collapsed&&<div className="workspace-module-filter"><input aria-label={locale==='cs'?'Filtrovat moduly':'Filter modules'} placeholder={locale==='cs'?'Najít modul…':'Find a module…'} value={moduleQuery} onChange={e=>setModuleQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Escape')setModuleQuery('');}}/>{moduleQuery&&<button type="button" aria-label={locale==='cs'?'Zrušit filtr':'Clear filter'} onClick={()=>setModuleQuery('')}>×</button>}</div>}
-          {(collapsed?sectionsToRender:visibleSections).map((section) => renderSection(section))}
+        </div>
+        <div className="workspace-nav-scroll">
+          {(collapsed?orderedSections:visibleSections).map((section) => renderSection(section))}
           {!collapsed&&needle&&!visibleSections.length&&<p className="workspace-module-empty">{locale==='cs'?'Žádný odpovídající modul.':'No matching modules.'}</p>}
 
           {!selectedEventId && !isPlatformAdmin && !collapsed && (
