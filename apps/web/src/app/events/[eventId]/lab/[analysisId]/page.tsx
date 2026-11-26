@@ -58,6 +58,8 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   const [updating, setUpdating] = useState(false);
   const [rejectionReason,setRejectionReason]=useState('');
   const [showReject,setShowReject]=useState(false);
+  const [receiptNotes,setReceiptNotes]=useState<Record<string,string>>({});
+  const [receiptError,setReceiptError]=useState('');
   const [labUnits, setLabUnits] = useState<Array<{ id: string; name: string }>>([]);
   const [eligibleWorkers, setEligibleWorkers] = useState<Array<{ id: string; displayName: string }>>([]);
   const [selectedUnitId, setSelectedUnitId] = useState('');
@@ -150,6 +152,18 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
     }
   };
 
+  async function confirmReceipt(item:LabAnalysisDetail['evidenceItems'][number]){
+    const condition=receiptNotes[item.id]?.trim();
+    if(!condition||!item.pendingReceiptTransferId||updating||viewAs)return;
+    setUpdating(true);setReceiptError('');
+    try{
+      const result=await apiClient.confirmLabSampleReceipt(eventId,analysisId,{evidenceId:item.id,transferId:item.pendingReceiptTransferId,condition});
+      if(!result.ok)throw Error(result.error||'Receipt failed');
+      setReceiptNotes(old=>({...old,[item.id]:''}));
+      await fetchAnalysisDetails();
+    }catch(error){setReceiptError(error instanceof Error?error.message:String(error));}
+    finally{setUpdating(false);}
+  }
   const handleSaveDraft = async () => {
     setUpdating(true);
     try {
@@ -611,11 +625,18 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                 <div style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--color-text-dim)' }}>
                   Target physical or digital item submitted for this laboratory protocol.
                 </div>
-                {evidenceItems.length ? evidenceItems.map(item => item.canOpen===false?<div key={item.id} style={{padding:12,border:'1px solid var(--border-default)',marginBottom:6}}><strong>{item.evidenceNumber}</strong> · {item.title}<p style={{margin:'4px 0 0',fontSize:12}}>{cs?'Identifikace předaného vzorku; detail evidence vyžaduje samostatné oprávnění.':'Submitted sample identification; full evidence requires separate permission.'}</p></div>:(
-                  <Link className="btn btn-secondary" key={item.id} href={`/events/${eventId}/evidence/${item.id}`}>
-                    <FolderOpen size={15} /><strong>{item.evidenceNumber}</strong> {item.title} <ArrowRight size={12} />
-                  </Link>
-                )) : <EmptyState title={cs ? 'Žádné dostupné vzorky' : 'No accessible evidence'} />}
+                {receiptError&&<p role="alert">{receiptError}</p>}
+                {evidenceItems.length?evidenceItems.map(item=><section key={item.id} style={{padding:12,border:'1px solid var(--border-default)',marginBottom:8,display:'grid',gap:8}}>
+                  {item.canOpen===false?<div><strong>{item.evidenceNumber}</strong> · {item.title}<p style={{margin:'4px 0 0',fontSize:12}}>{cs?'Identifikace předaného vzorku; detail evidence vyžaduje samostatné oprávnění.':'Submitted sample identification; full evidence requires separate permission.'}</p></div>:
+                    <Link className="btn btn-secondary" href={`/events/${eventId}/evidence/${item.id}`}><FolderOpen size={15}/><strong>{item.evidenceNumber}</strong> {item.title} <ArrowRight size={12}/></Link>}
+                  {item.receipt?<div role="status"><strong>{cs?'Fyzické převzetí potvrzeno':'Physical receipt confirmed'}</strong><p style={{fontSize:13}}>{formatTime(item.receipt.receivedAt)} · {item.receipt.condition}</p></div>:
+                    item.status==='IN_TRANSIT'&&<p>{cs?'Fyzické převzetí zatím nepotvrzeno.':'Physical receipt not confirmed.'}</p>}
+                  {!viewAs&&item.pendingReceiptTransferId&&<div style={{display:'grid',gap:6}}>
+                    <label htmlFor={'sample-condition-'+item.id}>{cs?'Skutečný stav přijatého vzorku':'Observed condition of received sample'}</label>
+                    <textarea id={'sample-condition-'+item.id} className="input-field" rows={2} maxLength={2000} value={receiptNotes[item.id]??''} onChange={event=>setReceiptNotes(old=>({...old,[item.id]:event.target.value}))}/>
+                    <button className="btn btn-primary" type="button" disabled={updating||!receiptNotes[item.id]?.trim()} onClick={()=>void confirmReceipt(item)}>{cs?'Potvrdit fyzické převzetí':'Confirm physical receipt'}</button>
+                  </div>}
+                </section>):<EmptyState title={cs?'Žádné dostupné vzorky':'No accessible evidence'}/>}
 
               </div>
             )}

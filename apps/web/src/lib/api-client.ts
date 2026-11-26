@@ -524,6 +524,9 @@ export class CyrisApiClient {
   async updateLabAnalysis(eventId: string, analysisId: string, data: any) {
     return this.patchJson<any>(`/events/${eventId}/lab/${analysisId}`, data);
   }
+  async confirmLabSampleReceipt(eventId:string,analysisId:string,data:import('@cyris/contracts').ConfirmLabSampleReceipt){
+    return this.postJson<import('@cyris/contracts').LabAnalysisDetail['evidenceItems'][number]['receipt']>(`/events/${eventId}/lab/${analysisId}/sample-receipts`,data);
+  }
   async reassignLabAnalysis(eventId: string, analysisId: string, data: any) {
     return this.postJson<any>(`/events/${eventId}/lab/${analysisId}/reassign`, data);
   }

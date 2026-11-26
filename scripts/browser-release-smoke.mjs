@@ -163,6 +163,10 @@ try{
   assert.equal((await chem.context.request.get(apiRoot+'/evidence/'+sampleRecord.id)).status(),403);
   await cp.getByText('Evidence Input',{exact:false}).first().click();
   await cp.getByText('Browser registered fingerprint sample',{exact:false}).first().waitFor();
+  await cp.getByLabel('Observed condition of received sample').fill('Synthetic intact package');
+  await cp.getByRole('button',{name:'Confirm physical receipt',exact:true}).click();
+  await cp.getByText('Physical receipt confirmed',{exact:true}).waitFor();
+  assert.equal((await readLab(requester.context)).evidenceItems.find(e=>e.id===sampleRecord.id)?.receipt?.condition,'Synthetic intact package');
   await cp.screenshot({path:join(output,'specialist-lab-input.png'),fullPage:true});
   await cp.getByRole('button',{name:'Accept request',exact:true}).click();
   await cp.getByRole('button',{name:'Start analysis',exact:true}).click();

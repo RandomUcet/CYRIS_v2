@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { eq, desc, inArray, and, ne, sql, isNull, or, gt } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
@@ -11,7 +11,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
-  evidence,
+  evidence,evidenceCustodyTransfers,events,
   labAnalyses,
   labAnalysisEvidence,notifications,auditEvents,
   resources,
@@ -34,8 +34,9 @@ import type {
   LabAnalysisResponse,
   LabAnalysisDetail,
   ReassignLabAnalysisRequest,
-  CorrectLabAnalysisRequest,
+  CorrectLabAnalysisRequest,ConfirmLabSampleReceipt,
 } from '@cyris/contracts';
+import {ConfirmLabSampleReceiptSchema,LabSampleReceiptSchema} from '@cyris/contracts';
 import { selectLowestWorkloadCandidate } from './laboratory-assignment.js';
 
 const VALID_TRANSITIONS: Record<LabAnalysisStatusValue, LabAnalysisStatusValue[]> = {
@@ -441,11 +442,27 @@ export class LaboratoryService {
     ]);
     // Assigned laboratory personnel receive only a minimal sample manifest for EVENT-visible inputs.
     // This is not a grant of EVIDENCE_READ or access to files, custody, relations or restricted inputs.
-    const manifest=items.map(item=>({...item,canOpen:true}));
+    const manifest:LabAnalysisDetail['evidenceItems']=items.map(item=>({...item,canOpen:true}));
     if((accept||work||complete||approve)&&(await this.resourceAccessService.getModuleImpacts(eventId,user)).get('evidence')!=='UNAVAILABLE'){
       const samples=await this.db.select({id:evidence.id,title:evidence.title,evidenceNumber:evidence.evidenceNumber,status:evidence.status}).from(labAnalysisEvidence).innerJoin(evidence,eq(evidence.id,labAnalysisEvidence.evidenceId)).innerJoin(resources,eq(resources.id,evidence.id)).where(and(eq(labAnalysisEvidence.analysisId,analysisId),eq(resources.eventId,eventId),eq(resources.visibility,'EVENT')));
       const known=new Set(items.map(item=>item.id));
       for(const item of samples)if(!known.has(item.id))manifest.push({...item,canOpen:false});
+    }
+    // Expose only receipt metadata for the exact latest dispatch to this lab,
+    // never the sender's full custody history or other units' transfers.
+    if(record.assignedUnitId){
+      for(const item of manifest){
+        const [dispatch]=await this.db.select().from(evidenceCustodyTransfers).where(eq(evidenceCustodyTransfers.evidenceId,item.id))
+          .orderBy(desc(evidenceCustodyTransfers.occurredAt),desc(evidenceCustodyTransfers.id)).limit(1);
+        if(!dispatch||dispatch.toHolderType!=='UNIT'||dispatch.toHolderId!==record.assignedUnitId)continue;
+        const [receipt]=await this.db.select({metadata:auditEvents.metadata}).from(auditEvents).where(and(eq(auditEvents.eventId,eventId),
+          eq(auditEvents.resourceId,item.id),eq(auditEvents.resourceType,'evidence'),eq(auditEvents.action,'evidence.lab_received'),
+          sql`${auditEvents.metadata}->>'transferId' = ${dispatch.id}`)).limit(1);
+        const parsed=LabSampleReceiptSchema.safeParse(receipt?.metadata);
+        if(parsed.success)item.receipt=parsed.data;
+        else if(item.status==='IN_TRANSIT'&&record.assignedToUserId===user.id&&dispatch.transferredByUserId!==user.id&&
+          ['REQUESTED','ACCEPTED'].includes(record.status)&&accept)item.pendingReceiptTransferId=dispatch.id;
+      }
     }
     // The rejection receipt is an intentional requester-visible operational
     // reason, separate from confidential drafts and organizer correction notes.
@@ -462,6 +479,52 @@ export class LaboratoryService {
     return { ...record, rejectionReason, evidenceIds: items.map(item => item.id), evidenceItems: manifest,
       analystName: analysts[0]?.name ?? null, unitName: units[0]?.name ?? null,
       actions: { accept: !!accept, work: !!work, complete: !!complete, approve: !!approve } };
+  }
+
+  /** Physical receipt is independent of request acceptance. The exact dispatch
+   * must still be current; no ACL grant, no sender self-confirmation. */
+  async confirmSampleReceipt(eventId:string,analysisId:string,input:ConfirmLabSampleReceipt,user:AuthenticatedUser){
+    const parsed=ConfirmLabSampleReceiptSchema.safeParse(input);
+    if(!parsed.success)throw new BadRequestException('Observed condition is required');
+    const data=parsed.data;
+    const record=await this.getAnalysis(eventId,analysisId,user);
+    if(!record.assignedUnitId||record.assignedToUserId!==user.id)throw new ForbiddenException('Only the assigned laboratory recipient may confirm receipt');
+    await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_ACCEPT);
+    await this.assertEligibleLaboratoryWorker(eventId,record.assignedUnitId,user.id);
+    return this.db.transaction(async tx=>{
+      const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).for('update').limit(1);
+      if(!event||['CLOSED','ARCHIVED'].includes(event.status))throw new ConflictException('Exercise is read-only');
+      const [analysis]=await tx.select({row:labAnalyses}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id))
+        .where(and(eq(labAnalyses.id,analysisId),eq(resources.eventId,eventId))).for('update').limit(1);
+      const current=analysis?.row;
+      if(!current||current.assignedToUserId!==user.id||current.assignedUnitId!==record.assignedUnitId)throw new ConflictException('Assignment changed');
+      if(!['REQUESTED','ACCEPTED'].includes(current.status))throw new ConflictException('Sample intake is closed for this request');
+      await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_ACCEPT,tx);
+      const [sample]=await tx.select({ev:evidence,visibility:resources.visibility}).from(labAnalysisEvidence)
+        .innerJoin(evidence,eq(evidence.id,labAnalysisEvidence.evidenceId)).innerJoin(resources,eq(resources.id,evidence.id))
+        .where(and(eq(labAnalysisEvidence.analysisId,analysisId),eq(evidence.id,data.evidenceId),eq(resources.eventId,eventId))).for('update').limit(1);
+      if(!sample)throw new BadRequestException('Sample is not linked to this request');
+      if((await this.resourceAccessService.getModuleImpacts(eventId,user)).get('evidence')==='UNAVAILABLE')throw new ForbiddenException('Evidence module unavailable');
+      if(sample.visibility!=='EVENT'&&!await this.resourceAccessService.canAccessResource(user,data.evidenceId,Permissions.EVIDENCE_READ,tx))throw new ForbiddenException('Sample requires explicit access');
+      const [dispatch]=await tx.select().from(evidenceCustodyTransfers).where(eq(evidenceCustodyTransfers.evidenceId,data.evidenceId))
+        .orderBy(desc(evidenceCustodyTransfers.occurredAt),desc(evidenceCustodyTransfers.id)).limit(1);
+      if(!dispatch||dispatch.id!==data.transferId||dispatch.toHolderType!=='UNIT'||dispatch.toHolderId!==current.assignedUnitId||
+        sample.ev.currentHolderType!=='UNIT'||sample.ev.currentHolderId!==current.assignedUnitId)throw new ConflictException('Dispatch changed; reload the sample');
+      if(dispatch.transferredByUserId===user.id)throw new ForbiddenException('Sender cannot confirm their own dispatch');
+      const [old]=await tx.select({id:auditEvents.id}).from(auditEvents).where(and(eq(auditEvents.eventId,eventId),eq(auditEvents.resourceId,data.evidenceId),
+        eq(auditEvents.action,'evidence.lab_received'),sql`${auditEvents.metadata}->>'transferId' = ${dispatch.id}`)).limit(1);
+      if(old)throw new ConflictException('Dispatch already confirmed');
+      if(sample.ev.status!=='IN_TRANSIT')throw new ConflictException('Sample is not in transit');
+      const now=new Date();
+      const receipt={transferId:dispatch.id,receivedAt:now.toISOString(),condition:data.condition};
+      await tx.update(evidence).set({status:'SECURED',updatedAt:now}).where(eq(evidence.id,data.evidenceId));
+      await this.auditService.record({action:'evidence.lab_received',category:'evidence',eventId,resourceType:'evidence',resourceId:data.evidenceId,
+        actorUserId:user.id,metadata:{...receipt,analysisId,unitId:current.assignedUnitId},txClient:tx});
+      await this.activityService.recordActivity({eventId,resourceId:data.evidenceId,activityType:'evidence.lab_received',actorUserId:user.id,
+        title:'Laboratory confirmed physical receipt',visibility:sample.visibility as ResourceVisibilityValue},tx);
+      await this.searchIndexerService.emitSearchUpsert('evidence',data.evidenceId,tx);
+      return receipt;
+    });
   }
 
   async createAnalysis(

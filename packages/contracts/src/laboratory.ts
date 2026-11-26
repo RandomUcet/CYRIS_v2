@@ -71,12 +71,21 @@ export const LabAnalysisResponseSchema = z.object({
 
 export type LabAnalysisResponse = z.infer<typeof LabAnalysisResponseSchema>;
 
+export const ConfirmLabSampleReceiptSchema=z.object({
+  evidenceId:z.string().uuid(),transferId:z.string().uuid(),
+  condition:z.string().trim().min(1).max(2000),
+}).strict();
+export type ConfirmLabSampleReceipt=z.infer<typeof ConfirmLabSampleReceiptSchema>;
+export const LabSampleReceiptSchema=z.object({
+  transferId:z.string().uuid(),receivedAt:z.string(),condition:z.string(),
+});
 export const LabAnalysisDetailSchema = LabAnalysisResponseSchema.extend({
   analystName: z.string().nullable(),
   unitName: z.string().nullable(),
   rejectionReason:z.string().nullable().optional(),
   evidenceItems: z.array(z.object({
     id: z.string().uuid(), title: z.string(), evidenceNumber: z.string(), status: z.string(), canOpen:z.boolean().optional(),
+    pendingReceiptTransferId:z.string().uuid().optional(),receipt:LabSampleReceiptSchema.optional(),
   })),
   actions: z.object({
     accept: z.boolean(), work: z.boolean(), complete: z.boolean(), approve: z.boolean(),

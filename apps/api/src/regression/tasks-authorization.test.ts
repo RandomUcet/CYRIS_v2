@@ -403,6 +403,26 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       await assert.rejects(lab.getAnalysisDetail(eventA,row.id,outsider),ForbiddenException);
       assert.equal((await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId,row.id),eq(auditEvents.action,'lab.rejected')))).length,1);
     });
+    await t.test('laboratory confirms only the current physical dispatch independently',async()=>{
+      const sample=await evidenceService.createEvidence(eventA,CreateEvidenceRequestSchema.parse({title:'Receipt fixture',evidenceType:'FINGERPRINT',currentHolderType:'USER',currentHolderId:requester.id}),requester);
+      const dispatch=await evidenceService.transferCustody(eventA,sample.id,{toHolderType:'UNIT',toHolderId:unitA,reason:'Synthetic dispatch',newStatus:'IN_TRANSIT'},requester);
+      const transferId=dispatch.custodyHistory![0]!.id;
+      const row=await lab.createAnalysis(eventA,{analysisType:'Physical receipt fixture',evidenceIds:[sample.id],assignedUnitId:unitA,visibility:'EVENT'},requester);
+      const analyst=row.assignedToUserId===worker.id?worker:secondWorker,other=analyst.id===worker.id?secondWorker:worker;
+      const input={evidenceId:sample.id,transferId,condition:'Synthetic intact package'};
+      await assert.rejects(lab.confirmSampleReceipt(eventA,row.id,input,requester),ForbiddenException);
+      await assert.rejects(lab.confirmSampleReceipt(eventA,row.id,input,other),ForbiddenException);
+      await assert.rejects(lab.confirmSampleReceipt(eventA,row.id,{...input,transferId:generateId()},analyst),ConflictException);
+      assert.equal((await lab.getAnalysisDetail(eventA,row.id,analyst)).evidenceItems.find(i=>i.id===sample.id)?.pendingReceiptTransferId,transferId);
+      assert.equal((await lab.confirmSampleReceipt(eventA,row.id,input,analyst)).transferId,transferId);
+      await assert.rejects(lab.confirmSampleReceipt(eventA,row.id,input,analyst),ConflictException);
+      assert.equal((await evidenceService.getEvidence(eventA,sample.id,requester)).status,'SECURED');
+      assert.equal((await lab.getAnalysisDetail(eventA,row.id,requester)).evidenceItems.find(i=>i.id===sample.id)?.receipt?.condition,input.condition);
+      assert.equal((await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId,sample.id),eq(auditEvents.action,'evidence.lab_received')))).length,1);
+      await lab.updateAnalysis(eventA,row.id,{status:'ACCEPTED'},analyst);
+      await lab.updateAnalysis(eventA,row.id,{status:'IN_PROGRESS'},analyst);
+      await lab.updateAnalysis(eventA,row.id,{status:'COMPLETED',conclusion:'Synthetic fixture'},analyst);
+    });
     let labId = '';
     await t.test('concurrent lab requests assign real eligible workers with balanced workload', async () => {
       const created = await Promise.all(Array.from({ length: 4 }, () => lab.createAnalysis(eventA, { analysisType: 'chemical', evidenceIds: [evidenceId], requestedFromUnitId: unitA, visibility: 'EVENT' }, requester)));
