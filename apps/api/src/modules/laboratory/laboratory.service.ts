@@ -668,6 +668,7 @@ export class LaboratoryService {
     const existing = await this.getAnalysis(eventId, analysisId, user);
     const currentStatus = existing.status as LabAnalysisStatusValue;
     const writesReport=data.method!==undefined||data.findings!==undefined||data.conclusion!==undefined;
+    if(!existing.assignedToUserId&&currentStatus==='REQUESTED'&&writesReport)throw new BadRequestException('Claim the laboratory request before writing the report');
     if(writesReport){
       if(!['REQUESTED','ACCEPTED','IN_PROGRESS'].includes(currentStatus))throw new BadRequestException('Report is locked; reopen for revision first');
       await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_WORK);
@@ -730,6 +731,18 @@ export class LaboratoryService {
       if(writesReport)await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_WORK,tx);
       const permission=data.status&&data.status!==currentStatus?data.status==='ACCEPTED'||data.status==='REJECTED'?Permissions.LAB_ACCEPT:data.status==='COMPLETED'?Permissions.LAB_COMPLETE:data.status==='APPROVED'?Permissions.LAB_APPROVE:Permissions.LAB_WORK:Permissions.LAB_WORK;
       await this.resourceAccessService.assertCanAccessResource(user,analysisId,permission,tx);
+      if(!locked.assignedToUserId&&locked.status==='REQUESTED'&&(data.status==='ACCEPTED'||data.status==='REJECTED')){
+        if(!locked.assignedUnitId)throw new BadRequestException('Assign a responsible laboratory first');
+        await this.assertEligibleLaboratoryWorker(eventId,locked.assignedUnitId,user.id);
+        // Locked status and optimistic timestamp ensure exactly one winner.
+        updatePayload.assignedToUserId=user.id;
+        await tx.delete(resourceAssignments).where(eq(resourceAssignments.resourceId,analysisId));
+        await tx.insert(resourceAssignments).values({id:generateId(),eventId,resourceId:analysisId,
+          userId:user.id,unitId:null,assignedByUserId:user.id});
+        await this.auditService.record({action:'lab.assignment.claimed',category:'laboratory',eventId,
+          resourceType:'lab_analysis',resourceId:analysisId,actorUserId:user.id,
+          metadata:{assignedUnitId:locked.assignedUnitId,assignedToUserId:user.id},txClient:tx});
+      }
       const [row] = await tx
         .update(labAnalyses)
         .set(updatePayload)

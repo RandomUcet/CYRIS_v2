@@ -356,6 +356,33 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       await lab.updateAnalysis(eventA,row.id,{status:'IN_PROGRESS'},secondWorker);
       await lab.updateAnalysis(eventA,row.id,{status:'COMPLETED',conclusion:'Synthetic fixture'},secondWorker);
     });
+    await t.test('unclaimed laboratory inbox allows exactly one eligible analyst to claim',async()=>{
+      const pending=await lab.createAnalysis(eventA,{analysisType:'Unclaimed sample',evidenceIds:[evidenceId],assignedUnitId:unitB,visibility:'UNIT'},requester);
+      assert.equal(pending.assignedToUserId,null);
+      assert.equal(await access.canAccessResource(worker,pending.id,Permissions.LAB_READ),false);
+      await db.insert(membershipUnitAssignments).values([worker,secondWorker].map(u=>({membershipId:memberships.get(u.id)!,unitId:unitB})));
+      try{
+        for(const candidate of [worker,secondWorker]){
+          assert.equal(await access.canAccessResource(candidate,pending.id,Permissions.LAB_READ),true);
+          assert.equal(await access.canAccessResource(candidate,pending.id,Permissions.LAB_ACCEPT),true);
+          assert.equal(await access.canAccessResource(candidate,pending.id,Permissions.LAB_WORK),false);
+        }
+        await assert.rejects(lab.updateAnalysis(eventA,pending.id,{findings:'Premature draft'},worker),BadRequestException);
+        const results=await Promise.allSettled([worker,secondWorker].map(u=>lab.updateAnalysis(eventA,pending.id,{status:'ACCEPTED'},u)));
+        assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
+        const claimed=await lab.getAnalysis(eventA,pending.id,requester);
+        const winner=claimed.assignedToUserId===worker.id?worker:secondWorker;
+        const loser=winner.id===worker.id?secondWorker:worker;
+        assert.equal(claimed.status,'ACCEPTED');
+        assert.equal(await access.canAccessResource(loser,pending.id,Permissions.LAB_WORK),false);
+        assert.equal(await access.canAccessResource(winner,pending.id,Permissions.LAB_WORK),true);
+        assert.equal((await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId,pending.id),eq(auditEvents.action,'lab.assignment.claimed')))).length,1);
+        await lab.updateAnalysis(eventA,pending.id,{status:'IN_PROGRESS'},winner);
+        await lab.updateAnalysis(eventA,pending.id,{status:'COMPLETED',conclusion:'Synthetic fixture'},winner);
+      }finally{
+        for(const u of [worker,secondWorker])await db.delete(membershipUnitAssignments).where(and(eq(membershipUnitAssignments.membershipId,memberships.get(u.id)!),eq(membershipUnitAssignments.unitId,unitB)));
+      }
+    });
     let labId = '';
     await t.test('concurrent lab requests assign real eligible workers with balanced workload', async () => {
       const created = await Promise.all(Array.from({ length: 4 }, () => lab.createAnalysis(eventA, { analysisType: 'chemical', evidenceIds: [evidenceId], requestedFromUnitId: unitA, visibility: 'EVENT' }, requester)));
