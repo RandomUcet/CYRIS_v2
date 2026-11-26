@@ -9,7 +9,7 @@ import {exerciseObserverKey} from '@cyris/contracts';
 import {Redis} from 'ioredis';
 import {Client as TypesenseClient} from 'typesense';
 import {S3Client,CreateBucketCommand,PutObjectCommand,GetObjectCommand,DeleteObjectCommand} from '@aws-sdk/client-s3';
-import {executeCombinedRehearsal} from './retention-relational-execution.js';
+import {approveRetentionRehearsal,verifyRetentionApproval,executeApprovedRetentionRehearsal} from './retention-approved-plan.js';
 import {selectRecoveryObjects,stageRecoveryObjects} from './retention-object-recovery.js';
 import {persistRecoveryManifest,type RecoveryContext} from './retention-recovery-manifest.js';
 import {finishCommittedRetention} from './retention-finish.js';
@@ -27,8 +27,9 @@ test('committed cross-service reset and full removal resume after interruption a
   const source=new S3Client({endpoint:s3url!,region:'us-east-1',forcePathStyle:true,credentials:{accessKeyId:'cyris-test-only',secretAccessKey:'local-ci-storage-only'},maxAttempts:1});
   const a=randomUUID(),b=randomUUID(),unit=randomUUID(),doc=randomUUID(),foreignDoc=randomUUID(),outbox=randomUUID(),otherOutbox=randomUUID();
   const keys=['documents/'+a+'/one','documents/'+a+'/two'],foreignKey='documents/'+b+'/other';
-  const context:RecoveryContext={installationId:randomUUID(),operationId:randomUUID(),eventId:a,profile:'reset',sourceBucket:'cyris-committed-source',recoveryBucket:'cyris-committed-backup',planDigest:'a'.repeat(64)};
+  let context:RecoveryContext={installationId:randomUUID(),operationId:randomUUID(),eventId:a,profile:'reset',sourceBucket:'cyris-committed-source',recoveryBucket:'cyris-committed-backup',planDigest:'a'.repeat(64)};
   const root=await mkdtemp(join(await realpath(tmpdir()),'cyris-committed-')),secret=randomBytes(32),cacheA=exerciseObserverKey(a),cacheB=exerciseObserverKey(b),session='cyris:session:'+randomUUID();
+  const approvalKey=randomBytes(32);
   let redisOwned=false;
   try{
     assert.equal(await redis.dbsize(),0);redisOwned=true;
@@ -50,11 +51,23 @@ test('committed cross-service reset and full removal resume after interruption a
     const sample=(eventId:string)=>JSON.stringify({eventId,observedAt:new Date().toISOString(),pending:1,reviewAfterHours:12,unchanged:0,blocked:0});
     await redis.mset(cacheA,sample(a),cacheB,sample(b),session,'fixture');
     const selected=selectRecoveryObjects({eventId:a,refs:[...keys.map(key=>({eventId:a,key,bucket:context.sourceBucket,source:'document' as const})),{eventId:b,key:foreignKey,bucket:context.sourceBucket,source:'document'}],listed:[...keys,foreignKey].map(key=>({key,bucket:context.sourceBucket})),resourceIds:new Set([doc]),bucket:context.sourceBucket,auditBucket:'audit',listingComplete:true});
-    await persistRecoveryManifest(root,context,selected,await stageRecoveryObjects(source,source,context.sourceBucket,context.recoveryBucket,context.operationId,selected),secret);
+    const staged=await stageRecoveryObjects(source,source,context.sourceBucket,context.recoveryBucket,context.operationId,selected);
+    const approval=await db.transaction(tx=>approveRetentionRehearsal(tx,context,staged,approvalKey));
+    context=verifyRetentionApproval(approval,context,staged,a,approvalKey);
+    assert.throws(()=>verifyRetentionApproval(approval,context,staged,a,approvalKey,approval.expiresAt),/expired/);
+    assert.throws(()=>verifyRetentionApproval(approval,context,staged,a,randomBytes(32)),/authentication/);
+    assert.throws(()=>verifyRetentionApproval(approval,context,staged,b,approvalKey),/approval/);
+    assert.throws(()=>verifyRetentionApproval(approval,context,staged.map((o,i)=>i===0?{...o,sha256:'0'.repeat(64)}:o),a,approvalKey),/scope changed/);
+    await persistRecoveryManifest(root,context,selected,staged,secret);
     const args={db,redis,search,source,recovery:source,root,context,key:secret};
     await assert.rejects(finishCommittedRetention(args),/commit not proven/);
     assert.equal(await redis.exists(cacheA),1);
-    const committed=await db.transaction(tx=>executeCombinedRehearsal(tx,context));
+    // Same counts, changed row content: the original approval must not apply.
+    await db.execute(sql`UPDATE documents SET title='Changed' WHERE id=${doc}`);
+    await assert.rejects(db.transaction(tx=>executeApprovedRetentionRehearsal(tx,context,staged,approval,a,approvalKey)),/Stale retention approval/);
+    assert.equal(await db.transaction(tx=>readRetentionCommit(tx,context)),false);
+    await db.execute(sql`UPDATE documents SET title='Report' WHERE id=${doc}`);
+    const committed=await db.transaction(tx=>executeApprovedRetentionRehearsal(tx,context,staged,approval,a,approvalKey));
     assert.equal(committed.outboxRemoved,1);
     assert.equal(await db.transaction(tx=>readRetentionCommit(tx,context)),true);
     // Reuse by another exercise must block before the first external mutation.
@@ -93,10 +106,13 @@ test('committed cross-service reset and full removal resume after interruption a
     await source.send(new PutObjectCommand({Bucket:context.sourceBucket,Key:newKey,Body:newBody,ContentType:'text/plain'}));
     await assert.rejects(finishCommittedRetention(args),/data changed/);
     for(const projection of await defaultSearchProjectionRegistry.listAllDocuments(db,a))await search.collections(GLOBAL_SEARCH_COLLECTION).documents().upsert(projection);
-    const removal:RecoveryContext={...context,operationId:randomUUID(),profile:'remove',planDigest:'b'.repeat(64)};
-    await persistRecoveryManifest(root,removal,[newKey],await stageRecoveryObjects(source,source,removal.sourceBucket,removal.recoveryBucket,removal.operationId,[newKey]),secret);
+    let removal:RecoveryContext={...context,operationId:randomUUID(),profile:'remove',planDigest:'b'.repeat(64)};
+    const removalObjects=await stageRecoveryObjects(source,source,removal.sourceBucket,removal.recoveryBucket,removal.operationId,[newKey]);
+    const removalApproval=await db.transaction(tx=>approveRetentionRehearsal(tx,removal,removalObjects,approvalKey));
+    removal=verifyRetentionApproval(removalApproval,removal,removalObjects,a,approvalKey);
+    await persistRecoveryManifest(root,removal,[newKey],removalObjects,secret);
     await redis.set(cacheA,sample(a));
-    const removed=await db.transaction(tx=>executeCombinedRehearsal(tx,removal));
+    const removed=await db.transaction(tx=>executeApprovedRetentionRehearsal(tx,removal,removalObjects,removalApproval,a,approvalKey));
     assert.ok(removed.removed>0);
     assert.equal(await db.transaction(tx=>readRetentionCommit(tx,removal)),true);
     const finished=await finishCommittedRetention({...args,context:removal});
