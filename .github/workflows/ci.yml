@@ -243,11 +243,53 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Build exact candidate runtime images
+      # Use isolated GitHub Actions layer caches for candidates. A hit only
+      # avoids rebuilding unchanged layers; all exact-source images are still
+      # loaded locally and exercised against each published baseline.
+      - name: Set up candidate Buildx builder
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build exact candidate api image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/api.Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: cyris-upgrade-candidate-api:local
+          cache-from: type=gha,scope=cyris-ci-api
+          cache-to: type=gha,mode=max,scope=cyris-ci-api,ignore-error=true
+
+      - name: Build exact candidate worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/worker.Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: cyris-upgrade-candidate-worker:local
+          cache-from: type=gha,scope=cyris-ci-worker
+          cache-to: type=gha,mode=max,scope=cyris-ci-worker,ignore-error=true
+
+      - name: Build exact candidate web image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/web.Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: cyris-upgrade-candidate-web:local
+          cache-from: type=gha,scope=cyris-ci-web
+          cache-to: type=gha,mode=max,scope=cyris-ci-web,ignore-error=true
+
+      - name: Verify locally loaded candidate images
         run: |
           set -euo pipefail
           for role in api worker web; do
-            docker build --file "docker/$role.Dockerfile" --tag "cyris-upgrade-candidate-$role:local" .
+            docker image inspect "cyris-upgrade-candidate-$role:local" >/dev/null
           done
       - name: Rehearse published image upgrades and rollback on isolated Compose
         run: |

@@ -77,3 +77,23 @@ test('upgrade smoke Python snippets separate path arguments from version argumen
   assert.equal(smoke.split('env, manifest = map(pathlib.Path, sys.argv[1:3])').length-1,2);
   assert.ok(!smoke.includes('map(pathlib.Path, sys.argv[1:])'));
 });
+
+test('candidate cache keeps all three locally built runtime images and mandatory rehearsals',()=>{
+ const ci=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8');
+ const upgrade=ci.slice(ci.indexOf('  upgrade-images:'));
+ assert.match(upgrade,/docker\/setup-buildx-action@v3/);
+ for(const role of ['api','worker','web']){
+  const start=upgrade.indexOf('file: docker/'+role+'.Dockerfile');
+  assert.ok(start>0);
+  const step=upgrade.slice(start,upgrade.indexOf('\n\n',start));
+  assert.ok(step.includes('load: true'));
+  assert.ok(step.includes('push: false'));
+  assert.ok(step.includes('platforms: linux/amd64'));
+  assert.ok(step.includes('tags: cyris-upgrade-candidate-'+role+':local'));
+  assert.ok(step.includes('cache-from: type=gha,scope=cyris-ci-'+role));
+  assert.ok(step.includes('cache-to: type=gha,mode=max,scope=cyris-ci-'+role+',ignore-error=true'));
+ }
+ assert.ok(upgrade.includes('docker image inspect "cyris-upgrade-candidate-$role:local"'));
+ assert.ok(upgrade.includes('for baseline in 2.4.22 2.5.1 2.5.2; do'));
+ assert.ok(!upgrade.includes('continue-on-error'));
+});
