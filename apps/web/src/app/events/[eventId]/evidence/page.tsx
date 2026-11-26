@@ -387,7 +387,7 @@ export default function EvidenceListPage() {
 
               <form onSubmit={handleCreateEvidence} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 {formError && (
-                  <div
+                  <div role="alert"
                     style={{
                       padding: '8px 12px',
                       marginBottom: '14px',

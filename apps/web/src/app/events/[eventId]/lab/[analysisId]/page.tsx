@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { RecordHeader } from '@/components/common/RecordHeader';
+import {ActionFeedback,type ActionMessage} from '@/components/common/ActionFeedback';
 import { RecordTabs } from '@/components/common/RecordTabs';
 import { RecordInspector } from '@/components/common/RecordInspector';
 import { RecordIdentifier, StatusBadge } from '@/components/common/Badges';
@@ -56,6 +57,9 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   const [findings, setFindings] = useState('');
   const [conclusion, setConclusion] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [actionMessage,setActionMessage]=useState<ActionMessage|null>(null);
+  const fail=(message:string)=>setActionMessage({kind:'error',message});
+  const success=(message:string)=>setActionMessage({kind:'success',message});
   const [rejectionReason,setRejectionReason]=useState('');
   const [showReject,setShowReject]=useState(false);
   const [receiptNotes,setReceiptNotes]=useState<Record<string,string>>({});
@@ -131,7 +135,9 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   }, [analysisId, activeTab]);
 
   const handleStatusTransition = async (nextStatus: string) => {
-    setUpdating(true);
+    if(updating)return;
+    if(nextStatus==='COMPLETED'&&!conclusion.trim()){setActiveTab('workflow');fail(cs?'Před dokončením vyplňte závěr reportu.':'Enter the report conclusion before completing.');return;}
+    setActionMessage(null);setUpdating(true);
     try {
       const res = await apiClient.updateLabAnalysis(eventId, analysisId, {
         status: nextStatus,
@@ -141,12 +147,13 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
 
       if (res.ok) {
         if(nextStatus==='REJECTED'){setShowReject(false);setRejectionReason('');}
-        fetchAnalysisDetails();
+        success(cs?'Stav žádanky byl změněn.':'Request status updated.');
+        await fetchAnalysisDetails();
       } else {
-        alert(res.error || 'Transition failed');
+        fail(res.error || (cs?'Změna stavu se nezdařila.':'Transition failed.'));
       }
     } catch (err: any) {
-      alert(err.message);
+      fail(err.message||(cs?'Chyba připojení.':'Connection error.'));
     } finally {
       setUpdating(false);
     }
@@ -165,7 +172,8 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
     finally{setUpdating(false);}
   }
   const handleSaveDraft = async () => {
-    setUpdating(true);
+    if(updating)return;
+    setActionMessage(null);setUpdating(true);
     try {
       const res = await apiClient.updateLabAnalysis(eventId, analysisId, {
         method,
@@ -174,13 +182,13 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
       });
 
       if (res.ok) {
-        alert('Analysis draft saved.');
-        fetchAnalysisDetails();
+        success(cs?'Rozpracovaný protokol byl uložen.':'Analysis draft saved.');
+        await fetchAnalysisDetails();
       } else {
-        alert(res.error || 'Failed to save analysis');
+        fail(res.error || (cs?'Protokol se nepodařilo uložit.':'Failed to save analysis.'));
       }
     } catch (err: any) {
-      alert(err.message);
+      fail(err.message||(cs?'Chyba připojení.':'Connection error.'));
     } finally {
       setUpdating(false);
     }
@@ -193,7 +201,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
     try {
       const res = await apiClient.correctLabAnalysis(eventId, analysisId, { status, reason });
       if (res.ok) await fetchAnalysisDetails();
-      else alert(res.error || 'Correction failed');
+      else fail(res.error || (cs?'Oprava se nezdařila.':'Correction failed.'));
     } finally {
       setUpdating(false);
     }
@@ -212,7 +220,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
         setReassignReason('');
         await fetchAnalysisDetails();
       }
-      else alert(res.error || 'Distribution failed');
+      else fail(res.error || (cs?'Přidělení se nezdařilo.':'Distribution failed.'));
     } finally {
       setUpdating(false);
     }
@@ -230,7 +238,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
       if (res.ok) {
         setReassignReason('');
         await fetchAnalysisDetails();
-      } else alert(res.error || 'Reassignment failed');
+      } else fail(res.error || (cs?'Přeřazení se nezdařilo.':'Reassignment failed.'));
     } finally {
       setUpdating(false);
     }
@@ -496,6 +504,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
           <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{analysisData.rejectionReason||(cs?'Důvod u historického záznamu není dostupný.':'No reason available for this historical record.')}</p>
         </section>}
 
+        <ActionFeedback message={actionMessage} busy={updating} onDismiss={()=>setActionMessage(null)}/>
         {/* Local Navigation Tabs */}
         <RecordTabs
           tabs={[

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordHeader } from '@/components/common/RecordHeader';
+import {ActionFeedback,type ActionMessage} from '@/components/common/ActionFeedback';
 import { RecordTabs, TabItem } from '@/components/common/RecordTabs';
 import { RecordInspector } from '@/components/common/RecordInspector';
 import { RecordIdentifier, StatusBadge, PriorityBadge } from '@/components/common/Badges';
@@ -69,6 +70,8 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
   const [findingsText, setFindingsText] = useState('');
   const [conclusion, setConclusion] = useState('');
   const [savingOverview, setSavingOverview] = useState(false);
+  const [actionMessage,setActionMessage]=useState<ActionMessage|null>(null);
+  const fail=(message:string)=>setActionMessage({kind:'error',message});
   const [actionLoading, setActionLoading] = useState(false);
   const [handoffOpen,setHandoffOpen]=useState(false);
   const [handoffLoading,setHandoffLoading]=useState(false);
@@ -211,7 +214,9 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
   }, [analysisId, activeTab]);
 
   const handleUpdateStatus = async (status: string) => {
-    setActionLoading(true);
+    if(actionLoading||savingOverview)return;
+    if(status==='COMPLETED'&&!conclusion.trim()){setActiveTab('overview');fail(tr('Před dokončením vyplňte závěr reportu.','Enter the report conclusion before completing.'));return;}
+    setActionMessage(null);setActionLoading(true);
     try {
       const res = await apiClient.updateForensicStatus(eventId, analysisId, {
         status: status as any,
@@ -219,11 +224,12 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
       });
       if (res.ok && res.data) {
         setAnalysis(res.data);
+        setActionMessage({kind:'success',message:tr('Stav analýzy byl změněn.','Analysis status updated.')});
       } else {
-        alert(res.error || `Failed to transition analysis to ${status}`);
+        fail(res.error || tr('Změna stavu se nezdařila.','Transition failed.'));
       }
     } catch (err: any) {
-      alert(err.message || 'Action failed');
+      fail(err.message || tr('Akce se nezdařila.','Action failed.'));
     } finally {
       setActionLoading(false);
     }
@@ -231,8 +237,8 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
 
   const handleSaveOverview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(!canWork||savingOverview)return;
-    setSavingOverview(true);
+    if(!canWork||savingOverview||actionLoading)return;
+    setActionMessage(null);setSavingOverview(true);
     try {
       const res = await apiClient.updateForensicAnalysis(eventId, analysisId, {
         methodology: methodology.trim() || undefined,
@@ -242,12 +248,12 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
       if (res.ok && res.data) {
         setAnalysis(res.data);
         setMethodology(res.data.methodology??'');setFindingsText(res.data.findings??'');setConclusion(res.data.conclusion??'');
-        alert('Analysis notes saved successfully');
+        setActionMessage({kind:'success',message:tr('Rozpracovaný protokol byl uložen.','Analysis notes saved successfully.')});
       } else {
-        alert(res.error || 'Failed to save notes');
+        fail(res.error || tr('Protokol se nepodařilo uložit.','Failed to save notes.'));
       }
     } catch (err: any) {
-      alert(err.message || 'Network error');
+      fail(err.message || tr('Chyba připojení.','Network error.'));
     } finally {
       setSavingOverview(false);
     }
@@ -443,6 +449,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
           }
         />
 
+        <ActionFeedback message={actionMessage} busy={actionLoading||savingOverview} onDismiss={()=>setActionMessage(null)}/>
         {canReassign&&<section className="card" style={{padding:16,marginBottom:16}} aria-label={tr('Předání analýzy','Analysis handover')}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
             <div><strong>{tr('Odpovědný analytik','Assigned examiner')}</strong><div style={{fontSize:13,color:'var(--color-text-dim)'}}>{analysis.analystName??tr('Nepřiděleno','Unassigned')} · {analysis.unitName??tr('Forenzní pracoviště','Forensic unit')}</div></div>

@@ -2312,3 +2312,9 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
 .my-work-pagination{flex-wrap:wrap}
 @media(max-width:760px){.my-work-item{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"identifier status" "title title" "time time";gap:6px;padding:12px}.work-record-id{grid-area:identifier}.work-record-status{grid-area:status}.work-record-title{grid-area:title}.work-record-time{grid-area:time}.my-work-toolbar button,.my-work-toolbar select,.my-work-pagination button{min-height:44px}.record-tabs-shell .record-tab-btn{min-height:44px;padding:8px 10px}}
 @media(prefers-reduced-motion:reduce){.workspace-state .spin{animation:none!important}.record-tab-btn{transition:none}}
+
+.action-feedback{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:12px 16px;margin:8px 0;border:1px solid var(--border-default);border-left:3px solid var(--accent-active);border-radius:4px;background:var(--bg-panel);font-size:13px;color:var(--text-primary)}
+.action-feedback-error{border-left-color:var(--status-danger)}
+.action-feedback-success{border-left-color:var(--status-success)}
+.action-feedback p{margin:4px 0 0;color:var(--text-secondary);overflow-wrap:anywhere;max-width:70ch}
+.action-feedback button{min-height:36px}
