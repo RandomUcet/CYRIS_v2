@@ -322,6 +322,20 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       assert.equal(created.filter((r) => r.assignedToUserId === secondWorker.id).length, 2);
       for (const row of created) assert.equal((await lab.getAnalysis(eventA, row.id, row.assignedToUserId === worker.id ? worker : secondWorker)).id, row.id);
     });
+    await t.test('laboratory requests distinguish actual origin from destination and reject false origin',async()=>{
+      await db.insert(membershipUnitAssignments).values({membershipId:memberships.get(requester.id)!,unitId:unitB});
+      try{
+        const dto={analysisType:'Cross-team fingerprint fixture',evidenceIds:[evidenceId],assignedUnitId:unitA,requestedFromUnitId:unitB,visibility:'EVENT' as const};
+        const created=await lab.createAnalysis(eventA,dto,requester);
+        assert.equal(created.requestedFromUnitId,unitB);
+        assert.equal(created.assignedUnitId,unitA);
+        const detail=await lab.getAnalysisDetail(eventA,created.id,requester);
+        assert.equal(detail.requestingUnitName,'Laboratory B');assert.equal(detail.unitName,'Laboratory A');
+        await assert.rejects(lab.createAnalysis(eventA,{...dto,requestedFromUnitId:foreignUnit},requester),BadRequestException);
+        const legacy=await lab.createAnalysis(eventA,{analysisType:'Legacy fixture',evidenceIds:[evidenceId],requestedFromUnitId:unitA,visibility:'EVENT'},requester);
+        assert.equal(legacy.assignedUnitId,unitA);assert.equal(legacy.requestedFromUnitId,null);
+      }finally{await db.delete(membershipUnitAssignments).where(and(eq(membershipUnitAssignments.membershipId,memberships.get(requester.id)!),eq(membershipUnitAssignments.unitId,unitB)));}
+    });
     await t.test('lab leader can request and reassign to ordinary workers in the bound unit', async () => {
       const requested = await lab.createAnalysis(eventA, { analysisType: 'chemical', evidenceIds: [evidenceId], requestedFromUnitId: unitA, visibility: 'EVENT' }, leader);
       const row = await lab.reassignAnalysis(eventA, requested.id, { assignedToUserId: worker.id, assignedUnitId: unitA, reason: 'Balance work' }, leader);

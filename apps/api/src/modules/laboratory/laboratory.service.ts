@@ -413,7 +413,8 @@ export class LaboratoryService {
     for(const id of record.evidenceIds??[])if(await this.resourceAccessService.canAccessResource(user,id,Permissions.EVIDENCE_READ))evidenceIds.push(id);
     const [requester]=await this.db.select({name:users.displayName}).from(users).where(eq(users.id,record.requestedByUserId)).limit(1);
     const [unit]=record.assignedUnitId?await this.db.select({name:organizationalUnits.name}).from(organizationalUnits).where(and(eq(organizationalUnits.id,record.assignedUnitId),eq(organizationalUnits.eventId,record.eventId))).limit(1):[];
-    return {...record,evidenceIds,reportAvailable,requesterName:requester?.name??null,unitName:unit?.name??null,...(!internal&&{method:null,findings:null,conclusion:null})};
+    const [origin]=record.requestedFromUnitId?await this.db.select({name:organizationalUnits.name}).from(organizationalUnits).where(and(eq(organizationalUnits.id,record.requestedFromUnitId),eq(organizationalUnits.eventId,record.eventId))).limit(1):[];
+    return {...record,evidenceIds,reportAvailable,requesterName:requester?.name??null,requestingUnitName:origin?.name??null,unitName:unit?.name??null,...(!internal&&{method:null,findings:null,conclusion:null})};
   }
 
   private async notifyRequester(tx:any,eventId:string,row:typeof labAnalyses.$inferSelect){
@@ -467,7 +468,8 @@ export class LaboratoryService {
       if(evidenceResource.visibility!=='EVENT'&&visibility==='EVENT')visibility='UNIT';
     }
 
-    const resolved = await this.resolveLaboratoryUnit(eventId, data.requestedFromUnitId);
+    // New clients specify the destination independently. Preserve old clients' destination field.
+    const resolved = await this.resolveLaboratoryUnit(eventId, data.assignedUnitId ?? data.requestedFromUnitId);
     if (!resolved.unitId) {
       throw new BadRequestException(
         resolved.ambiguous
@@ -480,6 +482,16 @@ export class LaboratoryService {
       permission: Permissions.LAB_REQUEST,
       context: { eventId, unitId: resolved.unitId },
     });
+    const originUnits=await this.db.select({id:organizationalUnits.id}).from(organizationalUnits)
+      .innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.unitId,organizationalUnits.id))
+      .innerJoin(eventMemberships,eq(eventMemberships.id,membershipUnitAssignments.membershipId))
+      .where(and(eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt),
+        eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,user.id),eq(eventMemberships.status,MembershipStatus.ACTIVE)));
+    const origins=[...new Set(originUnits.map(u=>u.id))];
+    const explicitOrigin=data.assignedUnitId?data.requestedFromUnitId:undefined;
+    if(explicitOrigin&&!origins.includes(explicitOrigin))throw new BadRequestException('Requesting unit must belong to requester');
+    // Do not guess when an account belongs to several teams.
+    const originUnitId=explicitOrigin??(origins.length===1?origins[0]!:null);
     const analysisId = generateId();
     let assignedToUserId: string | null = null;
 
@@ -514,7 +526,7 @@ export class LaboratoryService {
           analysisNumber,
           status: 'REQUESTED',
           requestedByUserId: user.id,
-          requestedFromUnitId: resolved.unitId,
+          requestedFromUnitId: originUnitId,
           assignedUnitId: resolved.unitId,
           assignedToUserId,
           analysisType: data.analysisType,
@@ -555,6 +567,8 @@ export class LaboratoryService {
           analysisNumber,
           analysisType: data.analysisType,
           evidenceIds: data.evidenceIds,
+          requestedFromUnitId:originUnitId,
+          assignedUnitId:resolved.unitId,
         },
         txClient: tx,
       });

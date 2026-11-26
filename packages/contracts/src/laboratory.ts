@@ -15,7 +15,9 @@ export type LabAnalysisStatus = z.infer<typeof LabAnalysisStatusSchema>;
 export const CreateLabAnalysisRequestSchema = z.object({
   analysisType: z.string().trim().min(1).max(64),
   evidenceIds: z.array(z.string().uuid()).min(1).max(30).refine(ids=>new Set(ids).size===ids.length,'Duplicate evidence references'),
+  // Legacy clients used requestedFromUnitId as the destination when assignedUnitId was omitted.
   requestedFromUnitId: z.string().uuid().optional(),
+  assignedUnitId: z.string().uuid().optional(),
   purpose: z.string().max(10000).optional(),
   method: z.string().max(10000).optional(),
   visibility: ResourceVisibilitySchema.default('EVENT'),
@@ -62,6 +64,7 @@ export const LabAnalysisResponseSchema = z.object({
   evidenceIds: z.array(z.string().uuid()).optional(),
   reportAvailable:z.boolean().optional(),
   requesterName:z.string().nullable().optional(),
+  requestingUnitName:z.string().nullable().optional(),
   unitName:z.string().nullable().optional(),
   analystName:z.string().nullable().optional(),
 });
