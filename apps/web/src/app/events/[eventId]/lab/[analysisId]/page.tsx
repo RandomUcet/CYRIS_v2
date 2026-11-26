@@ -56,6 +56,8 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   const [findings, setFindings] = useState('');
   const [conclusion, setConclusion] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [rejectionReason,setRejectionReason]=useState('');
+  const [showReject,setShowReject]=useState(false);
   const [labUnits, setLabUnits] = useState<Array<{ id: string; name: string }>>([]);
   const [eligibleWorkers, setEligibleWorkers] = useState<Array<{ id: string; displayName: string }>>([]);
   const [selectedUnitId, setSelectedUnitId] = useState('');
@@ -132,9 +134,11 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
       const res = await apiClient.updateLabAnalysis(eventId, analysisId, {
         status: nextStatus,
         ...(nextStatus==='COMPLETED'?{method,findings,conclusion}:{}),
+        ...(nextStatus==='REJECTED'?{notes:rejectionReason.trim()}:{}),
       });
 
       if (res.ok) {
+        if(nextStatus==='REJECTED'){setShowReject(false);setRejectionReason('');}
         fetchAnalysisDetails();
       } else {
         alert(res.error || 'Transition failed');
@@ -411,6 +415,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                 {cs ? 'Převzít požadavek' : 'Accept request'}
               </button>
             )}
+            {analysisData.status==='REQUESTED'&&!viewAs&&actions?.accept&&<button type="button" className="btn btn-secondary" style={{marginLeft:8}} disabled={updating} onClick={()=>setShowReject(value=>!value)}>{cs?'Odmítnout vzorek':'Reject sample'}</button>}
             {analysisData.status === 'ACCEPTED' && !viewAs && actions?.work && (
               <button
                 onClick={() => handleStatusTransition('IN_PROGRESS')}
@@ -467,6 +472,15 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
             )}
           </div>
         </div>
+        {showReject&&analysisData.status==='REQUESTED'&&!viewAs&&actions?.accept&&<section style={{padding:16,borderBottom:'1px solid var(--border-default)',display:'grid',gap:8}}>
+          <label htmlFor="lab-rejection-reason">{cs?'Důvod odmítnutí vzorku (viditelný žadateli)':'Sample rejection reason (visible to requester)'}</label>
+          <textarea id="lab-rejection-reason" className="input-field" rows={3} maxLength={2000} value={rejectionReason} onChange={event=>setRejectionReason(event.target.value)} />
+          <div style={{display:'flex',gap:8}}><button type="button" className="btn btn-secondary" disabled={updating} onClick={()=>setShowReject(false)}>{cs?'Zrušit':'Cancel'}</button><button type="button" className="btn btn-primary" disabled={updating||!rejectionReason.trim()} onClick={()=>void handleStatusTransition('REJECTED')}>{cs?'Potvrdit odmítnutí':'Confirm rejection'}</button></div>
+        </section>}
+        {analysisData.status==='REJECTED'&&<section style={{padding:16,borderBottom:'1px solid var(--border-default)'}}>
+          <strong>{cs?'Důvod odmítnutí vzorku':'Sample rejection reason'}</strong>
+          <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{analysisData.rejectionReason||(cs?'Důvod u historického záznamu není dostupný.':'No reason available for this historical record.')}</p>
+        </section>}
 
         {/* Local Navigation Tabs */}
         <RecordTabs

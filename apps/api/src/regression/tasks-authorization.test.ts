@@ -383,6 +383,19 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         for(const u of [worker,secondWorker])await db.delete(membershipUnitAssignments).where(and(eq(membershipUnitAssignments.membershipId,memberships.get(u.id)!),eq(membershipUnitAssignments.unitId,unitB)));
       }
     });
+    await t.test('laboratory rejection requires an explicit reason and returns it without a draft',async()=>{
+      const row=await lab.createAnalysis(eventA,{analysisType:'Rejected sample fixture',evidenceIds:[evidenceId],assignedUnitId:unitA,visibility:'EVENT'},requester);
+      const examiner=row.assignedToUserId===worker.id?worker:secondWorker;
+      await assert.rejects(lab.updateAnalysis(eventA,row.id,{status:'REJECTED',notes:'   '},examiner),BadRequestException);
+      await assert.rejects(lab.updateAnalysis(eventA,row.id,{status:'REJECTED',notes:'Synthetic damaged package'},requester),ForbiddenException);
+      const reason='Synthetic damaged package; submit replacement';
+      await lab.updateAnalysis(eventA,row.id,{status:'REJECTED',notes:reason},examiner);
+      const result=await lab.getAnalysisDetail(eventA,row.id,requester);
+      assert.equal(result.status,'REJECTED');assert.equal(result.rejectionReason,reason);
+      assert.equal(result.reportAvailable,false);assert.equal(result.conclusion,null);
+      await assert.rejects(lab.getAnalysisDetail(eventA,row.id,outsider),ForbiddenException);
+      assert.equal((await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId,row.id),eq(auditEvents.action,'lab.rejected')))).length,1);
+    });
     let labId = '';
     await t.test('concurrent lab requests assign real eligible workers with balanced workload', async () => {
       const created = await Promise.all(Array.from({ length: 4 }, () => lab.createAnalysis(eventA, { analysisType: 'chemical', evidenceIds: [evidenceId], requestedFromUnitId: unitA, visibility: 'EVENT' }, requester)));

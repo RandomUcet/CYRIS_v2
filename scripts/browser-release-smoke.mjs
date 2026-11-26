@@ -129,8 +129,17 @@ try{
   await requester.page.screenshot({path:join(output,'specialist-requester-result.png'),fullPage:true});
   // Independent chemical laboratory workflow, using real canonical roles.
   const labPurpose='Browser fingerprint comparison request',labConclusion='Synthetic fingerprint comparison report';
+  const registration=await requester.context.request.post(apiRoot+'/evidence',{data:{title:'Browser registered fingerprint sample',evidenceType:'FINGERPRINT',status:'SECURED',owningUnitId:fixture.bpsUnit,currentHolderType:'USER',currentHolderId:fixture.requesterId,visibility:'EVENT'}});
+  assert.equal(registration.status(),201);
+  const registrationPayload=await registration.json(),sampleRecord=registrationPayload.data??registrationPayload;
+  assert.ok(sampleRecord.id);assert.equal(sampleRecord.currentHolderId,fixture.requesterId);
+  const dispatch=await requester.context.request.post(apiRoot+'/evidence/'+sampleRecord.id+'/transfers',{data:{toHolderType:'UNIT',toHolderId:fixture.chemicalUnit,reason:'Synthetic sample dispatch to laboratory',newStatus:'IN_TRANSIT'}});
+  assert.equal(dispatch.status(),201);
+  const dispatchedPayload=await dispatch.json(),dispatched=dispatchedPayload.data??dispatchedPayload;
+  assert.equal(dispatched.currentHolderId,fixture.chemicalUnit);assert.equal(dispatched.owningUnitId,fixture.bpsUnit);
+  assert.equal(dispatched.custodyHistory.length,2);
   const labSubmission=await requester.context.request.post(apiRoot+'/lab',{data:{
-    analysisType:'Fingerprint comparison',purpose:labPurpose,evidenceIds:[fixture.sample],
+    analysisType:'Fingerprint comparison',purpose:labPurpose,evidenceIds:[sampleRecord.id],
     requestedFromUnitId:fixture.bpsUnit,assignedUnitId:fixture.chemicalUnit,visibility:'EVENT',
   }});
   assert.equal(labSubmission.status(),201);
@@ -150,10 +159,10 @@ try{
   await cp.getByRole('button',{name:'Accept request',exact:true}).waitFor();
   const labRecord=await readLab(chem.context);
   assert.ok(labRecord.requestingUnitName&&labRecord.unitName&&labRecord.requestingUnitName!==labRecord.unitName);
-  assert.equal(labRecord.evidenceItems.find(e=>e.id===fixture.sample)?.canOpen,false);
-  assert.equal((await chem.context.request.get(apiRoot+'/evidence/'+fixture.sample)).status(),403);
+  assert.equal(labRecord.evidenceItems.find(e=>e.id===sampleRecord.id)?.canOpen,false);
+  assert.equal((await chem.context.request.get(apiRoot+'/evidence/'+sampleRecord.id)).status(),403);
   await cp.getByText('Evidence Input',{exact:false}).first().click();
-  await cp.getByText('Browser fingerprint sample',{exact:false}).first().waitFor();
+  await cp.getByText('Browser registered fingerprint sample',{exact:false}).first().waitFor();
   await cp.screenshot({path:join(output,'specialist-lab-input.png'),fullPage:true});
   await cp.getByRole('button',{name:'Accept request',exact:true}).click();
   await cp.getByRole('button',{name:'Start analysis',exact:true}).click();

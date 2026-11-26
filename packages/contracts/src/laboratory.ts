@@ -33,7 +33,7 @@ export const UpdateLabAnalysisRequestSchema = z.object({
   method: z.string().optional(),
   findings: z.string().optional(),
   conclusion: z.string().optional(),
-  notes: z.string().optional(),
+  notes: z.string().trim().max(2000).optional(),
   causationId: z.string().uuid().optional(),
 });
 
@@ -74,6 +74,7 @@ export type LabAnalysisResponse = z.infer<typeof LabAnalysisResponseSchema>;
 export const LabAnalysisDetailSchema = LabAnalysisResponseSchema.extend({
   analystName: z.string().nullable(),
   unitName: z.string().nullable(),
+  rejectionReason:z.string().nullable().optional(),
   evidenceItems: z.array(z.object({
     id: z.string().uuid(), title: z.string(), evidenceNumber: z.string(), status: z.string(), canOpen:z.boolean().optional(),
   })),

@@ -13,7 +13,7 @@ import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
   evidence,
   labAnalyses,
-  labAnalysisEvidence,notifications,
+  labAnalysisEvidence,notifications,auditEvents,
   resources,
   organizationalUnits,
   unitCapabilities,
@@ -447,7 +447,19 @@ export class LaboratoryService {
       const known=new Set(items.map(item=>item.id));
       for(const item of samples)if(!known.has(item.id))manifest.push({...item,canOpen:false});
     }
-    return { ...record, evidenceIds: items.map(item => item.id), evidenceItems: manifest,
+    // The rejection receipt is an intentional requester-visible operational
+    // reason, separate from confidential drafts and organizer correction notes.
+    let rejectionReason:string|null=null;
+    if(record.status==='REJECTED'){
+      const [receipt]=await this.db.select({action:auditEvents.action,metadata:auditEvents.metadata}).from(auditEvents)
+        .where(and(eq(auditEvents.eventId,eventId),eq(auditEvents.resourceId,analysisId),
+          eq(auditEvents.resourceType,'lab_analysis'),inArray(auditEvents.action,['lab.rejected','lab.corrected']),
+          sql`${auditEvents.metadata}->>'newStatus' = 'REJECTED'`))
+        .orderBy(desc(auditEvents.occurredAt),desc(auditEvents.id)).limit(1);
+      const reason=(receipt?.metadata as {rejectionReason?:unknown}|undefined)?.rejectionReason;
+      if(receipt?.action==='lab.rejected'&&typeof reason==='string')rejectionReason=reason;
+    }
+    return { ...record, rejectionReason, evidenceIds: items.map(item => item.id), evidenceItems: manifest,
       analystName: analysts[0]?.name ?? null, unitName: units[0]?.name ?? null,
       actions: { accept: !!accept, work: !!work, complete: !!complete, approve: !!approve } };
   }
@@ -673,6 +685,8 @@ export class LaboratoryService {
       if(!['REQUESTED','ACCEPTED','IN_PROGRESS'].includes(currentStatus))throw new BadRequestException('Report is locked; reopen for revision first');
       await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_WORK);
     }
+    if(data.status==='REJECTED'&&(!data.notes?.trim()||data.notes.trim().length>2000))throw new BadRequestException('Provide a reason for rejecting the sample (1–2000 characters)');
+    if(data.status==='REJECTED'&&writesReport)throw new BadRequestException('A rejected sample must not contain a new report');
     if(data.status==='COMPLETED'&&!(data.conclusion??existing.conclusion)?.trim())throw new BadRequestException('A conclusion is required before completion');
     if(data.status==='APPROVED'&&!existing.conclusion?.trim())throw new BadRequestException('A completed report must contain a conclusion');
 
@@ -755,6 +769,7 @@ export class LaboratoryService {
       const auditAction = data.status && data.status !== currentStatus
         ? data.status === 'COMPLETED'
           ? 'lab.completed'
+          : data.status === 'REJECTED' ? 'lab.rejected'
           : data.status === 'APPROVED'
             ? 'lab.approved'
             : 'lab.status.changed'
@@ -771,6 +786,7 @@ export class LaboratoryService {
           analysisNumber: row.analysisNumber,
           previousStatus: currentStatus,
           newStatus: data.status,
+          ...(data.status==='REJECTED'?{rejectionReason:data.notes!.trim()}:{}),
         },
         txClient: tx,
       });
