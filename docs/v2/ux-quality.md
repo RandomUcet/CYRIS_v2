@@ -22,3 +22,6 @@ Switch between two laboratories while the first worker lookup is pending; old re
 
 ## Organizer laboratory browser acceptance (prepared)
 The mandatory browser smoke now exercises actual correction and assignment after approved report return, including ordinary analyst denial, keyboard focus return, whitespace validation, narrow viewport, real correction response and assigned worker verification. Exact CI pending; this does not establish human usability. Failed network mutation and rapid cross-unit lookup remain separate acceptance tasks.
+
+## Medical triage acceptance (prepared)
+The form displays the record's existing category instead of choosing an unrelated priority, uses programmatic labels, clear pending state and no View As mutation controls. A separate canonical medical operator creates a synthetic UNIT record, finds it in the queue, deliberately changes the category via the UI, confirms persistence and checks unrelated BPS and cross-event denial. Mobile dialog and desktop queue screenshots planned. No clinical guidance or human validation claim; exact CI pending.

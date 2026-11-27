@@ -255,6 +255,48 @@ try{
   assert.ok((await assignedResponse).ok());
   assert.equal((await readLab(organizer.context)).assignedToUserId,fixture.labLead);
   await organizer.context.close();
+
+  // Canonical medical operator: synthetic encounter, private record and a
+  // deliberate triage change in the real UI, with negative role/event checks.
+  const medical=await login(fixture.medicEmail),mp=medical.page;
+  await mp.waitForURL(/\/events\/.+\/my-work/);
+  const complaint='Synthetic browser medical intake';
+  const intake=await medical.context.request.post(apiRoot+'/medical',{data:{chiefComplaint:complaint,assignedUnitId:fixture.medicalUnit,triageCategory:'UNKNOWN',visibility:'UNIT'}});
+  assert.equal(intake.status(),201);
+  const intakePayload=await intake.json(),patient=intakePayload.data??intakePayload;
+  assert.ok(patient.id);assert.equal(patient.assignedUnitId,fixture.medicalUnit);
+  assert.equal(patient.status,'RECEIVED');
+  const medicalEndpoint=apiRoot+'/medical/'+patient.id;
+  const readMedical=async()=>{const result=await medical.context.request.get(medicalEndpoint);assert.equal(result.status(),200);const payload=await result.json();return payload.data??payload;};
+  await mp.goto(eventRoot+'/medical');
+  await mp.getByText(complaint,{exact:true}).waitFor();
+  await mp.screenshot({path:join(output,'specialist-medical-queue.png'),fullPage:true});
+  await mp.getByText(complaint,{exact:true}).click();
+  await mp.waitForURL('**/medical/'+patient.id);
+  await mp.getByRole('button',{name:'Set Triage',exact:true}).click();
+  const triage=mp.getByRole('dialog',{name:'Assign Triage Category'});
+  const category=triage.getByLabel('Triage Category',{exact:true});
+  await category.waitFor();
+  assert.equal(await category.inputValue(),'UNKNOWN','Do not default to an unrelated high-priority category');
+  await category.selectOption('MINOR');
+  await triage.getByLabel('Clinical Justification / Note',{exact:true}).fill('Synthetic instructor-assigned test category');
+  await mp.setViewportSize({width:390,height:844});
+  assert.ok(await triage.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'Medical triage dialog reflows');
+  await mp.screenshot({path:join(output,'specialist-medical-triage-mobile.png'),fullPage:true});
+  await triage.getByRole('button',{name:'Set Triage',exact:true}).click();
+  await triage.waitFor({state:'hidden'});
+  const triaged=await readMedical();
+  assert.equal(triaged.triageCategory,'MINOR');assert.equal(triaged.status,'TRIAGED');
+  await mp.getByRole('button',{name:'Set Triage',exact:true}).click();
+  await category.waitFor();
+  assert.equal(await category.inputValue(),'MINOR','Reopening preserves current category');
+  await triage.getByRole('button',{name:'Cancel',exact:true}).click();
+  assert.equal((await medical.context.request.get(base+'/api/events/'+fixture.foreign+'/medical/'+patient.id)).status(),404);
+  const unrelated=await login(fixture.requesterEmail);
+  assert.equal((await unrelated.context.request.get(medicalEndpoint)).status(),403);
+  assert.equal((await unrelated.context.request.post(medicalEndpoint+'/triage',{data:{triageCategory:'DELAYED'}})).status(),403);
+  await unrelated.context.close();
+  await medical.context.close();
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');
-  console.log('Real-browser admin, participant and canonical specialist workflow smoke passed; 15 screenshots captured.');
+  console.log('Real-browser admin, participant and canonical specialist workflow smoke passed; 17 screenshots captured.');
 }finally{await browser.close();}

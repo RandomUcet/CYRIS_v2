@@ -91,7 +91,7 @@ export default function MedicalDetailPage() {
   const router = useRouter();
   const eventId = params.eventId as string;
   const encounterId = params.encounterId as string;
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, viewAs } = useAuth();
   const {formatTime, locale} = usePreferences();
   const trDialog = (value: string): string => locale === 'cs' ? medicalDialogTranslations[value] ?? value : value;
 
@@ -104,7 +104,7 @@ export default function MedicalDetailPage() {
 
   // Quick Action Modals
   const [showTriageModal, setShowTriageModal] = useState(false);
-  const [newTriage, setNewTriage] = useState<MedicalTriageCategory>('IMMEDIATE');
+  const [newTriage, setNewTriage] = useState<MedicalTriageCategory>('UNKNOWN');
   const [triageNote, setTriageNote] = useState('');
 
   const [showObservationModal, setShowObservationModal] = useState(false);
@@ -170,11 +170,11 @@ export default function MedicalDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   useDialogAccessibility(showTriageModal || showObservationModal || showInterventionModal || showTransferModal, () => { if (!actionPending) { setShowTriageModal(false); setShowObservationModal(false); setShowInterventionModal(false); setShowTransferModal(false); setActionError(null); } });
 
-  const canTriage = hasPermission('medical.triage', eventId);
-  const canObserve = hasPermission('medical.observe', eventId);
-  const canIntervene = hasPermission('medical.intervene', eventId);
-  const canTransfer = hasPermission('medical.transfer', eventId);
-  const canClose = hasPermission('medical.close', eventId);
+  const canTriage = !viewAs && hasPermission('medical.triage', eventId);
+  const canObserve = !viewAs && hasPermission('medical.observe', eventId);
+  const canIntervene = !viewAs && hasPermission('medical.intervene', eventId);
+  const canTransfer = !viewAs && hasPermission('medical.transfer', eventId);
+  const canClose = !viewAs && hasPermission('medical.close', eventId);
 
   const fetchEncounter = async () => {
     setLoading(true);
@@ -201,6 +201,7 @@ export default function MedicalDetailPage() {
 
   const handleTriageSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(actionPending||!canTriage||!encounter||['TRANSFERRED','CLOSED','DECEASED'].includes(encounter.status))return;
     setActionPending(true);
     setActionError(null);
     try {
@@ -394,11 +395,11 @@ export default function MedicalDetailPage() {
           </button>
           {canTriage && encounter && !['TRANSFERRED', 'CLOSED', 'DECEASED'].includes(encounter.status) && (
             <button
-              onClick={() => setShowTriageModal(true)}
+              onClick={() => {setNewTriage(encounter.triageCategory);setTriageNote('');setActionError(null);setShowTriageModal(true);}}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-500 rounded transition"
             >
               <Tag size={13} />
-              Set Triage
+              {trDialog('Set Triage')}
             </button>
           )}
           {canIntervene && encounter?.status === 'TRANSFERRED' && (
@@ -741,13 +742,14 @@ export default function MedicalDetailPage() {
         <div className="dialog-overlay medical-dialog-overlay" role="presentation">
           <form
             onSubmit={handleTriageSubmit}
-            className="dialog-surface medical-dialog-surface" role="dialog" aria-modal="true" aria-labelledby="triage-dialog-title"
+            className="dialog-surface medical-dialog-surface" role="dialog" aria-modal="true" aria-labelledby="triage-dialog-title" aria-busy={actionPending}
           >
             <div className="dialog-header medical-dialog-header">
               <h4 id="triage-dialog-title">{trDialog('Assign Triage Category')}</h4>
               <button
                 type="button"
-                onClick={() => setShowTriageModal(false)}
+                onClick={() => {if(!actionPending)setShowTriageModal(false);}}
+                disabled={actionPending}
                 className="medical-dialog-dismiss" aria-label={trDialog("Close")}
               >
                 <X size={16} />
@@ -756,8 +758,10 @@ export default function MedicalDetailPage() {
 
             <div className="dialog-body medical-dialog-body">
               <div>
-                <label className="medical-dialog-label">{trDialog("Triage Category")}</label>
+                <label htmlFor="medical-triage-category" className="medical-dialog-label">{trDialog("Triage Category")}</label>
                 <select
+                  id="medical-triage-category"
+                  disabled={actionPending}
                   value={newTriage}
                   onChange={(e) => setNewTriage(e.target.value as MedicalTriageCategory)}
                   className="medical-dialog-control"
@@ -771,8 +775,11 @@ export default function MedicalDetailPage() {
               </div>
 
               <div>
-                <label className="medical-dialog-label">{trDialog("Clinical Justification / Note")}</label>
+                <label htmlFor="medical-triage-note" className="medical-dialog-label">{trDialog("Clinical Justification / Note")}</label>
                 <textarea
+                  id="medical-triage-note"
+                  disabled={actionPending}
+                  maxLength={2000}
                   value={triageNote}
                   onChange={(e) => setTriageNote(e.target.value)}
                   rows={3}
@@ -787,6 +794,7 @@ export default function MedicalDetailPage() {
               <button
                 type="button"
                 onClick={() => setShowTriageModal(false)}
+                disabled={actionPending}
                 className="btn btn-secondary"
               >
                 {trDialog("Cancel")}
@@ -796,7 +804,7 @@ export default function MedicalDetailPage() {
                 disabled={actionPending}
                 className="btn btn-primary"
               >
-                {actionPending ? 'Updating...' : 'Set Triage'}
+                {trDialog(actionPending ? 'Updating...' : 'Set Triage')}
               </button>
             </div>
           </form>
