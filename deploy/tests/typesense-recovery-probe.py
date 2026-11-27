@@ -10,6 +10,21 @@ import re
 import subprocess
 import sys
 import urllib.request
+import urllib.error
+import time
+
+
+def request_with_readiness_retry(send, *, retryable, clock=time.monotonic, sleep=time.sleep):
+    """Only retry explicit temporary unavailability on safe fixture operations."""
+    deadline = clock() + 60
+    while True:
+        try:
+            return send()
+        except urllib.error.HTTPError as error:
+            if not retryable or error.code != 503 or clock() >= deadline:
+                raise
+            error.close()
+            sleep(min(2, max(0, deadline - clock())))
 
 
 def main():
@@ -46,8 +61,13 @@ def main():
     def request(method, path, body=None):
         data = None if body is None else json.dumps(body).encode("utf-8")
         req = urllib.request.Request(root + path, data=data, headers=headers, method=method)
-        with opener.open(req, timeout=15) as result:
-            return json.load(result)
+        def send():
+            with opener.open(req, timeout=15) as result:
+                return json.load(result)
+        # A healthy container can still be loading its persisted search index.
+        # Only GET and the deterministic fixed-ID upsert are safe to retry.
+        retryable = method == "GET" or (method == "POST" and path == documents + "?action=upsert")
+        return request_with_readiness_retry(send, retryable=retryable)
 
     if action == "seed":
         request("POST", "/collections", {"name": "recovery_check", "fields": [{"name": "value", "type": "string"}]})
