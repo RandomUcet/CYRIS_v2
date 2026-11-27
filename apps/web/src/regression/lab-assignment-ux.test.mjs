@@ -16,3 +16,10 @@ test('lab assignment is a single labelled responsive form with retry and unchang
  assert.ok(source.includes('setWorkersRetry(n=>n+1)'));
  assert.ok(!source.includes('Distribute to queue'));
 });
+
+test('assignment accessible names exclude dynamic option text',()=>{
+ for(const id of ['unit','worker','reason']) {
+  assert.ok(source.includes('id="lab-assignment-'+id+'-label"'));
+  assert.ok(source.includes('aria-labelledby="lab-assignment-'+id+'-label"'));
+ }
+});

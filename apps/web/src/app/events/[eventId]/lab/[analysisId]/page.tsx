@@ -370,20 +370,20 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
             <h2 id="lab-assignment-title" style={{fontSize:14,margin:0}}>{cs?'Přidělení žádanky':'Request assignment'}</h2>
             <p style={{margin:0,fontSize:13}}>{cs?'Vyberte laboratoř a konkrétního pracovníka, nebo ponechte žádanku ve frontě laboratoře.':'Choose a laboratory and a specific worker, or leave the request in the laboratory queue.'}</p>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,220px),1fr))',gap:10}}>
-              <label style={{display:'grid',gap:4}}>{cs?'Cílová laboratoř':'Destination laboratory'}
-                <select className="input-field" required disabled={updating} value={selectedUnitId} onChange={e=>{setSelectedWorkerId('');setEligibleWorkers([]);setWorkersLoading(!!e.target.value);setSelectedUnitId(e.target.value);}}>
+              <label style={{display:'grid',gap:4}}><span id="lab-assignment-unit-label">{cs?'Cílová laboratoř':'Destination laboratory'}</span>
+                <select aria-labelledby="lab-assignment-unit-label" className="input-field" required disabled={updating} value={selectedUnitId} onChange={e=>{setSelectedWorkerId('');setEligibleWorkers([]);setWorkersLoading(!!e.target.value);setSelectedUnitId(e.target.value);}}>
                   <option value="">{cs?'Vyberte laboratoř':'Select laboratory'}</option>
                   {labUnits.map(unit=><option key={unit.id} value={unit.id}>{unit.name}</option>)}
                 </select>
               </label>
-              <label style={{display:'grid',gap:4}}>{cs?'Pracovník':'Worker'}
-                <select className="input-field" value={selectedWorkerId} onChange={e=>setSelectedWorkerId(e.target.value)} disabled={updating||!selectedUnitId||workersLoading||!!workersError}>
+              <label style={{display:'grid',gap:4}}><span id="lab-assignment-worker-label">{cs?'Pracovník':'Worker'}</span>
+                <select aria-labelledby="lab-assignment-worker-label" className="input-field" value={selectedWorkerId} onChange={e=>setSelectedWorkerId(e.target.value)} disabled={updating||!selectedUnitId||workersLoading||!!workersError}>
                   <option value="">{cs?'Fronta bez pracovníka':'Unassigned queue'}</option>
                   {eligibleWorkers.map(worker=><option key={worker.id} value={worker.id}>{worker.displayName}</option>)}
                 </select>
               </label>
-              <label style={{display:'grid',gap:4}}>{cs?'Důvod (povinný)':'Reason (required)'}
-                <input className="input-field" required minLength={3} disabled={updating} value={reassignReason} onChange={e=>setReassignReason(e.target.value)}/>
+              <label style={{display:'grid',gap:4}}><span id="lab-assignment-reason-label">{cs?'Důvod (povinný)':'Reason (required)'}</span>
+                <input aria-labelledby="lab-assignment-reason-label" className="input-field" required minLength={3} disabled={updating} value={reassignReason} onChange={e=>setReassignReason(e.target.value)}/>
               </label>
             </div>
             {workersLoading&&<p role="status">{cs?'Načítám pracovníky…':'Loading eligible workers…'}</p>}
