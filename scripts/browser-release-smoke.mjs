@@ -236,9 +236,19 @@ try{
   await op.setViewportSize({width:390,height:844});
   assert.ok(await correction.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'Correction form fits narrow viewport');
   await op.screenshot({path:join(output,'organizer-lab-correction-mobile.png'),fullPage:true});
-  const correctedResponse=op.waitForResponse(r=>r.url().endsWith('/lab/'+lab.id+'/correct')&&r.request().method()==='POST');
-  await correction.getByRole('button',{name:'Confirm reopening',exact:true}).click();
-  assert.ok((await correctedResponse).ok());
+  // Keep the mobile layout check separate from the desktop write acceptance.
+  await op.setViewportSize({width:1440,height:1000});
+  assert.equal(await reason.inputValue(),'Synthetic organizer correction for acceptance');
+  assert.equal(await correction.evaluate(el=>el.checkValidity()),true,'Correction form must satisfy native validation');
+  const confirmCorrection=correction.getByRole('button',{name:'Confirm reopening',exact:true});
+  assert.equal(await confirmCorrection.isEnabled(),true,'Correction submit must be enabled');
+  const correctionRequests=[];
+  op.on('request',r=>{if(r.method()==='POST')correctionRequests.push(new URL(r.url()).pathname);});
+  const [correctedResponse]=await Promise.all([
+    op.waitForResponse(r=>new URL(r.url()).pathname.endsWith('/lab/'+lab.id+'/correct')&&r.request().method()==='POST').catch(async error=>{throw new Error('Correction response missing; POST paths: '+correctionRequests.join(', ')+'; form: '+await correction.innerText().catch(()=>'(closed)'),{cause:error});}),
+    confirmCorrection.click(),
+  ]);
+  assert.ok(correctedResponse.ok(),'Correction HTTP '+correctedResponse.status());
   await correction.waitFor({state:'hidden'});
   assert.equal((await readLab(organizer.context)).status,'REQUESTED');
 
