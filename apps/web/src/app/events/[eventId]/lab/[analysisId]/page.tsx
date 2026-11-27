@@ -83,16 +83,18 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   const canReassign = !viewAs && hasPermission('lab.reassign', eventId);
   const canCorrect = !viewAs && hasPermission('lab.correct', eventId);
 
-  const fetchAnalysisDetails = async () => {
+  const fetchAnalysisDetails = async (preserveDraft = false) => {
     setLoading(true);
     setError(null);
     try {
       const res = await apiClient.getLabAnalysis(eventId, analysisId);
       if (res.ok && res.data) {
         setAnalysisData(res.data);
-        setMethod(res.data.method || '');
-        setFindings(res.data.findings || '');
-        setConclusion(res.data.conclusion || '');
+        if (!preserveDraft) {
+          setMethod(res.data.method || '');
+          setFindings(res.data.findings || '');
+          setConclusion(res.data.conclusion || '');
+        }
       } else {
         setError(res.error || 'Failed to load analysis record');
       }
@@ -182,7 +184,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
       const result=await apiClient.confirmLabSampleReceipt(eventId,analysisId,{evidenceId:item.id,transferId:item.pendingReceiptTransferId,condition});
       if(!result.ok)throw Error(result.error||'Receipt failed');
       setReceiptNotes(old=>({...old,[item.id]:''}));
-      await fetchAnalysisDetails();
+      await fetchAnalysisDetails(true);
     }catch(error){setReceiptError(error instanceof Error?error.message:String(error));}
     finally{setUpdating(false);}
   }
@@ -251,7 +253,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
       });
       if (res.ok) {
         setReassignReason('');
-        await fetchAnalysisDetails();
+        await fetchAnalysisDetails(true);
       }
       else fail(res.error || (cs?'Přidělení se nezdařilo.':'Distribution failed.'));
     } catch { fail(cs?'Připojení selhalo. Zkuste to znovu.':'Connection failed. Try again.'); } finally {
@@ -270,7 +272,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
       });
       if (res.ok) {
         setReassignReason('');
-        await fetchAnalysisDetails();
+        await fetchAnalysisDetails(true);
       } else fail(res.error || (cs?'Přeřazení se nezdařilo.':'Reassignment failed.'));
     } catch { fail(cs?'Připojení selhalo. Zkuste to znovu.':'Connection failed. Try again.'); } finally {
       setUpdating(false);
