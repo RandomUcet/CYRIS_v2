@@ -75,6 +75,9 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   const [selectedUnitId, setSelectedUnitId] = useState('');
   const [selectedWorkerId, setSelectedWorkerId] = useState('');
   const [reassignReason, setReassignReason] = useState('');
+  const [workersLoading,setWorkersLoading]=useState(false);
+  const [workersError,setWorkersError]=useState('');
+  const [workersRetry,setWorkersRetry]=useState(0);
 
   const cs = locale === 'cs';
   const canReassign = !viewAs && hasPermission('lab.reassign', eventId);
@@ -124,15 +127,21 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   }, [eventId, analysisId]);
 
   useEffect(() => {
-    if (!selectedUnitId) {
-      setEligibleWorkers([]);
-      setSelectedWorkerId('');
-      return;
-    }
+    let active=true;
+    setEligibleWorkers([]);
+    setSelectedWorkerId('');
+    setWorkersError('');
+    setWorkersLoading(!!selectedUnitId);
+    if (!selectedUnitId) return;
     apiClient.getLabWorkers(eventId, selectedUnitId).then((res) => {
+      if (!active) return;
       if (res.ok && res.data) setEligibleWorkers(res.data);
-    });
-  }, [eventId, selectedUnitId]);
+      else setWorkersError(cs?'Pracovníky se nepodařilo načíst.':'Could not load eligible workers.');
+    }).catch(()=>{
+      if(active)setWorkersError(cs?'Pracovníky se nepodařilo načíst.':'Could not load eligible workers.');
+    }).finally(()=>{if(active)setWorkersLoading(false);});
+    return ()=>{active=false;};
+  }, [eventId, selectedUnitId, workersRetry, cs]);
 
   useEffect(() => {
     if (analysisId && activeTab === 'timeline') {
@@ -232,7 +241,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   };
 
   const handleDistribute = async () => {
-    if (!reassignReason.trim() || !selectedUnitId) return;
+    if (updating || !canReassign || workersLoading || workersError || reassignReason.trim().length < 3 || !selectedUnitId) return;
     setUpdating(true);
     try {
       const res = await apiClient.reassignLabAnalysis(eventId, analysisId, {
@@ -245,13 +254,13 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
         await fetchAnalysisDetails();
       }
       else fail(res.error || (cs?'Přidělení se nezdařilo.':'Distribution failed.'));
-    } finally {
+    } catch { fail(cs?'Připojení selhalo. Zkuste to znovu.':'Connection failed. Try again.'); } finally {
       setUpdating(false);
     }
   };
 
   const handleReassign = async () => {
-    if (!selectedUnitId || !selectedWorkerId || reassignReason.trim().length < 3) return;
+    if (updating || !canReassign || workersLoading || workersError || !selectedUnitId || !eligibleWorkers.some(worker=>worker.id===selectedWorkerId) || reassignReason.trim().length < 3) return;
     setUpdating(true);
     try {
       const res = await apiClient.reassignLabAnalysis(eventId, analysisId, {
@@ -263,7 +272,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
         setReassignReason('');
         await fetchAnalysisDetails();
       } else fail(res.error || (cs?'Přeřazení se nezdařilo.':'Reassignment failed.'));
-    } finally {
+    } catch { fail(cs?'Připojení selhalo. Zkuste to znovu.':'Connection failed. Try again.'); } finally {
       setUpdating(false);
     }
   };
@@ -335,11 +344,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                 <Layers size={13} style={{ marginRight: '4px' }} />
                 {inspectorOpen ? 'Hide' : 'Inspect'}
               </button>
-              {canReassign && !analysisData.assignedToUserId && (
-                <button onClick={handleDistribute} disabled={updating} className="btn btn-secondary">
-                  Distribute to queue
-                </button>
-              )}
+
               {canCorrect && (
                 <button ref={correctionTrigger} type="button" aria-expanded={showCorrection} aria-controls={showCorrection?'lab-correction-form':undefined} onClick={()=>{setShowCorrection(true);correctionField.current?.focus();}} disabled={updating} className="btn btn-secondary">
                   {cs?'Znovu otevřít / opravit':'Reopen / correct'}
@@ -361,20 +366,30 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
           </div>
         </form>}
         {canReassign && (
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '10px 24px', borderBottom: '1px solid var(--color-border-subtle)' }}>
-            <select className="input-field" value={selectedUnitId} onChange={(e) => setSelectedUnitId(e.target.value)} aria-label="Destination laboratory">
-              <option value="">Select destination laboratory</option>
-              {labUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
-            </select>
-            <select className="input-field" value={selectedWorkerId} onChange={(e) => setSelectedWorkerId(e.target.value)} disabled={!selectedUnitId} aria-label="Eligible laboratory worker">
-              <option value="">Unassigned queue</option>
-              {eligibleWorkers.map((worker) => <option key={worker.id} value={worker.id}>{worker.displayName}</option>)}
-            </select>
-            <input className="input-field" value={reassignReason} onChange={(e) => setReassignReason(e.target.value)} placeholder="Reason" aria-label="Reassignment reason" />
-            <button onClick={selectedWorkerId ? handleReassign : handleDistribute} disabled={updating || !selectedUnitId || reassignReason.trim().length < 3} className="btn btn-secondary">
-              {selectedWorkerId ? 'Reassign' : 'Place in queue'}
-            </button>
-          </div>
+          <form aria-labelledby="lab-assignment-title" aria-busy={updating} onSubmit={e=>{e.preventDefault();void (selectedWorkerId?handleReassign():handleDistribute());}} style={{padding:16,display:'grid',gap:10,borderBottom:'1px solid var(--color-border-subtle)'}}>
+            <h2 id="lab-assignment-title" style={{fontSize:14,margin:0}}>{cs?'Přidělení žádanky':'Request assignment'}</h2>
+            <p style={{margin:0,fontSize:13}}>{cs?'Vyberte laboratoř a konkrétního pracovníka, nebo ponechte žádanku ve frontě laboratoře.':'Choose a laboratory and a specific worker, or leave the request in the laboratory queue.'}</p>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,220px),1fr))',gap:10}}>
+              <label style={{display:'grid',gap:4}}>{cs?'Cílová laboratoř':'Destination laboratory'}
+                <select className="input-field" required disabled={updating} value={selectedUnitId} onChange={e=>{setSelectedWorkerId('');setEligibleWorkers([]);setWorkersLoading(!!e.target.value);setSelectedUnitId(e.target.value);}}>
+                  <option value="">{cs?'Vyberte laboratoř':'Select laboratory'}</option>
+                  {labUnits.map(unit=><option key={unit.id} value={unit.id}>{unit.name}</option>)}
+                </select>
+              </label>
+              <label style={{display:'grid',gap:4}}>{cs?'Pracovník':'Worker'}
+                <select className="input-field" value={selectedWorkerId} onChange={e=>setSelectedWorkerId(e.target.value)} disabled={updating||!selectedUnitId||workersLoading||!!workersError}>
+                  <option value="">{cs?'Fronta bez pracovníka':'Unassigned queue'}</option>
+                  {eligibleWorkers.map(worker=><option key={worker.id} value={worker.id}>{worker.displayName}</option>)}
+                </select>
+              </label>
+              <label style={{display:'grid',gap:4}}>{cs?'Důvod (povinný)':'Reason (required)'}
+                <input className="input-field" required minLength={3} disabled={updating} value={reassignReason} onChange={e=>setReassignReason(e.target.value)}/>
+              </label>
+            </div>
+            {workersLoading&&<p role="status">{cs?'Načítám pracovníky…':'Loading eligible workers…'}</p>}
+            {workersError&&<div><p role="alert">{workersError}</p><button type="button" className="btn btn-secondary" onClick={()=>setWorkersRetry(n=>n+1)}>{cs?'Zkusit znovu':'Retry'}</button></div>}
+            <div><button type="submit" disabled={updating||workersLoading||!!workersError||!selectedUnitId||reassignReason.trim().length<3} className="btn btn-secondary">{updating?(cs?'Ukládám…':'Saving…'):selectedWorkerId?(cs?'Přidělit pracovníkovi':'Assign worker'):(cs?'Zařadit do fronty':'Place in queue')}</button></div>
+          </form>
         )}
 
         {/* Lifecycle Stepper Bar */}

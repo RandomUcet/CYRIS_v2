@@ -16,3 +16,6 @@ A record header must retain readable identity, status, responsible unit and acti
 
 ## Laboratory correction acceptance
 Replace the blocking native reason prompt with an inline labelled form, explicit target state, trimmed minimum reason, pending state and local error feedback. Cancel returns focus to the trigger; failed requests retain the reason. Existing correction permission and server authorization remain authoritative. Before confirmation, warn that unsaved report edits must be saved. Browser acceptance still required: authorized organizer opens, cancels and reopens by keyboard; whitespace reason does not send; denied request retains text; successful request refreshes status; ordinary analyst and View As cannot open the form; 390px reflow. No human validation claim.
+
+## Laboratory assignment acceptance
+Switch between two laboratories while the first worker lookup is pending; old responses must not repopulate the new selection. Verify retry on failed lookup, keyboard submission, queue versus named-worker action, retained reason after failed mutation, narrow viewport and unchanged authorization. Browser verification pending.
