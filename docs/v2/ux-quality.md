@@ -19,3 +19,6 @@ Replace the blocking native reason prompt with an inline labelled form, explicit
 
 ## Laboratory assignment acceptance
 Switch between two laboratories while the first worker lookup is pending; old responses must not repopulate the new selection. Verify retry on failed lookup, keyboard submission, queue versus named-worker action, retained reason after failed mutation, narrow viewport and unchanged authorization. Browser verification pending.
+
+## Organizer laboratory browser acceptance (prepared)
+The mandatory browser smoke now exercises actual correction and assignment after approved report return, including ordinary analyst denial, keyboard focus return, whitespace validation, narrow viewport, real correction response and assigned worker verification. Exact CI pending; this does not establish human usability. Failed network mutation and rapid cross-unit lookup remain separate acceptance tasks.

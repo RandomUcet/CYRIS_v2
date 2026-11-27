@@ -163,6 +163,8 @@ try{
   await cp.screenshot({path:join(output,'specialist-lab-queue.png'),fullPage:true});
   await cp.goto(labDetail);
   await cp.getByRole('button',{name:'Accept request',exact:true}).waitFor();
+  assert.equal(await cp.getByRole('button',{name:'Reopen / correct',exact:true}).count(),0);
+  assert.equal((await chem.context.request.post(labEndpoint+'/correct',{data:{status:'REQUESTED',reason:'Unauthorized fixture'}})).status(),403);
   const labRecord=await readLab(chem.context);
   assert.ok(labRecord.requestingUnitName&&labRecord.unitName&&labRecord.requestingUnitName!==labRecord.unitName);
   assert.equal(labRecord.evidenceItems.find(e=>e.id===sampleRecord.id)?.canOpen,false);
@@ -208,6 +210,51 @@ try{
   await requester.page.waitForFunction(value=>document.querySelector('#lab-conclusion')?.value===value,labConclusion);
   await requester.page.screenshot({path:join(output,'specialist-lab-requester-result.png'),fullPage:true});
   await requester.context.close();
+
+  // Exercise the new actual organizer controls after the specialist report
+  // has been independently approved and returned. No mock successful writes.
+  const organizer=await login(fixture.adminEmail),op=organizer.page;
+  await op.waitForURL(/\/admin(?:\/|$)/);
+  await op.goto(labDetail);
+  const reopen=op.getByRole('button',{name:'Reopen / correct',exact:true});
+  await reopen.waitFor();
+  await reopen.focus();
+  await op.keyboard.press('Enter');
+  const correction=op.getByRole('form',{name:'Reopen request',exact:true});
+  const reason=correction.getByLabel('Correction reason (required)',{exact:true});
+  await reason.waitFor();
+  await op.waitForFunction(()=>document.activeElement?.id==='lab-correction-reason');
+  await correction.getByRole('button',{name:'Cancel',exact:true}).click();
+  await correction.waitFor({state:'hidden'});
+  assert.equal(await reopen.evaluate(el=>document.activeElement===el),true,'Cancel restores keyboard focus');
+  await reopen.click();
+  await reason.fill('   ');
+  await correction.getByRole('button',{name:'Confirm reopening',exact:true}).click();
+  await correction.getByRole('alert').filter({hasText:'Enter a reason of at least three characters.'}).waitFor();
+  assert.equal((await readLab(organizer.context)).status,'APPROVED','Invalid reason must not alter approved state');
+  await reason.fill('Synthetic organizer correction for acceptance');
+  await op.setViewportSize({width:390,height:844});
+  assert.ok(await correction.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'Correction form fits narrow viewport');
+  await op.screenshot({path:join(output,'organizer-lab-correction-mobile.png'),fullPage:true});
+  const correctedResponse=op.waitForResponse(r=>r.url().endsWith('/lab/'+lab.id+'/correct')&&r.request().method()==='POST');
+  await correction.getByRole('button',{name:'Confirm reopening',exact:true}).click();
+  assert.ok((await correctedResponse).ok());
+  await correction.waitFor({state:'hidden'});
+  assert.equal((await readLab(organizer.context)).status,'REQUESTED');
+
+  const assignment=op.getByRole('form',{name:'Request assignment',exact:true});
+  await assignment.waitFor();
+  await assignment.getByLabel('Destination laboratory',{exact:true}).selectOption(fixture.chemicalUnit);
+  const worker=assignment.getByLabel('Worker',{exact:true});
+  await worker.locator('option[value="'+fixture.labLead+'"]').waitFor({state:'attached'});
+  await worker.selectOption(fixture.labLead);
+  await assignment.getByLabel('Reason (required)',{exact:true}).fill('Synthetic reassignment for acceptance');
+  await op.screenshot({path:join(output,'organizer-lab-assignment-mobile.png'),fullPage:true});
+  const assignedResponse=op.waitForResponse(r=>r.url().endsWith('/lab/'+lab.id+'/reassign')&&r.request().method()==='POST');
+  await assignment.getByRole('button',{name:'Assign worker',exact:true}).click();
+  assert.ok((await assignedResponse).ok());
+  assert.equal((await readLab(organizer.context)).assignedToUserId,fixture.labLead);
+  await organizer.context.close();
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');
-  console.log('Real-browser admin, participant and canonical specialist workflow smoke passed; 13 screenshots captured.');
+  console.log('Real-browser admin, participant and canonical specialist workflow smoke passed; 15 screenshots captured.');
 }finally{await browser.close();}
