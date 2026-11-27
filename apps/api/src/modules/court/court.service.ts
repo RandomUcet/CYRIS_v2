@@ -76,6 +76,14 @@ export class CourtService {
     return this.databaseService.client;
   }
 
+  /** A court permission must never substitute for canonical source access. */
+  private async assertReadableSource(eventId: string, id: string, type: 'evidence' | 'document', user: AuthenticatedUser): Promise<void> {
+    const [row] = await this.db.select({id: resources.id}).from(resources)
+      .where(and(eq(resources.id,id),eq(resources.eventId,eventId),eq(resources.resourceType,type))).limit(1);
+    if (!row) throw new NotFoundException('Linked source not found in this exercise');
+    await this.resourceAccessService.assertCanAccessResource(user,id,type==='evidence'?Permissions.EVIDENCE_READ:Permissions.DOCUMENT_READ);
+  }
+
   /** Reject a court case addressed through another exercise, before any action. */
   async assertCaseInEvent(eventId: string, courtCaseId: string): Promise<void> {
     const [row] = await this.db.select({id: courtCases.id}).from(courtCases)
@@ -447,6 +455,8 @@ export class CourtService {
       throw new NotFoundException(`Court case '${courtCaseId}' not found`);
     }
 
+    await this.assertReadableSource(courtCase.eventId,dto.evidenceId,'evidence',user);
+    if (dto.documentId) await this.assertReadableSource(courtCase.eventId,dto.documentId,'document',user);
     // Verify canonical evidence exists
     const [ev] = await this.db
       .select({ id: evidence.id, evidenceNumber: evidence.evidenceNumber, description: evidence.description })
@@ -815,6 +825,7 @@ export class CourtService {
       throw new NotFoundException(`Court case '${courtCaseId}' not found`);
     }
 
+    await this.assertReadableSource(courtCase.eventId,dto.documentId,'document',user);
     // Verify document exists
     const [doc] = await this.db
       .select({ id: documents.id, title: documents.title, documentNumber: documents.documentNumber })
@@ -916,6 +927,7 @@ export class CourtService {
       throw new NotFoundException(`Court case '${courtCaseId}' not found`);
     }
 
+    if (dto.documentId) await this.assertReadableSource(courtCase.eventId,dto.documentId,'document',user);
     const decisionId = generateId();
     const now = new Date();
 

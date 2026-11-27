@@ -352,6 +352,27 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       assert.equal((await courtController.getDetail(eventA,id,organizer)).status,'PREPARATION');
       await assert.rejects(courtController.getDetail(eventA,id,outsider),ForbiddenException);
     });
+    await t.test('court exhibit submission rejects foreign, unreadable and wrong-type sources before writes', async () => {
+      await addRole('court-exhibit-test',organizer,[[Permissions.COURT_EXHIBIT_SUBMIT,'EVENT']]);
+      const row=await courtController.createCase(eventA,{title:'Synthetic court source isolation'},organizer);
+      const foreignEvidence=generateId(),restrictedEvidence=generateId();
+      await db.insert(resources).values([
+        {id:foreignEvidence,eventId:eventB,resourceType:'evidence',visibility:'EVENT'},
+        {id:restrictedEvidence,eventId:eventA,resourceType:'evidence',visibility:'RESTRICTED',ownerUserId:requester.id},
+      ]);
+      await db.insert(evidence).values([
+        {id:foreignEvidence,evidenceNumber:'EV-COURT-FOREIGN',title:'Foreign fixture',evidenceType:'sample',currentHolderId:requester.id},
+        {id:restrictedEvidence,evidenceNumber:'EV-COURT-PRIVATE',title:'Restricted fixture',evidenceType:'sample',currentHolderId:requester.id},
+      ]);
+      await assert.rejects(courtController.submitExhibit(eventA,row.id,{evidenceId:foreignEvidence},organizer),NotFoundException);
+      await assert.rejects(courtController.submitExhibit(eventA,row.id,{evidenceId:restrictedEvidence},organizer),ForbiddenException);
+      await assert.rejects(courtController.submitExhibit(eventA,row.id,{evidenceId},outsider),ForbiddenException);
+      await assert.rejects(courtController.submitExhibit(eventA,row.id,{evidenceId,documentId:evidenceId},organizer),NotFoundException);
+      assert.equal((await courtController.getDetail(eventA,row.id,organizer)).exhibits.length,0);
+      const submitted=await courtController.submitExhibit(eventA,row.id,{evidenceId},organizer);
+      assert.equal(submitted.evidenceId,evidenceId);
+      assert.equal((await courtController.getDetail(eventA,row.id,organizer)).exhibits.length,1);
+    });
     await t.test('all controller mutations reject a task addressed through another event', async () => {
       const calls = [
         () => controller.updateTask(eventB, taskId, { title: 'Wrong-event edit' }, organizer),
