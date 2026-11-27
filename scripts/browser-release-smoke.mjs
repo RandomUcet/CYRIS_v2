@@ -58,6 +58,19 @@ try{
   const membershipEndpoint=base+'/api/events/'+fixture.event+'/memberships/'+fixture.membership;
   const taskEndpoint=base+'/api/events/'+fixture.event+'/tasks/'+fixture.task;
   const myWorkEndpoint=base+'/api/events/'+fixture.event+'/tasks/my-work';
+  const searchEndpoint=base+'/api/search?'+new URLSearchParams({q:'BROWSER-001',eventId:fixture.event,types:'operational_task'});
+  const searchTask=async()=>{
+    const response=await participant.request.get(searchEndpoint);
+    assert.equal(response.status(),200);
+    const payload=await response.json();
+    return payload.data??payload;
+  };
+  const assertSearchVisible=async()=>{
+    const result=await searchTask();
+    assert.equal(result.total,1,'Positive control: actual canonical task is indexed and discoverable');
+    assert.equal(result.results[0]?.canonicalId,fixture.task);
+  };
+  await assertSearchVisible();
   assert.equal((await participant.request.get(taskEndpoint)).status(),200);
   assert.equal((await participant.request.get(base+'/api/auth/me')).status(),200);
   try {
@@ -66,6 +79,9 @@ try{
     const denied=await participant.request.get(taskEndpoint);
     assert.ok([403,404].includes(denied.status()),'Revoked participant direct task access HTTP '+denied.status());
     assert.equal((await participant.request.get(myWorkEndpoint)).status(),403);
+    const hidden=await searchTask();
+    assert.equal(hidden.total,0,'Revoked membership must not leak search hit counts');
+    assert.deepEqual(hidden.results,[],'Revoked membership must not leak indexed documents');
     assert.equal((await participant.request.get(base+'/api/auth/me')).status(),200,'Global login survives event membership revocation');
   } finally {
     const restore=await revocationAdmin.context.request.patch(membershipEndpoint,{data:{status:'ACTIVE'}});
@@ -73,6 +89,7 @@ try{
     await revocationAdmin.context.close();
   }
   assert.equal((await participant.request.get(taskEndpoint)).status(),200,'Restored membership grants access without signing in again');
+  await assertSearchVisible();
   await participant.close();
 
   // Canonical profiles, real browser sessions, no administrator impersonation.
