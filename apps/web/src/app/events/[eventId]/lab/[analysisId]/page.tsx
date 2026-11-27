@@ -1,7 +1,7 @@
 'use client';
 
 import type { LabAnalysisDetail } from '@cyris/contracts';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
@@ -60,6 +60,12 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   const [actionMessage,setActionMessage]=useState<ActionMessage|null>(null);
   const fail=(message:string)=>setActionMessage({kind:'error',message});
   const success=(message:string)=>setActionMessage({kind:'success',message});
+  const [showCorrection,setShowCorrection]=useState(false);
+  const [correctionReason,setCorrectionReason]=useState('');
+  const [correctionError,setCorrectionError]=useState('');
+  const correctionTrigger=useRef<HTMLButtonElement>(null);
+  const correctionField=useRef<HTMLTextAreaElement>(null);
+  useEffect(()=>{if(showCorrection)correctionField.current?.focus();},[showCorrection]);
   const [rejectionReason,setRejectionReason]=useState('');
   const [showReject,setShowReject]=useState(false);
   const [receiptNotes,setReceiptNotes]=useState<Record<string,string>>({});
@@ -194,14 +200,32 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
     }
   };
 
-  const handleCorrection = async (status?: string) => {
-    const reason = window.prompt('Correction reason (required):');
-    if (!reason?.trim()) return;
-    setUpdating(true);
+  const closeCorrection=()=>{
+    if(updating)return;
+    setShowCorrection(false);
+    setCorrectionError('');
+    correctionTrigger.current?.focus();
+  };
+  const handleCorrection = async () => {
+    if(updating||!canCorrect||!showCorrection)return;
+    const reason=correctionReason.trim();
+    if(reason.length<3){
+      setCorrectionError(cs?'Uveďte důvod alespoň o třech znacích.':'Enter a reason of at least three characters.');
+      correctionField.current?.focus();
+      return;
+    }
+    setCorrectionError('');setActionMessage(null);setUpdating(true);
     try {
-      const res = await apiClient.correctLabAnalysis(eventId, analysisId, { status, reason });
-      if (res.ok) await fetchAnalysisDetails();
-      else fail(res.error || (cs?'Oprava se nezdařila.':'Correction failed.'));
+      const res = await apiClient.correctLabAnalysis(eventId, analysisId, { status:'REQUESTED', reason });
+      if (!res.ok) {
+        setCorrectionError(res.error || (cs?'Oprava se nezdařila.':'Correction failed.'));
+        return;
+      }
+      setShowCorrection(false);setCorrectionReason('');
+      success(cs?'Žádanka byla znovu otevřena.':'Request reopened.');
+      await fetchAnalysisDetails();
+    } catch(err) {
+      setCorrectionError(err instanceof Error?err.message:(cs?'Chyba připojení.':'Connection error.'));
     } finally {
       setUpdating(false);
     }
@@ -317,14 +341,25 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                 </button>
               )}
               {canCorrect && (
-                <button onClick={() => handleCorrection('REQUESTED')} disabled={updating} className="btn btn-secondary">
-                  Reopen / correct
+                <button ref={correctionTrigger} type="button" aria-expanded={showCorrection} aria-controls={showCorrection?'lab-correction-form':undefined} onClick={()=>{setShowCorrection(true);correctionField.current?.focus();}} disabled={updating} className="btn btn-secondary">
+                  {cs?'Znovu otevřít / opravit':'Reopen / correct'}
                 </button>
               )}
             </div>
           }
         />
 
+        {canCorrect&&showCorrection&&<form id="lab-correction-form" aria-labelledby="lab-correction-title" aria-busy={updating} onSubmit={event=>{event.preventDefault();void handleCorrection();}} style={{padding:16,display:'grid',gap:8,borderBottom:'1px solid var(--color-border-subtle)'}}>
+          <h2 id="lab-correction-title" style={{fontSize:14,margin:0}}>{cs?'Znovu otevřít žádanku':'Reopen request'}</h2>
+          <p id="lab-correction-help" style={{margin:0,fontSize:13}}>{cs?'Stav se změní na Požadováno. Důvod opravy bude zaznamenán. Před potvrzením uložte případné rozepsané změny protokolu.':'The status will change to Requested. The correction reason will be recorded. Save any unsaved protocol edits before confirming.'}</p>
+          <label htmlFor="lab-correction-reason">{cs?'Důvod opravy (povinný)':'Correction reason (required)'}</label>
+          <textarea ref={correctionField} id="lab-correction-reason" className="input-field" rows={3} required minLength={3} disabled={updating} aria-invalid={!!correctionError} aria-describedby={'lab-correction-help'+(correctionError?' lab-correction-error':'')} value={correctionReason} onChange={event=>{setCorrectionReason(event.target.value);setCorrectionError('');}}/>
+          {correctionError&&<p id="lab-correction-error" role="alert" style={{margin:0,overflowWrap:'anywhere'}}>{correctionError}</p>}
+          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            <button type="button" className="btn btn-secondary" disabled={updating} onClick={closeCorrection}>{cs?'Zrušit':'Cancel'}</button>
+            <button type="submit" className="btn btn-primary" disabled={updating}>{updating?(cs?'Ukládám…':'Saving…'):(cs?'Potvrdit znovuotevření':'Confirm reopening')}</button>
+          </div>
+        </form>}
         {canReassign && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '10px 24px', borderBottom: '1px solid var(--color-border-subtle)' }}>
             <select className="input-field" value={selectedUnitId} onChange={(e) => setSelectedUnitId(e.target.value)} aria-label="Destination laboratory">

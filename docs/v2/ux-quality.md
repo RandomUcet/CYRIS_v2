@@ -13,3 +13,6 @@ Initial tasks: find personal queue; submit evidence; locate assigned sample; acc
 
 ## Record detail acceptance
 A record header must retain readable identity, status, responsible unit and actions with long names and narrow screens; metadata is structured, status is textual and color supplementary. Error prevention must preserve work already typed. Browser acceptance covers completion without conclusion (no transition, draft remains) and header reflow. Automated evidence does not establish human usability.
+
+## Laboratory correction acceptance
+Replace the blocking native reason prompt with an inline labelled form, explicit target state, trimmed minimum reason, pending state and local error feedback. Cancel returns focus to the trigger; failed requests retain the reason. Existing correction permission and server authorization remain authoritative. Before confirmation, warn that unsaved report edits must be saved. Browser acceptance still required: authorized organizer opens, cancels and reopens by keyboard; whitespace reason does not send; denied request retains text; successful request refreshes status; ordinary analyst and View As cannot open the form; 390px reflow. No human validation claim.
