@@ -202,6 +202,8 @@ jobs:
           done
           curl -fsS http://127.0.0.1:4000/health/ready >/dev/null || { tail -n 40 "$temp/api.log"; exit 1; }
           curl -fsS http://127.0.0.1:3000/ >/dev/null || { tail -n 40 "$temp/web.log"; exit 1; }
+          # Build the actual canonical index in the disposable browser environment.
+          node apps/api/dist/scripts/search-reindex.js
           node scripts/browser-release-smoke.mjs
 
       - name: Upload browser acceptance screenshots
