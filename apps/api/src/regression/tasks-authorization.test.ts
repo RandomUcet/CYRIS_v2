@@ -305,6 +305,26 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       assert.deepEqual(detail.availableActions.sort(), ['acknowledge', 'block', 'complete', 'start']);
       assert.ok((await tasks.getTaskDetail(taskId, organizer, eventA)).availableActions.includes('assign'));
     });
+    await t.test('membership and permission revocation deny subsequent requests using the same authenticated identity', async () => {
+      const membershipId=memberships.get(worker.id)!;
+      const [role]=await db.select({id:roles.id}).from(roles).where(and(eq(roles.eventId,eventA),eq(roles.slug,`worker-${worker.id}`)));
+      assert.ok(role);
+      const context={eventId:eventA,unitId:unitA,resourceAssigneeId:worker.id};
+      const capability={eventId:eventA,unitId:unitA,resourceScopes:['ASSIGNED'] as const,requireUnitMembership:true};
+      const assertDenied=async()=>{
+        assert.equal(await auth.authorize({user:worker,permission:Permissions.TASK_READ,context}),false);
+        assert.equal(await auth.hasEventCapability({user:worker,permission:Permissions.TASK_READ,...capability}),false);
+        assert.equal(await access.canAccessResource(worker,taskId,Permissions.TASK_READ),false);
+        await assert.rejects(tasks.getTaskDetail(taskId,worker,eventA),e=>e instanceof ForbiddenException||e instanceof NotFoundException);
+      };
+      assert.equal(await access.canAccessResource(worker,taskId,Permissions.TASK_READ),true);
+      await db.update(eventMemberships).set({status:'INACTIVE'}).where(eq(eventMemberships.id,membershipId));
+      try{await assertDenied();}finally{await db.update(eventMemberships).set({status:'ACTIVE'}).where(eq(eventMemberships.id,membershipId));}
+      assert.equal(await access.canAccessResource(worker,taskId,Permissions.TASK_READ),true);
+      await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,role.id),eq(rolePermissions.permissionKey,Permissions.TASK_READ)));
+      try{await assertDenied();}finally{await db.insert(rolePermissions).values({roleId:role.id,permissionKey:Permissions.TASK_READ,scope:'ASSIGNED'});}
+      assert.equal((await tasks.getTaskDetail(taskId,worker,eventA)).id,taskId);
+    });
     await t.test('all controller mutations reject a task addressed through another event', async () => {
       const calls = [
         () => controller.updateTask(eventB, taskId, { title: 'Wrong-event edit' }, organizer),
