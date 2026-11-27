@@ -53,6 +53,26 @@ try{
   await work.goto(base+'/admin/events/'+fixture.archived+'/data');
   await work.getByText('Platform administrator access required.',{exact:false}).waitFor();
   await work.screenshot({path:join(output,'participant-admin-denied.png'),fullPage:true});
+  // Keep the original browser session: a separate admin changes event membership.
+  const revocationAdmin=await login(fixture.adminEmail);
+  const membershipEndpoint=base+'/api/events/'+fixture.event+'/memberships/'+fixture.membership;
+  const taskEndpoint=base+'/api/events/'+fixture.event+'/tasks/'+fixture.task;
+  const myWorkEndpoint=base+'/api/events/'+fixture.event+'/tasks/my-work';
+  assert.equal((await participant.request.get(taskEndpoint)).status(),200);
+  assert.equal((await participant.request.get(base+'/api/auth/me')).status(),200);
+  try {
+    const revoke=await revocationAdmin.context.request.patch(membershipEndpoint,{data:{status:'INACTIVE'}});
+    assert.ok(revoke.ok(),'Membership deactivation HTTP '+revoke.status());
+    const denied=await participant.request.get(taskEndpoint);
+    assert.ok([403,404].includes(denied.status()),'Revoked participant direct task access HTTP '+denied.status());
+    assert.equal((await participant.request.get(myWorkEndpoint)).status(),403);
+    assert.equal((await participant.request.get(base+'/api/auth/me')).status(),200,'Global login survives event membership revocation');
+  } finally {
+    const restore=await revocationAdmin.context.request.patch(membershipEndpoint,{data:{status:'ACTIVE'}});
+    assert.ok(restore.ok(),'Membership restoration HTTP '+restore.status());
+    await revocationAdmin.context.close();
+  }
+  assert.equal((await participant.request.get(taskEndpoint)).status(),200,'Restored membership grants access without signing in again');
   await participant.close();
 
   // Canonical profiles, real browser sessions, no administrator impersonation.
