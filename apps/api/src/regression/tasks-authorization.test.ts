@@ -24,6 +24,8 @@ import { TasksController } from '../modules/tasks/tasks.controller.js';
 import { EvidenceService } from '../modules/evidence/evidence.service.js';
 import { ForensicsService } from '../modules/forensics/forensics.service.js';
 import { ForensicsController } from '../modules/forensics/forensics.controller.js';
+import { CourtService } from '../modules/court/court.service.js';
+import { CourtController } from '../modules/court/court.controller.js';
 import { LaboratoryService } from '../modules/laboratory/laboratory.service.js';
 import { DisruptionsService } from '../modules/disruptions/disruptions.service.js';
 import type { AuthenticatedUser } from '../modules/auth/session.service.js';
@@ -65,6 +67,8 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
   const evidenceService=new EvidenceService(database,resource,access,allocator,audit,activity,indexer,auth);
   const forensics=new ForensicsService(database,audit,activity,resource,access,allocator,auth);
   const forensicController=new ForensicsController(forensics);
+  const court = new CourtService(database, audit, activity, resource, access, allocator);
+  const courtController = new CourtController(court);
   const lab = new LaboratoryService(database, resource, access, allocator, audit, activity, indexer, notificationService, auth);
 
   const eventA = generateId();
@@ -324,6 +328,29 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,role.id),eq(rolePermissions.permissionKey,Permissions.TASK_READ)));
       try{await assertDenied();}finally{await db.insert(rolePermissions).values({roleId:role.id,permissionKey:Permissions.TASK_READ,scope:'ASSIGNED'});}
       assert.equal((await tasks.getTaskDetail(taskId,worker,eventA)).id,taskId);
+    });
+    await t.test('court detail and every case-bound route reject the wrong exercise', async () => {
+      await addRole('court-boundary-test',organizer,[[Permissions.COURT_READ,'EVENT'],[Permissions.COURT_CREATE,'EVENT'],[Permissions.COURT_UPDATE,'EVENT']]);
+      const row=await courtController.createCase(eventA,{title:'Synthetic court route isolation'},organizer);
+      const id=row.id;
+      assert.equal((await courtController.getDetail(eventA,id,organizer)).id,id);
+      const child=generateId();
+      const calls=[
+        ()=>courtController.getDetail(eventB,id,organizer),
+        ()=>courtController.getTimeline(eventB,id,organizer),
+        ()=>courtController.updateStatus(eventB,id,{status:'ACTIVE'},organizer),
+        ()=>courtController.addParty(eventB,id,{},organizer),
+        ()=>courtController.createCharge(eventB,id,{},organizer),
+        ()=>courtController.submitExhibit(eventB,id,{},organizer),
+        ()=>courtController.decideExhibit(eventB,id,child,{},organizer),
+        ()=>courtController.createHearing(eventB,id,{},organizer),
+        ()=>courtController.updateHearingStatus(eventB,id,child,{},organizer),
+        ()=>courtController.createFiling(eventB,id,{},organizer),
+        ()=>courtController.createDecision(eventB,id,{},organizer),
+      ];
+      for(const call of calls)await assert.rejects(call,NotFoundException);
+      assert.equal((await courtController.getDetail(eventA,id,organizer)).status,'PREPARATION');
+      await assert.rejects(courtController.getDetail(eventA,id,outsider),ForbiddenException);
     });
     await t.test('all controller mutations reject a task addressed through another event', async () => {
       const calls = [

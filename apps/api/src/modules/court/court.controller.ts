@@ -67,120 +67,131 @@ export class CourtController {
 
   @Get(':courtCaseId')
   async getDetail(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('courtCaseId', ParseUUIDPipe) courtCaseId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<CourtCaseDetail> {
+    await this.courtService.assertCaseInEvent(eventId, courtCaseId);
     return this.courtService.getCourtCaseDetail(courtCaseId, user);
   }
 
   @Patch(':courtCaseId/status')
   async updateStatus(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('courtCaseId', ParseUUIDPipe) courtCaseId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<CourtCaseDetail> {
+    await this.courtService.assertCaseInEvent(eventId, courtCaseId);
     const dto = UpdateCourtCaseStatusRequestSchema.parse(body);
     return this.courtService.updateStatus(courtCaseId, dto, user);
   }
 
   @Post(':courtCaseId/parties')
   async addParty(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('courtCaseId', ParseUUIDPipe) courtCaseId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<CourtCaseParty> {
+    await this.courtService.assertCaseInEvent(eventId, courtCaseId);
     const dto = AddCourtCasePartyRequestSchema.parse(body);
     return this.courtService.addParty(courtCaseId, dto, user);
   }
 
   @Post(':courtCaseId/charges')
   async createCharge(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('courtCaseId', ParseUUIDPipe) courtCaseId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<Charge> {
+    await this.courtService.assertCaseInEvent(eventId, courtCaseId);
     const dto = CreateChargeRequestSchema.parse(body);
     return this.courtService.createCharge(courtCaseId, dto, user);
   }
 
   @Post(':courtCaseId/exhibits')
   async submitExhibit(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('courtCaseId', ParseUUIDPipe) courtCaseId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<CourtExhibit> {
+    await this.courtService.assertCaseInEvent(eventId, courtCaseId);
     const dto = SubmitCourtExhibitRequestSchema.parse(body);
     return this.courtService.submitExhibit(courtCaseId, dto, user);
   }
 
   @Patch(':courtCaseId/exhibits/:exhibitId/decide')
   async decideExhibit(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('courtCaseId', ParseUUIDPipe) courtCaseId: string,
     @Param('exhibitId', ParseUUIDPipe) exhibitId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<CourtExhibit> {
+    await this.courtService.assertCaseInEvent(eventId, courtCaseId);
     const dto = DecideCourtExhibitRequestSchema.parse(body);
     return this.courtService.decideExhibit(courtCaseId, exhibitId, dto, user);
   }
 
   @Post(':courtCaseId/hearings')
   async createHearing(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('courtCaseId', ParseUUIDPipe) courtCaseId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<CourtHearing> {
+    await this.courtService.assertCaseInEvent(eventId, courtCaseId);
     const dto = CreateCourtHearingRequestSchema.parse(body);
     return this.courtService.createHearing(courtCaseId, dto, user);
   }
 
   @Patch(':courtCaseId/hearings/:hearingId/status')
   async updateHearingStatus(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('courtCaseId', ParseUUIDPipe) courtCaseId: string,
     @Param('hearingId', ParseUUIDPipe) hearingId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<CourtHearing> {
+    await this.courtService.assertCaseInEvent(eventId, courtCaseId);
     const dto = UpdateCourtHearingStatusRequestSchema.parse(body);
     return this.courtService.updateHearingStatus(courtCaseId, hearingId, dto, user);
   }
 
   @Post(':courtCaseId/filings')
   async createFiling(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('courtCaseId', ParseUUIDPipe) courtCaseId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<CourtFiling> {
+    await this.courtService.assertCaseInEvent(eventId, courtCaseId);
     const dto = CreateCourtFilingRequestSchema.parse(body);
     return this.courtService.createFiling(courtCaseId, dto, user);
   }
 
   @Post(':courtCaseId/decisions')
   async createDecision(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('courtCaseId', ParseUUIDPipe) courtCaseId: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<CourtDecision> {
+    await this.courtService.assertCaseInEvent(eventId, courtCaseId);
     const dto = CreateCourtDecisionRequestSchema.parse(body);
     return this.courtService.createDecision(courtCaseId, dto, user);
   }
 
   @Get(':courtCaseId/timeline')
   async getTimeline(
-    @Param('eventId', ParseUUIDPipe) _eventId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
     @Param('courtCaseId', ParseUUIDPipe) courtCaseId: string,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<CourtTimelineEvent[]> {
+    await this.courtService.assertCaseInEvent(eventId, courtCaseId);
     return this.courtService.getCourtTimeline(courtCaseId, user);
   }
 }
