@@ -76,6 +76,15 @@ export class CourtService {
     return this.databaseService.client;
   }
 
+  /** Reject a court case addressed through another exercise, before any action. */
+  async assertCaseInEvent(eventId: string, courtCaseId: string): Promise<void> {
+    const [row] = await this.db.select({id: courtCases.id}).from(courtCases)
+      .innerJoin(resources, eq(resources.id, courtCases.id))
+      .where(and(eq(courtCases.id, courtCaseId), eq(courtCases.eventId, eventId), eq(resources.eventId, eventId)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Court case not found in this exercise');
+  }
+
   /**
    * Creates a new legal matter / court case.
    */
