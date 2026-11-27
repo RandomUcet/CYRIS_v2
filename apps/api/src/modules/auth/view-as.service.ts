@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { eventMemberships, resources, users } from '@cyris/db';
+import { eventMemberships, previewTeamAccounts, resources, users } from '@cyris/db';
 import { isPreviewReadAllowed } from './view-as-policy.js';
 import { generateId, Permissions } from '@cyris/shared';
 import type { StartViewAsRequest, ViewAsContext } from '@cyris/contracts';
@@ -9,7 +9,7 @@ import { DatabaseService } from '../database/database.service.js';
 import { QueueService } from '../queue/queue.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { AuditService } from '../audit/audit.service.js';
-import type { AuthenticatedUser } from './session.service.js';
+import { testAccountUsable, type AuthenticatedUser } from './session.service.js';
 import type { CyrisRequest } from './guards/auth.guard.js';
 
 interface StoredPreview extends ViewAsContext { sessionHash: string }
@@ -48,11 +48,15 @@ export class ViewAsService {
   private async target(eventId: string, userId: string): Promise<AuthenticatedUser> {
     const [target] = await this.database.client.select({
       id: users.id, email: users.email, displayName: users.displayName, status: users.status,
-    }).from(users).innerJoin(eventMemberships, eq(eventMemberships.userId, users.id))
+      testExpiresAt: users.testExpiresAt, previewEnabled: previewTeamAccounts.enabled,
+    }).from(users).leftJoin(previewTeamAccounts, eq(previewTeamAccounts.userId, users.id)).innerJoin(eventMemberships, eq(eventMemberships.userId, users.id))
       .where(and(eq(users.id, userId), eq(users.status, 'ACTIVE'),
         eq(eventMemberships.eventId, eventId), eq(eventMemberships.status, 'ACTIVE'))).limit(1);
-    if (!target || await this.authz.authorize({ user: target, permission: Permissions.PLATFORM_MANAGE })) this.invalid();
-    return target;
+    if (!target || target.previewEnabled === false || !testAccountUsable(target.testExpiresAt)) this.invalid();
+    const { id, email, displayName, status } = target;
+    const user = { id, email, displayName, status };
+    if (await this.authz.authorize({ user, permission: Permissions.PLATFORM_MANAGE })) this.invalid();
+    return user;
   }
 
   async start(actor: AuthenticatedUser, token: string, input: StartViewAsRequest, requestId?: string): Promise<ViewAsContext> {
