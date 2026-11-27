@@ -64,6 +64,6 @@ async function main(){
     await tx.execute(sql`INSERT INTO organizational_units(id,event_id,name,slug) VALUES(gen_random_uuid(),${archived},'Archived team','archived-team')`);
     await tx.execute(sql`INSERT INTO audit_events(id,event_id,actor_type,action,category) VALUES(gen_random_uuid(),${archived},'SYSTEM','browser.fixture','administration')`);
   });
-  await writeFile(output,JSON.stringify({event,archived,foreign,adminEmail,participantEmail,requesterEmail,analystEmail,leadEmail,analyst,bpsUnit,cyberUnit,usb,labAnalyst,labLead,labAnalystEmail,labLeadEmail,chemicalUnit,sample,requesterId:requester,medicEmail,medicalUnit}),{mode:0o600,flag:'wx'});
+  await writeFile(output,JSON.stringify({event,archived,foreign,membership,task,adminEmail,participantEmail,requesterEmail,analystEmail,leadEmail,analyst,bpsUnit,cyberUnit,usb,labAnalyst,labLead,labAnalystEmail,labLeadEmail,chemicalUnit,sample,requesterId:requester,medicEmail,medicalUnit}),{mode:0o600,flag:'wx'});
 }
 main().catch(e=>{console.error(e instanceof Error?e.message:'Fixture failed');process.exitCode=1;}).finally(closeDatabaseConnection);
