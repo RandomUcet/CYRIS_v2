@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
@@ -266,6 +267,7 @@ export default function MedicalPage() {
               <Search size={13} className="absolute left-2.5 top-2.5 text-slate-500" />
               <input
                 type="text"
+                aria-label={locale === 'cs' ? 'Vyhledat zdravotnický záznam' : 'Search medical encounters'}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t('medical.searchPlaceholder')}
@@ -273,6 +275,7 @@ export default function MedicalPage() {
               />
             </div>
             <select
+              aria-label={locale === 'cs' ? 'Filtrovat podle triáže' : 'Filter by triage'}
               value={triageFilter}
               onChange={(e) => setTriageFilter(e.target.value)}
               className="px-2 py-1 text-xs bg-slate-950 border border-slate-700 rounded text-slate-300 focus:outline-none focus:border-rose-500"
@@ -324,7 +327,12 @@ export default function MedicalPage() {
                       }`}
                     >
                       <td className="py-2.5 px-3 font-mono font-medium text-slate-300">
-                        <RecordIdentifier code={enc.medicalNumber} />
+                        <Link href={`/events/${eventId}/medical/${enc.id}`}
+                          onClick={(event) => event.stopPropagation()}
+                          className="inline-flex min-h-6 items-center rounded underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
+                          aria-label={`${locale === 'cs' ? 'Otevřít zdravotnický záznam' : 'Open medical encounter'} ${enc.medicalNumber}`}>
+                          <RecordIdentifier code={enc.medicalNumber} />
+                        </Link>
                       </td>
                       <td className="py-2.5 px-3 font-medium text-slate-200">
                         {enc.personDisplayName || <span className="text-slate-400 italic">{tr("Unknown casualty")}</span>}
