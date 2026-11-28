@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useRouter,useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
@@ -32,6 +32,9 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
   const [units,setUnits]=useState<Array<{id:string;name:string}>>([]),[unitId,setUnitId]=useState(''),[unitsLoading,setUnitsLoading]=useState(false);
 
   const [analyses, setAnalyses] = useState<ForensicAnalysisListItemDto[]>([]);
+  const [page,setPage]=useState(1),[total,setTotal]=useState(0);
+  const pageSize=25;
+  const requestSequence=React.useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,42 +71,30 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
   useEffect(()=>{if(!showCreateModal||!canRequest)return;let active=true;setUnitsLoading(true);setUnits([]);setUnitId('');void apiClient.getForensicUnits(eventId).then(r=>{if(active&&r.ok&&r.data){setUnits(r.data);if(r.data.length===1)setUnitId(r.data[0]!.id);}}).catch(()=>{}).finally(()=>{if(active)setUnitsLoading(false);});return()=>{active=false;};},[showCreateModal,canRequest,eventId]);
   useEffect(()=>{if(!sourceEvidence||!canRequest)return;let active=true;void apiClient.getEvidenceItem(eventId,encodeURIComponent(sourceEvidence)).then(r=>{if(!active)return;const record=r.data?.evidence??r.data;if(r.ok&&record?.id===sourceEvidence){setFormData(old=>({...old,evidenceId:record.id}));setShowCreateModal(true);}else setError(cs?'Důkaz se nepodařilo načíst.':'Evidence unavailable.');router.replace(`/events/${eventId}/forensics`,{scroll:false});});return()=>{active=false;};},[sourceEvidence,canRequest,eventId,router,cs]);
   const fetchAnalyses = async () => {
-    setLoading(true);
-    setError(null);
+    const sequence=++requestSequence.current;
+    setLoading(true);setError(null);setAnalyses([]);setTotal(0);
     try {
-      const res = await apiClient.listForensicAnalyses(eventId,{mine:scope==='all'?undefined:scope,limit:100});
-      if(!alive.current)return;
+      const res = await apiClient.listForensicAnalyses(eventId,{mine:scope==='all'?undefined:scope,page,limit:pageSize,
+        status:statusFilter||undefined,analysisType:typeFilter||undefined,search:search.trim().slice(0,200)||undefined});
+      if(!alive.current||sequence!==requestSequence.current)return;
       if (res.ok && res.data) {
-        setAnalyses(res.data.items);
-      } else {
-        setError(res.error || 'Failed to load forensic analysis queue');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Network error');
+        setAnalyses(res.data.items);setTotal(res.data.total);
+        const last=Math.max(1,Math.ceil(res.data.total/pageSize));
+        if(page>last)setPage(last);
+      } else setError(res.error || 'Failed to load forensic analysis queue');
+    } catch (err: unknown) {
+      if(alive.current&&sequence===requestSequence.current)setError(err instanceof Error?err.message:'Network error');
     } finally {
-      setLoading(false);
+      if(alive.current&&sequence===requestSequence.current)setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (eventId) {
-      fetchAnalyses();
-    }
-  }, [eventId,scope]);
+    if(eventId)void fetchAnalyses();
+    return()=>{requestSequence.current++;};
+  }, [eventId,scope,page,statusFilter,typeFilter,search]);
 
-  const filteredAnalyses = useMemo(() => {
-    return analyses.filter((a) => {
-      const matchSearch =
-        !search ||
-        a.analysisNumber?.toLowerCase().includes(search.toLowerCase()) ||
-        a.purpose?.toLowerCase().includes(search.toLowerCase()) ||
-        a.analysisType?.toLowerCase().includes(search.toLowerCase());
-
-      const matchStatus = !statusFilter || a.status === statusFilter;
-      const matchType = !typeFilter || a.analysisType === typeFilter;
-      return matchSearch && matchStatus && matchType;
-    });
-  }, [analyses, search, statusFilter, typeFilter]);
+  const filteredAnalyses=analyses;
 
   const handleCreateAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -249,10 +240,10 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
           </div>
         </div>
 
-        <div style={{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}}>{(['all','requested','assigned'] as const).map(value=><button key={value} className={scope===value?'btn btn-primary':'btn btn-secondary'} aria-pressed={scope===value} onClick={()=>setScope(value)}>{value==='all'?(cs?'Vše dostupné':'All accessible'):value==='requested'?(cs?'Moje žádanky':'My requests'):(cs?'Přidělená práce':'Assigned work')}</button>)}</div>
+        <div style={{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}}>{(['all','requested','assigned'] as const).map(value=><button key={value} className={scope===value?'btn btn-primary':'btn btn-secondary'} aria-pressed={scope===value} onClick={()=>{setScope(value);setPage(1);}}>{value==='all'?(cs?'Vše dostupné':'All accessible'):value==='requested'?(cs?'Moje žádanky':'My requests'):(cs?'Moje práce a nepřevzaté žádanky týmu':'My work and unclaimed team requests')}</button>)}</div>
         <FilterBar
           searchValue={search}
-          onSearchChange={setSearch}
+          onSearchChange={value=>{setSearch(value);setPage(1);}}
           searchPlaceholder="Search by FOR-ID, purpose, or type..."
           filters={[
             {
@@ -268,7 +259,7 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
                 { label: 'Rejected', value: 'REJECTED' },
                 { label: 'Cancelled', value: 'CANCELLED' },
               ],
-              onChange: setStatusFilter,
+              onChange: value=>{setStatusFilter(value);setPage(1);},
             },
             {
               label: 'Analysis Type',
@@ -285,7 +276,7 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
                 { label: 'Account Analysis', value: 'ACCOUNT_ANALYSIS' },
                 { label: 'Other', value: 'OTHER' },
               ],
-              onChange: setTypeFilter,
+              onChange: value=>{setTypeFilter(value);setPage(1);},
             },
           ]}
         />
@@ -300,7 +291,7 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
             description={
               search || statusFilter || typeFilter
                 ? 'No analyses match the current filters.'
-                : 'No digital forensics or technical analyses have been requested for this event.'
+                : (cs?'Nemáte žádné dostupné žádanky v tomto zobrazení. Ověřte členství, roli a přidělení s organizátorem.':'No accessible requests in this view. Check membership, role and assignment with the organizer.')
             }
             action={
               canRequest ? (
@@ -321,6 +312,13 @@ function ForensicsWorkspace({eventId}:{eventId:string}) {
             />
           </div>
         )}
+
+        {!loading&&!error&&total>0&&<nav aria-label={cs?'Stránkování žádanek':'Queue pagination'} style={{display:'flex',gap:12,alignItems:'center',justifyContent:'flex-end',marginTop:16,flexWrap:'wrap'}}>
+          <span>{cs?'Dostupných žádanek':'Accessible requests'}: {total}</span>
+          <button className="btn btn-secondary" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>{cs?'Předchozí':'Previous'}</button>
+          <span>{page} / {Math.max(1,Math.ceil(total/pageSize))}</span>
+          <button className="btn btn-secondary" disabled={page*pageSize>=total} onClick={()=>setPage(p=>p+1)}>{cs?'Další':'Next'}</button>
+        </nav>}
 
         {/* Modal: Request Forensic Analysis */}
         {showCreateModal && (

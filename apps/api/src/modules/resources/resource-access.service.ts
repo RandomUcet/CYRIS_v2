@@ -227,7 +227,7 @@ export class ResourceAccessService {
     // A requester may follow their own laboratory request, not browse the lab queue.
     // Membership, module availability and private visibility checks above still apply.
     if(resource.resourceType==='lab_analysis'&&permission===Permissions.LAB_READ&&resource.ownerUserId===user.id){
-      const [request]=await db.select({requester:labAnalyses.requestedByUserId,unit:labAnalyses.requestedFromUnitId}).from(labAnalyses).where(eq(labAnalyses.id,resource.id)).limit(1);
+      const [request]=await db.select({requester:labAnalyses.requestedByUserId,unit:labAnalyses.assignedUnitId}).from(labAnalyses).where(eq(labAnalyses.id,resource.id)).limit(1);
       if(request?.requester===user.id&&await this.authzService.authorize({user,permission:Permissions.LAB_REQUEST,context:{eventId:resource.eventId,unitId:request.unit??undefined,resourceOwnerId:user.id}}))return true;
     }
 
@@ -236,6 +236,19 @@ export class ResourceAccessService {
       if(request?.requester===user.id&&await this.authzService.authorize({user,permission:Permissions.FORENSICS_REQUEST,context:{eventId:resource.eventId,unitId:request.unit??undefined,resourceOwnerId:user.id}}))return true;
     }
 
+    // An unclaimed REQUESTED laboratory record is a team inbox item, not an
+    // assignment to every analyst. Permit only read/accept under ASSIGNED,
+    // after normal visibility checks. Legacy rows without assignments work too.
+    let claimUnit:string|null=null;
+    if(resource.resourceType==='lab_analysis'&&
+      (permission===Permissions.LAB_READ||permission===Permissions.LAB_ACCEPT)&&
+      (resource.visibility===ResourceVisibility.EVENT||resource.visibility===ResourceVisibility.UNIT)&&
+      resource.owningUnitId&&userUnitIds.includes(resource.owningUnitId)){
+      const [pending]=await db.select({unit:labAnalyses.assignedUnitId}).from(labAnalyses)
+        .where(and(eq(labAnalyses.id,resource.id),eq(labAnalyses.status,'REQUESTED'),
+          isNull(labAnalyses.assignedToUserId),eq(labAnalyses.assignedUnitId,resource.owningUnitId))).limit(1);
+      claimUnit=pending?.unit??null;
+    }
     // Check if operator has the required permission under an applicable scope
     const activeUnits = new Set<string>(userUnitIds);
     for (const ra of eventRoleRows) {
@@ -265,6 +278,7 @@ export class ResourceAccessService {
 
       // Scope: ASSIGNED applies if resource is explicitly assigned to user or user's unit
       if (ra.scope === PermissionScopes.ASSIGNED) {
+        if (claimUnit&&(!ra.assignmentUnitId||ra.assignmentUnitId===claimUnit))return true;
         if (isAssigned) {
           return true;
         }

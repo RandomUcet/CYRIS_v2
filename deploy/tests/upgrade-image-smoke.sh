@@ -7,8 +7,13 @@ baseline="${1:-}"
 case "$baseline" in
   2.4.22) checksum=2e9832419cdfc5a33d09c79bbbf749bdd212f228135840140685ec0a059311a8; count=35 ;;
   2.5.1) checksum=f4ed8dc43c40a3d72e020b24348a68ba545246a0aaa7b44edc1cc290722abbd4; count=42 ;;
+  2.5.2) checksum=ed5b40126d3008a97e1de3a17f7d0dc90e3d027b20b6907e278ecc6f28c04eb9; count=43 ;;
   *) exit 2 ;;
 esac
+candidate="$(cat VERSION)"
+[[ "$candidate" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$candidate" != "$baseline" ]]
+candidate_count="$(python3 -c 'import json; print(len(json.load(open("packages/db/migrations/meta/_journal.json"))["entries"]))')"
+[[ "$candidate_count" =~ ^[0-9]+$ && "$candidate_count" -ge "$count" ]]
 stage=$(mktemp -d)
 export CYRIS_ETC_DIR="$stage/etc" CYRIS_OPT_DIR="$stage/opt" CYRIS_VAR_DIR="$stage/data" CYRIS_BACKUPS_DIR="$stage/backups"
 export COMPOSE_PROJECT_NAME="upgrade-${GITHUB_RUN_ID:-$$}-${baseline//./-}"
@@ -71,19 +76,19 @@ deploy/cyrisctl backup
 deploy/cyrisctl backup verify
 archive=("$CYRIS_BACKUPS_DIR"/backup_*.tar.gz.gpg)
 [[ ${#archive[@]} == 1 && -f "${archive[0]}" ]]
-python3 - "$CYRIS_ETC_DIR/cyris.env" "$CYRIS_OPT_DIR/release-manifest.json" <<'PY'
+python3 - "$CYRIS_ETC_DIR/cyris.env" "$CYRIS_OPT_DIR/release-manifest.json" "$candidate" <<'PY'
 import json, pathlib, sys
-env, manifest = map(pathlib.Path, sys.argv[1:])
-settings = {"CYRIS_VERSION": "2.5.2", **{"CYRIS_"+r.upper()+"_IMAGE":"cyris-upgrade-candidate-"+r+":local" for r in ("api","worker","web")}}
+env, manifest = map(pathlib.Path, sys.argv[1:3])
+settings = {"CYRIS_VERSION": sys.argv[3], **{"CYRIS_"+r.upper()+"_IMAGE":"cyris-upgrade-candidate-"+r+":local" for r in ("api","worker","web")}}
 lines = [line for line in env.read_text().splitlines() if line.partition("=")[0] not in settings]
 env.write_text("\n".join(lines+[f"{k}={v}" for k,v in settings.items()])+"\n")
-manifest.write_text(json.dumps({"version":"2.5.2","localRehearsal":True}))
+manifest.write_text(json.dumps({"version":sys.argv[3],"localRehearsal":True}))
 PY
 "${compose[@]}" run --rm --no-deps -T api node dist/scripts/db-migrate.js
-[[ $(sql 'select count(*) from drizzle.__drizzle_migrations') == 43 ]]
+[[ $(sql 'select count(*) from drizzle.__drizzle_migrations') == "$candidate_count" ]]
 "${compose[@]}" run --rm --no-deps -T api node dist/scripts/db-status.js --json
 "${compose[@]}" up -d --no-deps --wait --wait-timeout 240 api worker web
-probe 2.5.2
+probe "$candidate"
 [[ $(sql "select to_jsonb(a)::text from audit_events a where id='00000000-0000-4000-8000-000000000002'") == "$before" ]]
 [[ $(object cat) == before ]]
 [[ $("${compose[@]}" exec -T redis redis-cli get recovery-check) == before ]]
@@ -100,4 +105,4 @@ probe "$baseline"
 [[ $(sql "select to_jsonb(a)::text from audit_events a where id='00000000-0000-4000-8000-000000000002'") == "$before" ]]
 [[ $(object cat) == before ]]
 [[ $("${compose[@]}" exec -T redis redis-cli get recovery-check) == before ]]
-echo "Published $baseline -> built 2.5.2 -> encrypted restore $baseline passed."
+echo "Published $baseline -> built $candidate -> encrypted restore $baseline passed."

@@ -494,6 +494,14 @@ export class ForensicsService {
       // Check the exact input against the analysis, not an arbitrary UUID supplied by the caller.
       const link=table===forensicAnalysisEvidence?await tx.select({id:forensicAnalysisEvidence.id}).from(forensicAnalysisEvidence).where(and(eq(forensicAnalysisEvidence.analysisId,analysisId),eq(forensicAnalysisEvidence.evidenceId,id))).limit(1):await tx.select({id:forensicAnalysisDevices.id}).from(forensicAnalysisDevices).where(and(eq(forensicAnalysisDevices.analysisId,analysisId),eq(forensicAnalysisDevices.deviceId,id))).limit(1);
       if(!link.length)throw new BadRequestException('Acquisition source is not linked to this analysis');
+      const isEvidence=table===forensicAnalysisEvidence;
+      const [source]=await tx.select({visibility:resources.visibility}).from(resources).where(and(eq(resources.id,id),eq(resources.eventId,analysis.eventId),eq(resources.resourceType,isEvidence?'evidence':'device'))).limit(1);
+      if(!source)throw new BadRequestException('Acquisition source is unavailable in this exercise');
+      const sourcePermission=isEvidence?Permissions.EVIDENCE_READ:Permissions.REGISTRY_READ;
+      const sourceModule=isEvidence?'evidence':'registry';
+      const impacts=await this.resourceAccessService.getModuleImpacts(analysis.eventId,user);
+      if(impacts.get(sourceModule)==='UNAVAILABLE')throw new ForbiddenException('Acquisition source is unavailable');
+      if(source.visibility!=='EVENT'&&!await this.resourceAccessService.canAccessResource(user,id,sourcePermission,tx))throw new ForbiddenException('Acquisition source requires explicit access');
     }
     const acquisitionId = generateId();
     const now = new Date();
@@ -692,8 +700,10 @@ export class ForensicsService {
       .select({
         id: evidence.id,
         evidenceNumber: evidence.evidenceNumber,
+        title: evidence.title,
         description: evidence.description,
         status: evidence.status,
+        visibility: resources.visibility,
       })
       .from(forensicAnalysisEvidence)
       .innerJoin(evidence, eq(forensicAnalysisEvidence.evidenceId, evidence.id))
@@ -706,16 +716,31 @@ export class ForensicsService {
         id: devices.id,
         name: devices.label,
         deviceType: devices.deviceType,
+        visibility: resources.visibility,
       })
       .from(forensicAnalysisDevices)
       .innerJoin(devices, eq(forensicAnalysisDevices.deviceId, devices.id))
       .innerJoin(resources,eq(resources.id,devices.id))
       .where(and(eq(forensicAnalysisDevices.analysisId, analysisId),eq(resources.eventId,row.eventId)));
 
-    const visibleEvidence=[] as typeof evidenceRows;
-    for(const item of evidenceRows)if(await this.resourceAccessService.canAccessResource(user,item.id,Permissions.EVIDENCE_READ))visibleEvidence.push(item);
-    const visibleDevices=[] as typeof deviceRows;
-    for(const item of deviceRows)if(await this.resourceAccessService.canAccessResource(user,item.id,Permissions.REGISTRY_READ))visibleDevices.push(item);
+    // A work assignment authorizes a minimal input manifest, not general access
+    // to the source record. No fallback for UNIT, RESTRICTED or SCENARIO inputs.
+    const impacts=await this.resourceAccessService.getModuleImpacts(row.eventId,user);
+    const maySeeManifest=accept||work||complete||approve;
+    const visibleEvidence:ForensicAnalysisDetail['evidenceLinks']=[];
+    for(const item of evidenceRows){
+      const canOpen=await this.resourceAccessService.canAccessResource(user,item.id,Permissions.EVIDENCE_READ);
+      if(canOpen||(maySeeManifest&&item.visibility==='EVENT'&&impacts.get('evidence')!=='UNAVAILABLE')){
+        visibleEvidence.push({id:item.id,evidenceNumber:item.evidenceNumber,title:item.title,status:item.status,description:canOpen?item.description??'':'',canOpen});
+      }
+    }
+    const visibleDevices:ForensicAnalysisDetail['deviceLinks']=[];
+    for(const item of deviceRows){
+      const canOpen=await this.resourceAccessService.canAccessResource(user,item.id,Permissions.REGISTRY_READ);
+      if(canOpen||(maySeeManifest&&item.visibility==='EVENT'&&impacts.get('registry')!=='UNAVAILABLE')){
+        visibleDevices.push({id:item.id,name:item.name,deviceType:item.deviceType,canOpen});
+      }
+    }
     return {
       id: row.id,
       analysisNumber: row.analysisNumber,
@@ -770,12 +795,7 @@ export class ForensicsService {
         notes: work||approve?a.notes:null,
         createdAt: a.createdAt.toISOString(),
       })),
-      evidenceLinks: visibleEvidence.map((e) => ({
-        id: e.id,
-        evidenceNumber: e.evidenceNumber,
-        description: e.description || '',
-        status: e.status,
-      })),
+      evidenceLinks: visibleEvidence,
       deviceLinks: visibleDevices,
     };
   }
@@ -800,29 +820,40 @@ export class ForensicsService {
       conditions.push(inArray(forensicAnalyses.id,this.db.select({id:forensicAnalysisEvidence.analysisId}).from(forensicAnalysisEvidence).where(eq(forensicAnalysisEvidence.evidenceId,filters.evidenceId))));
     }
     if(filters.mine==='requested')conditions.push(eq(forensicAnalyses.requestedByUserId,user.id));
-    if(filters.mine==='assigned')conditions.push(eq(forensicAnalyses.assignedToUserId,user.id));
+    if(filters.mine==='assigned'){
+      const activeUnits=this.db.select({id:membershipUnitAssignments.unitId})
+        .from(membershipUnitAssignments)
+        .innerJoin(eventMemberships,eq(eventMemberships.id,membershipUnitAssignments.membershipId))
+        .innerJoin(organizationalUnits,eq(organizationalUnits.id,membershipUnitAssignments.unitId))
+        .where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,user.id),
+          eq(eventMemberships.status,'ACTIVE'),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt)));
+      conditions.push(or(eq(forensicAnalyses.assignedToUserId,user.id),
+        and(isNull(forensicAnalyses.assignedToUserId),inArray(forensicAnalyses.assignedUnitId,activeUnits)))!);
+    }
     if(filters.assignedToUserId)conditions.push(eq(forensicAnalyses.assignedToUserId,filters.assignedToUserId));
     if(filters.assignedUnitId)conditions.push(eq(forensicAnalyses.assignedUnitId,filters.assignedUnitId));
     if (filters.status) conditions.push(eq(forensicAnalyses.status, filters.status));
     if (filters.analysisType) conditions.push(eq(forensicAnalyses.analysisType, filters.analysisType));
     if (filters.priority) conditions.push(eq(forensicAnalyses.priority, filters.priority));
+    const search=filters.search?.trim();
+    if(search)conditions.push(sql`(strpos(lower(${forensicAnalyses.analysisNumber}),lower(${search}))>0 OR strpos(lower(coalesce(${forensicAnalyses.purpose},'')),lower(${search}))>0 OR strpos(lower(${forensicAnalyses.analysisType}),lower(${search}))>0)`);
 
-    const rows = await this.db
-      .select()
-      .from(forensicAnalyses)
-      .where(and(...conditions))
-      .orderBy(desc(forensicAnalyses.createdAt),desc(forensicAnalyses.id))
-      .limit(limit)
-      .offset(offset);
-
+    // Page over authorized results, not raw database rows.
     const accessible: ForensicAnalysisItem[] = [];
-    for (const r of rows) {
+    let total=0;
+    const batchSize=100;
+    for(let scanned=0;;scanned+=batchSize){
+      const rows=await this.db.select().from(forensicAnalyses).where(and(...conditions))
+        .orderBy(desc(forensicAnalyses.createdAt),desc(forensicAnalyses.id)).limit(batchSize).offset(scanned);
+      for (const r of rows) {
       const canAccess = await this.resourceAccessService.canAccessResource(
         user,
         r.id,
         Permissions.FORENSICS_READ
       );
       if (canAccess) {
+        const index=total++;
+        if(index<offset||accessible.length>=limit)continue;
         const canSeeReport=r.status==='APPROVED'&&!!r.approvedAt||await this.resourceAccessService.canAccessResource(user,r.id,Permissions.FORENSICS_WORK)||await this.resourceAccessService.canAccessResource(user,r.id,Permissions.FORENSICS_APPROVE);
         accessible.push({
           id: r.id,
@@ -849,11 +880,13 @@ export class ForensicsService {
           updatedAt: r.updatedAt.toISOString(),
         });
       }
+      }
+      if(rows.length<batchSize)break;
     }
 
     return {
       items: accessible,
-      total: accessible.length,
+      total,
       page,
       limit,
     };

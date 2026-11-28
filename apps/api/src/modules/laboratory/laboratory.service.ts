@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
-import { eq, desc, inArray, and, ne, sql, isNull } from 'drizzle-orm';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { eq, desc, inArray, and, ne, sql, isNull, or, gt } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
@@ -11,9 +11,9 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
-  evidence,
+  evidence,evidenceCustodyTransfers,events,
   labAnalyses,
-  labAnalysisEvidence,notifications,
+  labAnalysisEvidence,notifications,auditEvents,
   resources,
   organizationalUnits,
   unitCapabilities,
@@ -21,6 +21,7 @@ import {
   membershipUnitAssignments,
   resourceAssignments,
   users,
+  previewTeamAccounts,
   MembershipStatus,
   UserStatus,
   type ResourceVisibilityValue,
@@ -33,8 +34,9 @@ import type {
   LabAnalysisResponse,
   LabAnalysisDetail,
   ReassignLabAnalysisRequest,
-  CorrectLabAnalysisRequest,
+  CorrectLabAnalysisRequest,ConfirmLabSampleReceipt,
 } from '@cyris/contracts';
+import {ConfirmLabSampleReceiptSchema,LabSampleReceiptSchema} from '@cyris/contracts';
 import { selectLowestWorkloadCandidate } from './laboratory-assignment.js';
 
 const VALID_TRANSITIONS: Record<LabAnalysisStatusValue, LabAnalysisStatusValue[]> = {
@@ -205,20 +207,20 @@ export class LaboratoryService {
     userId: string,
     displayName = ''
   ): Promise<boolean> {
-    const allowed = await this.authorizationService.hasEventCapability({
-      user: {
-        id: userId,
-        email: '',
-        displayName,
-        status: 'ACTIVE',
-      },
-      permission: Permissions.LAB_WORK,
-      eventId,
-      unitId,
-      resourceScopes: ['ASSIGNED'],
-      requireUnitMembership: true,
+    // Use the same eligibility policy for manual and automatic assignment.
+    // Preview identities are not operational workers; partial grants must not
+    // cause a request to be assigned to someone unable to finish the workflow.
+    const [active]=await this.db.select({id:users.id}).from(users)
+      .leftJoin(previewTeamAccounts,eq(previewTeamAccounts.userId,users.id))
+      .where(and(eq(users.id,userId),eq(users.status,UserStatus.ACTIVE),
+        or(isNull(users.testExpiresAt),gt(users.testExpiresAt,new Date())),isNull(previewTeamAccounts.userId))).limit(1);
+    if(!active)return false;
+    const required=[Permissions.LAB_READ,Permissions.LAB_ACCEPT,Permissions.LAB_WORK,Permissions.LAB_COMPLETE] as const;
+    const allowed=await this.authorizationService.eventCapabilities({
+      user:{id:userId,email:'',displayName,status:'ACTIVE'},permissions:required,
+      eventId,unitId,resourceScopes:['ASSIGNED'],requireUnitMembership:true,
     });
-    return allowed;
+    return required.every(permission=>allowed.has(permission));
   }
 
   async listLaboratoryUnits(eventId: string, user: AuthenticatedUser): Promise<Array<{ id: string; name: string }>> {
@@ -413,7 +415,8 @@ export class LaboratoryService {
     for(const id of record.evidenceIds??[])if(await this.resourceAccessService.canAccessResource(user,id,Permissions.EVIDENCE_READ))evidenceIds.push(id);
     const [requester]=await this.db.select({name:users.displayName}).from(users).where(eq(users.id,record.requestedByUserId)).limit(1);
     const [unit]=record.assignedUnitId?await this.db.select({name:organizationalUnits.name}).from(organizationalUnits).where(and(eq(organizationalUnits.id,record.assignedUnitId),eq(organizationalUnits.eventId,record.eventId))).limit(1):[];
-    return {...record,evidenceIds,reportAvailable,requesterName:requester?.name??null,unitName:unit?.name??null,...(!internal&&{method:null,findings:null,conclusion:null})};
+    const [origin]=record.requestedFromUnitId?await this.db.select({name:organizationalUnits.name}).from(organizationalUnits).where(and(eq(organizationalUnits.id,record.requestedFromUnitId),eq(organizationalUnits.eventId,record.eventId))).limit(1):[];
+    return {...record,evidenceIds,reportAvailable,requesterName:requester?.name??null,requestingUnitName:origin?.name??null,unitName:unit?.name??null,...(!internal&&{method:null,findings:null,conclusion:null})};
   }
 
   private async notifyRequester(tx:any,eventId:string,row:typeof labAnalyses.$inferSelect){
@@ -439,15 +442,89 @@ export class LaboratoryService {
     ]);
     // Assigned laboratory personnel receive only a minimal sample manifest for EVENT-visible inputs.
     // This is not a grant of EVIDENCE_READ or access to files, custody, relations or restricted inputs.
-    const manifest=items.map(item=>({...item,canOpen:true}));
+    const manifest:LabAnalysisDetail['evidenceItems']=items.map(item=>({...item,canOpen:true}));
     if((accept||work||complete||approve)&&(await this.resourceAccessService.getModuleImpacts(eventId,user)).get('evidence')!=='UNAVAILABLE'){
       const samples=await this.db.select({id:evidence.id,title:evidence.title,evidenceNumber:evidence.evidenceNumber,status:evidence.status}).from(labAnalysisEvidence).innerJoin(evidence,eq(evidence.id,labAnalysisEvidence.evidenceId)).innerJoin(resources,eq(resources.id,evidence.id)).where(and(eq(labAnalysisEvidence.analysisId,analysisId),eq(resources.eventId,eventId),eq(resources.visibility,'EVENT')));
       const known=new Set(items.map(item=>item.id));
       for(const item of samples)if(!known.has(item.id))manifest.push({...item,canOpen:false});
     }
-    return { ...record, evidenceIds: items.map(item => item.id), evidenceItems: manifest,
+    // Expose only receipt metadata for the exact latest dispatch to this lab,
+    // never the sender's full custody history or other units' transfers.
+    if(record.assignedUnitId){
+      for(const item of manifest){
+        const [dispatch]=await this.db.select().from(evidenceCustodyTransfers).where(eq(evidenceCustodyTransfers.evidenceId,item.id))
+          .orderBy(desc(evidenceCustodyTransfers.occurredAt),desc(evidenceCustodyTransfers.id)).limit(1);
+        if(!dispatch||dispatch.toHolderType!=='UNIT'||dispatch.toHolderId!==record.assignedUnitId)continue;
+        const [receipt]=await this.db.select({metadata:auditEvents.metadata}).from(auditEvents).where(and(eq(auditEvents.eventId,eventId),
+          eq(auditEvents.resourceId,item.id),eq(auditEvents.resourceType,'evidence'),eq(auditEvents.action,'evidence.lab_received'),
+          sql`${auditEvents.metadata}->>'transferId' = ${dispatch.id}`)).limit(1);
+        const parsed=LabSampleReceiptSchema.safeParse(receipt?.metadata);
+        if(parsed.success)item.receipt=parsed.data;
+        else if(item.status==='IN_TRANSIT'&&record.assignedToUserId===user.id&&dispatch.transferredByUserId!==user.id&&
+          ['REQUESTED','ACCEPTED'].includes(record.status)&&accept)item.pendingReceiptTransferId=dispatch.id;
+      }
+    }
+    // The rejection receipt is an intentional requester-visible operational
+    // reason, separate from confidential drafts and organizer correction notes.
+    let rejectionReason:string|null=null;
+    if(record.status==='REJECTED'){
+      const [receipt]=await this.db.select({action:auditEvents.action,metadata:auditEvents.metadata}).from(auditEvents)
+        .where(and(eq(auditEvents.eventId,eventId),eq(auditEvents.resourceId,analysisId),
+          eq(auditEvents.resourceType,'lab_analysis'),inArray(auditEvents.action,['lab.rejected','lab.corrected']),
+          sql`${auditEvents.metadata}->>'newStatus' = 'REJECTED'`))
+        .orderBy(desc(auditEvents.occurredAt),desc(auditEvents.id)).limit(1);
+      const reason=(receipt?.metadata as {rejectionReason?:unknown}|undefined)?.rejectionReason;
+      if(receipt?.action==='lab.rejected'&&typeof reason==='string')rejectionReason=reason;
+    }
+    return { ...record, rejectionReason, evidenceIds: items.map(item => item.id), evidenceItems: manifest,
       analystName: analysts[0]?.name ?? null, unitName: units[0]?.name ?? null,
       actions: { accept: !!accept, work: !!work, complete: !!complete, approve: !!approve } };
+  }
+
+  /** Physical receipt is independent of request acceptance. The exact dispatch
+   * must still be current; no ACL grant, no sender self-confirmation. */
+  async confirmSampleReceipt(eventId:string,analysisId:string,input:ConfirmLabSampleReceipt,user:AuthenticatedUser){
+    const parsed=ConfirmLabSampleReceiptSchema.safeParse(input);
+    if(!parsed.success)throw new BadRequestException('Observed condition is required');
+    const data=parsed.data;
+    const record=await this.getAnalysis(eventId,analysisId,user);
+    if(!record.assignedUnitId||record.assignedToUserId!==user.id)throw new ForbiddenException('Only the assigned laboratory recipient may confirm receipt');
+    await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_ACCEPT);
+    await this.assertEligibleLaboratoryWorker(eventId,record.assignedUnitId,user.id);
+    return this.db.transaction(async tx=>{
+      const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).for('update').limit(1);
+      if(!event||['CLOSED','ARCHIVED'].includes(event.status))throw new ConflictException('Exercise is read-only');
+      const [analysis]=await tx.select({row:labAnalyses}).from(labAnalyses).innerJoin(resources,eq(resources.id,labAnalyses.id))
+        .where(and(eq(labAnalyses.id,analysisId),eq(resources.eventId,eventId))).for('update').limit(1);
+      const current=analysis?.row;
+      if(!current||current.assignedToUserId!==user.id||current.assignedUnitId!==record.assignedUnitId)throw new ConflictException('Assignment changed');
+      if(!['REQUESTED','ACCEPTED'].includes(current.status))throw new ConflictException('Sample intake is closed for this request');
+      await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_ACCEPT,tx);
+      const [sample]=await tx.select({ev:evidence,visibility:resources.visibility}).from(labAnalysisEvidence)
+        .innerJoin(evidence,eq(evidence.id,labAnalysisEvidence.evidenceId)).innerJoin(resources,eq(resources.id,evidence.id))
+        .where(and(eq(labAnalysisEvidence.analysisId,analysisId),eq(evidence.id,data.evidenceId),eq(resources.eventId,eventId))).for('update').limit(1);
+      if(!sample)throw new BadRequestException('Sample is not linked to this request');
+      if((await this.resourceAccessService.getModuleImpacts(eventId,user)).get('evidence')==='UNAVAILABLE')throw new ForbiddenException('Evidence module unavailable');
+      if(sample.visibility!=='EVENT'&&!await this.resourceAccessService.canAccessResource(user,data.evidenceId,Permissions.EVIDENCE_READ,tx))throw new ForbiddenException('Sample requires explicit access');
+      const [dispatch]=await tx.select().from(evidenceCustodyTransfers).where(eq(evidenceCustodyTransfers.evidenceId,data.evidenceId))
+        .orderBy(desc(evidenceCustodyTransfers.occurredAt),desc(evidenceCustodyTransfers.id)).limit(1);
+      if(!dispatch||dispatch.id!==data.transferId||dispatch.toHolderType!=='UNIT'||dispatch.toHolderId!==current.assignedUnitId||
+        sample.ev.currentHolderType!=='UNIT'||sample.ev.currentHolderId!==current.assignedUnitId)throw new ConflictException('Dispatch changed; reload the sample');
+      if(dispatch.transferredByUserId===user.id)throw new ForbiddenException('Sender cannot confirm their own dispatch');
+      const [old]=await tx.select({id:auditEvents.id}).from(auditEvents).where(and(eq(auditEvents.eventId,eventId),eq(auditEvents.resourceId,data.evidenceId),
+        eq(auditEvents.action,'evidence.lab_received'),sql`${auditEvents.metadata}->>'transferId' = ${dispatch.id}`)).limit(1);
+      if(old)throw new ConflictException('Dispatch already confirmed');
+      if(sample.ev.status!=='IN_TRANSIT')throw new ConflictException('Sample is not in transit');
+      const now=new Date();
+      const receipt={transferId:dispatch.id,receivedAt:now.toISOString(),condition:data.condition};
+      await tx.update(evidence).set({status:'SECURED',updatedAt:now}).where(eq(evidence.id,data.evidenceId));
+      await this.auditService.record({action:'evidence.lab_received',category:'evidence',eventId,resourceType:'evidence',resourceId:data.evidenceId,
+        actorUserId:user.id,metadata:{...receipt,analysisId,unitId:current.assignedUnitId},txClient:tx});
+      await this.activityService.recordActivity({eventId,resourceId:data.evidenceId,activityType:'evidence.lab_received',actorUserId:user.id,
+        title:'Laboratory confirmed physical receipt',visibility:sample.visibility as ResourceVisibilityValue},tx);
+      await this.searchIndexerService.emitSearchUpsert('evidence',data.evidenceId,tx);
+      return receipt;
+    });
   }
 
   async createAnalysis(
@@ -467,7 +544,8 @@ export class LaboratoryService {
       if(evidenceResource.visibility!=='EVENT'&&visibility==='EVENT')visibility='UNIT';
     }
 
-    const resolved = await this.resolveLaboratoryUnit(eventId, data.requestedFromUnitId);
+    // New clients specify the destination independently. Preserve old clients' destination field.
+    const resolved = await this.resolveLaboratoryUnit(eventId, data.assignedUnitId ?? data.requestedFromUnitId);
     if (!resolved.unitId) {
       throw new BadRequestException(
         resolved.ambiguous
@@ -480,6 +558,16 @@ export class LaboratoryService {
       permission: Permissions.LAB_REQUEST,
       context: { eventId, unitId: resolved.unitId },
     });
+    const originUnits=await this.db.select({id:organizationalUnits.id}).from(organizationalUnits)
+      .innerJoin(membershipUnitAssignments,eq(membershipUnitAssignments.unitId,organizationalUnits.id))
+      .innerJoin(eventMemberships,eq(eventMemberships.id,membershipUnitAssignments.membershipId))
+      .where(and(eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt),
+        eq(eventMemberships.eventId,eventId),eq(eventMemberships.userId,user.id),eq(eventMemberships.status,MembershipStatus.ACTIVE)));
+    const origins=[...new Set(originUnits.map(u=>u.id))];
+    const explicitOrigin=data.assignedUnitId?data.requestedFromUnitId:undefined;
+    if(explicitOrigin&&!origins.includes(explicitOrigin))throw new BadRequestException('Requesting unit must belong to requester');
+    // Do not guess when an account belongs to several teams.
+    const originUnitId=explicitOrigin??(origins.length===1?origins[0]!:null);
     const analysisId = generateId();
     let assignedToUserId: string | null = null;
 
@@ -514,7 +602,7 @@ export class LaboratoryService {
           analysisNumber,
           status: 'REQUESTED',
           requestedByUserId: user.id,
-          requestedFromUnitId: resolved.unitId,
+          requestedFromUnitId: originUnitId,
           assignedUnitId: resolved.unitId,
           assignedToUserId,
           analysisType: data.analysisType,
@@ -555,6 +643,8 @@ export class LaboratoryService {
           analysisNumber,
           analysisType: data.analysisType,
           evidenceIds: data.evidenceIds,
+          requestedFromUnitId:originUnitId,
+          assignedUnitId:resolved.unitId,
         },
         txClient: tx,
       });
@@ -653,10 +743,13 @@ export class LaboratoryService {
     const existing = await this.getAnalysis(eventId, analysisId, user);
     const currentStatus = existing.status as LabAnalysisStatusValue;
     const writesReport=data.method!==undefined||data.findings!==undefined||data.conclusion!==undefined;
+    if(!existing.assignedToUserId&&currentStatus==='REQUESTED'&&writesReport)throw new BadRequestException('Claim the laboratory request before writing the report');
     if(writesReport){
       if(!['REQUESTED','ACCEPTED','IN_PROGRESS'].includes(currentStatus))throw new BadRequestException('Report is locked; reopen for revision first');
       await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_WORK);
     }
+    if(data.status==='REJECTED'&&(!data.notes?.trim()||data.notes.trim().length>2000))throw new BadRequestException('Provide a reason for rejecting the sample (1–2000 characters)');
+    if(data.status==='REJECTED'&&writesReport)throw new BadRequestException('A rejected sample must not contain a new report');
     if(data.status==='COMPLETED'&&!(data.conclusion??existing.conclusion)?.trim())throw new BadRequestException('A conclusion is required before completion');
     if(data.status==='APPROVED'&&!existing.conclusion?.trim())throw new BadRequestException('A completed report must contain a conclusion');
 
@@ -715,6 +808,18 @@ export class LaboratoryService {
       if(writesReport)await this.resourceAccessService.assertCanAccessResource(user,analysisId,Permissions.LAB_WORK,tx);
       const permission=data.status&&data.status!==currentStatus?data.status==='ACCEPTED'||data.status==='REJECTED'?Permissions.LAB_ACCEPT:data.status==='COMPLETED'?Permissions.LAB_COMPLETE:data.status==='APPROVED'?Permissions.LAB_APPROVE:Permissions.LAB_WORK:Permissions.LAB_WORK;
       await this.resourceAccessService.assertCanAccessResource(user,analysisId,permission,tx);
+      if(!locked.assignedToUserId&&locked.status==='REQUESTED'&&(data.status==='ACCEPTED'||data.status==='REJECTED')){
+        if(!locked.assignedUnitId)throw new BadRequestException('Assign a responsible laboratory first');
+        await this.assertEligibleLaboratoryWorker(eventId,locked.assignedUnitId,user.id);
+        // Locked status and optimistic timestamp ensure exactly one winner.
+        updatePayload.assignedToUserId=user.id;
+        await tx.delete(resourceAssignments).where(eq(resourceAssignments.resourceId,analysisId));
+        await tx.insert(resourceAssignments).values({id:generateId(),eventId,resourceId:analysisId,
+          userId:user.id,unitId:null,assignedByUserId:user.id});
+        await this.auditService.record({action:'lab.assignment.claimed',category:'laboratory',eventId,
+          resourceType:'lab_analysis',resourceId:analysisId,actorUserId:user.id,
+          metadata:{assignedUnitId:locked.assignedUnitId,assignedToUserId:user.id},txClient:tx});
+      }
       const [row] = await tx
         .update(labAnalyses)
         .set(updatePayload)
@@ -727,6 +832,7 @@ export class LaboratoryService {
       const auditAction = data.status && data.status !== currentStatus
         ? data.status === 'COMPLETED'
           ? 'lab.completed'
+          : data.status === 'REJECTED' ? 'lab.rejected'
           : data.status === 'APPROVED'
             ? 'lab.approved'
             : 'lab.status.changed'
@@ -743,6 +849,7 @@ export class LaboratoryService {
           analysisNumber: row.analysisNumber,
           previousStatus: currentStatus,
           newStatus: data.status,
+          ...(data.status==='REJECTED'?{rejectionReason:data.notes!.trim()}:{}),
         },
         txClient: tx,
       });

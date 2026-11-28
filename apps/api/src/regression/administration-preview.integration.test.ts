@@ -200,7 +200,7 @@ test('event administration and read-only participant preview against isolated Po
     });
 
     await t.test('only a platform administrator can add missing team templates to the requested exercise', async () => {
-      const controller = new EventTemplatesController(database, audit, indexer);
+      const controller = new EventTemplatesController(database, audit, indexer, authz);
       const permissions = new PermissionsGuard(new Reflector(), authz, audit);
       const req = { user: organizer, headers: {}, params: { eventId: eventA }, id: generateId() } as unknown as CyrisRequest;
       const ctx = {
@@ -212,7 +212,7 @@ test('event administration and read-only participant preview against isolated Po
       assert.equal(await permissions.canActivate(ctx), true);
       const results = await Promise.all([controller.initialize(eventA, admin, req), controller.initialize(eventA, admin, req)]);
       assert.deepEqual(results.map(r => r.unitsCreated).sort(), [0, 8]);
-      assert.deepEqual(results.map(r => r.rolesCreated).sort((a,b)=>a-b), [0, 14]);
+      assert.deepEqual(results.map(r => r.rolesCreated).sort((a,b)=>a-b), [0, 24]);
       const initializedRoles=await db.select().from(roles).where(eq(roles.eventId,eventA));
       for(const slug of ['forensic-worker','forensic-coordinator','forensic-requester'])assert.ok(initializedRoles.some(role=>role.slug===slug));
       const coordinator=initializedRoles.find(role=>role.slug==='forensic-coordinator')!;
@@ -224,6 +224,27 @@ test('event administration and read-only participant preview against isolated Po
       assert.equal(records.length, 2);
       assert.ok(records.every(row => row.actorUserId === admin.id));
       await assert.rejects(controller.initialize(generateId(), admin, req), NotFoundException);
+      const review=await controller.review(eventA);
+      const cyber=review.find(row=>row.roleSlug==='team-cyber-forensic-operator')!;
+      assert.ok(cyber.primary&&cyber.rolePresent&&!cyber.missing.length&&!cyber.additional.length);
+      const cyberLead=review.find(row=>row.roleSlug==='team-digital-forensic-lead')!;
+      await db.insert(membershipUnitAssignments).values({membershipId:participantMembership,unitId:cyber.unitId});
+      const selection={unitId:cyber.unitId,roleSlug:cyber.roleSlug,membershipIds:[participantMembership]};
+      await assert.rejects(controller.assignOperators(eventA,selection,organizer,req),ForbiddenException);
+      await assert.rejects(controller.assignOperators(eventA,{...selection,roleSlug:cyberLead.roleSlug},admin,req),BadRequestException);
+      await assert.rejects(controller.assignOperators(eventA,{...selection,membershipIds:[participantMembership,organizerMembership]},admin,req),ConflictException);
+      assert.equal((await controller.review(eventA)).find(r=>r.roleSlug===cyber.roleSlug)?.unitBoundCount,0);
+      assert.deepEqual(await controller.assignOperators(eventA,selection,admin,req),{created:1,alreadyAssigned:0});
+      assert.deepEqual(await controller.assignOperators(eventA,selection,admin,req),{created:0,alreadyAssigned:1});
+      assert.equal((await controller.review(eventA)).find(r=>r.roleSlug===cyber.roleSlug)?.unitBoundCount,1);
+      assert.equal(await authz.authorize({user:participant,permission:Permissions.FORENSICS_READ,context:{eventId:eventA,unitId:cyber.unitId}}),true);
+      assert.equal(await authz.authorize({user:participant,permission:Permissions.FORENSICS_APPROVE,context:{eventId:eventA,unitId:cyber.unitId}}),false);
+      assert.equal(await authz.authorize({user:participant,permission:Permissions.FORENSICS_READ,context:{eventId:eventB,unitId:cyber.unitId}}),false);
+      const operator=initializedRoles.find(role=>role.slug===cyber.roleSlug)!;
+      await db.insert(rolePermissions).values({roleId:operator.id,permissionKey:Permissions.FORENSICS_APPROVE,scope:'UNIT'});
+      try{await assert.rejects(controller.assignOperators(eventA,selection,admin,req),ConflictException);}
+      finally{await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,operator.id),eq(rolePermissions.permissionKey,Permissions.FORENSICS_APPROVE)));}
+
     });
 
     await t.test('expiry and revoked rights fail closed; the original actor can still exit', async () => {

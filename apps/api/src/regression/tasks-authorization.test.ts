@@ -6,10 +6,10 @@ import { ForbiddenException, NotFoundException, BadRequestException, ConflictExc
 import {
   getDbClient, closeDatabaseConnection, users, events, eventMemberships,
   organizationalUnits, membershipUnitAssignments, roles, roleAssignments, rolePermissions,
-  unitCapabilities, resources, evidence, operationalTasks, auditEvents, outboxEvents, notifications as notificationRows,
+  unitCapabilities, resources, evidence, operationalTasks, auditEvents, outboxEvents, forensicAnalyses, resourceAssignments, notifications as notificationRows,
 } from '@cyris/db';
 import { generateId, Permissions, type PermissionKey } from '@cyris/shared';
-import { MyWorkQuerySchema, CreateOperationalTaskRequestSchema } from '@cyris/contracts';
+import { MyWorkQuerySchema, CreateOperationalTaskRequestSchema, ForensicQueryFiltersSchema, CreateEvidenceRequestSchema, CreateForensicAcquisitionRequestSchema } from '@cyris/contracts';
 import { DatabaseService } from '../modules/database/database.service.js';
 import { AuthorizationService } from '../modules/authorization/authorization.service.js';
 import { ResourceAccessService } from '../modules/resources/resource-access.service.js';
@@ -21,8 +21,11 @@ import { SearchIndexerService } from '../modules/search/search-indexer.service.j
 import { NotificationsService } from '../modules/notifications/notifications.service.js';
 import { TasksService } from '../modules/tasks/tasks.service.js';
 import { TasksController } from '../modules/tasks/tasks.controller.js';
+import { EvidenceService } from '../modules/evidence/evidence.service.js';
 import { ForensicsService } from '../modules/forensics/forensics.service.js';
 import { ForensicsController } from '../modules/forensics/forensics.controller.js';
+import { CourtService } from '../modules/court/court.service.js';
+import { CourtController } from '../modules/court/court.controller.js';
 import { LaboratoryService } from '../modules/laboratory/laboratory.service.js';
 import { DisruptionsService } from '../modules/disruptions/disruptions.service.js';
 import type { AuthenticatedUser } from '../modules/auth/session.service.js';
@@ -61,8 +64,11 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
   const disruptions = new DisruptionsService(database, auth, audit);
   const tasks = new TasksService(database, resource, access, allocator, audit, activity, indexer, notificationService, auth, disruptions);
   const controller = new TasksController(tasks);
+  const evidenceService=new EvidenceService(database,resource,access,allocator,audit,activity,indexer,auth);
   const forensics=new ForensicsService(database,audit,activity,resource,access,allocator,auth);
   const forensicController=new ForensicsController(forensics);
+  const court = new CourtService(database, audit, activity, resource, access, allocator);
+  const courtController = new CourtController(court);
   const lab = new LaboratoryService(database, resource, access, allocator, audit, activity, indexer, notificationService, auth);
 
   const eventA = generateId();
@@ -120,6 +126,45 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
     await db.insert(resources).values({ id: evidenceId, eventId: eventA, resourceType: 'evidence', visibility: 'EVENT', ownerUserId: requester.id });
     await db.insert(evidence).values({ id: evidenceId, evidenceNumber: 'EV-TEST', title: 'Fixture sample', evidenceType: 'sample', currentHolderId: requester.id });
 
+    await t.test('evidence creation is authorized before any database write',async()=>{
+      const dto=CreateEvidenceRequestSchema.parse({title:'Authorization fixture',evidenceType:'DIGITAL',currentHolderType:'USER',currentHolderId:worker.id});
+      const before=await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA));
+      await assert.rejects(evidenceService.createEvidence(eventA,dto,outsider),ForbiddenException);
+      await assert.rejects(evidenceService.createEvidence(eventA,dto,worker),ForbiddenException);
+      await assert.rejects(evidenceService.createEvidence(eventB,dto,worker),ForbiddenException);
+      assert.equal((await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA))).length,before.length);
+    });
+    await t.test('evidence provenance and initial custody are validated and atomic',async()=>{
+      await addRole('evidence-registrar',requester,[[Permissions.EVIDENCE_CREATE,'EVENT'],[Permissions.EVIDENCE_UPDATE,'OWN'],[Permissions.EVIDENCE_TRANSFER,'OWN']]);
+      const dto=CreateEvidenceRequestSchema.parse({title:'Synthetic sample registration',evidenceType:'FINGERPRINT',currentHolderType:'USER',currentHolderId:requester.id,owningUnitId:unitA});
+      const before=await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA));
+      for(const id of [outsider.id,inactive.id,disabled.id,generateId(),'not-a-uuid'])await assert.rejects(evidenceService.createEvidence(eventA,{...dto,currentHolderId:id},requester),BadRequestException);
+      await assert.rejects(evidenceService.createEvidence(eventA,{...dto,currentHolderType:'UNIT',currentHolderId:foreignUnit},requester),BadRequestException);
+      await assert.rejects(evidenceService.createEvidence(eventA,{...dto,securedByUserId:outsider.id},requester),BadRequestException);
+      assert.equal((await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA))).length,before.length);
+      const failedAudit={async record(){throw Error('Injected evidence audit failure');}} as unknown as AuditService;
+      const failing=new EvidenceService(database,resource,access,allocator,failedAudit,activity,indexer,auth);
+      await assert.rejects(failing.createEvidence(eventA,dto,requester),/Injected evidence audit failure/);
+      assert.equal((await db.select({id:resources.id}).from(resources).where(eq(resources.eventId,eventA))).length,before.length);
+      const checklist={version:'collection-v1' as const,answers:['identity','condition','handling','package','custody','sample-context'].map(id=>({id,state:'DONE' as const}))};
+      await assert.rejects(evidenceService.createEvidence(eventA,{...dto,collectionChecklist:{...checklist,answers:checklist.answers.map(a=>({...a,id:'identity'}))}},requester),BadRequestException);
+      await assert.rejects(evidenceService.createEvidence(eventA,{...dto,collectionChecklist:{...checklist,answers:checklist.answers.map(a=>a.id==='condition'?{...a,state:'NOT_DONE' as const}:a)}},requester),BadRequestException);
+      const item=await evidenceService.createEvidence(eventA,{...dto,collectionChecklist:{...checklist,answers:checklist.answers.map(a=>a.id==='condition'?{...a,state:'NOT_DONE' as const,note:'Synthetic exception'}:a)}},requester);
+      const initial=await evidenceService.getEvidence(eventA,item.id,requester);
+      assert.equal(initial.custodyHistory?.length,1);assert.equal(initial.currentHolderId,requester.id);
+      assert.equal(initial.collectionChecklist?.version,'collection-v1');
+      assert.equal(initial.collectionChecklist?.answers.find(a=>a.id==='condition')?.note,'Synthetic exception');
+      assert.equal(initial.collectionChecklist?.recordedBy,requester.id);
+      await assert.rejects(evidenceService.getEvidence(eventA,item.id,outsider),ForbiddenException);
+      await assert.rejects(evidenceService.updateEvidence(eventA,item.id,{owningUnitId:unitB},requester),BadRequestException);
+      await assert.rejects(evidenceService.updateEvidence(eventA,item.id,{currentHolderId:worker.id},requester),BadRequestException);
+      await assert.rejects(failing.updateEvidence(eventA,item.id,{title:'Must roll back'},requester),/Injected evidence audit failure/);
+      assert.equal((await evidenceService.getEvidence(eventA,item.id,requester)).title,dto.title);
+      const transferred=await evidenceService.transferCustody(eventA,item.id,{toHolderType:'UNIT',toHolderId:unitB,reason:'Synthetic laboratory delivery'},requester);
+      assert.equal(transferred.currentHolderId,unitB);assert.equal(transferred.custodyHistory?.length,2);
+      assert.equal(transferred.owningUnitId,unitA);
+      assert.equal((await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId,item.id),eq(auditEvents.action,'evidence.created')))).length,1);
+    });
     await t.test('forensic request and indicator creation require permission, event routes are scoped',async()=>{
       await db.insert(unitCapabilities).values({unitId:unitA,capabilityKey:'digital_forensics'});
       const forensicWorkerPermissions:Array<[PermissionKey,string]>=[Permissions.FORENSICS_READ,Permissions.FORENSICS_ACCEPT,Permissions.FORENSICS_WORK,Permissions.FORENSICS_COMPLETE].map(p=>[p,'ASSIGNED']);
@@ -151,11 +196,27 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         assert.equal(deniedKind.total,0);assert.ok(!deniedKind.availableKinds?.includes('MEDICAL_ENCOUNTER'));
         assert.equal(created.assignedUnitId,unitA);assert.ok([worker.id,secondWorker.id].includes(created.assignedToUserId!));
         let examiner=created.assignedToUserId===worker.id?worker:secondWorker;
+        assert.equal(await access.canAccessResource(examiner,evidenceId,Permissions.EVIDENCE_READ),false);
+        const manifest=(await forensics.getAnalysisDetail(created.id,examiner)).evidenceLinks;
+        assert.equal(manifest.find(e=>e.id===evidenceId)?.canOpen,false);
+        assert.equal(manifest.find(e=>e.id===evidenceId)?.title,'Fixture sample');
+        assert.equal(manifest.find(e=>e.id===evidenceId)?.description,'');
+        assert.equal((await forensics.getAnalysisDetail(created.id,requester)).evidenceLinks.find(e=>e.id===evidenceId)?.canOpen,true);
+        const unrelated=examiner.id===worker.id?secondWorker:worker;
+        await assert.rejects(forensics.getAnalysisDetail(created.id,unrelated),ForbiddenException);
         await assert.rejects(forensics.updateStatus(created.id,{status:'APPROVED'},organizer),BadRequestException);
         const assignedWork=await tasks.listMyWork(eventA,MyWorkQuerySchema.parse({view:'personal'}),examiner);
         assert.ok(assignedWork.items.some(x=>x.id===created.id&&x.kind==='FORENSIC_ANALYSIS'));
         await forensics.updateStatus(created.id,{status:'ACCEPTED'},examiner);
         await forensics.updateStatus(created.id,{status:'IN_PROGRESS'},examiner);
+        const acquisition=CreateForensicAcquisitionRequestSchema.parse({evidenceId,acquisitionType:'LOGICAL'});
+        await db.update(resources).set({visibility:'RESTRICTED'}).where(eq(resources.id,evidenceId));
+        try{
+          assert.equal((await forensics.getAnalysisDetail(created.id,examiner)).evidenceLinks.length,0);
+          await assert.rejects(forensics.createAcquisition(created.id,acquisition,examiner),ForbiddenException);
+        }finally{await db.update(resources).set({visibility:'EVENT'}).where(eq(resources.id,evidenceId));}
+        await assert.rejects(forensics.createAcquisition(created.id,{...acquisition,evidenceId:generateId()},examiner),BadRequestException);
+        assert.equal((await forensics.createAcquisition(created.id,acquisition,examiner)).evidenceId,evidenceId);
         await assert.rejects(forensicController.createFinding(eventB,created.id,{findingType:'ARTIFACT',title:'Wrong event',description:'Must not be saved',confidence:'CONFIRMED'},examiner),NotFoundException);
         await assert.rejects(forensics.updateStatus(created.id,{status:'COMPLETED'},examiner),BadRequestException);
         const draft=await forensics.saveReport(created.id,{methodology:'Fixture method',findings:'Fixture findings',conclusion:'Fixture conclusion'},examiner);
@@ -171,6 +232,8 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         await assert.rejects(forensics.reassignAnalysis(eventA,created.id,{...handoff,assignedToUserId:examiner.id},leader),ConflictException);
         await assert.rejects(forensics.saveReport(created.id,{conclusion:'Old assignment'},examiner),ForbiddenException);
         assert.equal((await forensics.getAnalysisDetail(created.id,nextExaminer)).conclusion,'Fixture conclusion');
+        assert.equal((await forensics.getAnalysisDetail(created.id,nextExaminer)).evidenceLinks.find(e=>e.id===evidenceId)?.canOpen,false);
+        await assert.rejects(forensics.getAnalysisDetail(created.id,examiner),ForbiddenException);
         assert.ok(!(await tasks.listMyWork(eventA,MyWorkQuerySchema.parse({view:'personal'}),examiner)).items.some(x=>x.id===created.id));
         examiner=nextExaminer;
         await forensics.updateStatus(created.id,{status:'COMPLETED'},examiner);
@@ -202,6 +265,25 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
         assert.ok(results.items.some(x=>x.id===created.id&&x.reportAvailable));
         const assignment=(await inbox.getNotifications(examiner.id,eventA)).newItems.find(x=>x.resourceId===created.id&&x.templateKey==='forensics.assigned');
         assert.ok(assignment);await inbox.markRead(assignment.id,examiner.id);
+        const unclaimed=generateId(),hidden=generateId();
+        await db.insert(resources).values([
+          {id:unclaimed,eventId:eventA,resourceType:'forensic_analysis',visibility:'UNIT',owningUnitId:unitA,ownerUserId:requester.id},
+          {id:hidden,eventId:eventA,resourceType:'forensic_analysis',visibility:'RESTRICTED',owningUnitId:unitB,ownerUserId:organizer.id},
+        ]);
+        await db.insert(forensicAnalyses).values([
+          {id:unclaimed,eventId:eventA,analysisNumber:'FOR-QUEUE-USB',analysisType:'DISK_IMAGE',purpose:'USB queue fixture',assignedUnitId:unitA,createdAt:new Date('2090-01-01T00:00:00Z')},
+          {id:hidden,eventId:eventA,analysisNumber:'FOR-QUEUE-HIDDEN',analysisType:'DISK_IMAGE',purpose:'USB queue fixture hidden',assignedUnitId:unitB,createdAt:new Date('2090-01-02T00:00:00Z')},
+        ]);
+        await db.insert(resourceAssignments).values({eventId:eventA,resourceId:unclaimed,unitId:unitA,assignedByUserId:requester.id});
+        const query=ForensicQueryFiltersSchema.parse({search:'USB queue fixture',limit:1});
+        const visible=await forensics.listAnalyses(eventA,query,examiner);
+        assert.equal(visible.total,1);assert.deepEqual(visible.items.map(x=>x.id),[unclaimed]);
+        const teamQueue=await forensics.listAnalyses(eventA,{...query,mine:'assigned'},examiner);
+        assert.equal(teamQueue.total,1);assert.deepEqual(teamQueue.items.map(x=>x.id),[unclaimed]);
+        assert.equal((await forensics.listAnalyses(eventA,{...query,page:2},examiner)).items.length,0);
+        assert.equal((await forensics.listAnalyses(eventA,query,outsider)).total,0);
+        assert.equal((await forensics.listAnalyses(eventB,query,examiner)).total,0);
+        await assert.rejects(forensics.getAnalysisDetail(hidden,examiner),ForbiddenException);
       }finally{await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,role!.id),eq(rolePermissions.permissionKey,Permissions.FORENSICS_REQUEST)));}
     });
     await t.test('task creation denies an outsider and a member without TASK_CREATE before writes', async () => {
@@ -226,6 +308,49 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       assert.equal(detail.id, taskId);
       assert.deepEqual(detail.availableActions.sort(), ['acknowledge', 'block', 'complete', 'start']);
       assert.ok((await tasks.getTaskDetail(taskId, organizer, eventA)).availableActions.includes('assign'));
+    });
+    await t.test('membership and permission revocation deny subsequent requests using the same authenticated identity', async () => {
+      const membershipId=memberships.get(worker.id)!;
+      const [role]=await db.select({id:roles.id}).from(roles).where(and(eq(roles.eventId,eventA),eq(roles.slug,`worker-${worker.id}`)));
+      assert.ok(role);
+      const context={eventId:eventA,unitId:unitA,resourceAssigneeId:worker.id};
+      const capability={eventId:eventA,unitId:unitA,resourceScopes:['ASSIGNED'] as const,requireUnitMembership:true};
+      const assertDenied=async()=>{
+        assert.equal(await auth.authorize({user:worker,permission:Permissions.TASK_READ,context}),false);
+        assert.equal(await auth.hasEventCapability({user:worker,permission:Permissions.TASK_READ,...capability}),false);
+        assert.equal(await access.canAccessResource(worker,taskId,Permissions.TASK_READ),false);
+        await assert.rejects(tasks.getTaskDetail(taskId,worker,eventA),e=>e instanceof ForbiddenException||e instanceof NotFoundException);
+      };
+      assert.equal(await access.canAccessResource(worker,taskId,Permissions.TASK_READ),true);
+      await db.update(eventMemberships).set({status:'INACTIVE'}).where(eq(eventMemberships.id,membershipId));
+      try{await assertDenied();}finally{await db.update(eventMemberships).set({status:'ACTIVE'}).where(eq(eventMemberships.id,membershipId));}
+      assert.equal(await access.canAccessResource(worker,taskId,Permissions.TASK_READ),true);
+      await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,role.id),eq(rolePermissions.permissionKey,Permissions.TASK_READ)));
+      try{await assertDenied();}finally{await db.insert(rolePermissions).values({roleId:role.id,permissionKey:Permissions.TASK_READ,scope:'ASSIGNED'});}
+      assert.equal((await tasks.getTaskDetail(taskId,worker,eventA)).id,taskId);
+    });
+    await t.test('court detail and every case-bound route reject the wrong exercise', async () => {
+      await addRole('court-boundary-test',organizer,[[Permissions.COURT_READ,'EVENT'],[Permissions.COURT_CREATE,'EVENT'],[Permissions.COURT_UPDATE,'EVENT']]);
+      const row=await courtController.createCase(eventA,{title:'Synthetic court route isolation'},organizer);
+      const id=row.id;
+      assert.equal((await courtController.getDetail(eventA,id,organizer)).id,id);
+      const child=generateId();
+      const calls=[
+        ()=>courtController.getDetail(eventB,id,organizer),
+        ()=>courtController.getTimeline(eventB,id,organizer),
+        ()=>courtController.updateStatus(eventB,id,{status:'ACTIVE'},organizer),
+        ()=>courtController.addParty(eventB,id,{},organizer),
+        ()=>courtController.createCharge(eventB,id,{},organizer),
+        ()=>courtController.submitExhibit(eventB,id,{},organizer),
+        ()=>courtController.decideExhibit(eventB,id,child,{},organizer),
+        ()=>courtController.createHearing(eventB,id,{},organizer),
+        ()=>courtController.updateHearingStatus(eventB,id,child,{},organizer),
+        ()=>courtController.createFiling(eventB,id,{},organizer),
+        ()=>courtController.createDecision(eventB,id,{},organizer),
+      ];
+      for(const call of calls)await assert.rejects(call,NotFoundException);
+      assert.equal((await courtController.getDetail(eventA,id,organizer)).status,'PREPARATION');
+      await assert.rejects(courtController.getDetail(eventA,id,outsider),ForbiddenException);
     });
     await t.test('all controller mutations reject a task addressed through another event', async () => {
       const calls = [
@@ -266,6 +391,85 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       assert.equal((await auth.eventCapabilities({...capability,user:worker,permissions,eventId:eventB})).size,0);
       assert.equal((await auth.eventCapabilities({...capability,user:worker,permissions:[]})).size,0);
     });
+    await t.test('laboratory assignment requires the complete operator lifecycle',async()=>{
+      const partial=await db.select({id:roles.id}).from(roles).where(and(eq(roles.eventId,eventA),eq(roles.slug,`worker-${worker.id}`)));
+      await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId,partial[0]!.id),eq(rolePermissions.permissionKey,Permissions.LAB_COMPLETE)));
+      try{
+        const candidates=await lab.listEligibleWorkers(eventA,unitA,leader);
+        assert.ok(!candidates.some(x=>x.id===worker.id));
+        assert.ok(candidates.some(x=>x.id===secondWorker.id));
+        const row=await lab.createAnalysis(eventA,{analysisType:'Eligibility fixture',evidenceIds:[evidenceId],requestedFromUnitId:unitA,visibility:'EVENT'},requester);
+        assert.equal(row.assignedToUserId,secondWorker.id);
+        await assert.rejects(lab.reassignAnalysis(eventA,row.id,{assignedToUserId:worker.id,reason:'Incomplete lifecycle'},leader),BadRequestException);
+      }finally{await db.insert(rolePermissions).values({roleId:partial[0]!.id,permissionKey:Permissions.LAB_COMPLETE,scope:'ASSIGNED'});}
+      // Remove this isolated fixture's active workload from the balancing test below.
+      // Complete through the normal workflow instead of deleting evidence or audit history.
+      const rows=await lab.listAnalyses(eventA,requester);
+      const row=rows.find(x=>x.analysisType==='Eligibility fixture')!;
+      await lab.updateAnalysis(eventA,row.id,{status:'ACCEPTED'},secondWorker);
+      await lab.updateAnalysis(eventA,row.id,{status:'IN_PROGRESS'},secondWorker);
+      await lab.updateAnalysis(eventA,row.id,{status:'COMPLETED',conclusion:'Synthetic fixture'},secondWorker);
+    });
+    await t.test('unclaimed laboratory inbox allows exactly one eligible analyst to claim',async()=>{
+      const pending=await lab.createAnalysis(eventA,{analysisType:'Unclaimed sample',evidenceIds:[evidenceId],assignedUnitId:unitB,visibility:'UNIT'},requester);
+      assert.equal(pending.assignedToUserId,null);
+      assert.equal(await access.canAccessResource(worker,pending.id,Permissions.LAB_READ),false);
+      await db.insert(membershipUnitAssignments).values([worker,secondWorker].map(u=>({membershipId:memberships.get(u.id)!,unitId:unitB})));
+      try{
+        for(const candidate of [worker,secondWorker]){
+          assert.equal(await access.canAccessResource(candidate,pending.id,Permissions.LAB_READ),true);
+          assert.equal(await access.canAccessResource(candidate,pending.id,Permissions.LAB_ACCEPT),true);
+          assert.equal(await access.canAccessResource(candidate,pending.id,Permissions.LAB_WORK),false);
+        }
+        await assert.rejects(lab.updateAnalysis(eventA,pending.id,{findings:'Premature draft'},worker),BadRequestException);
+        const results=await Promise.allSettled([worker,secondWorker].map(u=>lab.updateAnalysis(eventA,pending.id,{status:'ACCEPTED'},u)));
+        assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
+        const claimed=await lab.getAnalysis(eventA,pending.id,requester);
+        const winner=claimed.assignedToUserId===worker.id?worker:secondWorker;
+        const loser=winner.id===worker.id?secondWorker:worker;
+        assert.equal(claimed.status,'ACCEPTED');
+        assert.equal(await access.canAccessResource(loser,pending.id,Permissions.LAB_WORK),false);
+        assert.equal(await access.canAccessResource(winner,pending.id,Permissions.LAB_WORK),true);
+        assert.equal((await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId,pending.id),eq(auditEvents.action,'lab.assignment.claimed')))).length,1);
+        await lab.updateAnalysis(eventA,pending.id,{status:'IN_PROGRESS'},winner);
+        await lab.updateAnalysis(eventA,pending.id,{status:'COMPLETED',conclusion:'Synthetic fixture'},winner);
+      }finally{
+        for(const u of [worker,secondWorker])await db.delete(membershipUnitAssignments).where(and(eq(membershipUnitAssignments.membershipId,memberships.get(u.id)!),eq(membershipUnitAssignments.unitId,unitB)));
+      }
+    });
+    await t.test('laboratory rejection requires an explicit reason and returns it without a draft',async()=>{
+      const row=await lab.createAnalysis(eventA,{analysisType:'Rejected sample fixture',evidenceIds:[evidenceId],assignedUnitId:unitA,visibility:'EVENT'},requester);
+      const examiner=row.assignedToUserId===worker.id?worker:secondWorker;
+      await assert.rejects(lab.updateAnalysis(eventA,row.id,{status:'REJECTED',notes:'   '},examiner),BadRequestException);
+      await assert.rejects(lab.updateAnalysis(eventA,row.id,{status:'REJECTED',notes:'Synthetic damaged package'},requester),ForbiddenException);
+      const reason='Synthetic damaged package; submit replacement';
+      await lab.updateAnalysis(eventA,row.id,{status:'REJECTED',notes:reason},examiner);
+      const result=await lab.getAnalysisDetail(eventA,row.id,requester);
+      assert.equal(result.status,'REJECTED');assert.equal(result.rejectionReason,reason);
+      assert.equal(result.reportAvailable,false);assert.equal(result.conclusion,null);
+      await assert.rejects(lab.getAnalysisDetail(eventA,row.id,outsider),ForbiddenException);
+      assert.equal((await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId,row.id),eq(auditEvents.action,'lab.rejected')))).length,1);
+    });
+    await t.test('laboratory confirms only the current physical dispatch independently',async()=>{
+      const sample=await evidenceService.createEvidence(eventA,CreateEvidenceRequestSchema.parse({title:'Receipt fixture',evidenceType:'FINGERPRINT',currentHolderType:'USER',currentHolderId:requester.id}),requester);
+      const dispatch=await evidenceService.transferCustody(eventA,sample.id,{toHolderType:'UNIT',toHolderId:unitA,reason:'Synthetic dispatch',newStatus:'IN_TRANSIT'},requester);
+      const transferId=dispatch.custodyHistory![0]!.id;
+      const row=await lab.createAnalysis(eventA,{analysisType:'Physical receipt fixture',evidenceIds:[sample.id],assignedUnitId:unitA,visibility:'EVENT'},requester);
+      const analyst=row.assignedToUserId===worker.id?worker:secondWorker,other=analyst.id===worker.id?secondWorker:worker;
+      const input={evidenceId:sample.id,transferId,condition:'Synthetic intact package'};
+      await assert.rejects(lab.confirmSampleReceipt(eventA,row.id,input,requester),ForbiddenException);
+      await assert.rejects(lab.confirmSampleReceipt(eventA,row.id,input,other),ForbiddenException);
+      await assert.rejects(lab.confirmSampleReceipt(eventA,row.id,{...input,transferId:generateId()},analyst),ConflictException);
+      assert.equal((await lab.getAnalysisDetail(eventA,row.id,analyst)).evidenceItems.find(i=>i.id===sample.id)?.pendingReceiptTransferId,transferId);
+      assert.equal((await lab.confirmSampleReceipt(eventA,row.id,input,analyst)).transferId,transferId);
+      await assert.rejects(lab.confirmSampleReceipt(eventA,row.id,input,analyst),ConflictException);
+      assert.equal((await evidenceService.getEvidence(eventA,sample.id,requester)).status,'SECURED');
+      assert.equal((await lab.getAnalysisDetail(eventA,row.id,requester)).evidenceItems.find(i=>i.id===sample.id)?.receipt?.condition,input.condition);
+      assert.equal((await db.select().from(auditEvents).where(and(eq(auditEvents.resourceId,sample.id),eq(auditEvents.action,'evidence.lab_received')))).length,1);
+      await lab.updateAnalysis(eventA,row.id,{status:'ACCEPTED'},analyst);
+      await lab.updateAnalysis(eventA,row.id,{status:'IN_PROGRESS'},analyst);
+      await lab.updateAnalysis(eventA,row.id,{status:'COMPLETED',conclusion:'Synthetic fixture'},analyst);
+    });
     let labId = '';
     await t.test('concurrent lab requests assign real eligible workers with balanced workload', async () => {
       const created = await Promise.all(Array.from({ length: 4 }, () => lab.createAnalysis(eventA, { analysisType: 'chemical', evidenceIds: [evidenceId], requestedFromUnitId: unitA, visibility: 'EVENT' }, requester)));
@@ -274,6 +478,20 @@ test('operational permissions and workflows against real isolated PostgreSQL', {
       assert.equal(created.filter((r) => r.assignedToUserId === worker.id).length, 2);
       assert.equal(created.filter((r) => r.assignedToUserId === secondWorker.id).length, 2);
       for (const row of created) assert.equal((await lab.getAnalysis(eventA, row.id, row.assignedToUserId === worker.id ? worker : secondWorker)).id, row.id);
+    });
+    await t.test('laboratory requests distinguish actual origin from destination and reject false origin',async()=>{
+      await db.insert(membershipUnitAssignments).values({membershipId:memberships.get(requester.id)!,unitId:unitB});
+      try{
+        const dto={analysisType:'Cross-team fingerprint fixture',evidenceIds:[evidenceId],assignedUnitId:unitA,requestedFromUnitId:unitB,visibility:'EVENT' as const};
+        const created=await lab.createAnalysis(eventA,dto,requester);
+        assert.equal(created.requestedFromUnitId,unitB);
+        assert.equal(created.assignedUnitId,unitA);
+        const detail=await lab.getAnalysisDetail(eventA,created.id,requester);
+        assert.equal(detail.requestingUnitName,'Laboratory B');assert.equal(detail.unitName,'Laboratory A');
+        await assert.rejects(lab.createAnalysis(eventA,{...dto,requestedFromUnitId:foreignUnit},requester),BadRequestException);
+        const legacy=await lab.createAnalysis(eventA,{analysisType:'Legacy fixture',evidenceIds:[evidenceId],requestedFromUnitId:unitA,visibility:'EVENT'},requester);
+        assert.equal(legacy.assignedUnitId,unitA);assert.equal(legacy.requestedFromUnitId,null);
+      }finally{await db.delete(membershipUnitAssignments).where(and(eq(membershipUnitAssignments.membershipId,memberships.get(requester.id)!),eq(membershipUnitAssignments.unitId,unitB)));}
     });
     await t.test('lab leader can request and reassign to ordinary workers in the bound unit', async () => {
       const requested = await lab.createAnalysis(eventA, { analysisType: 'chemical', evidenceIds: [evidenceId], requestedFromUnitId: unitA, visibility: 'EVENT' }, leader);

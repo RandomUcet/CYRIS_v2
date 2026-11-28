@@ -1,11 +1,12 @@
 'use client';
 
 import type { LabAnalysisDetail } from '@cyris/contracts';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { RecordHeader } from '@/components/common/RecordHeader';
+import {ActionFeedback,type ActionMessage} from '@/components/common/ActionFeedback';
 import { RecordTabs } from '@/components/common/RecordTabs';
 import { RecordInspector } from '@/components/common/RecordInspector';
 import { RecordIdentifier, StatusBadge } from '@/components/common/Badges';
@@ -56,26 +57,44 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   const [findings, setFindings] = useState('');
   const [conclusion, setConclusion] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [actionMessage,setActionMessage]=useState<ActionMessage|null>(null);
+  const fail=(message:string)=>setActionMessage({kind:'error',message});
+  const success=(message:string)=>setActionMessage({kind:'success',message});
+  const [showCorrection,setShowCorrection]=useState(false);
+  const [correctionReason,setCorrectionReason]=useState('');
+  const [correctionError,setCorrectionError]=useState('');
+  const correctionTrigger=useRef<HTMLButtonElement>(null);
+  const correctionField=useRef<HTMLTextAreaElement>(null);
+  useEffect(()=>{if(showCorrection)correctionField.current?.focus();},[showCorrection]);
+  const [rejectionReason,setRejectionReason]=useState('');
+  const [showReject,setShowReject]=useState(false);
+  const [receiptNotes,setReceiptNotes]=useState<Record<string,string>>({});
+  const [receiptError,setReceiptError]=useState('');
   const [labUnits, setLabUnits] = useState<Array<{ id: string; name: string }>>([]);
   const [eligibleWorkers, setEligibleWorkers] = useState<Array<{ id: string; displayName: string }>>([]);
   const [selectedUnitId, setSelectedUnitId] = useState('');
   const [selectedWorkerId, setSelectedWorkerId] = useState('');
   const [reassignReason, setReassignReason] = useState('');
+  const [workersLoading,setWorkersLoading]=useState(false);
+  const [workersError,setWorkersError]=useState('');
+  const [workersRetry,setWorkersRetry]=useState(0);
 
   const cs = locale === 'cs';
   const canReassign = !viewAs && hasPermission('lab.reassign', eventId);
   const canCorrect = !viewAs && hasPermission('lab.correct', eventId);
 
-  const fetchAnalysisDetails = async () => {
+  const fetchAnalysisDetails = async (preserveDraft = false) => {
     setLoading(true);
     setError(null);
     try {
       const res = await apiClient.getLabAnalysis(eventId, analysisId);
       if (res.ok && res.data) {
         setAnalysisData(res.data);
-        setMethod(res.data.method || '');
-        setFindings(res.data.findings || '');
-        setConclusion(res.data.conclusion || '');
+        if (!preserveDraft) {
+          setMethod(res.data.method || '');
+          setFindings(res.data.findings || '');
+          setConclusion(res.data.conclusion || '');
+        }
       } else {
         setError(res.error || 'Failed to load analysis record');
       }
@@ -110,15 +129,21 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   }, [eventId, analysisId]);
 
   useEffect(() => {
-    if (!selectedUnitId) {
-      setEligibleWorkers([]);
-      setSelectedWorkerId('');
-      return;
-    }
+    let active=true;
+    setEligibleWorkers([]);
+    setSelectedWorkerId('');
+    setWorkersError('');
+    setWorkersLoading(!!selectedUnitId);
+    if (!selectedUnitId) return;
     apiClient.getLabWorkers(eventId, selectedUnitId).then((res) => {
+      if (!active) return;
       if (res.ok && res.data) setEligibleWorkers(res.data);
-    });
-  }, [eventId, selectedUnitId]);
+      else setWorkersError(cs?'Pracovníky se nepodařilo načíst.':'Could not load eligible workers.');
+    }).catch(()=>{
+      if(active)setWorkersError(cs?'Pracovníky se nepodařilo načíst.':'Could not load eligible workers.');
+    }).finally(()=>{if(active)setWorkersLoading(false);});
+    return ()=>{active=false;};
+  }, [eventId, selectedUnitId, workersRetry, cs]);
 
   useEffect(() => {
     if (analysisId && activeTab === 'timeline') {
@@ -127,27 +152,45 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
   }, [analysisId, activeTab]);
 
   const handleStatusTransition = async (nextStatus: string) => {
-    setUpdating(true);
+    if(updating)return;
+    if(nextStatus==='COMPLETED'&&!conclusion.trim()){setActiveTab('workflow');fail(cs?'Před dokončením vyplňte závěr reportu.':'Enter the report conclusion before completing.');return;}
+    setActionMessage(null);setUpdating(true);
     try {
       const res = await apiClient.updateLabAnalysis(eventId, analysisId, {
         status: nextStatus,
         ...(nextStatus==='COMPLETED'?{method,findings,conclusion}:{}),
+        ...(nextStatus==='REJECTED'?{notes:rejectionReason.trim()}:{}),
       });
 
       if (res.ok) {
-        fetchAnalysisDetails();
+        if(nextStatus==='REJECTED'){setShowReject(false);setRejectionReason('');}
+        success(cs?'Stav žádanky byl změněn.':'Request status updated.');
+        await fetchAnalysisDetails();
       } else {
-        alert(res.error || 'Transition failed');
+        fail(res.error || (cs?'Změna stavu se nezdařila.':'Transition failed.'));
       }
     } catch (err: any) {
-      alert(err.message);
+      fail(err.message||(cs?'Chyba připojení.':'Connection error.'));
     } finally {
       setUpdating(false);
     }
   };
 
+  async function confirmReceipt(item:LabAnalysisDetail['evidenceItems'][number]){
+    const condition=receiptNotes[item.id]?.trim();
+    if(!condition||!item.pendingReceiptTransferId||updating||viewAs)return;
+    setUpdating(true);setReceiptError('');
+    try{
+      const result=await apiClient.confirmLabSampleReceipt(eventId,analysisId,{evidenceId:item.id,transferId:item.pendingReceiptTransferId,condition});
+      if(!result.ok)throw Error(result.error||'Receipt failed');
+      setReceiptNotes(old=>({...old,[item.id]:''}));
+      await fetchAnalysisDetails(true);
+    }catch(error){setReceiptError(error instanceof Error?error.message:String(error));}
+    finally{setUpdating(false);}
+  }
   const handleSaveDraft = async () => {
-    setUpdating(true);
+    if(updating)return;
+    setActionMessage(null);setUpdating(true);
     try {
       const res = await apiClient.updateLabAnalysis(eventId, analysisId, {
         method,
@@ -156,33 +199,51 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
       });
 
       if (res.ok) {
-        alert('Analysis draft saved.');
-        fetchAnalysisDetails();
+        success(cs?'Rozpracovaný protokol byl uložen.':'Analysis draft saved.');
+        await fetchAnalysisDetails();
       } else {
-        alert(res.error || 'Failed to save analysis');
+        fail(res.error || (cs?'Protokol se nepodařilo uložit.':'Failed to save analysis.'));
       }
     } catch (err: any) {
-      alert(err.message);
+      fail(err.message||(cs?'Chyba připojení.':'Connection error.'));
     } finally {
       setUpdating(false);
     }
   };
 
-  const handleCorrection = async (status?: string) => {
-    const reason = window.prompt('Correction reason (required):');
-    if (!reason?.trim()) return;
-    setUpdating(true);
+  const closeCorrection=()=>{
+    if(updating)return;
+    setShowCorrection(false);
+    setCorrectionError('');
+    correctionTrigger.current?.focus();
+  };
+  const handleCorrection = async () => {
+    if(updating||!canCorrect||!showCorrection)return;
+    const reason=correctionReason.trim();
+    if(reason.length<3){
+      setCorrectionError(cs?'Uveďte důvod alespoň o třech znacích.':'Enter a reason of at least three characters.');
+      correctionField.current?.focus();
+      return;
+    }
+    setCorrectionError('');setActionMessage(null);setUpdating(true);
     try {
-      const res = await apiClient.correctLabAnalysis(eventId, analysisId, { status, reason });
-      if (res.ok) await fetchAnalysisDetails();
-      else alert(res.error || 'Correction failed');
+      const res = await apiClient.correctLabAnalysis(eventId, analysisId, { status:'REQUESTED', reason });
+      if (!res.ok) {
+        setCorrectionError(res.error || (cs?'Oprava se nezdařila.':'Correction failed.'));
+        return;
+      }
+      setShowCorrection(false);setCorrectionReason('');
+      success(cs?'Žádanka byla znovu otevřena.':'Request reopened.');
+      await fetchAnalysisDetails();
+    } catch(err) {
+      setCorrectionError(err instanceof Error?err.message:(cs?'Chyba připojení.':'Connection error.'));
     } finally {
       setUpdating(false);
     }
   };
 
   const handleDistribute = async () => {
-    if (!reassignReason.trim() || !selectedUnitId) return;
+    if (updating || !canReassign || workersLoading || workersError || reassignReason.trim().length < 3 || !selectedUnitId) return;
     setUpdating(true);
     try {
       const res = await apiClient.reassignLabAnalysis(eventId, analysisId, {
@@ -192,16 +253,16 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
       });
       if (res.ok) {
         setReassignReason('');
-        await fetchAnalysisDetails();
+        await fetchAnalysisDetails(true);
       }
-      else alert(res.error || 'Distribution failed');
-    } finally {
+      else fail(res.error || (cs?'Přidělení se nezdařilo.':'Distribution failed.'));
+    } catch { fail(cs?'Připojení selhalo. Zkuste to znovu.':'Connection failed. Try again.'); } finally {
       setUpdating(false);
     }
   };
 
   const handleReassign = async () => {
-    if (!selectedUnitId || !selectedWorkerId || reassignReason.trim().length < 3) return;
+    if (updating || !canReassign || workersLoading || workersError || !selectedUnitId || !eligibleWorkers.some(worker=>worker.id===selectedWorkerId) || reassignReason.trim().length < 3) return;
     setUpdating(true);
     try {
       const res = await apiClient.reassignLabAnalysis(eventId, analysisId, {
@@ -211,9 +272,9 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
       });
       if (res.ok) {
         setReassignReason('');
-        await fetchAnalysisDetails();
-      } else alert(res.error || 'Reassignment failed');
-    } finally {
+        await fetchAnalysisDetails(true);
+      } else fail(res.error || (cs?'Přeřazení se nezdařilo.':'Reassignment failed.'));
+    } catch { fail(cs?'Připojení selhalo. Zkuste to znovu.':'Connection failed. Try again.'); } finally {
       setUpdating(false);
     }
   };
@@ -285,35 +346,52 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                 <Layers size={13} style={{ marginRight: '4px' }} />
                 {inspectorOpen ? 'Hide' : 'Inspect'}
               </button>
-              {canReassign && !analysisData.assignedToUserId && (
-                <button onClick={handleDistribute} disabled={updating} className="btn btn-secondary">
-                  Distribute to queue
-                </button>
-              )}
+
               {canCorrect && (
-                <button onClick={() => handleCorrection('REQUESTED')} disabled={updating} className="btn btn-secondary">
-                  Reopen / correct
+                <button ref={correctionTrigger} type="button" aria-expanded={showCorrection} aria-controls={showCorrection?'lab-correction-form':undefined} onClick={()=>{setShowCorrection(true);correctionField.current?.focus();}} disabled={updating} className="btn btn-secondary">
+                  {cs?'Znovu otevřít / opravit':'Reopen / correct'}
                 </button>
               )}
             </div>
           }
         />
 
-        {canReassign && (
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '10px 24px', borderBottom: '1px solid var(--color-border-subtle)' }}>
-            <select className="input-field" value={selectedUnitId} onChange={(e) => setSelectedUnitId(e.target.value)} aria-label="Destination laboratory">
-              <option value="">Select destination laboratory</option>
-              {labUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
-            </select>
-            <select className="input-field" value={selectedWorkerId} onChange={(e) => setSelectedWorkerId(e.target.value)} disabled={!selectedUnitId} aria-label="Eligible laboratory worker">
-              <option value="">Unassigned queue</option>
-              {eligibleWorkers.map((worker) => <option key={worker.id} value={worker.id}>{worker.displayName}</option>)}
-            </select>
-            <input className="input-field" value={reassignReason} onChange={(e) => setReassignReason(e.target.value)} placeholder="Reason" aria-label="Reassignment reason" />
-            <button onClick={selectedWorkerId ? handleReassign : handleDistribute} disabled={updating || !selectedUnitId || reassignReason.trim().length < 3} className="btn btn-secondary">
-              {selectedWorkerId ? 'Reassign' : 'Place in queue'}
-            </button>
+        {canCorrect&&showCorrection&&<form id="lab-correction-form" aria-labelledby="lab-correction-title" aria-busy={updating} onSubmit={event=>{event.preventDefault();void handleCorrection();}} style={{padding:16,display:'grid',gap:8,borderBottom:'1px solid var(--color-border-subtle)'}}>
+          <h2 id="lab-correction-title" style={{fontSize:14,margin:0}}>{cs?'Znovu otevřít žádanku':'Reopen request'}</h2>
+          <p id="lab-correction-help" style={{margin:0,fontSize:13}}>{cs?'Stav se změní na Požadováno. Důvod opravy bude zaznamenán. Před potvrzením uložte případné rozepsané změny protokolu.':'The status will change to Requested. The correction reason will be recorded. Save any unsaved protocol edits before confirming.'}</p>
+          <label htmlFor="lab-correction-reason">{cs?'Důvod opravy (povinný)':'Correction reason (required)'}</label>
+          <textarea ref={correctionField} id="lab-correction-reason" className="input-field" rows={3} required minLength={3} disabled={updating} aria-invalid={!!correctionError} aria-describedby={'lab-correction-help'+(correctionError?' lab-correction-error':'')} value={correctionReason} onChange={event=>{setCorrectionReason(event.target.value);setCorrectionError('');}}/>
+          {correctionError&&<p id="lab-correction-error" role="alert" style={{margin:0,overflowWrap:'anywhere'}}>{correctionError}</p>}
+          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            <button type="button" className="btn btn-secondary" disabled={updating} onClick={closeCorrection}>{cs?'Zrušit':'Cancel'}</button>
+            <button type="submit" className="btn btn-primary" disabled={updating}>{updating?(cs?'Ukládám…':'Saving…'):(cs?'Potvrdit znovuotevření':'Confirm reopening')}</button>
           </div>
+        </form>}
+        {canReassign && (
+          <form aria-labelledby="lab-assignment-title" aria-busy={updating} onSubmit={e=>{e.preventDefault();void (selectedWorkerId?handleReassign():handleDistribute());}} style={{padding:16,display:'grid',gap:10,borderBottom:'1px solid var(--color-border-subtle)'}}>
+            <h2 id="lab-assignment-title" style={{fontSize:14,margin:0}}>{cs?'Přidělení žádanky':'Request assignment'}</h2>
+            <p style={{margin:0,fontSize:13}}>{cs?'Vyberte laboratoř a konkrétního pracovníka, nebo ponechte žádanku ve frontě laboratoře.':'Choose a laboratory and a specific worker, or leave the request in the laboratory queue.'}</p>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,220px),1fr))',gap:10}}>
+              <label style={{display:'grid',gap:4}}><span id="lab-assignment-unit-label">{cs?'Cílová laboratoř':'Destination laboratory'}</span>
+                <select aria-labelledby="lab-assignment-unit-label" className="input-field" required disabled={updating} value={selectedUnitId} onChange={e=>{setSelectedWorkerId('');setEligibleWorkers([]);setWorkersLoading(!!e.target.value);setSelectedUnitId(e.target.value);}}>
+                  <option value="">{cs?'Vyberte laboratoř':'Select laboratory'}</option>
+                  {labUnits.map(unit=><option key={unit.id} value={unit.id}>{unit.name}</option>)}
+                </select>
+              </label>
+              <label style={{display:'grid',gap:4}}><span id="lab-assignment-worker-label">{cs?'Pracovník':'Worker'}</span>
+                <select aria-labelledby="lab-assignment-worker-label" className="input-field" value={selectedWorkerId} onChange={e=>setSelectedWorkerId(e.target.value)} disabled={updating||!selectedUnitId||workersLoading||!!workersError}>
+                  <option value="">{cs?'Fronta bez pracovníka':'Unassigned queue'}</option>
+                  {eligibleWorkers.map(worker=><option key={worker.id} value={worker.id}>{worker.displayName}</option>)}
+                </select>
+              </label>
+              <label style={{display:'grid',gap:4}}><span id="lab-assignment-reason-label">{cs?'Důvod (povinný)':'Reason (required)'}</span>
+                <input aria-labelledby="lab-assignment-reason-label" className="input-field" required minLength={3} disabled={updating} value={reassignReason} onChange={e=>setReassignReason(e.target.value)}/>
+              </label>
+            </div>
+            {workersLoading&&<p role="status">{cs?'Načítám pracovníky…':'Loading eligible workers…'}</p>}
+            {workersError&&<div><p role="alert">{workersError}</p><button type="button" className="btn btn-secondary" onClick={()=>setWorkersRetry(n=>n+1)}>{cs?'Zkusit znovu':'Retry'}</button></div>}
+            <div><button type="submit" disabled={updating||workersLoading||!!workersError||!selectedUnitId||reassignReason.trim().length<3} className="btn btn-secondary">{updating?(cs?'Ukládám…':'Saving…'):selectedWorkerId?(cs?'Přidělit pracovníkovi':'Assign worker'):(cs?'Zařadit do fronty':'Place in queue')}</button></div>
+          </form>
         )}
 
         {/* Lifecycle Stepper Bar */}
@@ -411,6 +489,7 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                 {cs ? 'Převzít požadavek' : 'Accept request'}
               </button>
             )}
+            {analysisData.status==='REQUESTED'&&!viewAs&&actions?.accept&&<button type="button" className="btn btn-secondary" style={{marginLeft:8}} disabled={updating} onClick={()=>setShowReject(value=>!value)}>{cs?'Odmítnout vzorek':'Reject sample'}</button>}
             {analysisData.status === 'ACCEPTED' && !viewAs && actions?.work && (
               <button
                 onClick={() => handleStatusTransition('IN_PROGRESS')}
@@ -467,7 +546,17 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
             )}
           </div>
         </div>
+        {showReject&&analysisData.status==='REQUESTED'&&!viewAs&&actions?.accept&&<section style={{padding:16,borderBottom:'1px solid var(--border-default)',display:'grid',gap:8}}>
+          <label htmlFor="lab-rejection-reason">{cs?'Důvod odmítnutí vzorku (viditelný žadateli)':'Sample rejection reason (visible to requester)'}</label>
+          <textarea id="lab-rejection-reason" className="input-field" rows={3} maxLength={2000} value={rejectionReason} onChange={event=>setRejectionReason(event.target.value)} />
+          <div style={{display:'flex',gap:8}}><button type="button" className="btn btn-secondary" disabled={updating} onClick={()=>setShowReject(false)}>{cs?'Zrušit':'Cancel'}</button><button type="button" className="btn btn-primary" disabled={updating||!rejectionReason.trim()} onClick={()=>void handleStatusTransition('REJECTED')}>{cs?'Potvrdit odmítnutí':'Confirm rejection'}</button></div>
+        </section>}
+        {analysisData.status==='REJECTED'&&<section style={{padding:16,borderBottom:'1px solid var(--border-default)'}}>
+          <strong>{cs?'Důvod odmítnutí vzorku':'Sample rejection reason'}</strong>
+          <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{analysisData.rejectionReason||(cs?'Důvod u historického záznamu není dostupný.':'No reason available for this historical record.')}</p>
+        </section>}
 
+        <ActionFeedback message={actionMessage} busy={updating} onDismiss={()=>setActionMessage(null)}/>
         {/* Local Navigation Tabs */}
         <RecordTabs
           tabs={[
@@ -544,12 +633,12 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                   </div>
 
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
+                    <label htmlFor="lab-method" style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
                       {cs ? 'Použitá metoda' : 'Method'}
                     </label>
-                    <textarea
+                    <textarea id="lab-method"
                       rows={3}
-                      placeholder="e.g. Volatility 3 memory triage, SHA-256 integrity hash verification, Ghidra disassembly..."
+                      placeholder="Describe the approved exercise analysis method"
                       value={method}
                       onChange={(e) => setMethod(e.target.value)}
                       readOnly={!canEdit}
@@ -559,12 +648,12 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                   </div>
 
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
+                    <label htmlFor="lab-findings" style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
                       {cs ? 'Zjištění' : 'Findings'}
                     </label>
-                    <textarea
+                    <textarea id="lab-findings"
                       rows={5}
-                      placeholder="Document extracted IP addresses, persistence registry keys, compromised user tokens..."
+                      placeholder="Record observations and findings from the sample"
                       value={findings}
                       onChange={(e) => setFindings(e.target.value)}
                       readOnly={!canEdit}
@@ -574,12 +663,12 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
+                    <label htmlFor="lab-conclusion" style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-dim)', marginBottom: '6px' }}>
                       {cs ? 'Závěr' : 'Conclusion'}
                     </label>
-                    <textarea
+                    <textarea id="lab-conclusion"
                       rows={3}
-                      placeholder="Conclusive assessment for investigative leadership or courtroom presentation..."
+                      placeholder="Summarize the result and its limitations"
                       value={conclusion}
                       onChange={(e) => setConclusion(e.target.value)}
                       readOnly={!canEdit}
@@ -597,11 +686,18 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
                 <div style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--color-text-dim)' }}>
                   Target physical or digital item submitted for this laboratory protocol.
                 </div>
-                {evidenceItems.length ? evidenceItems.map(item => item.canOpen===false?<div key={item.id} style={{padding:12,border:'1px solid var(--border-default)',marginBottom:6}}><strong>{item.evidenceNumber}</strong> · {item.title}<p style={{margin:'4px 0 0',fontSize:12}}>{cs?'Identifikace předaného vzorku; detail evidence vyžaduje samostatné oprávnění.':'Submitted sample identification; full evidence requires separate permission.'}</p></div>:(
-                  <Link className="btn btn-secondary" key={item.id} href={`/events/${eventId}/evidence/${item.id}`}>
-                    <FolderOpen size={15} /><strong>{item.evidenceNumber}</strong> {item.title} <ArrowRight size={12} />
-                  </Link>
-                )) : <EmptyState title={cs ? 'Žádné dostupné vzorky' : 'No accessible evidence'} />}
+                {receiptError&&<p role="alert">{receiptError}</p>}
+                {evidenceItems.length?evidenceItems.map(item=><section key={item.id} style={{padding:12,border:'1px solid var(--border-default)',marginBottom:8,display:'grid',gap:8}}>
+                  {item.canOpen===false?<div><strong>{item.evidenceNumber}</strong> · {item.title}<p style={{margin:'4px 0 0',fontSize:12}}>{cs?'Identifikace předaného vzorku; detail evidence vyžaduje samostatné oprávnění.':'Submitted sample identification; full evidence requires separate permission.'}</p></div>:
+                    <Link className="btn btn-secondary" href={`/events/${eventId}/evidence/${item.id}`}><FolderOpen size={15}/><strong>{item.evidenceNumber}</strong> {item.title} <ArrowRight size={12}/></Link>}
+                  {item.receipt?<div role="status"><strong>{cs?'Fyzické převzetí potvrzeno':'Physical receipt confirmed'}</strong><p style={{fontSize:13}}>{formatTime(item.receipt.receivedAt)} · {item.receipt.condition}</p></div>:
+                    item.status==='IN_TRANSIT'&&<p>{cs?'Fyzické převzetí zatím nepotvrzeno.':'Physical receipt not confirmed.'}</p>}
+                  {!viewAs&&item.pendingReceiptTransferId&&<div style={{display:'grid',gap:6}}>
+                    <label htmlFor={'sample-condition-'+item.id}>{cs?'Skutečný stav přijatého vzorku':'Observed condition of received sample'}</label>
+                    <textarea id={'sample-condition-'+item.id} className="input-field" rows={2} maxLength={2000} value={receiptNotes[item.id]??''} onChange={event=>setReceiptNotes(old=>({...old,[item.id]:event.target.value}))}/>
+                    <button className="btn btn-primary" type="button" disabled={updating||!receiptNotes[item.id]?.trim()} onClick={()=>void confirmReceipt(item)}>{cs?'Potvrdit fyzické převzetí':'Confirm physical receipt'}</button>
+                  </div>}
+                </section>):<EmptyState title={cs?'Žádné dostupné vzorky':'No accessible evidence'}/>}
 
               </div>
             )}
@@ -631,7 +727,8 @@ function LabDetailWorkspace({eventId,analysisId}:{eventId:string;analysisId:stri
               { label: 'Analysis Number', value: analysisData.analysisNumber || analysisData.id, copyable: true },
               { label: cs?'Žadatel':'Requester', value: analysisData.requesterName||'—' },
               { label: 'Lifecycle Stage', value: <StatusBadge status={analysisData.status} /> },
-              { label: 'Assigned Lab Unit', value: analysisData.unitName || '—' },
+              { label: cs?'Žádající tým':'Requesting team', value: analysisData.requestingUnitName || '—' },
+              { label: cs?'Odpovědná laboratoř':'Assigned laboratory', value: analysisData.unitName || '—' },
               { label: 'Analyst', value: analysisData.analystName || '—' },
               { label: 'Target Evidence', value: evidenceItems.map(item => item.evidenceNumber).join(', ') || '—' },
               { label: 'Requested At', value: formatTime(analysisData.createdAt) },

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { useDialogAccessibility } from '@/hooks/useDialogAccessibility';
 import { RecordHeader } from '@/components/common/RecordHeader';
+import {ActionFeedback,type ActionMessage} from '@/components/common/ActionFeedback';
 import { RecordTabs, TabItem } from '@/components/common/RecordTabs';
 import { RecordInspector } from '@/components/common/RecordInspector';
 import { RecordIdentifier, StatusBadge, PriorityBadge } from '@/components/common/Badges';
@@ -69,6 +70,8 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
   const [findingsText, setFindingsText] = useState('');
   const [conclusion, setConclusion] = useState('');
   const [savingOverview, setSavingOverview] = useState(false);
+  const [actionMessage,setActionMessage]=useState<ActionMessage|null>(null);
+  const fail=(message:string)=>setActionMessage({kind:'error',message});
   const [actionLoading, setActionLoading] = useState(false);
   const [handoffOpen,setHandoffOpen]=useState(false);
   const [handoffLoading,setHandoffLoading]=useState(false);
@@ -97,6 +100,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
   const [showAcquisitionModal, setShowAcquisitionModal] = useState(false);
   const [acquisitionForm, setAcquisitionForm] = useState<{
     acquisitionType: 'PHYSICAL' | 'LOGICAL' | 'TARGETED' | 'MEMORY_DUMP' | 'TRIAGE';
+    source: string;
     toolName: string;
     toolVersion: string;
     hashAlgorithm: string;
@@ -106,6 +110,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
     notes: string;
   }>({
     acquisitionType: 'PHYSICAL',
+    source: '',
     toolName: '',
     toolVersion: '',
     hashAlgorithm: 'SHA256',
@@ -209,7 +214,9 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
   }, [analysisId, activeTab]);
 
   const handleUpdateStatus = async (status: string) => {
-    setActionLoading(true);
+    if(actionLoading||savingOverview)return;
+    if(status==='COMPLETED'&&!conclusion.trim()){setActiveTab('overview');fail(tr('Před dokončením vyplňte závěr reportu.','Enter the report conclusion before completing.'));return;}
+    setActionMessage(null);setActionLoading(true);
     try {
       const res = await apiClient.updateForensicStatus(eventId, analysisId, {
         status: status as any,
@@ -217,11 +224,12 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
       });
       if (res.ok && res.data) {
         setAnalysis(res.data);
+        setActionMessage({kind:'success',message:tr('Stav analýzy byl změněn.','Analysis status updated.')});
       } else {
-        alert(res.error || `Failed to transition analysis to ${status}`);
+        fail(res.error || tr('Změna stavu se nezdařila.','Transition failed.'));
       }
     } catch (err: any) {
-      alert(err.message || 'Action failed');
+      fail(err.message || tr('Akce se nezdařila.','Action failed.'));
     } finally {
       setActionLoading(false);
     }
@@ -229,8 +237,8 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
 
   const handleSaveOverview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(!canWork||savingOverview)return;
-    setSavingOverview(true);
+    if(!canWork||savingOverview||actionLoading)return;
+    setActionMessage(null);setSavingOverview(true);
     try {
       const res = await apiClient.updateForensicAnalysis(eventId, analysisId, {
         methodology: methodology.trim() || undefined,
@@ -240,12 +248,12 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
       if (res.ok && res.data) {
         setAnalysis(res.data);
         setMethodology(res.data.methodology??'');setFindingsText(res.data.findings??'');setConclusion(res.data.conclusion??'');
-        alert('Analysis notes saved successfully');
+        setActionMessage({kind:'success',message:tr('Rozpracovaný protokol byl uložen.','Analysis notes saved successfully.')});
       } else {
-        alert(res.error || 'Failed to save notes');
+        fail(res.error || tr('Protokol se nepodařilo uložit.','Failed to save notes.'));
       }
     } catch (err: any) {
-      alert(err.message || 'Network error');
+      fail(err.message || tr('Chyba připojení.','Network error.'));
     } finally {
       setSavingOverview(false);
     }
@@ -290,6 +298,8 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
     try {
       const res = await apiClient.createForensicAcquisition(eventId, analysisId, {
         acquisitionType: acquisitionForm.acquisitionType,
+        evidenceId: acquisitionForm.source.startsWith('evidence:')?acquisitionForm.source.slice(9):undefined,
+        deviceId: acquisitionForm.source.startsWith('device:')?acquisitionForm.source.slice(7):undefined,
         toolName: acquisitionForm.toolName || undefined,
         toolVersion: acquisitionForm.toolVersion || undefined,
         hashAlgorithm: acquisitionForm.hashAlgorithm,
@@ -300,6 +310,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
       });
       if (res.ok) {
         setShowAcquisitionModal(false);
+        setAcquisitionForm(form=>({...form,source:''}));
         fetchAnalysisDetails();
       } else {
         alert(res.error || 'Failed to add acquisition record');
@@ -438,6 +449,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
           }
         />
 
+        <ActionFeedback message={actionMessage} busy={actionLoading||savingOverview} onDismiss={()=>setActionMessage(null)}/>
         {canReassign&&<section className="card" style={{padding:16,marginBottom:16}} aria-label={tr('Předání analýzy','Analysis handover')}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
             <div><strong>{tr('Odpovědný analytik','Assigned examiner')}</strong><div style={{fontSize:13,color:'var(--color-text-dim)'}}>{analysis.analystName??tr('Nepřiděleno','Unassigned')} · {analysis.unitName??tr('Forenzní pracoviště','Forensic unit')}</div></div>
@@ -474,7 +486,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
         <div style={{ marginTop: '16px' }}>
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '16px' }}>
+            <div className="forensic-overview-grid">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div className="card" style={{ padding: '20px' }}>
                   <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--color-text-bright)', marginBottom: '12px' }}>
@@ -490,12 +502,13 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                   </div>
 
                   <form onSubmit={handleSaveOverview}>
+                    {!canWork&&<p role="status" style={{fontSize:13,color:'var(--color-text-dim)',marginBottom:14}}>{analysis.status==='REQUESTED'?tr('Žádanka čeká na převzetí. Odborný report lze upravit až po převzetí a s příslušným oprávněním.','Request awaits acceptance. Report editing requires acceptance and the appropriate permission.'):tr('Report je v tomto stavu nebo pro vaši roli pouze ke čtení.','Report is read-only in this state or for your role.')}</p>}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                       <div>
-                        <label className="field-label">Methodology & Toolchain</label>
+                        <label className="forensic-report-label" htmlFor="forensic-methodology">Methodology & Toolchain</label>
                         <textarea
-                          className="field-input"
-                          rows={3}
+                          id="forensic-methodology" className="field-input forensic-report-field"
+                          rows={5}
                           value={methodology}
                           onChange={(e) => setMethodology(e.target.value)}
                           placeholder="e.g. Write blocker acquisition, Volatility 3 memory triage, Autopsy keyword indexing..."
@@ -504,10 +517,10 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                       </div>
 
                       <div>
-                        <label className="field-label">Technical Findings & Artifacts Summary</label>
+                        <label className="forensic-report-label" htmlFor="forensic-findings">Technical Findings & Artifacts Summary</label>
                         <textarea
-                          className="field-input"
-                          rows={4}
+                          id="forensic-findings" className="field-input forensic-report-field"
+                          rows={6}
                           value={findingsText}
                           onChange={(e) => setFindingsText(e.target.value)}
                           placeholder="Summary of detected user artifacts, deleted files, network beacons, or malware signatures..."
@@ -516,10 +529,10 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                       </div>
 
                       <div>
-                        <label className="field-label">Forensic Conclusion / Opinion</label>
+                        <label className="forensic-report-label" htmlFor="forensic-conclusion">Forensic Conclusion / Opinion</label>
                         <textarea
-                          className="field-input"
-                          rows={3}
+                          id="forensic-conclusion" className="field-input forensic-report-field"
+                          rows={5}
                           value={conclusion}
                           onChange={(e) => setConclusion(e.target.value)}
                           placeholder="Final opinion of the forensic examiner regarding authenticity, intent, and timeline consistency..."
@@ -527,7 +540,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                         />
                       </div>
 
-                      {analysis.status !== 'APPROVED' && (
+                      {canWork && (
                         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                           <button type="submit" className="btn btn-secondary" disabled={savingOverview||!canWork||handoffSaving}>
                             {savingOverview ? 'Saving...' : 'Save Overview Notes'}
@@ -598,16 +611,16 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                           <HardDrive size={16} style={{ color: 'var(--color-accent-ops)' }} />
                           <div>
                             <div style={{ fontWeight: 500 }}>
-                              <RecordIdentifier value={ev.evidenceNumber} /> {ev.description}
+                              <RecordIdentifier value={ev.evidenceNumber} /> {ev.title||ev.description}
                             </div>
                             <div style={{ fontSize: '12px', color: 'var(--color-text-dim)' }}>
                               Status: {ev.status}
                             </div>
                           </div>
                         </div>
-                        <Link href={`/events/${eventId}/evidence/${ev.id}`} className="btn btn-secondary btn-sm">
-                          View Evidence
-                        </Link>
+                        {ev.canOpen!==false?<Link href={`/events/${eventId}/evidence/${ev.id}`} className="btn btn-secondary btn-sm">
+                          {tr('Otevřít důkaz','View Evidence')}
+                        </Link>:<span style={{fontSize:12,color:'var(--text-dim)'}}>{tr('Předaný vstup · omezený přehled','Submitted input · limited manifest')}</span>}
                       </div>
                     ))}
                   </div>
@@ -644,6 +657,7 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
                             <div style={{ fontSize: '12px', color: 'var(--color-text-dim)' }}>
                               Type: {dev.deviceType}
                             </div>
+                            {dev.canOpen===false&&<div style={{fontSize:12,color:'var(--text-dim)'}}>{tr('Předaný vstup · omezený přehled','Submitted input · limited manifest')}</div>}
                           </div>
                         </div>
                       </div>
@@ -1017,6 +1031,12 @@ function ForensicWorkspace({eventId,analysisId}:{eventId:string;analysisId:strin
               </div>
               <form onSubmit={handleCreateAcquisition}>
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <label htmlFor="acquisition-source" className="forensic-report-label">{tr('Zdroj akvizice','Acquisition source')}</label>
+                  <select id="acquisition-source" className="field-input forensic-report-field" style={{minHeight:36}} value={acquisitionForm.source} onChange={e=>setAcquisitionForm(form=>({...form,source:e.target.value}))}>
+                    <option value="">{tr('Bez konkrétního vstupu','No specific input')}</option>
+                    {(analysis.evidenceLinks??[]).map(ev=><option key={'evidence:'+ev.id} value={'evidence:'+ev.id}>{ev.evidenceNumber} · {ev.title||ev.description}</option>)}
+                    {(analysis.deviceLinks??[]).map(dev=><option key={'device:'+dev.id} value={'device:'+dev.id}>{dev.name} · {dev.deviceType}</option>)}
+                  </select>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <div>
                       <label className="field-label">Acquisition Type</label>

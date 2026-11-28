@@ -46,3 +46,7 @@ export * from './legal-library.js';
 export * from './operational-diagnostics.js';
 
 export * from './storage-report.js';
+
+export * from './team-role-profiles.js';
+
+export * from './team-guides.js';

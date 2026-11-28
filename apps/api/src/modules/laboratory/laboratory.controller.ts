@@ -17,7 +17,7 @@ import {
   CreateLabAnalysisRequestSchema,
   UpdateLabAnalysisRequestSchema,
   ReassignLabAnalysisRequestSchema,
-  CorrectLabAnalysisRequestSchema,
+  CorrectLabAnalysisRequestSchema, ConfirmLabSampleReceiptSchema,
 } from '@cyris/contracts';
 import { Permissions, PermissionScopes } from '@cyris/shared';
 import { PermissionsGuard } from '../authorization/guards/permissions.guard.js';
@@ -88,6 +88,13 @@ export class LaboratoryController {
       throw new BadRequestException(parsed.error.errors[0]?.message ?? 'Invalid lab analysis update');
     }
     return this.laboratoryService.updateAnalysis(eventId, analysisId, parsed.data, user);
+  }
+
+  @Post(':analysisId/sample-receipts')
+  async confirmSampleReceipt(@Param('eventId',ParseUUIDPipe) eventId:string,@Param('analysisId',ParseUUIDPipe) analysisId:string,@Body() body:unknown,@CurrentUser() user:AuthenticatedUser){
+    const parsed=ConfirmLabSampleReceiptSchema.safeParse(body);
+    if(!parsed.success)throw new BadRequestException('Select a dispatched sample and describe the observed condition');
+    return this.laboratoryService.confirmSampleReceipt(eventId,analysisId,parsed.data,user);
   }
 
   @Post(':analysisId/reassign')

@@ -144,11 +144,12 @@ jobs:
           curl -fsS http://127.0.0.1:18109/health >/dev/null
           CYRIS_TEST_RETENTION_COMMITTED=true CYRIS_TEST_S3_ENDPOINT=http://127.0.0.1:19001 CYRIS_TEST_TYPESENSE_ENDPOINT=http://127.0.0.1:18109 pnpm exec tsx --test apps/api/src/scripts/retention-finish.test.ts
 
-      - name: Rehearse populated schema upgrades from 2.4.22 and 2.5.1
+      - name: Rehearse populated schema upgrades from 2.4.22, 2.5.1 and 2.5.2
         run: |
           set -euo pipefail
           docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_upgrade_2422
           docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_upgrade_251
+          docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_upgrade_252
           CYRIS_TEST_RETENTION_UPGRADE=true pnpm exec tsx --test packages/db/src/retention-upgrade.test.ts
 
       - name: Real browser release smoke with populated admin and participant
@@ -170,7 +171,7 @@ jobs:
           docker exec "${{ job.services.postgres.id }}" createdb -U cyris_test -T template0 cyris_browser_smoke
           export DATABASE_URL=postgresql://cyris_test:local-ci-only@127.0.0.1:5432/cyris_browser_smoke
           export REDIS_URL=redis://127.0.0.1:6379/13
-          export NODE_ENV=development CYRIS_VERSION=2.5.2 PORT=4000 PUBLIC_WEB_URL=http://127.0.0.1:3000
+          export NODE_ENV=development CYRIS_VERSION="$(cat VERSION)" PORT=4000 PUBLIC_WEB_URL=http://127.0.0.1:3000
           export CYRIS_MASTER_KEY="$(openssl rand -hex 32)"
           export TYPESENSE_HOST=127.0.0.1 TYPESENSE_PORT=18110 TYPESENSE_API_KEY=cyris-browser-search-only
           export S3_ENDPOINT=http://127.0.0.1:19002 S3_ACCESS_KEY=cyris-test-only S3_SECRET_KEY=local-ci-storage-only
@@ -201,6 +202,8 @@ jobs:
           done
           curl -fsS http://127.0.0.1:4000/health/ready >/dev/null || { tail -n 40 "$temp/api.log"; exit 1; }
           curl -fsS http://127.0.0.1:3000/ >/dev/null || { tail -n 40 "$temp/web.log"; exit 1; }
+          # Build the actual canonical index in the disposable browser environment.
+          node apps/api/dist/scripts/search-reindex.js
           node scripts/browser-release-smoke.mjs
 
       - name: Upload browser acceptance screenshots
@@ -242,15 +245,80 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Build exact candidate runtime images
+      # Use isolated GitHub Actions layer caches for candidates. A hit only
+      # avoids rebuilding unchanged layers; all exact-source images are still
+      # loaded locally and exercised against each published baseline.
+      - name: Set up candidate Buildx builder
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build exact candidate api image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/api.Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: cyris-upgrade-candidate-api:local
+          cache-from: type=gha,scope=cyris-ci-api
+          cache-to: type=gha,mode=max,scope=cyris-ci-api,ignore-error=true
+
+      - name: Build exact candidate worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/worker.Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: cyris-upgrade-candidate-worker:local
+          cache-from: type=gha,scope=cyris-ci-worker
+          cache-to: type=gha,mode=max,scope=cyris-ci-worker,ignore-error=true
+
+      - name: Build exact candidate web image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/web.Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: cyris-upgrade-candidate-web:local
+          cache-from: type=gha,scope=cyris-ci-web
+          cache-to: type=gha,mode=max,scope=cyris-ci-web,ignore-error=true
+
+      - name: Verify locally loaded candidate images
         run: |
           set -euo pipefail
           for role in api worker web; do
-            docker build --file "docker/$role.Dockerfile" --tag "cyris-upgrade-candidate-$role:local" .
+            docker image inspect "cyris-upgrade-candidate-$role:local" >/dev/null
           done
       - name: Rehearse published image upgrades and rollback on isolated Compose
         run: |
           set -euo pipefail
-          for baseline in 2.4.22 2.5.1; do
-            sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" DOCKER_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}" bash deploy/tests/upgrade-image-smoke.sh "$baseline"
+          evidence_dir="$RUNNER_TEMP/cyris-upgrade-evidence"
+          mkdir -p "$evidence_dir"
+          {
+            printf 'checkout_sha=%s\n' "$(git rev-parse HEAD)"
+            printf 'candidate_version=%s\n' "$(cat VERSION)"
+            for role in api worker web; do
+              printf '%s_image_id=%s\n' "$role" "$(docker image inspect --format '{{.Id}}' "cyris-upgrade-candidate-$role:local")"
+            done
+          } > "$evidence_dir/identity.txt"
+          printf 'baseline\tduration_seconds\tstatus\n' > "$evidence_dir/rehearsals.tsv"
+          for baseline in 2.4.22 2.5.1 2.5.2; do
+            started=$SECONDS
+            result=0
+            sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" DOCKER_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}" bash deploy/tests/upgrade-image-smoke.sh "$baseline" || result=$?
+            printf '%s\t%s\t%s\n' "$baseline" "$((SECONDS-started))" "$result" >> "$evidence_dir/rehearsals.tsv"
+            if [[ "$result" != 0 ]]; then exit "$result"; fi
           done
+
+      - name: Upload upgrade rehearsal identity and timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyris-upgrade-rehearsal-evidence
+          path: ${{ runner.temp }}/cyris-upgrade-evidence/
+          if-no-files-found: warn
+          retention-days: 7

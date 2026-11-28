@@ -2262,3 +2262,74 @@ form.form-dialog-surface { min-height: 0; max-height: calc(100dvh - 32px); overf
 .workspace-module-filter input{width:100%;min-width:0;padding:7px 28px 7px 9px;font:inherit;font-size:12px;color:var(--text-primary);background:var(--bg-inset);border:1px solid var(--border-default);border-radius:4px}
 .workspace-module-filter button{position:absolute;right:3px;border:0;background:transparent;color:var(--text-secondary);font-size:18px;cursor:pointer}
 .workspace-module-empty{padding:6px 14px;font-size:12px;color:var(--text-muted)}
+
+/* Digital forensic report workspace */
+.forensic-overview-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,340px);gap:16px;align-items:start;}
+.forensic-overview-grid>div{min-width:0;}
+.forensic-report-label{display:block;font-weight:600;margin-bottom:6px;}
+.forensic-report-field{display:block;box-sizing:border-box;width:100%;min-width:0;min-height:100px;resize:vertical;}
+@media(max-width:1000px){.forensic-overview-grid{grid-template-columns:minmax(0,1fr);}}
+
+/* Stable flat navigation: toolbar and footer remain visible, only module list scrolls. */
+:root{--nav-width:252px}
+.workspace-nav-body{flex:1;min-height:0}
+.workspace-nav-tools{flex-shrink:0;border-bottom:1px solid var(--border-default);padding:4px 0}
+.workspace-nav-tools .workspace-mode-switch{padding:7px 12px}
+.workspace-nav-tools .workspace-module-filter{margin:5px 12px 8px}
+.workspace-nav-scroll{flex:1;min-height:0;padding:8px 8px 14px;scrollbar-width:thin}
+.workspace-nav-group{margin:0 0 9px;padding:0 0 8px;border-bottom:1px solid var(--border-default)}
+.workspace-nav-group:last-child{border-bottom:0}
+.workspace-nav-heading{font-size:10px;font-weight:700;letter-spacing:.055em;text-transform:uppercase;color:var(--text-dim);padding:7px 10px 5px}
+.workspace-nav-items{display:flex;flex-direction:column;gap:2px}
+.workspace-nav-link:focus-visible{outline:2px solid var(--accent-active);outline-offset:-2px}
+.is-rail .workspace-nav-scroll{padding:8px 4px}
+.is-rail .workspace-nav-group{padding-bottom:5px;margin-bottom:5px}
+
+/* Operational UI quality: readable results, keyboard orientation and reflow. */
+.workspace-skip-link{position:absolute;z-index:1000;inset:8px auto auto 12px;transform:translateY(-200%);padding:10px 16px;background:var(--bg-panel);color:var(--text-primary);border:2px solid var(--accent-active);border-radius:4px}
+.workspace-skip-link:focus{transform:none}
+#workspace-main:focus-visible{outline:2px solid var(--accent-active);outline-offset:-2px}
+.workspace-nav-heading{margin:0}
+.workspace-nav-link:focus-visible,.record-tab-btn:focus-visible,.my-work-toolbar button:focus-visible,.my-work-item:focus-visible,.my-work-pagination button:focus-visible,.work-guide summary:focus-visible{outline:2px solid var(--accent-active);outline-offset:2px}
+.record-tabs-shell{flex-wrap:wrap;gap:4px;min-width:0}
+.record-tabs-shell .record-tabs{flex:1 1 0;min-width:0;flex-wrap:wrap}
+.record-tabs-shell .record-tab-btn{min-height:36px;max-width:100%;text-align:left;overflow-wrap:anywhere;white-space:normal}
+.record-tab-icon{display:inline-flex;flex-shrink:0}
+.my-work-page{max-width:1440px;width:100%;margin-inline:auto;min-width:0}
+.my-work-toolbar{gap:6px;align-items:center}
+.my-work-toolbar button,.my-work-toolbar select,.my-work-pagination button{min-height:36px;max-width:100%}
+.work-results{min-width:0}
+.work-results-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:16px 0 8px}
+.work-results-header h2{font-size:17px;margin:0;color:var(--text-primary)}
+.work-results-header p{margin:4px 0 0;font-size:13px;color:var(--text-secondary);max-width:65ch}
+.work-results-header small,.work-result-count,.work-record-time{font-size:12px;color:var(--text-muted)}
+.work-result-count{margin:8px 0}
+.my-work-item{grid-template-columns: minmax(5.5rem,7rem) minmax(0,1fr) minmax(6rem,auto) minmax(5rem,auto);gap:12px}
+.work-record-id,.work-record-title,.work-record-time{min-width:0;overflow-wrap:anywhere}
+.work-record-title strong{font-size:14px;line-height:1.45}
+.work-record-title small{line-height:1.5}
+.work-record-status{min-width:0;justify-self:start}
+.my-work-pagination{flex-wrap:wrap}
+@media(max-width:760px){.my-work-item{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"identifier status" "title title" "time time";gap:6px;padding:12px}.work-record-id{grid-area:identifier}.work-record-status{grid-area:status}.work-record-title{grid-area:title}.work-record-time{grid-area:time}.my-work-toolbar button,.my-work-toolbar select,.my-work-pagination button{min-height:44px}.record-tabs-shell .record-tab-btn{min-height:44px;padding:8px 10px}}
+@media(prefers-reduced-motion:reduce){.workspace-state .spin{animation:none!important}.record-tab-btn{transition:none}}
+
+.action-feedback{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:12px 16px;margin:8px 0;border:1px solid var(--border-default);border-left:3px solid var(--accent-active);border-radius:4px;background:var(--bg-panel);font-size:13px;color:var(--text-primary)}
+.action-feedback-error{border-left-color:var(--status-danger)}
+.action-feedback-success{border-left-color:var(--status-success)}
+.action-feedback p{margin:4px 0 0;color:var(--text-secondary);overflow-wrap:anywhere;max-width:70ch}
+.action-feedback button{min-height:36px}
+
+/* Shared record headers: keep the identifier, title and actions distinguishable
+ * even with long synthetic names, localization and narrow workspaces. */
+.record-header{min-width:0}
+.record-title-group{flex:1 1 280px;min-width:0;flex-wrap:wrap;column-gap:12px;row-gap:6px;align-items:baseline}
+.record-title-group>.record-title{min-width:0;max-width:100%;margin:0;overflow-wrap:anywhere;line-height:1.35}
+.record-header-badges{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.record-header-badges .badge{white-space:normal;overflow-wrap:anywhere;max-width:100%}
+.record-header-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;max-width:100%;min-width:0}
+.record-header-actions>div{max-width:100%;flex-wrap:wrap}
+.record-header-actions .btn{min-height:36px;max-width:100%;white-space:normal}
+.record-meta-strip{margin:0;gap:8px 20px;align-items:flex-start}
+.record-meta-item{min-width:0;max-width:100%;align-items:baseline;flex-wrap:wrap}
+.record-meta-item dd{margin:0;min-width:0;overflow-wrap:anywhere}
+@media(max-width:700px){.record-header{padding:14px}.record-title-group{flex-basis:100%}.record-title-group>.record-title{flex-basis:100%}.record-header-actions{width:100%}.record-header-actions .btn{min-height:44px}.record-meta-strip{gap:8px 12px}.record-meta-item{flex-basis:100%}}

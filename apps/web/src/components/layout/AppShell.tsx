@@ -96,7 +96,7 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); closeDrawer(); }
       if (event.key !== 'Tab') return;
-      const controls = nav?.querySelectorAll<HTMLElement>('a[href],button:not(:disabled)');
+      const controls = nav?.querySelectorAll<HTMLElement>('a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]');
       const first = controls?.[0], last = controls?.[controls.length - 1];
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -132,9 +132,10 @@ export function AppShell({ children, breadcrumbs, title, actions }: AppShellProp
 
       {mobile && drawer && <button type="button" className="nav-scrim" tabIndex={-1} aria-label={locale === 'cs' ? 'Zavřít navigaci' : 'Close navigation'} onClick={closeDrawer} />}
       <div ref={mainColumn} className="workspace-main-column">
+        <a className="workspace-skip-link" href="#workspace-main" onClick={event=>{event.preventDefault();document.getElementById('workspace-main')?.focus();}}>{locale==='cs'?'Přejít na hlavní obsah':'Skip to main content'}</a>
         <ViewAsBanner />
         <TopBar menuOpen={mobile && drawer} menuButton={menuButton} onOpenMenu={() => setDrawer(true)} onOpenSearch={() => setIsSearchOpen(true)} breadcrumbs={localBreadcrumbs} />
-        <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--bg-canvas)' }}>
+        <main id="workspace-main" tabIndex={-1} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--bg-canvas)' }}>
           {currentUser && !isPlatformAdmin && (
             <div className="workspace-help-bar">
               <button type="button" onClick={() => setShowWorkspaceHelp((value) => !value)} aria-expanded={showWorkspaceHelp}>

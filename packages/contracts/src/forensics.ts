@@ -176,13 +176,16 @@ export const ForensicAnalysisDetailSchema = ForensicAnalysisItemSchema.extend({
   evidenceLinks: z.array(z.object({
     id: z.string().uuid(),
     evidenceNumber: z.string(),
+    title: z.string().optional(),
     description: z.string(),
     status: z.string(),
+    canOpen: z.boolean().optional(),
   })).default([]),
   deviceLinks: z.array(z.object({
     id: z.string().uuid(),
     name: z.string(),
     deviceType: z.string(),
+    canOpen: z.boolean().optional(),
   })).default([]),
 });
 export type ForensicAnalysisDetail = z.infer<typeof ForensicAnalysisDetailSchema>;
@@ -275,6 +278,7 @@ export const ForensicQueryFiltersSchema = z.object({
   assignedToUserId: z.string().uuid().optional(),
   evidenceId:z.string().uuid().optional(),
   mine:z.enum(['requested','assigned']).optional(),
+  search:z.string().trim().max(200).optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
 });

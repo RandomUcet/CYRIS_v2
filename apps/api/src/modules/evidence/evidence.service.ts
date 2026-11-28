@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { eq, desc, and, or, isNull, gt, asc, sql, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
+import { AuthorizationService } from '../authorization/authorization.service.js';
 import { ResourceService } from '../resources/resource.service.js';
 import { ResourceAccessService } from '../resources/resource-access.service.js';
 import { IdentifierAllocatorService } from '../resources/identifier-allocator.service.js';
@@ -10,13 +11,14 @@ import { SearchIndexerService } from '../search/search-indexer.service.js';
 import type { AuthenticatedUser } from '../auth/session.service.js';
 import {
   evidence,
-  evidenceCustodyTransfers,
+  evidenceCustodyTransfers,auditEvents,
   resources,users,eventMemberships,organizationalUnits,previewTeamAccounts,events,
   type ResourceVisibilityValue,
   type EvidenceStatusValue,
   type CustodyHolderTypeValue,
 } from '@cyris/db';
 import { generateId, Permissions } from '@cyris/shared';
+import {createEvidenceChecklistReceipt,EvidenceChecklistReceiptSchema} from '@cyris/contracts';
 import type {
   CreateEvidenceRequest,
   UpdateEvidenceRequest,
@@ -34,7 +36,8 @@ export class EvidenceService {
     private readonly identifierAllocatorService: IdentifierAllocatorService,
     private readonly auditService: AuditService,
     private readonly activityService: ActivityService,
-    private readonly searchIndexerService: SearchIndexerService
+    private readonly searchIndexerService: SearchIndexerService,
+    private readonly authorizationService: AuthorizationService
   ) {}
 
   private get db() {
@@ -80,9 +83,25 @@ export class EvidenceService {
     data: CreateEvidenceRequest,
     user: AuthenticatedUser
   ): Promise<EvidenceResponse> {
+    await this.authorizationService.assertAuthorized({user,permission:Permissions.EVIDENCE_CREATE,context:{eventId,unitId:data.owningUnitId,resourceOwnerId:user.id}});
     const evidenceId = generateId();
+    const checklist=data.collectionChecklist?createEvidenceChecklistReceipt(data.evidenceType,data.collectionChecklist,user.id,new Date().toISOString()):null;
+    if(data.collectionChecklist&&!checklist)throw new BadRequestException('Checklist must match the evidence type, with unique answers and reasons for exceptions');
 
     return this.db.transaction(async (tx) => {
+      const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).for('update').limit(1);
+      if(!event||['CLOSED','ARCHIVED'].includes(event.status))throw new BadRequestException('Exercise is read-only');
+      if(data.owningUnitId){
+        const [unit]=await tx.select({id:organizationalUnits.id}).from(organizationalUnits).where(and(eq(organizationalUnits.id,data.owningUnitId),eq(organizationalUnits.eventId,eventId),isNull(organizationalUnits.archivedAt))).limit(1);
+        if(!unit)throw new BadRequestException('Owning unit is unavailable in this exercise');
+      }
+      await this.assertCustodyRecipient(eventId,data.currentHolderType,data.currentHolderId,tx);
+      if(data.securedByUserId&&data.securedByUserId!==user.id)await this.assertCustodyRecipient(eventId,'USER',data.securedByUserId,tx);
+      if(data.caseId){
+        const [linked]=await tx.select({id:resources.id}).from(resources).where(and(eq(resources.id,data.caseId),eq(resources.eventId,eventId),eq(resources.resourceType,'case'))).limit(1);
+        if(!linked)throw new BadRequestException('Case is unavailable in this exercise');
+        await this.resourceAccessService.assertCanAccessResource(user,data.caseId,Permissions.CASE_READ,tx);
+      }
       // 1. Allocate sequential identifier (e.g. E-0001)
       const evidenceNumber = await this.identifierAllocatorService.allocate(
         eventId,
@@ -152,7 +171,8 @@ export class EvidenceService {
         resourceType: 'evidence',
         resourceId: evidenceId,
         actorUserId: user.id,
-        metadata: { evidenceNumber, title: data.title, evidenceType: data.evidenceType },
+        metadata: { evidenceNumber, title: data.title, evidenceType: data.evidenceType, ...(checklist?{collectionChecklist:checklist}:{}) },
+        txClient:tx,
       });
 
       // 6. Activity
@@ -187,6 +207,7 @@ export class EvidenceService {
         currentHolderType: created!.currentHolderType,
         currentHolderId: created!.currentHolderId,
         visibility: data.visibility || 'EVENT',
+        collectionChecklist:checklist,
         createdAt: created!.createdAt.toISOString(),
         updatedAt: created!.updatedAt.toISOString(),
       };
@@ -212,6 +233,8 @@ export class EvidenceService {
     }
 
     const custodyRows = await this.getCustodyHistory(eventId, evidenceId, user);
+    const [registration]=await this.db.select({metadata:auditEvents.metadata}).from(auditEvents).where(and(eq(auditEvents.eventId,eventId),eq(auditEvents.resourceId,evidenceId),eq(auditEvents.resourceType,'evidence'),eq(auditEvents.action,'evidence.created'))).orderBy(asc(auditEvents.occurredAt),asc(auditEvents.id)).limit(1);
+    const checklist=EvidenceChecklistReceiptSchema.safeParse((registration?.metadata as {collectionChecklist?:unknown}|undefined)?.collectionChecklist);
     const holderNames=await this.holderNames(eventId,[{type:row.ev.currentHolderType,id:row.ev.currentHolderId}]);
 
     return {
@@ -233,6 +256,7 @@ export class EvidenceService {
       createdAt: row.ev.createdAt.toISOString(),
       updatedAt: row.ev.updatedAt.toISOString(),
       custodyHistory: custodyRows,
+      collectionChecklist:checklist.success?checklist.data:null,
     };
   }
 
@@ -251,16 +275,22 @@ export class EvidenceService {
     if (data.description !== undefined) updatePayload.description = data.description;
     if (data.evidenceType !== undefined) updatePayload.evidenceType = data.evidenceType;
     if (data.condition !== undefined) updatePayload.condition = data.condition;
-    if (data.owningUnitId !== undefined) updatePayload.owningUnitId = data.owningUnitId;
+    if (data.owningUnitId !== undefined || data.currentHolderId !== undefined || data.currentHolderType !== undefined || data.securedByUserId !== undefined || data.securedAt !== undefined || data.caseId !== undefined || data.visibility !== undefined) {
+      throw new BadRequestException('Evidence provenance, custody and access must be changed through their dedicated workflows');
+    }
     if (data.status !== undefined) updatePayload.status = data.status;
 
-    const [updated] = await this.db
-      .update(evidence)
-      .set(updatePayload)
-      .where(eq(evidence.id, evidenceId))
-      .returning();
+    const updated=await this.db.transaction(async tx=>{
+      const [event]=await tx.select({status:events.status}).from(events).where(eq(events.id,eventId)).for('update').limit(1);
+      if(!event||['CLOSED','ARCHIVED'].includes(event.status))throw new BadRequestException('Exercise is read-only');
+      const [locked]=await tx.select({updatedAt:evidence.updatedAt}).from(evidence).innerJoin(resources,eq(resources.id,evidence.id)).where(and(eq(evidence.id,evidenceId),eq(resources.eventId,eventId))).for('update').limit(1);
+      if(!locked||locked.updatedAt.toISOString()!==existing.updatedAt)throw new BadRequestException('Evidence changed; reload before updating');
+      await this.resourceAccessService.assertCanAccessResource(user,evidenceId,Permissions.EVIDENCE_UPDATE,tx);
+      const [updated] = await tx.update(evidence).set(updatePayload).where(eq(evidence.id,evidenceId)).returning();
+      if(!updated)throw new NotFoundException('Evidence not found');
 
     await this.auditService.record({
+      txClient:tx,
       action: 'evidence.updated',
       category: 'evidence',
       eventId,
@@ -278,10 +308,12 @@ export class EvidenceService {
         actorUserId: user.id,
         title: `Evidence ${updated!.evidenceNumber} status changed to ${data.status}`,
         metadata: { from: existing.status, to: data.status },
-      });
+      },tx);
     }
 
-    await this.searchIndexerService.emitSearchUpsert('evidence', evidenceId);
+    await this.searchIndexerService.emitSearchUpsert('evidence', evidenceId,tx);
+    return updated;
+    });
 
     return {
       ...existing,
@@ -320,6 +352,24 @@ export class EvidenceService {
     return names;
   }
 
+  /** Registration and transfer share the same recipient boundary. A storage
+   * location remains a simulation label, never a user or unit identifier. */
+  private async assertCustodyRecipient(eventId:string,type:string,id:string,tx:Parameters<Parameters<DatabaseService['client']['transaction']>[0]>[0]){
+    if(type==='STORAGE'){
+      if(!id.trim()||id.length>255)throw new BadRequestException('Storage location is invalid');
+      return;
+    }
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))throw new BadRequestException('Select an existing user or unit');
+    if(type==='USER'){
+      const [recipient]=await tx.select({id:users.id}).from(eventMemberships).innerJoin(users,eq(users.id,eventMemberships.userId)).where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.status,'ACTIVE'),eq(users.id,id),eq(users.status,'ACTIVE'),or(isNull(users.testExpiresAt),gt(users.testExpiresAt,new Date())))).for('share').limit(1);
+      const [preview]=await tx.select({id:previewTeamAccounts.userId}).from(previewTeamAccounts).where(eq(previewTeamAccounts.userId,id)).limit(1);
+      if(!recipient||preview)throw new BadRequestException('Recipient is unavailable in this exercise');
+    }else if(type==='UNIT'){
+      const [recipient]=await tx.select({id:organizationalUnits.id}).from(organizationalUnits).where(and(eq(organizationalUnits.eventId,eventId),eq(organizationalUnits.id,id),isNull(organizationalUnits.archivedAt))).for('share').limit(1);
+      if(!recipient)throw new BadRequestException('Recipient unit is unavailable in this exercise');
+    }else throw new BadRequestException('Unknown holder type');
+  }
+
   async transferCustody(
     eventId: string,
     evidenceId: string,
@@ -341,14 +391,7 @@ export class EvidenceService {
       const occurredAt = new Date();
       if(!data.reason?.trim())throw new BadRequestException('Transfer reason is required');
       if(current.currentHolderType===data.toHolderType&&current.currentHolderId===data.toHolderId)throw new BadRequestException('Evidence already has this holder');
-      if(data.toHolderType==='USER'){
-        const [recipient]=await tx.select({id:users.id}).from(eventMemberships).innerJoin(users,eq(users.id,eventMemberships.userId)).where(and(eq(eventMemberships.eventId,eventId),eq(eventMemberships.status,'ACTIVE'),eq(users.id,data.toHolderId),eq(users.status,'ACTIVE'),or(isNull(users.testExpiresAt),gt(users.testExpiresAt,occurredAt)))).for('share').limit(1);
-        const [preview]=await tx.select({id:previewTeamAccounts.userId}).from(previewTeamAccounts).where(eq(previewTeamAccounts.userId,data.toHolderId)).limit(1);
-        if(!recipient||preview)throw new BadRequestException('Recipient is unavailable in this exercise');
-      }else if(data.toHolderType==='UNIT'){
-        const [recipient]=await tx.select({id:organizationalUnits.id}).from(organizationalUnits).where(and(eq(organizationalUnits.eventId,eventId),eq(organizationalUnits.id,data.toHolderId),isNull(organizationalUnits.archivedAt))).for('share').limit(1);
-        if(!recipient)throw new BadRequestException('Recipient unit is unavailable in this exercise');
-      }
+      await this.assertCustodyRecipient(eventId,data.toHolderType,data.toHolderId,tx);
       const names=await this.holderNames(eventId,[{type:data.toHolderType,id:data.toHolderId}],tx as unknown as typeof this.db);
       const holderName=names.get(data.toHolderType+':'+data.toHolderId)??null;
       const fromHolderType = current.currentHolderType;

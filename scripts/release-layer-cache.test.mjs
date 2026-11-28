@@ -57,3 +57,71 @@ test('never publish a release with missing image digest or architecture',()=>{
     assert.ok(release.includes('"'+service+':$'+service.toUpperCase()+'_DIGEST"'));
   }
 });
+
+test('next release rehearses the latest immutable published baseline and derives candidate identity',()=>{
+  const ci=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8');
+  const smoke=readFileSync(new URL('../deploy/tests/upgrade-image-smoke.sh',import.meta.url),'utf8');
+  const db=readFileSync(new URL('../packages/db/src/retention-upgrade.test.ts',import.meta.url),'utf8');
+  assert.ok(ci.includes('for baseline in 2.4.22 2.5.1 2.5.2; do'));
+  assert.ok(ci.includes('createdb -U cyris_test -T template0 cyris_upgrade_252'));
+  assert.ok(ci.includes('CYRIS_VERSION="$(cat VERSION)"'));
+  assert.ok(smoke.includes('2.5.2) checksum=ed5b40126d3008a97e1de3a17f7d0dc90e3d027b20b6907e278ecc6f28c04eb9; count=43'));
+  assert.ok(smoke.includes('candidate="$(cat VERSION)"'));
+  assert.ok(smoke.includes('probe "$candidate"'));
+  assert.ok(smoke.includes('== "$candidate_count"'));
+  assert.ok(db.includes("version:'2.5.2',count:43,last:'0042_retained_exercise_audit'"));
+});
+
+test('upgrade smoke Python snippets separate path arguments from version argument',()=>{
+  const smoke=readFileSync(new URL('../deploy/tests/upgrade-image-smoke.sh',import.meta.url),'utf8');
+  assert.equal(smoke.split('env, manifest = map(pathlib.Path, sys.argv[1:3])').length-1,2);
+  assert.ok(!smoke.includes('map(pathlib.Path, sys.argv[1:])'));
+});
+
+test('candidate cache keeps all three locally built runtime images and mandatory rehearsals',()=>{
+ const ci=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8');
+ const upgrade=ci.slice(ci.indexOf('  upgrade-images:'));
+ assert.match(upgrade,/docker\/setup-buildx-action@v3/);
+ for(const role of ['api','worker','web']){
+  const start=upgrade.indexOf('file: docker/'+role+'.Dockerfile');
+  assert.ok(start>0);
+  const step=upgrade.slice(start,upgrade.indexOf('\n\n',start));
+  assert.ok(step.includes('load: true'));
+  assert.ok(step.includes('push: false'));
+  assert.ok(step.includes('platforms: linux/amd64'));
+  assert.ok(step.includes('tags: cyris-upgrade-candidate-'+role+':local'));
+  assert.ok(step.includes('cache-from: type=gha,scope=cyris-ci-'+role));
+  assert.ok(step.includes('cache-to: type=gha,mode=max,scope=cyris-ci-'+role+',ignore-error=true'));
+ }
+ assert.ok(upgrade.includes('docker image inspect "cyris-upgrade-candidate-$role:local"'));
+ assert.ok(upgrade.includes('for baseline in 2.4.22 2.5.1 2.5.2; do'));
+ assert.ok(!upgrade.includes('continue-on-error'));
+});
+
+test('upgrade evidence records checkout identity and per-baseline timings without swallowing failure',()=>{
+ const ci=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8');
+ const step=ci.slice(ci.indexOf('      - name: Rehearse published image upgrades'));
+ assert.ok(step.includes('git rev-parse HEAD'));
+ assert.ok(step.includes('docker image inspect --format'));
+ assert.ok(step.includes('rehearsals.tsv'));
+ assert.ok(step.includes('|| result=$?'));
+ assert.ok(step.includes('if [[ "$result" != 0 ]]; then exit "$result"; fi'));
+ assert.ok(step.includes('name: cyris-upgrade-rehearsal-evidence'));
+ assert.ok(!step.includes('continue-on-error'));
+ assert.ok(!step.includes('printenv'));
+});
+
+test('isolated encrypted recovery checks Typesense data and search before mutation and after restore',()=>{
+ const script=readFileSync(new URL('../deploy/tests/recovery-smoke.sh',import.meta.url),'utf8');
+ const probe=readFileSync(new URL('../deploy/tests/typesense-recovery-probe.py',import.meta.url),'utf8');
+ const backup=script.indexOf('deploy/cyrisctl backup');
+ const restore=script.indexOf('deploy/cyrisctl restore');
+ assert.ok(script.indexOf('typesense_fixture seed')<backup);
+ assert.ok(script.indexOf('typesense_fixture assert-after')>backup&&script.indexOf('typesense_fixture assert-after')<restore);
+ assert.ok(script.lastIndexOf('typesense_fixture assert-before')>restore);
+ assert.ok(probe.includes('com.docker.compose.project'));
+ assert.ok(probe.includes('com.docker.compose.service'));
+ assert.ok(probe.includes('ProxyHandler({})'));
+ assert.ok(probe.includes('/search?q='));
+ assert.ok(probe.includes('GITHUB_ACTIONS'));
+});

@@ -303,6 +303,13 @@ function EvidenceWorkspace({eventId,evidenceId}:{eventId:string;evidenceId:strin
                   </div>
                 </div>
 
+                <section style={{border:'1px solid var(--color-border-subtle)',borderRadius:6,padding:16}}>
+                  <h3 style={{fontSize:15}}>{locale==='cs'?'Záznam kontroly zajištění':'Collection checklist receipt'}</h3>
+                  {evidenceData.collectionChecklist?<><p style={{fontSize:12,color:'var(--color-text-dim)'}}>{evidenceData.collectionChecklist.version} · {evidenceData.collectionChecklist.recordedAt} · {locale==='cs'?'Neměnný záznam při založení':'Immutable registration receipt'}</p>
+                    {evidenceData.collectionChecklist.answers.map((answer:import('@cyris/contracts').EvidenceChecklistReceipt['answers'][number])=><div key={answer.id} style={{padding:'8px 0',borderTop:'1px solid var(--color-border-subtle)'}}>
+                      <strong>{locale==='cs'?answer.cs:answer.en}</strong><div style={{fontSize:13}}>{locale==='cs'?({DONE:'Splněno',NOT_DONE:'Nesplněno',NOT_APPLICABLE:'Nevztahuje se'}[answer.state]):({DONE:'Done',NOT_DONE:'Not done',NOT_APPLICABLE:'Not applicable'}[answer.state])}{answer.note?' · '+answer.note:''}</div>
+                    </div>)}</>:<p style={{fontSize:13}}>{locale==='cs'?'Při založení nebyl uložen checklist. Nejde o potvrzení správnosti odběru.':'No checklist was recorded at registration. This does not certify collection quality.'}</p>}
+                </section>
                 {/* Storage & Holder Card */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div

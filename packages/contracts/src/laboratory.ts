@@ -15,7 +15,9 @@ export type LabAnalysisStatus = z.infer<typeof LabAnalysisStatusSchema>;
 export const CreateLabAnalysisRequestSchema = z.object({
   analysisType: z.string().trim().min(1).max(64),
   evidenceIds: z.array(z.string().uuid()).min(1).max(30).refine(ids=>new Set(ids).size===ids.length,'Duplicate evidence references'),
+  // Legacy clients used requestedFromUnitId as the destination when assignedUnitId was omitted.
   requestedFromUnitId: z.string().uuid().optional(),
+  assignedUnitId: z.string().uuid().optional(),
   purpose: z.string().max(10000).optional(),
   method: z.string().max(10000).optional(),
   visibility: ResourceVisibilitySchema.default('EVENT'),
@@ -31,7 +33,7 @@ export const UpdateLabAnalysisRequestSchema = z.object({
   method: z.string().optional(),
   findings: z.string().optional(),
   conclusion: z.string().optional(),
-  notes: z.string().optional(),
+  notes: z.string().trim().max(2000).optional(),
   causationId: z.string().uuid().optional(),
 });
 
@@ -62,17 +64,28 @@ export const LabAnalysisResponseSchema = z.object({
   evidenceIds: z.array(z.string().uuid()).optional(),
   reportAvailable:z.boolean().optional(),
   requesterName:z.string().nullable().optional(),
+  requestingUnitName:z.string().nullable().optional(),
   unitName:z.string().nullable().optional(),
   analystName:z.string().nullable().optional(),
 });
 
 export type LabAnalysisResponse = z.infer<typeof LabAnalysisResponseSchema>;
 
+export const ConfirmLabSampleReceiptSchema=z.object({
+  evidenceId:z.string().uuid(),transferId:z.string().uuid(),
+  condition:z.string().trim().min(1).max(2000),
+}).strict();
+export type ConfirmLabSampleReceipt=z.infer<typeof ConfirmLabSampleReceiptSchema>;
+export const LabSampleReceiptSchema=z.object({
+  transferId:z.string().uuid(),receivedAt:z.string(),condition:z.string(),
+});
 export const LabAnalysisDetailSchema = LabAnalysisResponseSchema.extend({
   analystName: z.string().nullable(),
   unitName: z.string().nullable(),
+  rejectionReason:z.string().nullable().optional(),
   evidenceItems: z.array(z.object({
     id: z.string().uuid(), title: z.string(), evidenceNumber: z.string(), status: z.string(), canOpen:z.boolean().optional(),
+    pendingReceiptTransferId:z.string().uuid().optional(),receipt:LabSampleReceiptSchema.optional(),
   })),
   actions: z.object({
     accept: z.boolean(), work: z.boolean(), complete: z.boolean(), approve: z.boolean(),

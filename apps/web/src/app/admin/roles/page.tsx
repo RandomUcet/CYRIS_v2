@@ -5,6 +5,8 @@ import {KeyRound,RefreshCw,Search,Shield,ShieldOff} from 'lucide-react';
 import type {RoleResponse} from '@cyris/contracts';
 import {AppShell} from '@/components/layout/AppShell';
 import {useEvent} from '@/contexts/EventContext';
+import {useAuth} from '@/contexts/AuthContext';
+import {TeamRoleReview} from '@/components/admin/TeamRoleReview';
 import {usePreferences} from '@/contexts/PreferencesContext';
 import {apiClient} from '@/lib/api-client';
 import {EmptyState,ErrorState,LoadingState} from '@/components/common/StateViews';
@@ -14,6 +16,7 @@ import styles from './roles.module.css';
 export default function AdminRolesPage(){
   const {currentEvent,events,selectEvent,loadingEvents}=useEvent();
   const {locale}=usePreferences();
+  const {isPlatformAdmin,viewAs}=useAuth();
   const cs=locale==='cs',tr=(cz:string,en:string)=>cs?cz:en;
   const [roles,setRoles]=useState<RoleResponse[]>([]);
   const [loadedEvent,setLoadedEvent]=useState('');
@@ -70,6 +73,7 @@ export default function AdminRolesPage(){
             onClick={()=>setRevision(v=>v+1)}><RefreshCw size={15}/>{tr('Obnovit','Refresh')}</button>
         </div>
       </header>
+      {currentEvent?.id&&isPlatformAdmin&&!viewAs&&<TeamRoleReview key={currentEvent.id} eventId={currentEvent.id} cs={cs} onApplied={()=>setRevision(v=>v+1)}/>}
       {currentEvent?.id&&<div className={styles.summary}>
         <div><span>{tr('Role','Roles')}</span><strong>{records.length}</strong></div>
         <div><span>{tr('Celkem přidělených oprávnění v katalogu','Catalog permission entries')}</span>

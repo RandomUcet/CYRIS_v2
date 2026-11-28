@@ -50,7 +50,7 @@ function LabWorkspace({eventId}:{eventId:string}){
     analysisType: '',
     purpose: '',
     evidenceId: '',
-    requestedFromUnitId: '',
+    assignedUnitId: '',
   });
 
   const canRequest = !viewAs&&hasPermission('lab.request', eventId);
@@ -137,13 +137,13 @@ function LabWorkspace({eventId}:{eventId:string}){
         analysisType: formData.analysisType.trim(),
         purpose: formData.purpose.trim() || undefined,
         evidenceIds: [formData.evidenceId.trim()],
-        requestedFromUnitId: formData.requestedFromUnitId || undefined,
+        assignedUnitId: formData.assignedUnitId || (labUnits.length===1?labUnits[0]?.id:undefined),
       });
 
       if (res.ok && res.data) {
         setShowCreateModal(false);
         setEvidenceLabel('');
-        setFormData({ analysisType: '', purpose: '', evidenceId: '', requestedFromUnitId: '' });
+        setFormData({ analysisType: '', purpose: '', evidenceId: '', assignedUnitId: '' });
         router.push(`/events/${eventId}/lab/${res.data.id}`);
       } else {
         setFormError(res.error || 'Failed to request analysis');
@@ -400,8 +400,8 @@ function LabWorkspace({eventId}:{eventId:string}){
                   </label>
                   <select
                     required={labUnits.length > 1}
-                    value={formData.requestedFromUnitId}
-                    onChange={(e) => setFormData({ ...formData, requestedFromUnitId: e.target.value })}
+                    value={formData.assignedUnitId}
+                    onChange={(e) => setFormData({ ...formData, assignedUnitId: e.target.value })}
                     className="input-field"
                     style={{ width: '100%' }}
                   >

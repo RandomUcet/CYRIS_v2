@@ -524,6 +524,9 @@ export class CyrisApiClient {
   async updateLabAnalysis(eventId: string, analysisId: string, data: any) {
     return this.patchJson<any>(`/events/${eventId}/lab/${analysisId}`, data);
   }
+  async confirmLabSampleReceipt(eventId:string,analysisId:string,data:import('@cyris/contracts').ConfirmLabSampleReceipt){
+    return this.postJson<import('@cyris/contracts').LabAnalysisDetail['evidenceItems'][number]['receipt']>(`/events/${eventId}/lab/${analysisId}/sample-receipts`,data);
+  }
   async reassignLabAnalysis(eventId: string, analysisId: string, data: any) {
     return this.postJson<any>(`/events/${eventId}/lab/${analysisId}/reassign`, data);
   }
@@ -727,6 +730,12 @@ export class CyrisApiClient {
   }
   async createEvent(data: any) {
     return this.postJson<EventResponse>('/events', data);
+  }
+  getTeamRoleReview(eventId:string){
+    return this.fetchJson<import('@cyris/contracts').TeamRoleReviewItem[]>(`/events/${encodeURIComponent(eventId)}/team-templates/review`);
+  }
+  assignTeamOperatorProfile(eventId:string,payload:import('@cyris/contracts').AssignTeamOperatorProfile){
+    return this.postJson<{created:number;alreadyAssigned:number}>(`/events/${encodeURIComponent(eventId)}/team-templates/assign-operators`,payload);
   }
   initializeTeamTemplates(eventId: string) {
     return this.postJson<{ eventId: string; unitsCreated: number; rolesCreated: number }>(
@@ -1018,13 +1027,14 @@ export class CyrisApiClient {
 
   async listForensicAnalyses(
     eventId: string,
-    query?: { status?: string; analysisType?: string; priority?: string; page?: number; limit?: number;evidenceId?:string;mine?:'requested'|'assigned' }
+    query?: { status?: string; analysisType?: string; priority?: string; page?: number; limit?: number;evidenceId?:string;mine?:'requested'|'assigned';search?:string }
   ): Promise<{ ok: boolean; data?: { items: ForensicAnalysisItem[]; total: number; page: number; limit: number }; error?: string }> {
     const params = new URLSearchParams();
     if (query?.status) params.set('status', query.status);
     if (query?.analysisType) params.set('analysisType', query.analysisType);
     if(query?.evidenceId)params.set('evidenceId',query.evidenceId);
     if(query?.mine)params.set('mine',query.mine);
+    if(query?.search)params.set('search',query.search);
     if (query?.priority) params.set('priority', query.priority);
     if (query?.page) params.set('page', String(query.page));
     if (query?.limit) params.set('limit', String(query.limit));
