@@ -25,3 +25,7 @@ The mandatory browser smoke now exercises actual correction and assignment after
 
 ## Medical triage acceptance (prepared)
 The form displays the record's existing category instead of choosing an unrelated priority, uses programmatic labels, clear pending state and no View As mutation controls. A separate canonical medical operator creates a synthetic UNIT record, finds it in the queue, deliberately changes the category via the UI, confirms persistence and checks unrelated BPS and cross-event denial. Mobile dialog and desktop queue screenshots planned. No clinical guidance or human validation claim; exact CI pending.
+
+
+## Medical list keyboard acceptance (pending)
+With a canonical medical operator and a synthetic encounter, use Tab to reach the named search and triage controls, filter to the encounter, Tab to its underlined identifier, verify visible focus and press Enter. Verify the correct detail opens, then return and confirm pointer row navigation still works. Repeat in CS and EN at 390px, including horizontal table scrolling. No browser result or accessibility conformance claimed yet.
